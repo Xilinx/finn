@@ -148,6 +148,7 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
         code_gen_dict["$FIFO_IMPL$"] = self._generate_qsrl_fifo_impl(
             in_width, depth, code_gen_dict["$COUNT_RANGE$"]
         )
+        code_gen_dict["$DATA_LOGFILE$"] = self.get_nodeattr("debug_log_path")
         # apply code generation to templates
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         with open(template_path, "r") as f:

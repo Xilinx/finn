@@ -31,10 +31,10 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.basic import make_build_dir, robust_rmtree
 
 test_fpga_part: str = "xcvc1902-vsva2197-2MP-e-S"
 target_clk_ns = 5
-export_onnx_path = "pytest_softmax_dut.onnx"
 
 
 class SoftMaxSimple(nn.Module):
@@ -47,7 +47,8 @@ class SoftMaxSimple(nn.Module):
         return x
 
 
-def create_softmax_model(io_shape, idt):
+def create_softmax_model(io_shape, idt, build_dir):
+    export_onnx_path = f"{build_dir}/pytest_softmax_dut.onnx"
     dut = SoftMaxSimple()
     input = torch.rand(io_shape)
     export_qonnx(dut, input, export_onnx_path, opset_version=11)
@@ -65,11 +66,20 @@ def create_softmax_model(io_shape, idt):
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_hwsoftmax(simd, idt, impl_style, sim_style, ifm_dim):
+    build_dir = make_build_dir(prefix="test_fpgadataflow_hwsoftmax_")
+    try:
+        _test_fpgadataflow_hwsoftmax(
+            simd, idt, impl_style, sim_style, ifm_dim, build_dir
+        )
+    finally:
+        robust_rmtree(build_dir)
+
+
+def _test_fpgadataflow_hwsoftmax(simd, idt, impl_style, sim_style, ifm_dim, build_dir):
     # RTL backend's cppsim path falls through to scipy.special.softmax,
     # which adds no value over the HLS cppsim coverage; skip it.
     if impl_style == "rtl" and sim_style == "cppsim":
         pytest.skip("RTL cppsim duplicates scipy reference, no added coverage")
-
     idt = DataType[idt]
     io_shape = ifm_dim
     # tighter tolerance for HLS/cppsim, looser for RTL FP32 numerical drift
@@ -81,7 +91,7 @@ def test_fpgadataflow_hwsoftmax(simd, idt, impl_style, sim_style, ifm_dim):
     else:
         tolerance = 1e-5
 
-    model = create_softmax_model(io_shape, idt)
+    model = create_softmax_model(io_shape, idt, build_dir)
 
     input = gen_finn_dt_tensor(idt, io_shape)
     in_name = model.graph.input[0].name

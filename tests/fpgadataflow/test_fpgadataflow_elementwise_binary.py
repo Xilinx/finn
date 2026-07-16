@@ -380,7 +380,7 @@ def test_elementwise_binary_operation_stitched_ip(
         CreateStitchedIP(
             part,
             10,
-            vitis=False,
+            run_synth=False,
         )
     )
 
@@ -405,3 +405,95 @@ def test_elementwise_binary_operation_stitched_ip(
     else:
         # Compare the expected to the produced for exact equality
         assert np.all(o_produced == o_expected)
+
+
+@pytest.mark.parametrize("op_type", ["ElementwiseAdd", "ElementwiseMul", "ElementwiseGreater"])
+# Both broadcast directions on the last axis, plus a non-broadcast control
+@pytest.mark.parametrize(
+    "lhs_shape, rhs_shape",
+    [
+        ([3, 1, 7, 1], [3, 32, 1, 16]),  # lhs last axis broadcast
+        ([3, 32, 1, 16], [3, 1, 7, 1]),  # rhs last axis broadcast
+        ([3, 1, 7, 16], [3, 32, 1, 16]),  # no broadcast on last axis (control)
+    ],
+)
+# Number of elements to process in parallel
+@pytest.mark.parametrize("pe", [1, 2, 4])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_elementwise_binary_cppsim_broadcast_last_axis(op_type, lhs_shape, rhs_shape, pe):
+    lhs_dtype = rhs_dtype = "INT8"
+    out_dtype = "FLOAT32"
+    # Make dummy model with both inputs left as runtime streams
+    model = create_elementwise_binary_operation_onnx(
+        op_type, lhs_dtype, rhs_dtype, out_dtype, lhs_shape, rhs_shape
+    )
+    context = {
+        "in_x": gen_finn_dt_tensor(DataType[lhs_dtype], lhs_shape),
+        "in_y": gen_finn_dt_tensor(DataType[rhs_dtype], rhs_shape),
+    }
+
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(InferElementwiseBinaryOperation())
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
+
+    getHWCustomOp(model.graph.node[0]).set_nodeattr("PE", pe)
+
+    model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(MinimizeAccumulatorWidth())
+    model = model.transform(SetExecMode("cppsim"))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
+
+    o_expected = NUMPY_REFERENCES[op_type](context["in_x"], context["in_y"])
+    o_produced = execute_onnx(model, context)["out"]
+
+    assert np.all(o_produced == o_expected)
+
+
+# A broadcast const operand is npy-fed in internal_decoupled but baked into params
+# in internal_embedded, so the two modes exercise the two sides of the fold guard
+@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
+@pytest.mark.parametrize("pe", [2, 4])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_elementwise_binary_cppsim_broadcast_const(mem_mode, pe):
+    # Streamed lhs (last axis 16), broadcast const rhs (last axis 1)
+    lhs_shape, rhs_shape = [3, 32, 1, 16], [3, 1, 7, 1]
+    model = create_elementwise_binary_operation_onnx(
+        "ElementwiseMul", "INT8", "INT8", "FLOAT32", lhs_shape, rhs_shape
+    )
+    context = {
+        "in_x": gen_finn_dt_tensor(DataType["INT8"], lhs_shape),
+        "in_y": gen_finn_dt_tensor(DataType["INT8"], rhs_shape),
+    }
+    model.set_initializer("in_y", context["in_y"])
+
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(InferElementwiseBinaryOperation())
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
+
+    op = getHWCustomOp(model.graph.node[0])
+    op.set_nodeattr("PE", pe)
+    op.set_nodeattr("mem_mode", mem_mode)
+
+    model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(MinimizeAccumulatorWidth())
+    model = model.transform(SetExecMode("cppsim"))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
+
+    o_expected = np.multiply(context["in_x"], context["in_y"])
+    o_produced = execute_onnx(model, context)["out"]
+
+    assert np.all(o_produced == o_expected)

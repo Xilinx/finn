@@ -45,7 +45,7 @@ from finn.custom_op.fpgadataflow import templates
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
-from finn.util.basic import getHWCustomOp, make_build_dir
+from finn.util.basic import getHWCustomOp, make_build_dir, resolve_xilinx_tool
 from finn.util.create import adjacency_list
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 from finn.util.mlo_sim import mlo_prehook_func_factory
@@ -423,11 +423,6 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 ):
                     # rename so it doesn't get overwritten
                     shutil.move(param_file, new_param_file)
-                    # also rename simd-flipped npy for external_mem MVAU nodes
-                    npy_file = "{}/input_1.npy".format(path)
-                    if os.path.isfile(npy_file):
-                        new_npy_file = "{}/{}_input1_{}.npy".format(path, param_node.op_type, iter)
-                        shutil.move(npy_file, new_npy_file)
                 elif param_node.op_type.startswith("Thresholding"):
                     # get all generated Thresholding dat files
                     pe = inst.get_nodeattr("PE")
@@ -468,22 +463,9 @@ class FINNLoop(HWCustomOp, RTLBackend):
                             for line in infile:
                                 outfile.write(line)
                         os.remove(memblock_file)
-                # concatenate all .npy files together (simd-flipped for AXI-MM sim)
-                npy_parts = []
-                for iter in range(iteration):
-                    npy_file = "{}/{}_input1_{}.npy".format(path, param_node.op_type, iter)
-                    if os.path.isfile(npy_file):
-                        npy_parts.append(np.load(npy_file))
-                        os.remove(npy_file)
-                if npy_parts:
-                    combined_npy = np.concatenate(npy_parts, axis=1)
-                    npy_out = "{}/input1_{}_id_{}.npy".format(path, param_node.op_type, i + 1)
-                    np.save(npy_out, combined_npy)
-                # Replace the path for the dat files in the ipgen files.
+                # Replace the path for the dat files in the ipgen files if Eltwise
                 # Adapted from transformations.fpgadataflow.replace_verilog_relpaths
-                if param_node.op_type.startswith("MVAU") or param_node.op_type.startswith(
-                    "Elementwise"
-                ):
+                if param_node.op_type.startswith("Elementwise"):
                     param_customop = getHWCustomOp(param_node, model)
                     ipgen_path = param_customop.get_nodeattr("code_gen_dir_ipgen")
                     if ipgen_path is not None and os.path.isdir(ipgen_path):
@@ -767,7 +749,10 @@ class FINNLoop(HWCustomOp, RTLBackend):
 
         adj_list = adjacency_list(
             loop_body,
-            lambda node: node.op_type == "Thresholding_rtl"
+            lambda node: (
+                node.op_type == "Thresholding_rtl"
+                and any(attr.name == "mlo_max_iter" and attr.i > 0 for attr in node.attribute)
+            )
             or (
                 node.op_type == "MVAU_rtl"
                 and any(attr.name == "mlo_max_iter" and attr.i > 0 for attr in node.attribute)
@@ -1028,6 +1013,17 @@ class FINNLoop(HWCustomOp, RTLBackend):
             "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
             % (self.onnx_node.name, clk_name, finn_ip_name, clk_name)
         )
+        # Expose the loop body's sim_finish control to the top of the FINNLoop IP.
+        # The body's stitched IP carries a sim_ctrl (inserted by CreateStitchedIP)
+        # whose sim_finish input triggers $finish. Asserting it during rtlsim runs
+        # the SystemVerilog final blocks that flush and close the fifo_gauge log
+        # files; without this the gauge logs are left unflushed/empty during
+        # characterization-based FIFO sizing.
+        cmd.append("create_bd_pin -dir I /%s/sim_finish" % self.onnx_node.name)
+        cmd.append(
+            "connect_bd_net [get_bd_pins %s/sim_finish] [get_bd_pins %s/sim_finish]"
+            % (self.onnx_node.name, finn_ip_name)
+        )
         # "externalize" some of the loop shell signals
         ext_signals = loop_body_intf_names["aximm"]
         for sig in ext_signals:
@@ -1069,6 +1065,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         cmd.append("set_property name out0_V [get_bd_intf_ports out0_V_0]")
         cmd.append("set_property name m_axi_hbm [get_bd_intf_ports m_axi_hbm_0]")
         cmd.append("set_property name done_if [get_bd_ports done_if_0]")
+        cmd.append("set_property name sim_finish [get_bd_ports sim_finish_0]")
         # set property name for aximm interfaces
         ext_signals = loop_body_intf_names["aximm"]
         for sig in ext_signals:
@@ -1142,10 +1139,11 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # create a shell script and call Vivado
         make_project_sh = vivado_stitch_proj_dir + "/make_loop_ip.sh"
         working_dir = os.environ["PWD"]
+        vivado_cmd = resolve_xilinx_tool("vivado")
         with open(make_project_sh, "w") as f:
             f.write("#!/bin/bash \n")
             f.write("cd {}\n".format(vivado_stitch_proj_dir))
-            f.write("vivado -mode batch -source make_loop_ip.tcl\n")
+            f.write("{} -mode batch -source make_loop_ip.tcl\n".format(vivado_cmd))
             f.write("cd {}\n".format(working_dir))
         bash_command = ["bash", make_project_sh]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)

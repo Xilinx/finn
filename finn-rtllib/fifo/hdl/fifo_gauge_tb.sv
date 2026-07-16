@@ -59,7 +59,7 @@ module fifo_gauge_tb;
 	// Depth Monitoring
 	uwire count_t  maxcount;
 
-	fifo_gauge #(.WIDTH(W)) dut (
+	fifo_gauge #(.WIDTH(W), .DATA_LOGFILE("fifo_trace.log")) dut (
 		.clk, .rst,
 		.idat, .ivld, .irdy,
 		.odat, .ovld, .ordy,
@@ -70,6 +70,7 @@ module fifo_gauge_tb;
 	// Stimulus
 	data_t  Q[$] = {};
 	initial begin
+		automatic int  ref_fd = $fopen("fifo_ref.log", "w");
 		idat = 'x;
 		ivld =  0;
 		@(posedge clk iff !rst);
@@ -79,10 +80,12 @@ module fifo_gauge_tb;
 			idat <= data;
 			ivld <= 1;
 			Q.push_back(data);
+			$fwrite(ref_fd, "%0x\n", data);
 			@(posedge clk);
 			idat <= 'x;
 			ivld <=  0;
 		end
+		$fclose(ref_fd);
 	end
 
 	//-----------------------------------------------------------------------

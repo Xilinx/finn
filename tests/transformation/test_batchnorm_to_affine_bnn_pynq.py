@@ -32,7 +32,6 @@ import importlib_resources as importlib
 import numpy as np
 import onnx
 import onnx.numpy_helper as nph
-import os
 import torch
 from brevitas.export import export_qonnx
 from pkgutil import get_data
@@ -44,52 +43,59 @@ from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
+from finn.util.basic import make_build_dir, robust_rmtree
 from finn.util.test import get_test_model_trained
-
-export_onnx_path = "test_output_bn2affine.onnx"
 
 
 @pytest.mark.transform
 def test_batchnorm_to_affine_cnv_w1a1():
-    lfc = get_test_model_trained("CNV", 1, 1)
-    export_qonnx(lfc, torch.randn(1, 3, 32, 32), export_onnx_path)
-    qonnx_cleanup(export_onnx_path, out_file=export_onnx_path)
-    model = ModelWrapper(export_onnx_path)
-    model = model.transform(ConvertQONNXtoFINN())
-    model = model.transform(InferShapes())
-    model = model.transform(FoldConstants())
-    ref = importlib.files("finn.qnn-data") / "cifar10/cifar10-test-data-class3.npz"
-    with importlib.as_file(ref) as fn:
-        input_tensor = np.load(fn)["arr_0"].astype(np.float32)
-    input_tensor = input_tensor / 255
-    assert input_tensor.shape == (1, 3, 32, 32)
-    input_dict = {model.get_first_global_in(): input_tensor}
-    output_dict = oxe.execute_onnx(model, input_dict)
-    expected = output_dict[list(output_dict.keys())[0]]
-    new_model = model.transform(BatchNormToAffine())
-    # check that there are no BN nodes left
-    op_types = list(map(lambda x: x.op_type, new_model.graph.node))
-    assert "BatchNormalization" not in op_types
-    output_dict_p = oxe.execute_onnx(new_model, input_dict)
-    produced = output_dict_p[list(output_dict_p.keys())[0]]
-    assert np.isclose(expected, produced).all()
-    assert np.argmax(produced) == 3
-    os.remove(export_onnx_path)
+    build_dir = make_build_dir(prefix="test_batchnorm_to_affine_cnv_")
+    try:
+        export_onnx_path = f"{build_dir}/test_output_bn2affine.onnx"
+        lfc = get_test_model_trained("CNV", 1, 1)
+        export_qonnx(lfc, torch.randn(1, 3, 32, 32), export_onnx_path)
+        qonnx_cleanup(export_onnx_path, out_file=export_onnx_path)
+        model = ModelWrapper(export_onnx_path)
+        model = model.transform(ConvertQONNXtoFINN())
+        model = model.transform(InferShapes())
+        model = model.transform(FoldConstants())
+        ref = importlib.files("finn.qnn-data") / "cifar10/cifar10-test-data-class3.npz"
+        with importlib.as_file(ref) as fn:
+            input_tensor = np.load(fn)["arr_0"].astype(np.float32)
+        input_tensor = input_tensor / 255
+        assert input_tensor.shape == (1, 3, 32, 32)
+        input_dict = {model.get_first_global_in(): input_tensor}
+        output_dict = oxe.execute_onnx(model, input_dict)
+        expected = output_dict[list(output_dict.keys())[0]]
+        new_model = model.transform(BatchNormToAffine())
+        # check that there are no BN nodes left
+        op_types = list(map(lambda x: x.op_type, new_model.graph.node))
+        assert "BatchNormalization" not in op_types
+        output_dict_p = oxe.execute_onnx(new_model, input_dict)
+        produced = output_dict_p[list(output_dict_p.keys())[0]]
+        assert np.isclose(expected, produced).all()
+        assert np.argmax(produced) == 3
+    finally:
+        robust_rmtree(build_dir)
 
 
 @pytest.mark.transform
 def test_batchnorm_to_affine_lfc_w1a1():
-    lfc = get_test_model_trained("LFC", 1, 1)
-    export_qonnx(lfc, torch.randn(1, 1, 28, 28), export_onnx_path)
-    qonnx_cleanup(export_onnx_path, out_file=export_onnx_path)
-    model = ModelWrapper(export_onnx_path)
-    model = model.transform(ConvertQONNXtoFINN())
-    model = model.transform(InferShapes())
-    model = model.transform(FoldConstants())
-    new_model = model.transform(BatchNormToAffine())
-    # load one of the test vectors
-    raw_i = get_data("qonnx.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
-    input_tensor = onnx.load_tensor_from_string(raw_i)
-    input_dict = {model.get_first_global_in(): nph.to_array(input_tensor)}
-    assert oxe.compare_execution(model, new_model, input_dict)
-    os.remove(export_onnx_path)
+    build_dir = make_build_dir(prefix="test_batchnorm_to_affine_lfc_")
+    try:
+        export_onnx_path = f"{build_dir}/test_output_bn2affine.onnx"
+        lfc = get_test_model_trained("LFC", 1, 1)
+        export_qonnx(lfc, torch.randn(1, 1, 28, 28), export_onnx_path)
+        qonnx_cleanup(export_onnx_path, out_file=export_onnx_path)
+        model = ModelWrapper(export_onnx_path)
+        model = model.transform(ConvertQONNXtoFINN())
+        model = model.transform(InferShapes())
+        model = model.transform(FoldConstants())
+        new_model = model.transform(BatchNormToAffine())
+        # load one of the test vectors
+        raw_i = get_data("qonnx.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
+        input_tensor = onnx.load_tensor_from_string(raw_i)
+        input_dict = {model.get_first_global_in(): nph.to_array(input_tensor)}
+        assert oxe.compare_execution(model, new_model, input_dict)
+    finally:
+        robust_rmtree(build_dir)

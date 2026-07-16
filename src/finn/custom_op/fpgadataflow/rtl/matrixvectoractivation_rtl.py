@@ -56,6 +56,22 @@ class MVAU_rtl(MVAU, RTLBackend):
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
 
+    def adapt_for_loop_body(self, input_types):
+        """
+        Adapt MVAU_rtl for loop body execution.
+
+        A per-iteration indexed weight must be streamed from external memory over
+        the AXI-MM interface, which only mem_mode "external_mem" instantiates
+        (along with the per-iteration index input). LoopRolling flags such nodes
+        by setting mlo_max_iter on the consumer of each indexed (PARAMETER) loop
+        input, so gate the switch on that per-node signal rather than the
+        positional loop signature. Dynamic matmuls (streamed activation weights,
+        e.g. a merged branch) are not indexed per iteration, do not receive
+        mlo_max_iter, and thus correctly keep their mem_mode ("dynamic").
+        """
+        if self.get_nodeattr("mlo_max_iter") > 0:
+            self.set_nodeattr("mem_mode", "external_mem")
+
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         mem_mode = self.get_nodeattr("mem_mode")
@@ -167,13 +183,12 @@ class MVAU_rtl(MVAU, RTLBackend):
             sourcefiles = [
                 "../fifo/hdl/Q_srl.v",
                 "../skid/skid.sv",
-                "../ram/ram_p_c.sv",
+                "../mvu/mvu_pkg.sv",
+                "../mvu/add_multi.sv",
                 "mvu_tiled_axi.sv",
                 "cu_mvau_tiled.sv",
                 "acc_stage.sv",
-                "add_tree.sv",
-                "reorder_out.sv",
-                "replay_buff_tile.sv",
+                "input_gen.sv",
                 "weights_buff_tile.sv",
             ]
         else:
@@ -228,16 +243,12 @@ class MVAU_rtl(MVAU, RTLBackend):
                     node_name,
                 )
             )
-            # if using 2x pumped compute, connect the MVU's 2x clk input
-            # to the 2x clock port. Otherwise connect 2x clk to regular clk port
+            # For 2x pumped compute the MVU's 2x clk input is driven by the external
+            # 2x clock port, which CreateStitchedIP exposes and connects for this
+            # (flat) cell - nothing to connect here. Otherwise drive the unused 2x
+            # clk input from the regular clock.
             clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
-            if self.get_nodeattr("pumpedCompute"):
-                clk2x_name = self.get_verilog_top_module_intf_names()["clk2x"][0]
-                cmd.append(
-                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
-                    % (node_name, clk2x_name, node_name, clk2x_name)
-                )
-            else:
+            if not self.get_nodeattr("pumpedCompute"):
                 cmd.append(
                     "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/ap_clk2x]"
                     % (node_name, clk_name, node_name)
@@ -321,7 +332,8 @@ class MVAU_rtl(MVAU, RTLBackend):
         ) as f:
             f.write(template_wrapper)
 
-        super().generate_hdl(fpgapart)
+        # generate the weight-infrastructure HDL (shared MVAU helper)
+        self.generate_infra_hdl(fpgapart)
 
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
@@ -343,6 +355,19 @@ class MVAU_rtl(MVAU, RTLBackend):
             raise Exception(
                 "Clock pumping an input of SIMD=1 is not meaningful. Please increase SIMD."
             )
+
+        # Check to make sure that tile size divides the number of input vectors evenly;
+        # otherwise the final partial tile can cause output to be dropped and eventually stall.
+        theight = self.get_nodeattr("TH")
+        if theight > 1:
+            num_inp_vec = int(np.prod(self.get_nodeattr("numInputVectors")))
+            if num_inp_vec % theight != 0:
+                valid_th = [t for t in range(1, num_inp_vec + 1) if num_inp_vec % t == 0]
+                raise Exception(
+                    "%s: TH=%d does not divide numInputVectors=%d. The tiled MVU "
+                    "requires TH | numInputVectors; choose a divisor (valid: %s)."
+                    % (self.onnx_node.name, theight, num_inp_vec, valid_th)
+                )
 
         dsp_block = get_dsp_block(fpgapart)
         code_gen_dict = {}
@@ -379,12 +404,11 @@ class MVAU_rtl(MVAU, RTLBackend):
             verilog_files = [
                 "../fifo/hdl/Q_srl.v",
                 "../skid/skid.sv",
-                "../ram/ram_p_c.sv",
+                "../mvu/mvu_pkg.sv",
+                "../mvu/add_multi.sv",
                 "acc_stage.sv",
-                "add_tree.sv",
-                "replay_buff_tile.sv",
+                "input_gen.sv",
                 "weights_buff_tile.sv",
-                "reorder_out.sv",
                 "cu_mvau_tiled.sv",
                 "mvu_tiled_axi.sv",
             ]

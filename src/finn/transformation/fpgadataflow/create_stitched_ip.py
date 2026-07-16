@@ -39,7 +39,7 @@ from shutil import copytree
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
-from finn.util.basic import getHWCustomOp, make_build_dir
+from finn.util.basic import getHWCustomOp, make_build_dir, resolve_xilinx_tool
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
@@ -264,6 +264,9 @@ class CreateStitchedIP(Transformation):
                 "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]" % (inst_name, mm_intf_name[0])
             )
 
+            # Address range for the external segment; overridden per interface below.
+            addr_range = "256M"
+
             # Determine external interface name and address segment path
             if node.op_type == "FINNLoop":
                 ext_if_name = mm_intf_name[0]
@@ -271,9 +274,12 @@ class CreateStitchedIP(Transformation):
                     "set_property name %s [get_bd_intf_ports %s_0]" % (ext_if_name, ext_if_name)
                 )
                 seg_name = "%s/%s/SEG_%s_Reg" % (inst_name, ext_if_name, ext_if_name)
-            else:
-                # Derive a unique name from graph input index or instance name
-                if node.input[1] in inputs:
+            elif mm_intf_name[0] == "axi_mm":
+                # MVAU with external weights: the per-node fetch_weights unit
+                # streams weights over AXI-MM. Derive a unique name from the
+                # weight graph-input index when available, otherwise from the
+                # instance name.
+                if len(node.input) > 1 and node.input[1] in inputs:
                     idx = inputs.index(node.input[1])
                     ext_if_name = f"m_axi_MVAU_id_{idx}"
                 else:
@@ -286,18 +292,32 @@ class CreateStitchedIP(Transformation):
                     inst_name,
                     ext_if_name,
                 )
+                # Track weight data files for AXI-MM simulation. Use the byte-aligned,
+                # per-SIMD packed memblock.dat (the layout fetch_weights expects in
+                # external memory, e.g. DDR/HBM) rather than input_1.npy, which is
+                # one-value-per-element.
+                code_gen_dir = node_inst.get_nodeattr("code_gen_dir_ipgen")
+                dat_path = os.path.join(code_gen_dir, "memblock.dat")
+                if os.path.isfile(dat_path):
+                    self.aximm_weight_files[ext_if_name] = dat_path
+            else:
+                # Generic AXI-MM master accessing global memory (e.g. IODMA, Lookup).
+                ext_if_name = "m_axi_gmem%d" % (self.aximm_idx)
+                self.connect_cmds.append(
+                    "set_property name %s [get_bd_intf_ports m_axi_gmem_0]" % ext_if_name
+                )
+                seg_name = "%s/Data_m_axi_gmem/SEG_%s_Reg" % (inst_name, ext_if_name)
+                addr_range = "4G"
 
             self.connect_cmds.append("assign_bd_address")
             self.connect_cmds.append("set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name))
-            # TODO should propagate this information from the node instead of 256M
-            self.connect_cmds.append("set_property range 256M [get_bd_addr_segs {%s}]" % (seg_name))
+            # TODO should propagate this information from the node instead of a fixed range
+            # (currently: 256M for FINNLoop and MVAU external weights, 4G for generic
+            # AXI-MM masters like IODMA/Lookup).
+            self.connect_cmds.append(
+                "set_property range %s [get_bd_addr_segs {%s}]" % (addr_range, seg_name)
+            )
             self.intf_names["aximm"].append((ext_if_name, mm_intf_name[1]))
-            # Track weight data files for AXI-MM simulation
-            if not node.op_type == "FINNLoop":
-                code_gen_dir = node_inst.get_nodeattr("code_gen_dir_ipgen")
-                npy_path = os.path.join(code_gen_dir, "input_1.npy")
-                if os.path.isfile(npy_path):
-                    self.aximm_weight_files[ext_if_name] = npy_path
             self.has_aximm = True
             self.aximm_idx += 1
 
@@ -410,6 +430,21 @@ class CreateStitchedIP(Transformation):
         self.connect_cmds.append("set_property name s_axilite_info [get_bd_intf_ports s_axi_0]")
         self.connect_cmds.append("assign_bd_address")
 
+    def insert_sim_ctrl(self):
+        sim_ctrl_src = "$::env(FINN_ROOT)/finn-rtllib/sim/hdl/sim_ctrl.v"
+        sim_ctrl_name = "sim_ctrl_0"
+        self.create_cmds.append("add_files -norecurse %s" % sim_ctrl_src)
+        self.create_cmds.append(
+            "create_bd_cell -type module -reference sim_ctrl %s" % sim_ctrl_name
+        )
+        self.connect_cmds.append(
+            "connect_bd_net [get_bd_ports ap_clk] [get_bd_pins %s/ap_clk]" % sim_ctrl_name
+        )
+        self.connect_cmds.append(
+            "make_bd_pins_external [get_bd_pins %s/sim_finish]" % sim_ctrl_name
+        )
+        self.connect_cmds.append("set_property name sim_finish [get_bd_ports sim_finish_0]")
+
     def apply(self, model):
         # ensure non-relative readmemh .dat files
         model = model.transform(ReplaceVerilogRelPaths())
@@ -490,6 +525,8 @@ class CreateStitchedIP(Transformation):
             # extract number of checksum layer from graph
             checksum_layers = model.get_nodes_by_op_type("CheckSum_hls")
             self.insert_signature(len(checksum_layers))
+
+        self.insert_sim_ctrl()
 
         # create a temporary folder for the project
         prjname = "finn_vivado_stitch_proj"
@@ -773,10 +810,11 @@ close $ofile
         # create a shell script and call Vivado
         make_project_sh = vivado_stitch_proj_dir + "/make_project.sh"
         working_dir = os.environ["PWD"]
+        vivado_cmd = resolve_xilinx_tool("vivado")
         with open(make_project_sh, "w") as f:
             f.write("#!/bin/bash \n")
             f.write("cd {}\n".format(vivado_stitch_proj_dir))
-            f.write("vivado -mode batch -source make_project.tcl\n")
+            f.write("{} -mode batch -source make_project.tcl\n".format(vivado_cmd))
             f.write("cd {}\n".format(working_dir))
         bash_command = ["bash", make_project_sh]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)

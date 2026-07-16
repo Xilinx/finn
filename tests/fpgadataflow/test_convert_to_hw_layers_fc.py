@@ -32,11 +32,11 @@ import pytest
 import numpy as np
 import onnx
 import onnx.numpy_helper as nph
-import os
 import torch
 from brevitas.export import export_qonnx
 from pkgutil import get_data
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from qonnx.transformation.fold_constants import FoldConstants
 from qonnx.transformation.general import (
@@ -57,15 +57,22 @@ from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import getHWCustomOp
+from finn.util.basic import make_build_dir, robust_rmtree
 from finn.util.test import get_test_model_trained
-
-export_onnx_path = "test_convert_to_hw_layers_fc.onnx"
 
 
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_convert_to_hw_layers_tfc_w1a1():
+    build_dir = make_build_dir(prefix="test_convert_to_hw_layers_tfc_w1a1_")
+    try:
+        _test_convert_to_hw_layers_tfc_w1a1(build_dir)
+    finally:
+        robust_rmtree(build_dir)
+
+
+def _test_convert_to_hw_layers_tfc_w1a1(build_dir):
+    export_onnx_path = f"{build_dir}/test_convert_to_hw_layers_fc.onnx"
     tfc = get_test_model_trained("TFC", 1, 1)
     export_qonnx(tfc, torch.randn(1, 1, 28, 28), export_onnx_path)
     qonnx_cleanup(export_onnx_path, out_file=export_onnx_path)
@@ -103,19 +110,19 @@ def test_convert_to_hw_layers_tfc_w1a1():
     assert model.get_tensor_shape(fc3.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc3.input[1]) == [64, 10]
 
-    fc0w = getHWCustomOp(fc0)
+    fc0w = getCustomOp(fc0)
     fc0w.set_nodeattr("SIMD", 784)
     fc0w.set_nodeattr("PE", 16)
 
-    fc1w = getHWCustomOp(fc1)
+    fc1w = getCustomOp(fc1)
     fc1w.set_nodeattr("SIMD", 16)
     fc1w.set_nodeattr("PE", 16)
 
-    fc2w = getHWCustomOp(fc2)
+    fc2w = getCustomOp(fc2)
     fc2w.set_nodeattr("SIMD", 16)
     fc2w.set_nodeattr("PE", 16)
 
-    fc3w = getHWCustomOp(fc3)
+    fc3w = getCustomOp(fc3)
     fc3w.set_nodeattr("SIMD", 16)
     fc3w.set_nodeattr("PE", 10)
 
@@ -135,12 +142,20 @@ def test_convert_to_hw_layers_tfc_w1a1():
     # do forward pass in PyTorch/Brevitas
     expected = tfc.forward(input_tensor).detach().numpy()
     assert np.isclose(produced, expected, atol=1e-3).all()
-    os.remove(export_onnx_path)
 
 
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_convert_to_hw_layers_tfc_w1a2():
+    build_dir = make_build_dir(prefix="test_convert_to_hw_layers_tfc_w1a2_")
+    try:
+        _test_convert_to_hw_layers_tfc_w1a2(build_dir)
+    finally:
+        robust_rmtree(build_dir)
+
+
+def _test_convert_to_hw_layers_tfc_w1a2(build_dir):
+    export_onnx_path = f"{build_dir}/test_convert_to_hw_layers_fc.onnx"
     tfc = get_test_model_trained("TFC", 1, 2)
     export_qonnx(tfc, torch.randn(1, 1, 28, 28), export_onnx_path)
     qonnx_cleanup(export_onnx_path, out_file=export_onnx_path)
@@ -175,16 +190,16 @@ def test_convert_to_hw_layers_tfc_w1a2():
     assert fc3.op_type.startswith("MVAU")
     assert model.get_tensor_shape(fc3.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc3.input[1]) == [64, 10]
-    fc0w = getHWCustomOp(fc0)
+    fc0w = getCustomOp(fc0)
     fc0w.set_nodeattr("SIMD", 784)
     fc0w.set_nodeattr("PE", 16)
-    fc1w = getHWCustomOp(fc1)
+    fc1w = getCustomOp(fc1)
     fc1w.set_nodeattr("SIMD", 16)
     fc1w.set_nodeattr("PE", 16)
-    fc2w = getHWCustomOp(fc2)
+    fc2w = getCustomOp(fc2)
     fc2w.set_nodeattr("SIMD", 16)
     fc2w.set_nodeattr("PE", 16)
-    fc3w = getHWCustomOp(fc3)
+    fc3w = getCustomOp(fc3)
     fc3w.set_nodeattr("SIMD", 16)
     fc3w.set_nodeattr("PE", 10)
     model = model.transform(PrepareCppSim())
@@ -205,4 +220,3 @@ def test_convert_to_hw_layers_tfc_w1a2():
     golden_output_dict = oxe.execute_onnx(model, input_dict, True)
     expected = golden_output_dict[model.get_first_global_out()]
     assert np.isclose(produced, expected, atol=1e-3).all()
-    os.remove(export_onnx_path)

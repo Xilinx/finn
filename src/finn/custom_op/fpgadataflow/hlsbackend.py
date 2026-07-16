@@ -116,6 +116,7 @@ class HLSBackend(ABC):
     def prepare_rtlsim(self, behav=False):
         """Creates a xsi emulation library for the RTL code generated
         for this node, sets the rtlsim_so attribute to its path."""
+
         verilog_files = self.get_all_verilog_filenames(abspath=True)
         single_src_dir = make_build_dir("rtlsim_" + self.onnx_node.name + "_")
         trace_file = self.get_nodeattr("rtlsim_trace")
@@ -160,7 +161,6 @@ class HLSBackend(ABC):
         self.code_gen_dict["$CLKPERIOD$"] = [str(clk)]
         self.code_gen_dict["$DEFAULT_DIRECTIVES$"] = self.ipgen_default_directives()
         self.code_gen_dict["$EXTRA_DIRECTIVES$"] = self.ipgen_extra_directives()
-        self.code_gen_dict["$EXTRA_INCLUDES$"] = [self.ipgen_extra_includes()]
 
         template = templates.ipgentcl_template
 
@@ -189,10 +189,6 @@ class HLSBackend(ABC):
     def ipgen_extra_directives(self):
         "Return a list of extra tcl directives for HLS synthesis."
         return []
-
-    def ipgen_extra_includes(self):
-        """Return extra include paths for HLS compilation."""
-        return ""
 
     def ipgen_singlenode_code(self, fpgapart=None):
         """Builds the bash script for IP generation using the CallHLS utility."""
@@ -269,14 +265,13 @@ class HLSBackend(ABC):
         # to enable additional debug features please uncommand the next line
         # builder.append_includes("-DDEBUG")
         builder.append_includes("-I$FINN_ROOT/src/finn/qnn-data/cpp")
-        builder.append_includes("-I$FINN_DEPS_DIR/cnpy/")
         builder.append_includes("-I$FINN_DEPS_DIR/finn-hlslib")
         builder.append_includes("-I$FINN_ROOT/custom_hls")
         builder.append_includes(f"-I{hls_path}/include")
-        builder.append_includes("--std=c++14")
+        builder.append_includes("--std=c++17")
         builder.append_includes("-O3")
         builder.append_sources(code_gen_dir + "/*.cpp")
-        builder.append_sources("$FINN_DEPS_DIR/cnpy/cnpy.cpp")
+        builder.append_sources("$FINN_ROOT/src/finn/qnn-data/cpp/cnpy.cpp")
         builder.append_includes("-lz")
         builder.append_includes("-fno-builtin -fno-inline")
         builder.append_includes(f'-Wl,-rpath,"{hls_path}/lnx64/lib/csim"')
@@ -311,6 +306,12 @@ compilation transformations?
         process_execute = subprocess.Popen(executable_path, stdout=subprocess.PIPE)
         process_execute.communicate()
 
+    def fold_input_for_npy(self, inp_val, ind):
+        """Lay an input tensor out into the folded shape written to the npy that
+        feeds cppsim/rtlsim. Overridable seam for ops whose npy layout differs
+        from the folded shape."""
+        return inp_val.reshape(self.get_folded_input_shape(ind))
+
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         node = self.onnx_node
@@ -329,7 +330,6 @@ compilation transformations?
         inputs = {}
         for i, inp in enumerate(node.input):
             exp_ishape = tuple(self.get_normal_input_shape(i))
-            folded_ishape = self.get_folded_input_shape(i)
             inp_val = context[inp]
             # Make sure the input has the right container datatype
             if inp_val.dtype not in [np.float32, np.float16]:
@@ -349,7 +349,7 @@ compilation transformations?
                 inp_val = (inp_val + 1) / 2
                 export_idt = DataType["BINARY"]
 
-            reshaped_input = inp_val.reshape(folded_ishape)
+            reshaped_input = self.fold_input_for_npy(inp_val, i)
             reshaped_input = reshaped_input.copy()
             np.save(os.path.join(code_gen_dir, "input_%s.npy" % i), reshaped_input)
             nbits = self.get_instream_width(i)
@@ -454,15 +454,13 @@ compilation transformations?
             if iwidth == 0:
                 continue
             if cpp_interface == "packed":
-                elem_bits = dtype.bitwidth()
                 packed_bits = iwidth
                 packed_hls_type = "ap_uint<%d>" % packed_bits
                 self.code_gen_dict["$READNPYDATA$"].append(
-                    'npy2apintstream<%s, %s, %d, %s>("%s", in%s_V);'
+                    'npy2apintstream<%s, %s, %s>("%s", in%s_V);'
                     % (
                         packed_hls_type,
                         elem_hls_type,
-                        elem_bits,
                         npy_type,
                         npy_in,
                         i,
@@ -569,16 +567,14 @@ compilation transformations?
             cpp_interface = self.get_nodeattr("cpp_interface")
 
             if cpp_interface == "packed":
-                elem_bits = dtype.bitwidth()
                 packed_bits = self.get_outstream_width(o)
                 packed_hls_type = "ap_uint<%d>" % packed_bits
 
                 self.code_gen_dict["$DATAOUTSTREAM$"].append(
-                    'apintstream2npy<%s, %s, %d, %s>(out%s_V, %s, "%s");'
+                    'apintstream2npy<%s, %s, %s>(out%s_V, %s, "%s");'
                     % (
                         packed_hls_type,
                         elem_hls_type,
-                        elem_bits,
                         npy_type,
                         o,
                         oshape_cpp_str,

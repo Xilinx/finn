@@ -324,7 +324,7 @@ class ElementwiseBinaryOperation_hls(
             self.code_gen_dict["$READNPYDATA$"] += [
                 # Generate function call reading from file into the input stream
                 #   Note: Inputs can be represented as numpy floats or halfs
-                f"npy2apintstream<LhsPacked, LhsType, LhsWidth, {npy_type}>(",
+                f"npy2apintstream<LhsPacked, LhsType, {npy_type}>(",
                 f'"{code_gen_dir}/input_0.npy", in0_V, false',
                 ");",
             ]
@@ -338,7 +338,7 @@ class ElementwiseBinaryOperation_hls(
             self.code_gen_dict["$READNPYDATA$"] += [
                 # Generate function call reading from file into the input stream
                 #   Note: Inputs can be represented as numpy floats or halfs
-                f"npy2apintstream<RhsPacked, RhsType, RhsWidth, {npy_type}>(",
+                f"npy2apintstream<RhsPacked, RhsType, {npy_type}>(",
                 f'"{code_gen_dir}/input_1.npy", in1_V, false',
                 ");",
             ]
@@ -587,7 +587,7 @@ class ElementwiseBinaryOperation_hls(
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
             # Generate function call reading from stream into the output file
             #   Note: Outputs can be numpy floats or halfs
-            f"apintstream2npy<OutPacked, OutType, OutWidth, {npy_type}>(",
+            f"apintstream2npy<OutPacked, OutType, {npy_type}>(",
             f'out0_V, {shape}, "{code_gen_dir}/output_0.npy", false',
             ");",
         ]
@@ -793,6 +793,24 @@ class ElementwiseBinaryOperation_hls(
             # base class impl sufficient
             return super().code_generation_ipi()
         return cmd
+
+    def fold_input_for_npy(self, inp_val, ind):
+        # A broadcast operand's folded inner axis is 1 but its stream word is PE
+        # wide, so the cppsim feeder over-reads the scalar npy. Widen it to the
+        # stream word, but only for an npy-fed operand (runtime input or
+        # internal_decoupled const). An embedded const is read from params, not
+        # the npy, so there is nothing to widen.
+        folded = super().fold_input_for_npy(inp_val, ind)
+        style = [self.lhs_style, self.rhs_style][ind]
+        stream_fed = style == "input" or (
+            style == "const" and self.get_nodeattr("mem_mode") == "internal_decoupled"
+        )
+        if not stream_fed:
+            return folded
+        elems = self.get_instream_width(ind) // self.get_input_datatype(ind).bitwidth()
+        if folded.shape[-1] == 1 and elems > 1:
+            folded = np.broadcast_to(folded, folded.shape[:-1] + (elems,))
+        return folded
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")

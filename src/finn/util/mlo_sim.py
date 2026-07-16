@@ -31,7 +31,6 @@
 # aximm simulation tasks for handling the aximm interfaces.
 
 import numpy as np
-import os
 from qonnx.core.modelwrapper import ModelWrapper
 from typing import Callable
 
@@ -90,35 +89,24 @@ def mlo_prehook_func_factory(node) -> Callable[[SimEngine], None]:
             mvau_hbm_weights[idx] = {}
             mvau_hbm_weights[idx]["name"] = lb_inp.name
             code_gen_dir = finnloop_op.get_nodeattr("code_gen_dir_ipgen")
-            npy_file = f"{code_gen_dir}/input1_MVAU_rtl_id_{idx}.npy"
             datfile = f"{code_gen_dir}/memblock_MVAU_rtl_id_{idx}.dat"
-            mvau_op = getHWCustomOp(downstream)
-            mh = mvau_op.get_nodeattr("MH")
-            mw = mvau_op.get_nodeattr("MW")
-            wdt_width = mvau_op.get_input_datatype(1).bitwidth()
-            # Must match RTL LAYER_OFFS: align to AXI bus width (256 bits = 32 bytes)
-            axi_bytes = 32
-            raw_layer_bytes = (mh * mw * wdt_width + 7) // 8
-            layer_offs = (raw_layer_bytes + axi_bytes - 1) & ~(axi_bytes - 1)
-            if os.path.isfile(npy_file):
-                weight_npy = np.load(npy_file)
-                # Pack npy values into byte array for AXI-MM
-                # Memory byte order matches npy_to_rtlsim_input packing
-                tinner = weight_npy.shape[-1]
-                words_per_iter = raw_layer_bytes // tinner
-                flat = weight_npy.reshape(-1, tinner)
-                n_iters = len(flat) // words_per_iter
-                weight_bytes = []
-                for it in range(n_iters):
-                    for row in flat[it * words_per_iter : (it + 1) * words_per_iter]:
-                        for val in row:
-                            weight_bytes.append(int(val) & 0xFF)
-                    # Pad to layer_offs boundary
-                    pad = layer_offs - raw_layer_bytes
-                    weight_bytes.extend([0] * pad)
-                mvau_hbm_weights[idx]["value"] = np.array(weight_bytes, dtype=np.uint8)
-            else:
-                mvau_hbm_weights[idx]["value"] = dat_file_to_numpy_array(datfile)
+            # memblock.dat holds the per-layer weights back-to-back, byte-aligned
+            # per IWSIMD group. fetch_weights.sv places layer i at i*LAYER_OFFS,
+            # where LAYER_OFFS rounds the layer size up to the AXI bus width, so
+            # pad each layer to that boundary to reproduce the external memory image.
+            weight_bytes = dat_file_to_numpy_array(datfile)
+            iteration = finnloop_op.get_nodeattr("iteration")
+            layer_bytes = len(weight_bytes) // iteration
+            axi_bytes = 32  # AXI bus width (256 bits), matches RTL LAYER_OFFS
+            layer_offs = (layer_bytes + axi_bytes - 1) & ~(axi_bytes - 1)
+            if layer_offs != layer_bytes:
+                padded = np.zeros(iteration * layer_offs, dtype=weight_bytes.dtype)
+                for it in range(iteration):
+                    padded[it * layer_offs : it * layer_offs + layer_bytes] = weight_bytes[
+                        it * layer_bytes : (it + 1) * layer_bytes
+                    ]
+                weight_bytes = padded
+            mvau_hbm_weights[idx]["value"] = weight_bytes
             mvau_hbm_weights[idx]["extern_idx"] = extern_idx
             mvau_hbm_weights[idx]["extern_name"] = f"m_axi_MVAU_id_{idx}"
             extern_idx += 1

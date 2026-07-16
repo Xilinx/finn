@@ -161,7 +161,7 @@ def test_fpgadataflow_concat_stitchedip():
         CreateStitchedIP(
             fpga_part,
             clk_ns,
-            vitis=False,
+            run_synth=False,
         )
     )
     model.set_metadata_prop("exec_mode", "rtlsim")

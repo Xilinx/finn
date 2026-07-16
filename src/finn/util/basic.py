@@ -26,20 +26,20 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import errno
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.util.basic import gen_finn_dt_tensor, roundup_to_integer_multiple
 from typing import Dict, Optional, Tuple
 
 from finn.util.data_packing import finnpy_to_packed_bytearray
-
-# test boards used for bnn pynq tests
-test_board_map = ["Pynq-Z1", "KV260_SOM", "ZCU104", "U250"]
 
 # mapping from PYNQ board names to FPGA part names
 pynq_part_map = dict()
@@ -195,16 +195,38 @@ def make_build_dir(prefix=""):
     Use this function instead of tempfile.mkdtemp to ensure any generated files
     will survive on the host after the FINN Docker container exits."""
     try:
-        tmpdir = tempfile.mkdtemp(prefix=prefix)
-        newdir = tmpdir.replace("/tmp", os.environ["FINN_BUILD_DIR"])
-        os.makedirs(newdir)
-        return newdir
+        build_dir = os.environ["FINN_BUILD_DIR"]
     except KeyError:
         raise Exception(
             """Environment variable FINN_BUILD_DIR must be set
-        correctly. Please ensure you have launched the Docker contaier correctly.
+        correctly. Please ensure you have launched the Docker container correctly.
         """
         )
+    os.makedirs(build_dir, exist_ok=True)
+    new_dir = tempfile.mkdtemp(prefix=prefix, dir=build_dir)
+    os.chmod(new_dir, 0o755)
+    return new_dir
+
+
+def robust_rmtree(path, retries=6, initial_delay=0.1, backoff=2.0):
+    """Remove a directory tree with retries for transient NFS cleanup races.
+    Retries ``ENOTEMPTY``/``EBUSY``. Other errors propagate immediately.
+    """
+    if not path or not os.path.exists(path):
+        return
+    delay = initial_delay
+    for attempt in range(retries):
+        try:
+            shutil.rmtree(path)
+            return
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            transient = exc.errno in (errno.ENOTEMPTY, errno.EBUSY)
+            if not transient or attempt == retries - 1:
+                raise
+            time.sleep(delay)
+            delay *= backoff
 
 
 class CppBuilder:
@@ -254,22 +276,36 @@ class CppBuilder:
         process_compile.communicate()
 
 
-def launch_process_helper(args, proc_env=None, cwd=None):
-    """Helper function to launch a process in a way that facilitates logging
-    stdout/stderr with Python loggers.
-    Returns (cmd_out, cmd_err)."""
+def launch_process_helper(args, proc_env=None, cwd=None, check=False):
+    """Launch a process and capture its output for logging with Python loggers.
+
+    Returns ``(cmd_out, cmd_err)`` as UTF-8 strings, with undecodable bytes in
+    tool output replaced rather than raised. Both streams are also written
+    through to ``sys.stdout``/``sys.stderr``.
+
+    When ``check`` is True and the process exits non-zero, raises
+    ``subprocess.CalledProcessError`` with ``output`` and ``stderr`` set to the
+    captured strings. The write-through happens before the raise, so the tool
+    log is still visible on failure. That is why the return code is checked by
+    hand rather than relying on ``subprocess.run(check=True)``.
+    """
     if proc_env is None:
         proc_env = os.environ.copy()
-    with subprocess.Popen(
-        args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=proc_env, cwd=cwd
-    ) as proc:
-        (cmd_out, cmd_err) = proc.communicate()
-    if cmd_out is not None:
-        cmd_out = cmd_out.decode("utf-8")
-        sys.stdout.write(cmd_out)
-    if cmd_err is not None:
-        cmd_err = cmd_err.decode("utf-8")
-        sys.stderr.write(cmd_err)
+    proc = subprocess.run(
+        args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=proc_env,
+        cwd=cwd,
+        encoding="utf-8",
+        errors="replace",
+    )
+    cmd_out = proc.stdout
+    cmd_err = proc.stderr
+    sys.stdout.write(cmd_out)
+    sys.stderr.write(cmd_err)
+    if check and proc.returncode != 0:
+        raise subprocess.CalledProcessError(proc.returncode, args, cmd_out, cmd_err)
     return (cmd_out, cmd_err)
 
 
@@ -292,6 +328,38 @@ def which(program):
                 return exe_file
 
     return None
+
+
+_XILINX_TOOL_DIR_ENV = "FINN_TOOL_DIR_OVERRIDE"
+
+
+def resolve_xilinx_tool(tool_name):
+    """Resolve the command used to invoke a Xilinx tool. Update the following
+    list if new tools use this resolver.
+
+    Default names:
+    - vivado
+    - vitis_hls
+    - vitis-run
+    - v++
+    - xelab
+
+    With FINN_TOOL_DIR_OVERRIDE set, the command resolves to
+    <override>/<tool_name>, otherwise the bare tool_name is used.
+    The single directory override is all a tool-wrapping site (e.g. an LSF
+    bsub dispatcher) needs: point it at a shim dir whose filenames match the
+    bare tool names. Raises FileNotFoundError when the resolved command is
+    not found, so all the default names must have a corresponding shim filename.
+    """
+    dir_override = os.environ.get(_XILINX_TOOL_DIR_ENV)
+    tool = os.path.join(dir_override, tool_name) if dir_override else tool_name
+    if which(tool) is None:
+        if dir_override:
+            raise FileNotFoundError(
+                "%s not found (%s=%r)" % (tool, _XILINX_TOOL_DIR_ENV, dir_override)
+            )
+        raise FileNotFoundError("%s not found in PATH" % tool)
+    return tool
 
 
 mem_primitives_versal = {

@@ -14,6 +14,7 @@
 #include <sstream>
 #include <fstream>
 #include <chrono>
+#include <map>
 #include <vector>
 #include <tuple>
 #include <functional>
@@ -31,7 +32,7 @@ static unsigned env_unsigned(char const *name, unsigned const fallback) {
 	return end == value? fallback : static_cast<unsigned>(parsed);
 }
 
-int main(int argc, char *argv[]) {
+int main(int const  argc, char const *const  argv[]) {
 
 	// Load Kernel and Design
 	xsi::Kernel  kernel(kernel_libname);
@@ -44,6 +45,7 @@ int main(int argc, char *argv[]) {
 
 	// Ultimate Simulation Summary
 	std::string  synopsis;
+	std::map<std::string, unsigned>  maxcounts;
 
 	{ // RTL Simulation
 
@@ -66,11 +68,11 @@ int main(int argc, char *argv[]) {
 			size_t  job_size;
 			size_t  job_txns;  // [0:job_size]
 			size_t  total_txns;
-			size_t  first_complete; // First completion timestamp
 
 			union {
 				// Input Stream
 				struct {
+					size_t  first_complete; // First completion timestamp
 					size_t  job_ticks;      // throttle if job_size < job_ticks
 					size_t  await_iter;     // iteration allowing start of next job
 				};
@@ -106,7 +108,8 @@ int main(int argc, char *argv[]) {
 		}
 
 		// Find Global Control & Run Startup Sequence
-		std::function<void(bool)>  cycle;
+		std::function<void(std::vector<std::reference_wrapper<Port>>&)>  cycle;
+		std::vector<std::reference_wrapper<Port>>  to_write;
 		{
 			Port *const  clk   = top.getPort("ap_clk");
 			Port *const  clk2x = top.getPort("ap_clk2x");
@@ -115,24 +118,30 @@ int main(int argc, char *argv[]) {
 				std::cerr << "No clock found on the design." << std::endl;
 				return  1;
 			}
-			cycle = clk2x?
-				std::function<void(bool)>([&top, clk, clk2x](bool const  up) mutable {
+			cycle = [half = clk2x?
+				std::function<void(bool)>([&top, clk, clk2x](bool const  up) {
 					clk->set(up).write_back();
 					clk2x->set(1).write_back();
-					top.run(5);
+					top.run(25);
 					clk2x->set(0).write_back();
-					top.run(5);
+					top.run(25);
 				}) :
-				std::function<void(bool)>([&top, clk](bool const  up) mutable {
+				std::function<void(bool)>([&top, clk](bool const  up) {
 					clk->set(up).write_back();
-					top.run(5);
-				});
+					top.run(50);
+				})
+			](std::vector<std::reference_wrapper<Port>> &to_write) {
+				half(1);
+				for(Port &p : to_write)  p.write_back();
+				to_write.clear();
+				half(0);
+			};
 
 			// Reset all Inputs, Wait for Reset Period
 			for(Port &p : top.ports()) { if(p.isInput())  p.clear().write_back(); };
 			if(rst_n) {
-				for(unsigned  i = 0; i < 16; i++) { cycle(0); cycle(1); }
-				rst_n->set(1).write_back();
+				for(unsigned  i = 0; i < 16; i++)  cycle(to_write);
+				to_write.emplace_back(rst_n->set(1));
 			}
 		}
 
@@ -144,17 +153,13 @@ int main(int argc, char *argv[]) {
 		}
 
 		// Make all Inputs valid & all Outputs ready
-		for(auto &s : istreams)  s.port_vld.set(1).write_back();
-		for(auto &s : ostreams)  s.port_rdy.set(1).write_back();
+		for(auto &s : istreams)  to_write.emplace_back(s.port_vld.set(1));
+		for(auto &s : ostreams)  to_write.emplace_back(s.port_rdy.set(1));
+		cycle(to_write);  // flush & settle before first read
 
 		// Enter Simulation Loop and track Progress
 		auto const  begin = std::chrono::steady_clock::now();
-		std::vector<std::reference_wrapper<Port>>  to_write;
 		while(true) {
-
-			//-------------------------------------------------------------------
-			// Clock down - then read signal updates from design
-			cycle(0);
 
 			// check for transactions on input streams
 			for(auto &s : istreams) {
@@ -210,12 +215,8 @@ int main(int argc, char *argv[]) {
 			}
 
 			//-------------------------------------------------------------------
-			// Clock up - then write signal updates back to design
-			cycle(1);
-
-			// Write back Ports with registered updates
-			for(Port &p : to_write)  p.write_back();
-			to_write.clear();
+			// Advance clock: rise, write back, fall
+			cycle(to_write);
 
 			// Show a progress message once in a while
 			if(++iters % 10000 == 0) {
@@ -262,12 +263,32 @@ int main(int argc, char *argv[]) {
 			"RUNTIME_S\t" << std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - begin).count();
 		synopsis = bld.str();
 
+		// Read maxcount ports before $finish tears down the design
+		for(Port &p : top.ports()) {
+			if(p.isOutput()) {
+				char const *const  name = p.name();
+				if(std::strncmp(name, "maxcount", 8) == 0) {
+					p.read();
+					maxcounts[name] = p.as_unsigned();
+				}
+			}
+		}
+
 	} // done simulation
 
 	// Dump Simulation Statistics to stdout and results.txt
 	std::cout << '\n' << synopsis << std::endl;
 
-	{ // Log error info to file
+	// Trigger $finish so that final blocks execute
+	{
+		Port *const  sim_finish = top.getPort("sim_finish");
+		if(sim_finish) {
+			sim_finish->set(1).write_back();
+			top.run(1);
+		}
+	}
+
+	{ // Log error info to file (includes final block output)
 		std::ofstream  error_file("fifosim.err", std::ios::out | std::ios::trunc);
 		error_file << top.get_error_info();
 	}
@@ -275,14 +296,8 @@ int main(int argc, char *argv[]) {
 	{ // Synopsis and `max_count` readings to results file
 		std::ofstream  results_file("results.txt", std::ios::out | std::ios::trunc);
 		results_file << synopsis << std::endl;
-		for(Port &p : top.ports()) {
-			if(p.isOutput()) {
-				char const *const  name = p.name();
-				if(std::strncmp(name, "maxcount", 8) == 0) {
-					p.read();
-					results_file << name << '\t' << p.as_unsigned() << std::endl;
-				}
-			}
+		for(auto const &[name, val] : maxcounts) {
+			results_file << name << '\t' << val << std::endl;
 		}
 	}
 

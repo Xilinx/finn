@@ -112,7 +112,6 @@ class Lookup_hls(Lookup, HLSBackend):
         if dtype == DataType["BIPOLAR"]:
             # use binary for bipolar storage
             dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
         packed_bits = self.get_outstream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
@@ -122,11 +121,10 @@ class Lookup_hls(Lookup, HLSBackend):
         oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out0_V, %s, "%s", %s);'
+            'apintstream2npy<%s, %s, %s>(out0_V, %s, "%s", %s);'
             % (
                 packed_hls_type,
                 elem_hls_type,
-                elem_bits,
                 npy_type,
                 oshape_cpp_str,
                 npy_out,
