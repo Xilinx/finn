@@ -301,7 +301,7 @@ foreach gmem_pin [get_bd_intf_pins -quiet -of_objects [get_bd_cells] \
 
 # MLO (Multi-Layer Offload) weight streaming -> axi_noc_pl/S01_AXI
 set mlo_mm_pins [get_bd_intf_pins -quiet -of_objects [get_bd_cells] \
-    -filter {MODE == Master && (NAME == m_axi_hbm || NAME =~ m_axi_MVAU_*)}]
+    -filter {MODE == Master && (NAME == m_axi_intermediate_frame || NAME =~ m_axi_MVAU_*)}]
 if {[llength $mlo_mm_pins] > 0} {
     create_bd_cell -type ip -vlnv $smartconnect_vlnv smartconnect_mlo
     set_property -dict [list CONFIG.NUM_SI [llength $mlo_mm_pins] CONFIG.NUM_MI {1}] [get_bd_cells smartconnect_mlo]
