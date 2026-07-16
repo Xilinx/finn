@@ -27,6 +27,23 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+"""
+Fine-grained steps for the FINN dataflow builder pipeline.
+
+Each step is a ``(model, cfg) -> model`` function that performs one part of the
+build (e.g. ``step_tidy_up``, ``step_convert_to_hw``, ``step_hw_ipgen``). The
+available steps are registered in ``build_dataflow_step_lookup`` so they can be
+referenced by name in a build configuration's ``steps`` list.
+
+The default build flow does not list these steps individually. Instead it groups
+them into a handful of logical phases defined in
+:py:mod:`finn.builder.build_dataflow_phases` (see ``default_build_dataflow_steps``
+in :py:mod:`finn.builder.build_dataflow_config`). Standard (non-MLO) builds can
+still compose these fine-grained steps directly, or mix phases and steps, for
+custom pipelines. Models using multi-level offloading (MLO / ``FINNLoop`` nodes)
+must use the phases, since the loop-body orchestration lives there.
+"""
+
 import json
 import numpy as np
 import os
@@ -1427,7 +1444,13 @@ def step_loop_body_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig
     snapshot_fifo_logs(cfg, "fifo_sizing", loop_context=loop_context)
     model = model.transform(SplitLargeFIFOs())
     model = model.transform(RemoveShallowFIFOs())
-    model = model.transform(GiveUniqueNodeNames())
+    # Re-apply the enclosing FINNLoop name as a prefix so loop-body node (and
+    # hence IP/module) names stay unique across the whole design. Without this
+    # the loop body's stitched IP uses generic names that collide with the main
+    # graph's nodes at top-level stitching, elaborating as a black box (X output).
+    model = model.transform(
+        GiveUniqueNodeNames(prefix=(loop_context + "_") if loop_context else "")
+    )
     model = model.transform(GiveReadableTensorNames())
 
     return model
