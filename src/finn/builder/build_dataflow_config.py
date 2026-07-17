@@ -379,8 +379,10 @@ class DataflowBuildConfig:
     #: If not given `max_multithreshold_bit_width` defaults to 16.
     max_multithreshold_bit_width: Optional[int] = 16
 
-    #: Override the number of inputs for rtlsim performance measurement.
-    rtlsim_batch_size: Optional[int] = 1
+    #: Override the number of frames for rtlsim performance measurement.
+    #: At least two are required to report steady-state throughput; a one-frame
+    #: run can measure latency and pipeline-fill throughput only.
+    rtlsim_batch_size: Optional[int] = 2
 
     #: If set to True, FIFOs with impl_style=vivado will be kept during
     #: rtlsim, otherwise they will be replaced by RTL implementations.
