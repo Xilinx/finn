@@ -11,6 +11,7 @@ from onnx import TensorProto, helper
 from unittest.mock import patch
 
 from finn.builder.build_dataflow import build_dataflow_cfg
+from finn.builder.build_dataflow_checks import run_all_config_checks
 from finn.builder.build_dataflow_config import (
     DataflowBuildConfig,
     DataflowOutputType,
@@ -41,6 +42,26 @@ def cfg(output_dir, **kw):
         generate_outputs=kw.pop("generate_outputs", [DataflowOutputType.ESTIMATE_REPORTS]),
         **kw
     )
+
+
+@pytest.mark.util
+def test_mlo_estimate_and_rtlsim_outputs_are_supported(tmp_path):
+    build_cfg = cfg(
+        str(tmp_path),
+        mlo=True,
+        generate_outputs=[
+            DataflowOutputType.ESTIMATE_REPORTS,
+            DataflowOutputType.STITCHED_IP,
+            DataflowOutputType.RTLSIM_PERFORMANCE,
+        ],
+    )
+
+    with patch("finn.builder.build_dataflow_checks.get_vivado_version", return_value=(2024, 2)):
+        report = run_all_config_checks(build_cfg)
+
+    check_names = {check.name for check in report.checks}
+    assert "mlo_estimates" not in check_names
+    assert "mlo_rtlsim" not in check_names
 
 
 @pytest.mark.util

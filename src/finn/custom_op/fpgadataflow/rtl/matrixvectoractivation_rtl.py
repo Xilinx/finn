@@ -164,6 +164,10 @@ class MVAU_rtl(MVAU, RTLBackend):
         # multiplication
         P = self.get_nodeattr("PE")
         Q = self.get_nodeattr("SIMD")
+        pumped_compute = self.get_nodeattr("pumpedCompute")
+        # Double-pumped compute consumes half of the external SIMD vector on
+        # each 2x clock edge, so only ceil(SIMD / 2) physical lanes exist.
+        Q = int(np.ceil(Q / (pumped_compute + 1)))
         dsp_block = get_dsp_block(fpgapart)
         if dsp_block == "DSP58":
             mult_dsp = P * np.ceil(Q / 3)

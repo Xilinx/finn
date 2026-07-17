@@ -54,7 +54,22 @@ def res_estimation(model, fpgapart):
     return res_dict
 
 
-def _resource_attr_variants(inst):
+def res_estimation_recursive(model, fpgapart, path=()):
+    """Estimate resources for the outer graph and nested FINNLoop bodies."""
+
+    res_dict = {}
+    for node in model.graph.node:
+        if is_hls_node(node) or is_rtl_node(node):
+            inst = registry.getCustomOp(node)
+            name = "/".join(path + (node.name,))
+            res_dict[name] = inst.node_res_estimation(fpgapart)
+        if node.op_type == "FINNLoop":
+            body = registry.getCustomOp(node).get_nodeattr("body")
+            res_dict.update(res_estimation_recursive(body, fpgapart, path + (node.name,)))
+    return res_dict
+
+
+def resource_attr_variants(inst):
     """Return resource-related node attribute variants supported by inst."""
     attr_types = inst.get_nodeattr_types()
     variants = []
@@ -77,8 +92,8 @@ def _resource_attr_variants(inst):
     return variants
 
 
-def _estimate_all_resource_variants(inst, fpgapart):
-    variants = _resource_attr_variants(inst)
+def estimate_all_resource_variants(inst, fpgapart):
+    variants = resource_attr_variants(inst)
     if not variants:
         return [inst.node_res_estimation(fpgapart)]
 
@@ -110,6 +125,6 @@ def res_estimation_complete(model, fpgapart):
     for node in model.graph.node:
         if is_hls_node(node) or is_rtl_node(node):
             inst = registry.getCustomOp(node)
-            res_dict[node.name] = _estimate_all_resource_variants(inst, fpgapart)
+            res_dict[node.name] = estimate_all_resource_variants(inst, fpgapart)
 
     return res_dict
