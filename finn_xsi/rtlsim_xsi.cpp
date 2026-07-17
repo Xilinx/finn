@@ -262,6 +262,19 @@ int main(int const  argc, char const *const  argv[]) {
 	// Dump Simulation Statistics to stdout and results.txt
 	std::cout << '\n' << synopsis << std::endl;
 
+	// Write results.txt BEFORE triggering $finish. Everything it needs
+	// (synopsis + maxcounts) is already captured above, while $finish/teardown
+	// on large long-running MLO sims can trip a latent heap corruption
+	// (free(): invalid size) that aborts the process. Persisting first ensures
+	// FIFO sizing results survive even if teardown crashes.
+	{ // Synopsis and `max_count` readings to results file
+		std::ofstream  results_file("results.txt", std::ios::out | std::ios::trunc);
+		results_file << synopsis << std::endl;
+		for(auto const &[name, val] : maxcounts) {
+			results_file << name << '\t' << val << std::endl;
+		}
+	}
+
 	// Trigger $finish so that final blocks execute
 	{
 		Port *const  sim_finish = top.getPort("sim_finish");
@@ -274,14 +287,6 @@ int main(int const  argc, char const *const  argv[]) {
 	{ // Log error info to file (includes final block output)
 		std::ofstream  error_file("fifosim.err", std::ios::out | std::ios::trunc);
 		error_file << top.get_error_info();
-	}
-
-	{ // Synopsis and `max_count` readings to results file
-		std::ofstream  results_file("results.txt", std::ios::out | std::ios::trunc);
-		results_file << synopsis << std::endl;
-		for(auto const &[name, val] : maxcounts) {
-			results_file << name << '\t' << val << std::endl;
-		}
 	}
 
 	return 0;

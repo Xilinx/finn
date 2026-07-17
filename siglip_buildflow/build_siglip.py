@@ -37,7 +37,7 @@ STATIC_FIFO_CONFIG = os.path.join(HERE, "configs", "static_fifo_depths.json")
 # stitched-IP + rtlsim, so the part only drives IP synthesis and resource
 # estimation.
 FPGA_PART = "xcvc1902-vsva2197-2MP-e-S"
-CLK_PERIOD_NS = 5.0  # 200 MHz
+CLK_PERIOD_NS = 4.0  # 250 MHz
 # MLO loops the single encoder-layer body once per layer (12 iterations/frame),
 # and SetFolding budgets the body against target_cycles_per_frame WITHOUT dividing
 # by iterations. So to hit ~50 FPS overall, fold the body to ~1/12 of the frame
@@ -105,6 +105,11 @@ def make_cfg(start_step=None) -> build_cfg.DataflowBuildConfig:
         fpga_part=FPGA_PART,
         # MLO
         mlo=True,
+        # Weights streamed from a single DDR address space (the merged mlo_ddr
+        # flow): step_hw_codegen runs AssignMemoryOffset to byte-pack per-MVAU
+        # weights + intermediate frames into DDR, and stitched-IP rtlsim drives
+        # the m_axi_MVAU_* / m_axi_intermediate_frame ports via those offsets.
+        mlo_weight_mem="DDR",
         loop_body_hierarchy=LOOP_BODY_HIERARCHY,
         loop_body_range=LOOP_BODY_RANGE,
         # folding driven by target throughput (no manual folding config)
