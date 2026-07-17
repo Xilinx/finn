@@ -49,7 +49,7 @@ from finn.transformation.fpgadataflow.floorplan import Floorplan
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
-from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
+from finn.transformation.fpgadataflow.make_pynq_proj import PynqBuild
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.util.basic import pynq_part_map, vitis_default_platform, vitis_part_map
 from finn.util.test import load_test_checkpoint_or_skip
@@ -339,8 +339,8 @@ def test_fpgadataflow_ipstitch_zynqbuild_end2end(board):
         assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
         assert os.path.isfile(sdp_node.get_nodeattr("model"))
         model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))
-    # bitfile using ZynqBuild
-    model = model.transform(ZynqBuild(board, 10))
+    # bitfile using PynqBuild
+    model = model.transform(PynqBuild(board, 10))
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_customzynq.onnx")
 
     bitfile_name = model.get_metadata_prop("bitfile")

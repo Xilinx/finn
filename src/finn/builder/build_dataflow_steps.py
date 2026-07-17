@@ -82,6 +82,9 @@ from finn.transformation.fpgadataflow.alveo_build import (
     VitisLink,
 )
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
+from finn.transformation.fpgadataflow.assign_ddr_weight_offsets import (
+    AssignMemoryOffset,
+)
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
@@ -96,7 +99,7 @@ from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.loop_rolling import LoopExtraction, LoopRolling
 from finn.transformation.fpgadataflow.make_driver import MakeCPPDriver, MakePYNQDriver
-from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
+from finn.transformation.fpgadataflow.make_pynq_proj import PynqBuild
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
 )
@@ -132,7 +135,11 @@ from finn.transformation.qonnx.quant_act_to_multithreshold import (
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import get_liveness_threshold_cycles, get_rtlsim_trace_depth
+from finn.util.basic import (
+    get_liveness_threshold_cycles,
+    get_rtlsim_trace_depth,
+    is_versal,
+)
 from finn.util.config import (
     extract_model_config_consolidate_shuffles,
     extract_model_config_to_json,
@@ -183,6 +190,7 @@ def verify_step(
     step_name: str,
     need_parent: bool,
     rtlsim_pre_hook=None,
+    batched: bool = False,
 ):
     print("Running verification for " + step_name)
     verify_out_dir = cfg.output_dir + "/verification_output"
@@ -193,9 +201,14 @@ def verify_step(
     bsize_out = exp_out_npy_all.shape[0]
     assert bsize_in == bsize_out, "Batch sizes don't match for verification IO pair"
     all_res = True
-    for b in range(bsize_in):
-        in_npy = np.expand_dims(in_npy_all[b], axis=0)
-        exp_out_npy = np.expand_dims(exp_out_npy_all[b], axis=0)
+    if batched:
+        chunks = [(in_npy_all, exp_out_npy_all, 0)]
+    else:
+        chunks = [
+            (np.expand_dims(in_npy_all[b], axis=0), np.expand_dims(exp_out_npy_all[b], axis=0), b)
+            for b in range(bsize_in)
+        ]
+    for in_npy, exp_out_npy, index in chunks:
         if need_parent:
             assert cfg.save_intermediate_models, "Enable save_intermediate_models for verification"
             parent_model_fn = intermediate_models_dir + "/dataflow_parent.onnx"
@@ -203,27 +216,29 @@ def verify_step(
             model.save(child_model_fn)
             parent_model = ModelWrapper(parent_model_fn)
             out_tensor_name = parent_model.get_first_global_out()
-            exp_ishape = parent_model.get_tensor_shape(parent_model.get_first_global_in())
-            if in_npy.shape != exp_ishape:
+            exp_ishape = tuple(parent_model.get_tensor_shape(parent_model.get_first_global_in()))
+            target_ishape = (in_npy.shape[0],) + exp_ishape[1:]
+            if in_npy.shape != target_ishape:
                 print(
                     "Verification input has shape %s while model expects %s"
-                    % (str(in_npy.shape), str(exp_ishape))
+                    % (str(in_npy.shape), str(target_ishape))
                 )
                 print("Attempting to force model shape on verification input")
-                in_npy = in_npy.reshape(exp_ishape)
+                in_npy = in_npy.reshape(target_ishape)
             out_dict = execute_parent(parent_model_fn, child_model_fn, in_npy, return_full_ctx=True)
             out_npy = out_dict[out_tensor_name]
         else:
             inp_tensor_name = model.get_first_global_in()
             out_tensor_name = model.get_first_global_out()
-            exp_ishape = model.get_tensor_shape(inp_tensor_name)
-            if in_npy.shape != exp_ishape:
+            exp_ishape = tuple(model.get_tensor_shape(inp_tensor_name))
+            target_ishape = (in_npy.shape[0],) + exp_ishape[1:]
+            if in_npy.shape != target_ishape:
                 print(
                     "Verification input has shape %s while model expects %s"
-                    % (str(in_npy.shape), str(exp_ishape))
+                    % (str(in_npy.shape), str(target_ishape))
                 )
                 print("Attempting to force model shape on verification input")
-                in_npy = in_npy.reshape(exp_ishape)
+                in_npy = in_npy.reshape(target_ishape)
             inp_dict = {inp_tensor_name: in_npy}
             if rtlsim_pre_hook is not None:
                 rtlsim_exec(model, inp_dict, pre_hook=rtlsim_pre_hook)
@@ -251,7 +266,7 @@ def verify_step(
         if cfg.verify_save_full_context and (rtlsim_pre_hook is None):
             verification_output_fn = verify_out_dir + "/verify_%s_%d_%s.npz" % (
                 step_name,
-                b,
+                index,
                 res_str,
             )
             np.savez(verification_output_fn, **out_dict)
@@ -260,7 +275,7 @@ def verify_step(
                 print("Warning: Unable to save the full context when using MLO")
             verification_output_fn = verify_out_dir + "/verify_%s_%d_%s.npy" % (
                 step_name,
-                b,
+                index,
                 res_str,
             )
             np.save(verification_output_fn, out_npy)
@@ -269,7 +284,7 @@ def verify_step(
             # Handle model-level waveform (stitched IP rtlsim)
             wdb_path = model.get_metadata_prop("rtlsim_trace")
             if wdb_path is not None and os.path.isfile(wdb_path):
-                new_wdb_path = wdb_path.replace(".wdb", "_%d.wdb" % b)
+                new_wdb_path = wdb_path.replace(".wdb", "_%d.wdb" % index)
                 shutil.move(wdb_path, new_wdb_path)
             # Handle node-level waveforms (only for node-by-node rtlsim)
             if step_name == "node_by_node_rtlsim":
@@ -277,7 +292,7 @@ def verify_step(
                     node_inst = getCustomOp(node)
                     node_wdb_path = node_inst.get_nodeattr("rtlsim_trace")
                     if node_wdb_path is not None and os.path.isfile(node_wdb_path):
-                        new_node_wdb_path = node_wdb_path.replace(".wdb", "_%d.wdb" % b)
+                        new_node_wdb_path = node_wdb_path.replace(".wdb", "_%d.wdb" % index)
                         shutil.move(node_wdb_path, new_node_wdb_path)
 
     print("Verification for %s : %s" % (step_name, res_to_str[all_res]))
@@ -891,6 +906,8 @@ def step_hw_codegen(model: ModelWrapper, cfg: DataflowBuildConfig):
     And fills RTL templates for RTLBackend nodes."""
 
     model = model.transform(GiveUniqueNodeNames())
+    if cfg.mlo_weight_mem == "DDR":
+        model = model.transform(AssignMemoryOffset())
     loop_nodes = model.get_nodes_by_op_type("FINNLoop")
     for node in loop_nodes:
         prepare_loop_ops_fifo_sizing(node, cfg)
@@ -1121,7 +1138,14 @@ def verify_mlo(model: ModelWrapper, cfg: DataflowBuildConfig, step: str):
     finn_loop = model.get_nodes_by_op_type("FINNLoop")
     # TODO: allow for multiple FINNLoops
     mlo_prehook = mlo_prehook_func_factory(finn_loop[0])
-    verify_step(model, cfg, "stitched_ip_rtlsim", need_parent=False, rtlsim_pre_hook=mlo_prehook)
+    verify_step(
+        model,
+        cfg,
+        "stitched_ip_rtlsim",
+        need_parent=False,
+        rtlsim_pre_hook=mlo_prehook,
+        batched=True,
+    )
 
 
 def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
@@ -1321,16 +1345,18 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
         report_dir = cfg.output_dir + "/report"
         os.makedirs(report_dir, exist_ok=True)
         partition_model_dir = cfg.output_dir + "/intermediate_models/kernel_partitions"
-        if cfg.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
+        if cfg.shell_flow_type in (ShellFlowType.VIVADO_ZYNQ, ShellFlowType.VIVADO_VERSAL):
+            versal = is_versal(cfg._resolve_fpga_part())
             model = model.transform(
-                ZynqBuild(
+                PynqBuild(
                     cfg.board,
                     cfg.synth_clk_period_ns,
                     cfg.enable_hw_debug,
                     partition_model_dir=partition_model_dir,
                 )
             )
-            copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel.bit")
+            accel_ext = "pdi" if versal else "bit"
+            copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel." + accel_ext)
             copy(model.get_metadata_prop("hw_handoff"), bitfile_dir + "/finn-accel.hwh")
             copy(
                 model.get_metadata_prop("vivado_synth_rpt"),
@@ -1341,12 +1367,10 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
             with open(report_dir + "/post_synth_resources.json", "w") as f:
                 json.dump(post_synth_resources, f, indent=2)
 
-            vivado_pynq_proj_dir = model.get_metadata_prop("vivado_pynq_proj")
-            timing_rpt = (
-                "%s/finn_zynq_link.runs/impl_1/top_wrapper_timing_summary_routed.rpt"
-                % vivado_pynq_proj_dir
+            copy(
+                model.get_metadata_prop("vivado_timing_rpt"),
+                report_dir + "/post_route_timing.rpt",
             )
-            copy(timing_rpt, report_dir + "/post_route_timing.rpt")
 
         elif cfg.shell_flow_type == ShellFlowType.VITIS_ALVEO:
             model = model.transform(
@@ -1386,6 +1410,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                 post_synth_resources = model.analysis(post_synth_res)
                 with open(report_dir + "/post_synth_resources.json", "w") as f:
                     json.dump(post_synth_resources, f, indent=2)
+
         else:
             raise Exception("Unrecognized shell_flow_type: " + str(cfg.shell_flow_type))
         print("Bitfile written into " + bitfile_dir)

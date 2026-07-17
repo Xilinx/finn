@@ -495,7 +495,9 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, pumpe
         model = model.transform(HLSSynthIP())
         model = model.transform(CreateStitchedIP(part, 5))
         model.set_metadata_prop("exec_mode", "rtlsim")
-        y_produced_stitch = oxe.execute_onnx(model, input_dict)["outp"]
+        y_produced_stitch = oxe.execute_onnx(model, {model.get_first_global_in(): x})[
+            model.get_first_global_out()
+        ]
         assert (
             y_produced_stitch.reshape(y_expected.shape) == y_expected
         ).all(), "stitched-IP rtlsim failed"

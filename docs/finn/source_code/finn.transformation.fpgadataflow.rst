@@ -163,10 +163,10 @@ finn.transformation.fpgadataflow.make\_pynq\_driver
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.fpgadataflow.make\_zynq\_proj
+finn.transformation.fpgadataflow.make\_pynq\_proj
 ----------------------------------------------------------
 
-.. automodule:: finn.transformation.fpgadataflow.make_zynq_proj
+.. automodule:: finn.transformation.fpgadataflow.make_pynq_proj
   :members:
   :undoc-members:
   :show-inheritance:

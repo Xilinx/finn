@@ -42,7 +42,7 @@ from qonnx.custom_op.registry import getCustomOp
 
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.alveo_build import VitisLink, VitisOptStrategy
-from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
+from finn.transformation.fpgadataflow.make_pynq_proj import PynqBuild
 from finn.util.basic import pynq_part_map, vitis_default_platform, vitis_part_map
 
 # map of (wbits,abits) -> model
@@ -113,7 +113,7 @@ def get_build_env(board, target_clk_ns):
     if board in pynq_part_map:
         ret["toolchain"] = "pynq"
         ret["part"] = pynq_part_map[board]
-        ret["build_fxn"] = ZynqBuild(board, target_clk_ns)
+        ret["build_fxn"] = PynqBuild(board, target_clk_ns)
     elif board in vitis_part_map:
         ret["toolchain"] = "vitis-xrt"
         ret["part"] = vitis_part_map[board]

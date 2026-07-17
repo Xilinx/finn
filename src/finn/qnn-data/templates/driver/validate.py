@@ -83,7 +83,7 @@ if __name__ == "__main__":
         platform=platform,
         io_shape_dict=io_shape_dict,
         batch_size=bsize,
-        runtime_weight_dir="runtime_weights/",
+        weight_dir="weights/",
     )
 
     n_batches = int(total / bsize)

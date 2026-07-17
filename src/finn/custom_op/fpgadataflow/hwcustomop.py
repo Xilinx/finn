@@ -31,7 +31,7 @@ import os
 import warnings
 from abc import abstractmethod
 from qonnx.custom_op.base import CustomOp
-from qonnx.util.basic import roundup_to_integer_multiple
+from qonnx.util.basic import get_by_name, roundup_to_integer_multiple
 
 from finn import xsi
 from finn.util.basic import get_liveness_threshold_cycles, is_versal
@@ -98,6 +98,7 @@ class HWCustomOp(CustomOp):
             "io_chrc_pads_in": ("ints", False, []),
             "io_chrc_pads_out": ("ints", False, []),
             "mlo_max_iter": ("i", False, 0),
+            "address_offset": ("i", False, 0),
         }
 
     def make_shape_compatible_op(self, model):
@@ -412,6 +413,7 @@ class HWCustomOp(CustomOp):
                 "$WSIMD$": [str(wsimd)],
                 "$EN_MLO$": [en_mlo],
                 "$DWC_MODULE_NAME$": [mname + "_dwc"],
+                "$ADDRESS_OFFSET$": [str(self.get_nodeattr("address_offset"))],
             }
             # apply code generation to template
             with open(template_path, "r") as f:
@@ -420,6 +422,10 @@ class HWCustomOp(CustomOp):
                 # transform list into long string separated by '\n'
                 code_gen_line = "\n".join(value)
                 template_wrapper = template_wrapper.replace(key, code_gen_line)
+            # DDR exposes a runtime base_address port; HBM leaves the macro undefined
+            # so the port is dropped and the streamer reads from address 0.
+            if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
+                template_wrapper = "`define HAS_BASE_ADDRESS\n" + template_wrapper
             with open(
                 os.path.join(code_gen_dir, mname + "_fetch_weights_wrapper.v"),
                 "w",

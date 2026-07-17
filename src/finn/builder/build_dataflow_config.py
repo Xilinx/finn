@@ -50,6 +50,7 @@ class ShellFlowType(str, Enum):
     the FINN-generated accelerator."""
 
     VIVADO_ZYNQ = "vivado_zynq"
+    VIVADO_VERSAL = "vivado_versal"
     VITIS_ALVEO = "vitis_alveo"
     SLASH_ALVEO = "slash_alveo"
 
@@ -404,6 +405,9 @@ class DataflowBuildConfig:
     #: loop_body_hierarchy and loop_body_range
     mlo: Optional[bool] = False
 
+    # DDR or HBM
+    mlo_weight_mem: Optional[str] = "HBM"
+
     #: A List of strings that specify the PyTorch metadata hierarchy to
     #: be used for the loop body hierarchy. Each item in the list should
     #: be a string that represents a level in the hierarchy.
@@ -434,6 +438,8 @@ class DataflowBuildConfig:
     def _resolve_driver_platform(self):
         if self.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
             return "zynq-iodma"
+        elif self.shell_flow_type == ShellFlowType.VIVADO_VERSAL:
+            return "zynq-iodma"  # FINE for now, change later
         elif self.shell_flow_type == ShellFlowType.VITIS_ALVEO:
             return "vitis-xrt"
         elif self.shell_flow_type == ShellFlowType.SLASH_ALVEO:

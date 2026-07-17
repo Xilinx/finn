@@ -31,6 +31,7 @@
  *****************************************************************************/
 
 module intermediate_frames #(
+    int unsigned                    ELEM_BITS,
     int unsigned                    ILEN_BITS,
     int unsigned                    OLEN_BITS,
 
@@ -45,7 +46,9 @@ module intermediate_frames #(
 
     int unsigned                    QDEPTH = 8,
     int unsigned                    N_DCPL_STGS = 1,
-    int unsigned                    DBG = 0
+    int unsigned                    DBG = 0,
+
+    logic[ADDR_BITS-1:0]            ADDRESS_OFFSET = 0
 ) (
     input  logic                        aclk,
     input  logic                        aresetn,
@@ -103,7 +106,10 @@ module intermediate_frames #(
 
     output logic [ILEN_BITS-1:0]        m_axis_tdata,
     output logic                        m_axis_tvalid,
-    input  logic                        m_axis_tready
+    input  logic                        m_axis_tready,
+
+    // Base Address
+    input  logic [ADDR_BITS-1:0]        base_address
 );
 
 // Offsets
@@ -113,7 +119,13 @@ for(genvar i = 0; i < N_OUTSTANDING_DMAS; i++) begin
 end
 localparam integer N_OUTSTANDING_DMAS_BITS = $clog2(N_OUTSTANDING_DMAS);
 
-localparam integer FM_BEATS_IN = FM_SIZE/(OLEN_BITS/8);
+localparam integer EBYTES       = (ELEM_BITS + 7)/8;
+localparam integer OELEM        = OLEN_BITS / ELEM_BITS;
+localparam integer IELEM        = ILEN_BITS / ELEM_BITS;
+localparam integer OLEN_BITS_BA = OELEM * EBYTES * 8;
+localparam integer ILEN_BITS_BA = IELEM * EBYTES * 8;
+
+localparam integer FM_BEATS_IN = FM_SIZE/(OLEN_BITS_BA/8);
 localparam integer FM_BEATS_IN_BITS = (FM_BEATS_IN == 1) ? 1 : $clog2(FM_BEATS_IN);
 
 //
@@ -197,7 +209,7 @@ always_comb begin: DP_WR
     m_idx_tdata = idx_in_tdata + 1;
 
     s0_dma_in_tvalid = 1'b0;
-    s0_dma_in_tdata = l_offsets[wr_ptr_C];
+    s0_dma_in_tdata = base_address + ADDRESS_OFFSET + l_offsets[wr_ptr_C];
     wr_sent = 1'b0;
 
     case (state_wr_C)
@@ -292,7 +304,7 @@ always_comb begin: DP_RD
 
     rd_start = 1'b0;
     s1_dma_in_tvalid = 1'b0;
-    s1_dma_in_tdata = l_offsets[rd_ptr_C];
+    s1_dma_in_tdata = base_address + ADDRESS_OFFSET + l_offsets[rd_ptr_C];
 
     case (state_rd_C)
         ST_RD_IDLE: begin
@@ -401,6 +413,25 @@ logic [OLEN_BITS-1:0] s_axis_int_tdata;
 logic m_axis_int_tvalid, m_axis_int_tready;
 logic [ILEN_BITS-1:0] m_axis_int_tdata;
 
+logic s_axis_ba_tvalid, s_axis_ba_tready;
+logic [OLEN_BITS_BA-1:0] s_axis_ba_tdata;
+logic m_axis_ba_tvalid, m_axis_ba_tready;
+logic [ILEN_BITS_BA-1:0] m_axis_ba_tdata;
+
+assign s_axis_ba_tvalid  = s_axis_int_tvalid;
+assign s_axis_int_tready = s_axis_ba_tready;
+for(genvar e = 0; e < OELEM; e++) begin : gen_wr_byte_align
+    assign s_axis_ba_tdata[e*EBYTES*8 +: EBYTES*8] =
+        { {(EBYTES*8-ELEM_BITS){1'b0}}, s_axis_int_tdata[e*ELEM_BITS +: ELEM_BITS] };
+end
+
+assign m_axis_int_tvalid = m_axis_ba_tvalid;
+assign m_axis_ba_tready  = m_axis_int_tready;
+for(genvar e = 0; e < IELEM; e++) begin : gen_rd_byte_align
+    assign m_axis_int_tdata[e*ELEM_BITS +: ELEM_BITS] =
+        m_axis_ba_tdata[e*EBYTES*8 +: ELEM_BITS];
+end
+
 logic [FM_BEATS_IN_BITS-1:0] cnt_dwc_C = '0;
 always_ff @(posedge aclk) begin
     if(~aresetn) cnt_dwc_C <= '0;
@@ -410,18 +441,19 @@ end
 logic last_dwc_in;
 assign last_dwc_in = (cnt_dwc_C == FM_BEATS_IN-1);
 
-// DWC write: OLEN_BITS -> DATA_BITS (body output -> DMA)
+
+// DWC write: OLEN_BITS_BA -> DATA_BITS (byte-aligned body output -> DMA)
 if_dwc_sink inst_dwc_wr (
     .aclk(aclk), .aresetn(aresetn),
-    .s_axis_tvalid(s_axis_int_tvalid), .s_axis_tready(s_axis_int_tready), .s_axis_tdata(s_axis_int_tdata), .s_axis_tkeep({(OLEN_BITS/8){1'b1}}), .s_axis_tlast(last_dwc_in),
+    .s_axis_tvalid(s_axis_ba_tvalid), .s_axis_tready(s_axis_ba_tready), .s_axis_tdata(s_axis_ba_tdata), .s_axis_tkeep({(OLEN_BITS_BA/8){1'b1}}), .s_axis_tlast(last_dwc_in),
     .m_axis_tvalid(axis_dma_wr_tvalid), .m_axis_tready(axis_dma_wr_tready), .m_axis_tdata(axis_dma_wr_tdata), .m_axis_tkeep(axis_dma_wr_tkeep), .m_axis_tlast(axis_dma_wr_tlast)
 );
 
-// DWC read: DATA_BITS -> ILEN_BITS (DMA -> body input)
+// DWC read: DATA_BITS -> ILEN_BITS_BA (DMA -> byte-aligned body input)
 if_dwc_source inst_dwc_rd (
     .aclk(aclk), .aresetn(aresetn),
     .s_axis_tvalid(axis_dma_rd_tvalid), .s_axis_tready(axis_dma_rd_tready), .s_axis_tdata(axis_dma_rd_tdata), .s_axis_tkeep(axis_dma_rd_tkeep), .s_axis_tlast(axis_dma_rd_tlast),
-    .m_axis_tvalid(m_axis_int_tvalid), .m_axis_tready(m_axis_int_tready), .m_axis_tdata(m_axis_int_tdata), .m_axis_tkeep(), .m_axis_tlast()
+    .m_axis_tvalid(m_axis_ba_tvalid), .m_axis_tready(m_axis_ba_tready), .m_axis_tdata(m_axis_ba_tdata), .m_axis_tkeep(), .m_axis_tlast()
 );
 
 // REG
