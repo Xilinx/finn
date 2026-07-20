@@ -104,9 +104,9 @@ def detect_hls_rtl_dsp_conflict(model, check_subgraphs=True):
         "LayerNorm_rtl",
     }
 
-    # HLS ops that always use floating-point operations (via hls_math.h)
+    # HLS ops that trigger DSP conflict with RTL LayerNorm (via hls_math.h)
+    # Note: HWSoftmax_hls does NOT trigger the conflict despite using FP ops
     HLS_FP_OPS = {
-        "HWSoftmax_hls",
         "LayerNorm_hls",
         "Requant_hls",
     }
