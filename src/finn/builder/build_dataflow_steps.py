@@ -82,6 +82,9 @@ from finn.analysis.fpgadataflow.res_estimation import (
     res_estimation,
     res_estimation_complete,
 )
+from finn.analysis.fpgadataflow.validate_dataflow_conversion import (
+    validate_dataflow_conversion,
+)
 from finn.builder.build_dataflow_config import (
     DataflowBuildConfig,
     DataflowOutputType,
@@ -419,7 +422,11 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     layers. Which nodes and particular configurations can be converted to HW
     is limited, see the source code of the `convert_to_hw` module for more.
     In the end an empty json file is created which can be used to set user specific
-    preferred implementation styles for each node."""
+    preferred implementation styles for each node.
+
+    Finally, the conversion result is validated: all layers must be fpgadataflow
+    layers or form a contiguous dataflow block, otherwise an AssertionError is
+    raised naming the unconverted nodes."""
 
     # Helper function to conditionally apply transformation
     def apply_if_relevant(model, op_types, transform, desc=""):
@@ -583,6 +590,16 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
             to_hw.InferShuffle(_filter=lambda *_: True),
             "shuffle/transpose layers",
         )
+
+    # Validate that conversion succeeded: all layers must be fpgadataflow layers
+    # or form a contiguous dataflow block. This runs here (rather than later) so a
+    # failed conversion is reported clearly, before step_create_dataflow_partition
+    # (which assumes a single clean dataflow block) fails less obviously.
+    validation_result = model.analysis(validate_dataflow_conversion)
+    print(validation_result["message"])
+    if not validation_result["valid"]:
+        raise AssertionError(validation_result["message"])
+
     return model
 
 
