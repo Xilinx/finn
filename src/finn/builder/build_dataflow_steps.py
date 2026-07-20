@@ -938,31 +938,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     `ApplyConfig(cfg.folding_config_file)`, and finally `RemoveShallowFIFOs`.
     Coherency with config file node naming is ensured by calling
     `GiveUniqueNodeNames`.
-
-    The rtlsim-based FIFO sizing strategies synthesize IP and run rtlsim, which
-    requires Vivado. FIFO depths only affect synthesized hardware, so this step
-    is skipped when the build only produces analytical estimate reports (no
-    output other than ESTIMATE_REPORTS requested) *and* the configured sizing
-    strategy needs synthesis. This keeps the estimate-only flow fast and
-    synthesis-free.
     """
-
-    only_estimates = all(out == DataflowOutputType.ESTIMATE_REPORTS for out in cfg.generate_outputs)
-    # rtlsim-based strategies (and the folding-config path) synthesize IP; only
-    # these need to be skipped for an estimate-only build.
-    rtlsim_fifo_strategies = ("characterize", "largefifo_rtlsim")
-    sizing_needs_synthesis = (
-        not cfg.auto_fifo_depths
-        or cfg.auto_fifo_strategy in rtlsim_fifo_strategies
-        or is_mlo(model)
-    )
-    if only_estimates and sizing_needs_synthesis:
-        print(
-            "Skipping step_set_fifo_depths: only estimate reports requested and "
-            "the configured FIFO sizing strategy requires synthesis (rtlsim). "
-            "FIFO sizing is not needed for an estimate-only build."
-        )
-        return model
 
     if cfg.auto_fifo_depths:
         strategy = cfg.auto_fifo_strategy

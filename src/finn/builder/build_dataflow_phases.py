@@ -19,7 +19,7 @@ import os
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 
-from finn.builder.build_dataflow_config import DataflowBuildConfig
+from finn.builder.build_dataflow_config import DataflowBuildConfig, DataflowOutputType
 from finn.builder.build_dataflow_steps import (
     step_apply_folding_config,
     step_convert_to_hw,
@@ -184,12 +184,18 @@ def phase_optimize_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     - step_apply_folding_config: Apply folding configuration (if config provided)
     - step_minimize_bit_width: Minimize weight/accumulator bit widths (if enabled)
     - step_transpose_decomposition: Decompose Shuffle nodes
-    - step_set_fifo_depths: FIFO sizing (skipped for MLO, handled in phase_build_hardware)
+    - step_set_fifo_depths: FIFO sizing (see placement rules below)
     - step_generate_estimate_reports: Generate analytical estimates (if requested)
 
-    For MLO models, FIFO sizing is deferred to phase_build_hardware because the
-    characterize strategy requires FINNLoop nodes to have stitched IP, which
-    depends on loop body FIFO sizing and IP generation happening first.
+    Whether FIFO sizing runs here is an orchestration decision owned by the phase
+    (the step itself just sizes FIFOs):
+    - For MLO models it is deferred to phase_build_hardware, because the
+      characterize strategy requires FINNLoop nodes to have stitched IP, which
+      depends on loop body FIFO sizing and IP generation happening first.
+    - For estimate-only builds whose configured sizing strategy needs synthesis it
+      is skipped, so the estimate flow stays fast and synthesis-free. A future
+      analytical (non-synthesis) sizing strategy would still run and feed the
+      estimate reports.
 
     Args:
         model: Input ModelWrapper
@@ -202,9 +208,30 @@ def phase_optimize_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = _execute_step(step_apply_folding_config, model, cfg)
     model = _execute_step(step_minimize_bit_width, model, cfg)
     model = _execute_step(step_transpose_decomposition, model, cfg)
-    # Skip FIFO sizing for MLO - handled in phase_build_hardware after loop body IPs are ready
-    if not is_mlo(model):
-        model = _execute_step(step_set_fifo_depths, model, cfg)
+    if is_mlo(model):
+        # deferred to phase_build_hardware (needs loop body IPs first)
+        pass
+    else:
+        # FIFO depths only affect synthesized hardware, so skip sizing for an
+        # estimate-only build whose sizing strategy needs synthesis (the rtlsim-based
+        # auto strategies or the folding-config path). This keeps the estimate flow
+        # fast and synthesis-free. A future analytical (non-synthesis) strategy would
+        # not be skipped, so it could still feed FIFO resources into the estimates.
+        only_estimates = all(
+            out == DataflowOutputType.ESTIMATE_REPORTS for out in cfg.generate_outputs
+        )
+        sizing_needs_synthesis = not cfg.auto_fifo_depths or cfg.auto_fifo_strategy in (
+            "characterize",
+            "largefifo_rtlsim",
+        )
+        if only_estimates and sizing_needs_synthesis:
+            print(
+                "Skipping step_set_fifo_depths: only estimate reports requested and "
+                "the configured FIFO sizing strategy requires synthesis. FIFO sizing "
+                "is not needed for an estimate-only build."
+            )
+        else:
+            model = _execute_step(step_set_fifo_depths, model, cfg)
     model = _execute_step(step_generate_estimate_reports, model, cfg)
     return model
 

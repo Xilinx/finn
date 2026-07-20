@@ -12,12 +12,9 @@ streamlining), which run on CPU only, so the test needs no Vivado/synthesis.
 import pytest
 
 import os
-from onnx import TensorProto, helper
-from qonnx.core.modelwrapper import ModelWrapper
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
-from finn.builder.build_dataflow_steps import step_set_fifo_depths
 from finn.util.basic import make_build_dir
 
 # module-level log that injected steps append to, so the test can assert the
@@ -123,30 +120,28 @@ def test_build_dataflow_no_injection_is_noop():
     assert injected == []
 
 
-def _trivial_model():
-    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, 4])
-    out = helper.make_tensor_value_info("out", TensorProto.FLOAT, [1, 4])
-    node = helper.make_node("Relu", ["inp"], ["out"])
-    graph = helper.make_graph([node], "test", [inp], [out])
-    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 11)])
-    return ModelWrapper(model)
-
-
 @pytest.mark.util
-def test_step_set_fifo_depths_skipped_for_estimate_only():
+def test_estimate_only_flow_skips_fifo_sizing():
     """FIFO sizing uses an rtlsim-based strategy by default, which needs Vivado.
-    For an estimate-only build (only ESTIMATE_REPORTS requested) it must be
-    skipped and return the model untouched, so the flow stays synthesis-free."""
+    ``phase_optimize_hardware`` owns the decision to skip it for an estimate-only
+    build (only ESTIMATE_REPORTS requested), keeping the estimate flow
+    synthesis-free. Running the predefined estimate-only flow must therefore
+    produce estimate reports but no ``final_hw_config.json`` (which
+    step_set_fifo_depths is the only step to write)."""
     output_dir = make_build_dir("test_fifo_skip_")
-    model = _trivial_model()
+    model_file = os.environ["FINN_ROOT"] + "/src/finn/qnn-data/build_dataflow/model.onnx"
+
     cfg = build.DataflowBuildConfig(
         output_dir=output_dir,
         synth_clk_period_ns=10.0,
         fpga_part="xc7z020clg400-1",
+        steps=build_cfg.estimate_only_dataflow_steps,
         generate_outputs=[build_cfg.DataflowOutputType.ESTIMATE_REPORTS],
     )
-    # default auto_fifo_strategy is rtlsim-based, so the step should skip and
-    # return the exact same model object without running any synthesis
-    out = step_set_fifo_depths(model, cfg)
-    assert out is model
+    ret = build.build_dataflow_cfg(model_file, cfg)
+    assert ret == 0, "estimate-only build failed"
+
+    # estimate reports are produced ...
+    assert os.path.isfile(output_dir + "/report/estimate_network_performance.json")
+    # ... but FIFO sizing was skipped, so no synthesis-only artifact exists
     assert not os.path.isfile(output_dir + "/final_hw_config.json")
