@@ -94,9 +94,7 @@ def test_fifosizing_linear(method, topology):
         * 1.0e9
         / (cfg.synth_clk_period_ns * sim_data["steady_state_cycles"])
     )
-    assert sim_data["stable_throughput[images/s]"] == pytest.approx(
-        expected_stable_throughput
-    )
+    assert sim_data["stable_throughput[images/s]"] == pytest.approx(expected_stable_throughput)
     assert (
         float(sim_data["stable_throughput[images/s]"]) / float(est_data["estimated_throughput_fps"])
         > 0.9

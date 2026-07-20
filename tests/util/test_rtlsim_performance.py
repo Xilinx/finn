@@ -52,9 +52,7 @@ def test_rtlsim_performance_uses_completed_frame_span():
     assert result["interval_is_steady_state"] is True
     assert result["fps_from_interval"] == pytest.approx(1.0e9 / (10.0 * 110))
     assert result["stable_throughput_valid"] is True
-    assert result["stable_throughput[images/s]"] == pytest.approx(
-        2.0e9 / (10.0 * 230)
-    )
+    assert result["stable_throughput[images/s]"] == pytest.approx(2.0e9 / (10.0 * 230))
 
 
 def test_rtlsim_performance_corrects_legacy_multi_frame_numerator():
