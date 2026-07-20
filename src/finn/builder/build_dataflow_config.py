@@ -404,12 +404,18 @@ class DataflowBuildConfig:
 
     #: Inject custom steps after named steps/phases.
     #: Dict mapping step/phase names to list of callable functions to run after that step.
-    #: Example: inject_steps_after={"phase_optimize_model": [my_custom_verification]}
+    #: Works at both granularities: keys can be a phase name (e.g. "phase_optimize_model")
+    #: or an internal step name (e.g. "step_tidy_up"), and the two can be mixed.
+    #: Example (phase): inject_steps_after={"phase_optimize_model": [my_custom_verification]}
+    #: Example (step):  inject_steps_after={"step_tidy_up": [my_custom_verification]}
     inject_steps_after: Dict[str, List[Callable]] = field(default_factory=dict)
 
     #: Inject custom steps before named steps/phases.
     #: Dict mapping step/phase names to list of callable functions to run before that step.
-    #: Example: inject_steps_before={"phase_build_hardware": [my_custom_analysis]}
+    #: Works at both granularities: keys can be a phase name (e.g. "phase_build_hardware")
+    #: or an internal step name (e.g. "step_convert_to_hw"), and the two can be mixed.
+    #: Example (phase): inject_steps_before={"phase_build_hardware": [my_custom_analysis]}
+    #: Example (step):  inject_steps_before={"step_convert_to_hw": [my_custom_analysis]}
     inject_steps_before: Dict[str, List[Callable]] = field(default_factory=dict)
 
     def _resolve_hls_clk_period(self):
