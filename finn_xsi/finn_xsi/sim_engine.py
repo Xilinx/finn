@@ -208,17 +208,28 @@ class SimEngine:
 
         self.enlist(InputStreamer(self, istream, values, throttle))
 
-    def collect_output(self, ostream, size, watchdog=None):
-        "Collect size outputs from the specified stream into the returned iterable buffer."
+    def collect_output(self, ostream, size, watchdog=None, frame_size=None):
+        """Collect output transactions and optionally record frame completions.
+
+        ``frame_size`` is the number of transactions in one output frame. When
+        provided, the returned collector exposes ``completion_ticks`` containing
+        the simulation tick at which each complete frame was accepted.
+        """
+
+        if frame_size is not None:
+            assert frame_size > 0, "Output frame size must be greater than zero"
+            assert size % frame_size == 0, "Output transaction count must contain whole frames"
 
         class OutputCollector:
-            def __init__(self, top, ostream, size, watchdog):
+            def __init__(self, top, ostream, size, watchdog, frame_size):
                 self.size = size
                 self.vld = top.get_bus_port(ostream, "tvalid")
                 self.rdy = top.get_bus_port(ostream, "tready")
                 self.dat = top.get_bus_port(ostream, "tdata")
                 self.buf = []
                 self.watchdog = watchdog
+                self.frame_size = frame_size
+                self.completion_ticks = []
 
             def __iter__(self):
                 return iter(self.buf)
@@ -231,6 +242,8 @@ class SimEngine:
                             self.watchdog.reset()
                         val = self.dat.read().as_hexstr()
                         self.buf.append(val)
+                        if self.frame_size is not None and len(self.buf) % self.frame_size == 0:
+                            self.completion_ticks.append(sim.ticks)
                         if len(self.buf) == size:
                             return {self.rdy: "0"}
                     return {}
@@ -239,7 +252,7 @@ class SimEngine:
                     return {self.rdy: "1"}
                 return None
 
-        ret = OutputCollector(self, ostream, size, watchdog)
+        ret = OutputCollector(self, ostream, size, watchdog, frame_size)
         self.enlist(ret)
         return ret
 

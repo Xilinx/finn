@@ -17,6 +17,7 @@ from finn_xsi.srcutil import order_pkg_first
 from typing import Optional
 
 from finn.util.basic import launch_process_helper, resolve_xilinx_tool
+from finn.util.rtlsim_performance import summarize_output_frame_completions
 
 
 def locate_glbl() -> Optional[str]:
@@ -166,6 +167,7 @@ def rtlsim_multi_io(
     num_out_values,
     sname="_V_V",
     liveness_threshold=10000,
+    output_frame_sizes=None,
 ):
     if len(io_dict["outputs"]) > 1:
         assert isinstance(
@@ -176,6 +178,13 @@ def rtlsim_multi_io(
         # outputs from the single output stream) - make into dict
         oname = list(io_dict["outputs"].keys())[0]
         num_out_values = {oname: num_out_values}
+
+    if output_frame_sizes is not None and not isinstance(output_frame_sizes, dict):
+        assert (
+            len(io_dict["outputs"]) == 1
+        ), "Output frame sizes must be a dict for multiple outputs"
+        oname = list(io_dict["outputs"].keys())[0]
+        output_frame_sizes = {oname: output_frame_sizes}
 
     # FINN XSI expects hex strings, while rtlsim_multi_io uses
     # lists of arbitrary-precision integers, so need to convert
@@ -191,10 +200,12 @@ def rtlsim_multi_io(
     hex_output_streams = {}
     for out in io_dict["outputs"]:
         stream_name = out + sname
+        frame_size = None if output_frame_sizes is None else output_frame_sizes[out]
         hex_output_streams[out] = sim.collect_output(
             stream_name,
             num_out_values[out],
             watchdog=sim.create_watchdog(f"{stream_name} timeout", liveness_threshold),
+            frame_size=frame_size,
         )
 
     start_ticks = sim.ticks
@@ -204,5 +215,12 @@ def rtlsim_multi_io(
     end_ticks = sim.ticks
     for out in io_dict["outputs"]:
         io_dict["outputs"][out] = list(map(lambda var: int(var, base=16), hex_output_streams[out]))
+
+    if output_frame_sizes is not None:
+        completion_cycles = {
+            out: [int(tick - start_ticks) for tick in collector.completion_ticks]
+            for out, collector in hex_output_streams.items()
+        }
+        return summarize_output_frame_completions(completion_cycles, end_ticks - start_ticks)
 
     return end_ticks - start_ticks

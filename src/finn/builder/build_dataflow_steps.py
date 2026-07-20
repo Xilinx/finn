@@ -93,6 +93,7 @@ from finn.builder.build_dataflow_config import (
 )
 from finn.core.onnx_exec import execute_onnx
 from finn.core.rtlsim_exec import rtlsim_exec
+from finn.core.throughput_test import throughput_test_rtlsim
 from finn.transformation.fpgadataflow.absorb_into_requant import (
     AbsorbElementwiseOpsIntoRequant,
 )
@@ -1177,7 +1178,68 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
     Depends on the DataflowOutputType.STITCHED_IP output product.
     """
 
-    if DataflowOutputType.RTLSIM_PERFORMANCE in cfg.generate_outputs and not is_mlo(model):
+    if DataflowOutputType.RTLSIM_PERFORMANCE not in cfg.generate_outputs:
+        print(
+            """DataflowOutputType.RTLSIM_PERFORMANCE not in requested outputs,
+            skipping step_measure_rtlsim_performance."""
+        )
+        return model
+
+    if is_mlo(model):
+        assert (
+            DataflowOutputType.STITCHED_IP in cfg.generate_outputs
+        ), "rtlsim_perf needs stitched IP"
+        report_dir = cfg.output_dir + "/report"
+        os.makedirs(report_dir, exist_ok=True)
+        rtlsim_bs = int(cfg.rtlsim_batch_size)
+        if rtlsim_bs < 2:
+            print(
+                "MLO steady-state throughput requires at least two frames; "
+                "using rtlsim batch size 2."
+            )
+            rtlsim_bs = 2
+
+        rtlsim_model = deepcopy(model)
+        rtlsim_model = prepare_for_stitched_ip_rtlsim(rtlsim_model, cfg)
+        if cfg.verify_save_rtlsim_waveforms:
+            rtlsim_model.set_metadata_prop(
+                "rtlsim_trace",
+                "%s/rtlsim_perf_batch_%d.wdb" % (os.path.abspath(report_dir), rtlsim_bs),
+            )
+
+        rtlsim_model = rtlsim_model.transform(AnnotateCycles())
+        perf = rtlsim_model.analysis(dataflow_performance)
+        liveness_cycles = int(perf["critical_path_cycles"] * 1.1 + 50)
+        prev_liveness = get_liveness_threshold_cycles()
+        loop_nodes = rtlsim_model.get_nodes_by_op_type("FINNLoop")
+        assert len(loop_nodes) == 1, "MLO RTLSIM performance currently supports one FINNLoop"
+        mlo_prehook = mlo_prehook_func_factory(loop_nodes[0])
+        os.environ["LIVENESS_THRESHOLD"] = str(liveness_cycles)
+        try:
+            rtlsim_perf_dict = throughput_test_rtlsim(
+                rtlsim_model,
+                cfg.synth_clk_period_ns,
+                batchsize=rtlsim_bs,
+                pre_hook=mlo_prehook,
+                collect_performance=True,
+            )
+        finally:
+            os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
+
+        rtlsim_perf_dict["measurement_scope"] = "stitched_mlo"
+        rtlsim_perf_dict["external_memory_model"] = "ideal_axi_mm"
+        rtlsim_perf_dict["external_memory_model_is_ideal"] = True
+        rtlsim_perf_dict["performance_interpretation"] = "ideal_memory_upper_bound"
+        rtlsim_perf_dict["io_bandwidth_scope"] = "top_level_axi_stream_only"
+        rtlsim_perf_dict["external_memory_model_notes"] = (
+            "AXI-MM accepts addresses without backpressure and returns up to one beat per "
+            "cycle per independent interface; platform memory latency, arbitration, "
+            "contention and refresh are not modeled."
+        )
+        with open(report_dir + "/rtlsim_performance.json", "w") as f:
+            json.dump(rtlsim_perf_dict, f, indent=2)
+
+    else:
         assert (
             DataflowOutputType.STITCHED_IP in cfg.generate_outputs
         ), "rtlsim_perf needs stitched IP"
@@ -1232,12 +1294,6 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
         if cfg.verify_save_rtlsim_waveforms:
             # restore original trace depth
             os.environ["RTLSIM_TRACE_DEPTH"] = str(orig_rtlsim_trace_depth)
-
-    else:
-        print(
-            """DataflowOutputType.RTLSIM_PERFORMANCE not in requested outputs or model is MLO,
-            skipping step_measure_rtlsim_performance."""
-        )
 
     return model
 
