@@ -115,9 +115,7 @@ class SimEngine:
             # Execute Cycle
             self.ticks += 1
             if self.ticks % 10000 == 0:
-                status = "  ".join(
-                    f"{w.name}: {w.ticks}/{w.timeout}" for w in self.watchdogs
-                )
+                status = "  ".join(f"{w.name}: {w.ticks}/{w.timeout}" for w in self.watchdogs)
                 print(f"Cycle {self.ticks}  {status}" if status else f"Cycle {self.ticks}")
             strong = False
             for task in self.tasks:
