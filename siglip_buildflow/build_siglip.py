@@ -70,9 +70,24 @@ NodeRef = namedtuple("NodeRef", ["name"])
 LOOP_BODY_RANGE = (NodeRef("DuplicateStreams_hls_0"), NodeRef("ElementwiseAdd_rtl_9"))
 
 
-def select_build_steps():
-    """Ordered step pipeline (BERT-shaped, SigLIP-adapted, up to stitched IP)."""
-    return [
+# Prebuilt loop-body folding configs (see gen_folding_configs.py). Each targets a
+# fraction of the VC1902 DSP budget (~25/50/75%) with the loop body balanced for
+# equal per-node cycles. Selected via --folding; replaces target_fps autofolding.
+FOLDING_CONFIGS = {
+    "small": os.path.join(HERE, "configs", "folding_small.json"),
+    "med": os.path.join(HERE, "configs", "folding_med.json"),
+    "large": os.path.join(HERE, "configs", "folding_large.json"),
+}
+
+
+def select_build_steps(use_manual_folding=False):
+    """Ordered step pipeline (BERT-shaped, SigLIP-adapted, up to stitched IP).
+
+    When ``use_manual_folding`` is True, ``step_target_fps_parallelization`` is
+    dropped: folding comes entirely from the prebuilt config applied by
+    ``step_apply_folding_config``.
+    """
+    steps = [
         # --- pre-processing (custom) ---
         custom_steps.step_siglip_cleanup,
         custom_steps.step_extract_norm_scale_bias,  # LN gamma/beta -> Mul/Add so LN converts
@@ -94,6 +109,7 @@ def select_build_steps():
         "step_create_dataflow_partition",
         "step_specialize_layers",
         "step_loop_rolling",  # MLO: roll 12 encoder layers into one FINNLoop body
+        # target_fps autofolding -- skipped when a prebuilt folding config is used
         "step_target_fps_parallelization",
         "step_apply_folding_config",
         "step_minimize_bit_width",
@@ -107,14 +123,29 @@ def select_build_steps():
         "step_make_driver",
         "step_deployment_package",
     ]
+    if use_manual_folding:
+        steps.remove("step_target_fps_parallelization")
+    return steps
 
 
-def make_cfg(start_step=None) -> build_cfg.DataflowBuildConfig:
+def make_cfg(start_step=None, folding=None) -> build_cfg.DataflowBuildConfig:
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    # Folding source: a prebuilt config (balanced loop body, fixed DSP budget) OR
+    # target_fps autofolding. The prebuilt config also carries the outside-loop
+    # FIFO depth in its Defaults, so it doubles as the folding_config_file that
+    # step_set_fifo_depths re-applies (auto_fifo_depths=False).
+    use_manual_folding = folding is not None
+    if use_manual_folding:
+        folding_config_file = FOLDING_CONFIGS[folding]
+        target_fps = None
+    else:
+        folding_config_file = STATIC_FIFO_CONFIG
+        target_fps = TARGET_FPS
 
     return build_cfg.DataflowBuildConfig(
         output_dir=OUTPUT_DIR,
-        steps=select_build_steps(),
+        steps=select_build_steps(use_manual_folding=use_manual_folding),
         start_step=start_step,
         synth_clk_period_ns=CLK_PERIOD_NS,
         fpga_part=FPGA_PART,
@@ -132,15 +163,15 @@ def make_cfg(start_step=None) -> build_cfg.DataflowBuildConfig:
         mlo_weight_mem="DDR",
         loop_body_hierarchy=LOOP_BODY_HIERARCHY,
         loop_body_range=LOOP_BODY_RANGE,
-        # folding driven by target throughput (no manual folding config)
-        target_fps=TARGET_FPS,
+        # folding: prebuilt config (target_fps=None) or target-throughput autofolding
+        target_fps=target_fps,
         # thresholds / fifos
         standalone_thresholds=True,
         split_large_fifos=True,
         # Static outside-loop FIFO sizing: skip the multi-day characterization
         # rtlsim. Loop-body FIFOs are already sized into the loop IP (step_hw_codegen).
         auto_fifo_depths=False,
-        folding_config_file=STATIC_FIFO_CONFIG,
+        folding_config_file=folding_config_file,
         stitched_ip_gen_dcp=False,
         mute_config_assertions=True,
         save_intermediate_models=True,
@@ -181,12 +212,22 @@ def main():
             "e.g. --start-step step_siglip_streamlining"
         ),
     )
+    parser.add_argument(
+        "--folding",
+        choices=sorted(FOLDING_CONFIGS),
+        default=None,
+        help=(
+            "Use a prebuilt loop-body folding config (~25/50/75%% of the VC1902 "
+            "DSP budget) instead of target_fps autofolding. Drops "
+            "step_target_fps_parallelization."
+        ),
+    )
     args = parser.parse_args()
 
     if not os.path.isfile(args.model):
         sys.exit(f"Model not found: {args.model}")
 
-    cfg = make_cfg(start_step=args.start_step)
+    cfg = make_cfg(start_step=args.start_step, folding=args.folding)
     build.build_dataflow_cfg(args.model, cfg)
 
 
