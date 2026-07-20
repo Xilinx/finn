@@ -68,29 +68,32 @@ def select_build_steps():
         # --- pre-processing (custom) ---
         custom_steps.step_siglip_cleanup,
         custom_steps.step_extract_norm_scale_bias,  # LN gamma/beta -> Mul/Add so LN converts
+        # Golden reference generated on the RAW QONNX graph (before qonnx_to_finn),
+        # BERT-style. The reference is independent of ConvertQONNXtoFINN, so
+        # QONNX_TO_FINN_PYTHON verification measures conversion fidelity and every
+        # later (equivalence-preserving) step is checked against the true QONNX output.
+        custom_steps.step_generate_reference_io,
         # --- base pipeline (stock FINN) ---
         "step_qonnx_to_finn",
-        # Golden reference generated on the CONVERTED FINN-ONNX graph (post
-        # qonnx_to_finn), so it already embeds the Quant->MultiThreshold conversion
-        # divergence. This makes stitched_ip_rtlsim measure HW faithfulness to the
-        # design FINN actually builds, not the (lossy) QONNX->FINN conversion cost.
-        custom_steps.step_generate_reference_io,
         "step_tidy_up",
-        "step_streamline",  # lowers the Conv head to MatMul, streamlines
+        # Custom step_streamline: same as stock but threads preserve_thresh_shape=True
+        # so channelwise LN gamma/beta don't expand per-tensor thresholds to per-channel
+        # (which trips MultiThreshold's NCHW channel-axis assumption on [N,tokens,C]).
+        custom_steps.step_streamline,  # lowers the Conv head to MatMul, streamlines
         custom_steps.step_siglip_streamlining,  # clear q/k/v fork Mul so MatMuls stay integer
         custom_steps.step_absorb_signed_ln_scale,  # uniform layers for loop rolling
-        "step_convert_to_hw",  # infers Softmax / Gelu(PWPolyF) / LayerNorm / MVAU
-        "step_create_dataflow_partition",
-        "step_specialize_layers",
-        "step_loop_rolling",  # MLO: roll 12 encoder layers into one FINNLoop body
-        "step_target_fps_parallelization",
-        "step_apply_folding_config",
-        "step_minimize_bit_width",
-        "step_transpose_decomposition",
-        "step_hw_codegen",
-        "step_hw_ipgen",
-        "step_set_fifo_depths",
-        "step_create_stitched_ip",
+        #"step_convert_to_hw",  # infers Softmax / Gelu(PWPolyF) / LayerNorm / MVAU
+        #"step_create_dataflow_partition",
+        #"step_specialize_layers",
+        #"step_loop_rolling",  # MLO: roll 12 encoder layers into one FINNLoop body
+        #"step_target_fps_parallelization",
+        #"step_apply_folding_config",
+        #"step_minimize_bit_width",
+        #"step_transpose_decomposition",
+        #"step_hw_codegen",
+        #"step_hw_ipgen",
+        #"step_set_fifo_depths",
+        #"step_create_stitched_ip",
     ]
 
 
@@ -124,18 +127,11 @@ def make_cfg(start_step=None) -> build_cfg.DataflowBuildConfig:
         stitched_ip_gen_dcp=False,
         mute_config_assertions=True,
         save_intermediate_models=True,
-        # Reference is generated post-conversion (see step order), so it matches
-        # the design FINN builds; rtlsim should agree to tight tolerance. The
-        # QONNX_TO_FINN_PYTHON check is dropped: it would compare the converted
-        # graph against a reference taken from that same graph (trivially ~0) and
-        # no longer measures anything useful.
         verification_atol=0.1,
-        # Enable waveform tracing so create_stitched_ip sets a real rtlsim_trace
-        # path. Without it, the MLO stitched-IP rtlsim path passes wdb=None to the
-        # xsi.Design C++ binding, which rejects null -> "basic_string null not
-        # valid". (Also gives a .wdb to debug the verification result.)
         verify_save_rtlsim_waveforms=False,
         verify_steps=[
+            VerificationStepType.TIDY_UP_PYTHON,
+            VerificationStepType.QONNX_TO_FINN_PYTHON,
             VerificationStepType.STITCHED_IP_RTLSIM,
         ],
         verify_input_npy=os.path.join(OUTPUT_DIR, "input.npy"),

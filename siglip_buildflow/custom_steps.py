@@ -23,28 +23,52 @@ import numpy as np
 import os
 import qonnx.core.onnx_exec as oxe
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.base import Transformation
+from qonnx.transformation.batchnorm_to_affine import BatchNormToAffine
+from qonnx.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from qonnx.transformation.general import (
+    ConvertDivToMul,
+    ConvertSubToAdd,
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
     RemoveUnusedTensors,
     SortCommutativeInputsInitializerLast,
 )
+from qonnx.transformation.infer_data_layouts import InferDataLayouts
+from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.transformation.remove import RemoveIdentityOps
 
-from finn.builder.build_dataflow_config import DataflowBuildConfig
+from finn.builder.build_dataflow_config import DataflowBuildConfig, VerificationStepType
+from finn.builder.build_dataflow_steps import verify_step
+import finn.transformation.streamline.absorb as absorb
 from finn.transformation.streamline.absorb import (
+    Absorb1BitMulIntoConv,
+    Absorb1BitMulIntoMatMul,
     AbsorbAddIntoMultiThreshold,
     AbsorbMulIntoMultiThreshold,
     AbsorbSignBiasIntoMultiThreshold,
+    FactorOutMulSignMagnitude,
 )
-from finn.transformation.streamline.collapse_repeated import CollapseRepeatedOp
+from finn.transformation.streamline.collapse_repeated import (
+    CollapseRepeatedAdd,
+    CollapseRepeatedMul,
+    CollapseRepeatedOp,
+)
 from finn.transformation.streamline.extract_norm_scale_bias import ExtractNormScaleBias
 from finn.transformation.streamline.reorder import (
+    MakeMaxPoolNHWC,
+    MoveAddPastConv,
+    MoveAddPastMul,
+    MoveMulPastMaxPool,
     MoveOpPastFork,
+    MoveScalarAddPastMatMul,
     MoveScalarLinearPastInvariants,
+    MoveScalarMulPastConv,
     MoveScalarMulPastMatMul,
 )
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
+from finn.transformation.streamline.sign_to_thres import ConvertSignToThres
 
 
 def _add_missing_conv_kernel_shape(model: ModelWrapper) -> ModelWrapper:
@@ -109,6 +133,95 @@ def step_extract_norm_scale_bias(model: ModelWrapper, cfg: DataflowBuildConfig) 
     ran inside ``step_remove_head``; we keep the Conv head, so it lives here.
     """
     model = model.transform(ExtractNormScaleBias())
+    return model
+
+
+class _StreamlinePreserveThreshShape(Transformation):
+    """Copy of stock ``finn.transformation.streamline.Streamline`` with
+    ``preserve_thresh_shape`` threaded into the two MultiThreshold absorb passes.
+
+    The bundled ``Streamline`` hardcodes ``AbsorbAddIntoMultiThreshold()`` /
+    ``AbsorbMulIntoMultiThreshold()`` with the default ``preserve_thresh_shape=
+    False``, and exposes no hook to override it. With ``False``, a channelwise
+    Add/Mul (e.g. the per-channel LayerNorm gamma/beta emitted by
+    ``ExtractNormScaleBias``) gets folded into a *per-tensor* threshold, expanding
+    it from ``(1, steps)`` to ``(C, steps)``. For SigLIP's ``[N, tokens, C]``
+    activations that per-channel threshold then trips MultiThreshold's NCHW
+    channel-axis assumption at execution (axis 1 = tokens, not channels), which is
+    the ``streamlined_python`` verify crash. Passing ``True`` refuses that fold so
+    thresholds stay per-tensor (global), matching the BERT flow.
+
+    The transform list is otherwise identical to stock ``Streamline`` -- keep it in
+    sync if the upstream list changes.
+    """
+
+    def __init__(self, preserve_thresh_shape=True):
+        super().__init__()
+        self.preserve_thresh_shape = preserve_thresh_shape
+
+    def apply(self, model):
+        p = self.preserve_thresh_shape
+        streamline_transformations = [
+            ConvertSubToAdd(),
+            ConvertDivToMul(),
+            BatchNormToAffine(),
+            ConvertSignToThres(),
+            MoveMulPastMaxPool(),
+            AbsorbSignBiasIntoMultiThreshold(),
+            MoveScalarLinearPastInvariants(),
+            MoveAddPastMul(),
+            MoveScalarAddPastMatMul(),
+            MoveAddPastConv(),
+            MoveScalarMulPastMatMul(),
+            MoveScalarMulPastConv(),
+            MoveAddPastMul(),
+            CollapseRepeatedAdd(),
+            CollapseRepeatedMul(),
+            MoveMulPastMaxPool(),
+            AbsorbAddIntoMultiThreshold(preserve_thresh_shape=p),
+            FactorOutMulSignMagnitude(),
+            AbsorbMulIntoMultiThreshold(preserve_thresh_shape=p),
+            Absorb1BitMulIntoMatMul(),
+            Absorb1BitMulIntoConv(),
+        ]
+        for trn in streamline_transformations:
+            model = model.transform(trn)
+            model = model.transform(RemoveIdentityOps())
+            model = model.transform(GiveUniqueNodeNames())
+            model = model.transform(GiveReadableTensorNames())
+            model = model.transform(InferDataTypes())
+        return (model, False)
+
+
+def step_streamline(model: ModelWrapper, cfg: DataflowBuildConfig) -> ModelWrapper:
+    """SigLIP replacement for stock ``step_streamline``.
+
+    Identical to ``finn.builder.build_dataflow_steps.step_streamline`` (Conv-head
+    lowering, bipolar->xnor, TopK absorb, layout inference, and the
+    ``streamlined_python`` verify) except the streamlining pass is
+    ``_StreamlinePreserveThreshShape(preserve_thresh_shape=True)`` instead of the
+    stock ``Streamline()``. This keeps channelwise LayerNorm scale/bias out of the
+    per-tensor thresholds so the transformer MultiThresholds stay executable (see
+    ``_StreamlinePreserveThreshShape``).
+    """
+    model = model.transform(absorb.AbsorbSignBiasIntoMultiThreshold())
+    model = model.transform(_StreamlinePreserveThreshShape(preserve_thresh_shape=True))
+    need_lowering = len(model.get_nodes_by_op_type("Conv")) > 0
+    if need_lowering:
+        model = model.transform(LowerConvsToMatMul())
+        model = model.transform(MakeMaxPoolNHWC())
+        model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
+        model = model.transform(MakeMaxPoolNHWC())
+        model = model.transform(absorb.AbsorbConsecutiveTransposes())
+    model = model.transform(ConvertBipolarMatMulToXnorPopcount())
+    model = model.transform(_StreamlinePreserveThreshShape(preserve_thresh_shape=True))
+    model = model.transform(absorb.AbsorbScalarMulAddIntoTopK())
+    model = model.transform(InferDataLayouts())
+    model = model.transform(RemoveUnusedTensors())
+
+    if VerificationStepType.STREAMLINED_PYTHON in cfg._resolve_verification_steps():
+        verify_step(model, cfg, "streamlined_python", need_parent=False)
+
     return model
 
 
@@ -304,21 +417,18 @@ def step_absorb_signed_ln_scale(model: ModelWrapper, cfg: DataflowBuildConfig) -
 def step_generate_reference_io(model: ModelWrapper, cfg: DataflowBuildConfig) -> ModelWrapper:
     """Generate the golden reference IO by executing the current graph.
 
-    Placed AFTER ``step_qonnx_to_finn`` so the reference is computed on the
-    converted FINN-ONNX graph (MultiThreshold form), not the original QONNX
-    graph. ConvertQONNXtoFINN's Quant->MultiThreshold conversion is not perfectly
-    bit-faithful (~0.27 mean divergence on this model, independent of any custom
-    steps); generating the reference here embeds that divergence, so the
-    downstream ``stitched_ip_rtlsim`` check measures whether the hardware
-    faithfully implements the design FINN builds -- rather than re-measuring the
-    (unavoidable) QONNX->FINN conversion cost. Every step after this one
-    (streamline, convert_to_hw, specialize, loop_rolling, ...) is
-    equivalence-preserving, so this reference stays valid for the hardware.
+    Placed BEFORE ``step_qonnx_to_finn`` (BERT-style) so the reference is computed
+    on the raw QONNX graph, independent of ConvertQONNXtoFINN. This lets
+    ``QONNX_TO_FINN_PYTHON`` verification measure the Quant->MultiThreshold
+    conversion fidelity, and every later step (qonnx_to_finn, streamline,
+    convert_to_hw, specialize, loop_rolling, ...) is checked against the true
+    QONNX output. All those steps are equivalence-preserving, so the reference
+    stays valid down to the hardware.
 
     Saves ``input.npy`` and ``expected_output.npy`` (feeding ``verify_input_npy``
-    / ``verify_expected_output_npy``). NOTE: must run after qonnx_to_finn but
-    before streamline -- the post-streamline graph has per-channel MultiThresholds
-    that trip the executor's NCHW channel-axis assumption and can't be executed.
+    / ``verify_expected_output_npy``). NOTE: must run before ``step_streamline``
+    -- the post-streamline graph has per-channel MultiThresholds that trip the
+    executor's NCHW channel-axis assumption and can't be executed.
     """
     input_m = model.graph.input[0]
     in_shape = [d.dim_value for d in input_m.type.tensor_type.shape.dim]
