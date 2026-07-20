@@ -45,6 +45,14 @@ finn.custom\_op.fpgadataflow.streamingfifo\_rtl
    :undoc-members:
    :show-inheritance:
 
+finn.custom\_op.fpgadataflow.pwpolyf\_rtl
+--------------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.rtl.pwpolyf_rtl
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.custom\_op.fpgadataflow.thresholding\_rtl
 -------------------------------------------------------
 
