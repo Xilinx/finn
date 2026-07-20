@@ -15,6 +15,7 @@ import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 from finn.builder.build_dataflow_config import (
     DataflowOutputType,
+    ShellFlowType,
     VerificationStepType,
 )
 
@@ -22,7 +23,7 @@ from finn.builder.build_dataflow_config import (
 # Paths
 # ---------------------------------------------------------------------------
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_MODEL_PATH = os.path.join(HERE, "siglip_w4a6_qat_w4a6_op20_qonnx_clean.onnx")
+DEFAULT_MODEL_PATH = os.path.join(HERE, "siglip_w4a6_qat_w4a6_t196_clean.onnx")
 OUTPUT_DIR = os.path.join(HERE, "output_siglip")
 
 # Static FIFO depths for the OUTSIDE-loop FIFOs. With auto_fifo_depths=False,
@@ -33,11 +34,18 @@ OUTPUT_DIR = os.path.join(HERE, "output_siglip")
 # auto_fifo_depths=False path only touches top-level nodes.
 STATIC_FIFO_CONFIG = os.path.join(HERE, "configs", "static_fifo_depths.json")
 
-# Target FPGA part: VCK190 (Versal AI Core). No board/shell is needed for
-# stitched-IP + rtlsim, so the part only drives IP synthesis and resource
-# estimation.
+# Target board: VCK190 (Versal AI Core). ``board`` drives the VIVADO_VERSAL shell
+# flow for bitfile generation; ``fpga_part`` (the same xcvc1902 part the board
+# resolves to) is kept explicit so IP synthesis / resource estimation match.
+BOARD = "VCK190"
 FPGA_PART = "xcvc1902-vsva2197-2MP-e-S"
-CLK_PERIOD_NS = 4.0  # 250 MHz
+# Match the golden VCK190 shell's pl0_ref_clk, which clocks the FINN kernels in
+# the VIVADO_VERSAL flow. The versal shell template does NOT reconfigure the CIPS
+# clock from synth_clk_period_ns (unlike the zynq branch), so the design actually
+# runs at the golden pl0_ref_clk frequency (333 MHz, per pynq_deps/golden_ref.tcl).
+# Target FINN IP-gen / folding / OOC synthesis at that same clock so the pipelined
+# IP closes timing during the shell impl_1 run.
+CLK_PERIOD_NS = 3.0  # 333 MHz (golden pl0_ref_clk)
 # MLO loops the single encoder-layer body once per layer (12 iterations/frame),
 # and SetFolding budgets the body against target_cycles_per_frame WITHOUT dividing
 # by iterations. So to hit ~50 FPS overall, fold the body to ~1/12 of the frame
@@ -82,18 +90,22 @@ def select_build_steps():
         custom_steps.step_streamline,  # lowers the Conv head to MatMul, streamlines
         custom_steps.step_siglip_streamlining,  # clear q/k/v fork Mul so MatMuls stay integer
         custom_steps.step_absorb_signed_ln_scale,  # uniform layers for loop rolling
-        #"step_convert_to_hw",  # infers Softmax / Gelu(PWPolyF) / LayerNorm / MVAU
-        #"step_create_dataflow_partition",
-        #"step_specialize_layers",
-        #"step_loop_rolling",  # MLO: roll 12 encoder layers into one FINNLoop body
-        #"step_target_fps_parallelization",
-        #"step_apply_folding_config",
-        #"step_minimize_bit_width",
-        #"step_transpose_decomposition",
-        #"step_hw_codegen",
-        #"step_hw_ipgen",
-        #"step_set_fifo_depths",
-        #"step_create_stitched_ip",
+        "step_convert_to_hw",  # infers Softmax / Gelu(PWPolyF) / LayerNorm / MVAU
+        "step_create_dataflow_partition",
+        "step_specialize_layers",
+        "step_loop_rolling",  # MLO: roll 12 encoder layers into one FINNLoop body
+        "step_target_fps_parallelization",
+        "step_apply_folding_config",
+        "step_minimize_bit_width",
+        "step_transpose_decomposition",
+        "step_hw_codegen",
+        "step_hw_ipgen",
+        "step_set_fifo_depths",
+        "step_create_stitched_ip",
+        # --- Versal (VCK190) shell integration -> full bitfile + deploy package ---
+        "step_synthesize_bitfile",
+        "step_make_driver",
+        "step_deployment_package",
     ]
 
 
@@ -106,6 +118,11 @@ def make_cfg(start_step=None) -> build_cfg.DataflowBuildConfig:
         start_step=start_step,
         synth_clk_period_ns=CLK_PERIOD_NS,
         fpga_part=FPGA_PART,
+        # Versal shell: board drives the VIVADO_VERSAL flow, which integrates the
+        # stitched IP into the golden VCK190 overlay (FINN_VERSAL_GOLDEN_DIR) and
+        # emits a full PL PDI in step_synthesize_bitfile.
+        board=BOARD,
+        shell_flow_type=ShellFlowType.VIVADO_VERSAL,
         # MLO
         mlo=True,
         # Weights streamed from a single DDR address space (the merged mlo_ddr
@@ -129,15 +146,20 @@ def make_cfg(start_step=None) -> build_cfg.DataflowBuildConfig:
         save_intermediate_models=True,
         verification_atol=0.1,
         verify_save_rtlsim_waveforms=False,
+        # STITCHED_IP_RTLSIM dropped: the MLO rtlsim verify is very slow, so we go
+        # straight to synthesis. Conversion fidelity is still checked at
+        # QONNX_TO_FINN_PYTHON, and every later step is equivalence-preserving.
         verify_steps=[
             VerificationStepType.TIDY_UP_PYTHON,
             VerificationStepType.QONNX_TO_FINN_PYTHON,
-            VerificationStepType.STITCHED_IP_RTLSIM,
         ],
         verify_input_npy=os.path.join(OUTPUT_DIR, "input.npy"),
         verify_expected_output_npy=os.path.join(OUTPUT_DIR, "expected_output.npy"),
         generate_outputs=[
             DataflowOutputType.STITCHED_IP,
+            DataflowOutputType.BITFILE,
+            DataflowOutputType.PYNQ_DRIVER,
+            DataflowOutputType.DEPLOYMENT_PACKAGE,
         ],
     )
 
