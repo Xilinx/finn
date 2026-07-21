@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Copyright (C) 2026, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
@@ -9,26 +8,13 @@
 Used by Jenkins to surface per-test failure context when there is no tool
 log to tail (notebook timeouts, asserts, fixture errors). Pure stdlib so
 it runs on any agent.
-
-Usage: print_pytest_failures.py <junit_xml> <stash> <lines_per_failure> <max_failures>
 """
+
 import re
-import sys
 import xml.etree.ElementTree as ET
 
 
-def main(argv):
-    if len(argv) != 5:
-        print(
-            "Usage: print_pytest_failures.py <junit_xml> <stash> "
-            "<lines_per_failure> <max_failures>",
-            file=sys.stderr,
-        )
-        return 2
-    xml_path = argv[1]
-    stash = argv[2]
-    lines_per = int(argv[3])
-    max_fails = int(argv[4])
+def print_failures(xml_path, stash, lines_per, max_fails):
     tag = "[pytest-failures %s]" % stash
     try:
         root = ET.parse(xml_path).getroot()
@@ -81,7 +67,3 @@ def main(argv):
         for ln in body_lines:
             print("  %s" % ln)
     return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main(sys.argv))

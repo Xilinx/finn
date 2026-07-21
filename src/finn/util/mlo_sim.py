@@ -81,10 +81,25 @@ def mlo_prehook_func_factory(node) -> Callable[[SimEngine], None]:
         if downstream.op_type.startswith("MVAU"):
             mvau_hbm_weights[idx] = {}
             mvau_hbm_weights[idx]["name"] = lb_inp.name
-            datfile = (
-                f"{finnloop_op.get_nodeattr('code_gen_dir_ipgen')}/memblock_MVAU_rtl_id_{idx}.dat"
-            )
-            mvau_hbm_weights[idx]["value"] = dat_file_to_numpy_array(datfile)
+            code_gen_dir = finnloop_op.get_nodeattr("code_gen_dir_ipgen")
+            datfile = f"{code_gen_dir}/memblock_MVAU_rtl_id_{idx}.dat"
+            # memblock.dat holds the per-layer weights back-to-back, byte-aligned
+            # per IWSIMD group. fetch_weights.sv places layer i at i*LAYER_OFFS,
+            # where LAYER_OFFS rounds the layer size up to the AXI bus width, so
+            # pad each layer to that boundary to reproduce the external memory image.
+            weight_bytes = dat_file_to_numpy_array(datfile)
+            iteration = finnloop_op.get_nodeattr("iteration")
+            layer_bytes = len(weight_bytes) // iteration
+            axi_bytes = 32  # AXI bus width (256 bits), matches RTL LAYER_OFFS
+            layer_offs = (layer_bytes + axi_bytes - 1) & ~(axi_bytes - 1)
+            if layer_offs != layer_bytes:
+                padded = np.zeros(iteration * layer_offs, dtype=weight_bytes.dtype)
+                for it in range(iteration):
+                    padded[it * layer_offs : it * layer_offs + layer_bytes] = weight_bytes[
+                        it * layer_bytes : (it + 1) * layer_bytes
+                    ]
+                weight_bytes = padded
+            mvau_hbm_weights[idx]["value"] = weight_bytes
             mvau_hbm_weights[idx]["extern_idx"] = extern_idx
             mvau_hbm_weights[idx]["extern_name"] = f"m_axi_MVAU_id_{idx}"
             extern_idx += 1

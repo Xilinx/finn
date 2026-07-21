@@ -98,8 +98,27 @@ def test_end2end_build_dataflow_directory():
         assert os.path.isfile(stitched_waveform_dir + f"/verify_rtlsim_{i}.wdb")
 
         # Check that node-by-node rtlsim waveforms were created for each node
+        # Skip FIFO nodes as they use pass-through execution (no RTL simulation)
         node_waveform_dir = verify_out_dir + "/node_by_node_rtlsim_waveforms"
         for node in model.graph.node:
+            if node.op_type.startswith("StreamingFIFO"):
+                continue
             assert os.path.isfile(
                 node_waveform_dir + f"/{node.name}_rtlsim_{i}.wdb"
             ), f"Missing waveform for node {node.name} in batch {i}"
+
+    # Check debug_fifo log files were created (enabled in dataflow_build_config.json)
+    fifo_log_base = output_dir + "/debug/fifo_logs"
+    assert os.path.isdir(fifo_log_base), "FIFO debug log directory not created"
+
+    # Check that fifo_sizing phase logs were created
+    fifo_sizing_dir = fifo_log_base + "/fifo_sizing/main"
+    assert os.path.isdir(fifo_sizing_dir), "FIFO sizing log directory not created"
+    fifo_sizing_logs = [f for f in os.listdir(fifo_sizing_dir) if f.endswith(".log")]
+    assert len(fifo_sizing_logs) > 0, "No FIFO debug logs created during fifo_sizing phase"
+
+    # Check that stitched_ip_rtlsim phase logs were created
+    stitched_rtlsim_dir = fifo_log_base + "/stitched_ip_rtlsim/main"
+    assert os.path.isdir(stitched_rtlsim_dir), "Stitched IP rtlsim log directory not created"
+    stitched_logs = [f for f in os.listdir(stitched_rtlsim_dir) if f.endswith(".log")]
+    assert len(stitched_logs) > 0, "No FIFO debug logs created during stitched_ip_rtlsim phase"
