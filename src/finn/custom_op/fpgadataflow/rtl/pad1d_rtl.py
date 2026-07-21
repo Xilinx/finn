@@ -1,38 +1,13 @@
-# Copyright (C) 2026, Advanced Micro Devices, Inc.
-# All rights reserved.
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are met:
-#
-# * Redistributions of source code must retain the above copyright notice,
-#   this list of conditions and the following disclaimer.
-#
-# * Redistributions in binary form must reproduce the above copyright notice,
-#   this list of conditions and the following disclaimer in the documentation
-#   and/or other materials provided with the distribution.
-#
-# * Neither the name of FINN nor the names of its
-#   contributors may be used to endorse or promote products derived from
-#   this software without specific prior written permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# Copyright Advanced Micro Devices, Inc.
+# SPDX-License-Identifier: BSD-3-Clause
 
 import numpy as np
 import os
-import shutil
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.pad1d import Pad1D
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
+from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
 def _rtlsrc_dir():
@@ -154,37 +129,26 @@ class Pad1D_rtl(Pad1D, RTLBackend):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         with open(os.path.join(code_gen_dir, topname + ".v"), "w") as f:
             f.write(template)
-        shutil.copy(rtlsrc + "/pad1d.sv", code_gen_dir)
-
         self.set_nodeattr("ipgen_path", code_gen_dir)
         self.set_nodeattr("ip_path", code_gen_dir)
 
     def get_rtl_file_list(self, abspath=False):
         if abspath:
-            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen") + "/"
-            rtllib_dir = _rtlsrc_dir() + "/"
-        else:
-            code_gen_dir = ""
-            rtllib_dir = ""
-
-        verilog_files = [
-            rtllib_dir + "pad1d.sv",
-            code_gen_dir + self.get_nodeattr("gen_top_module") + ".v",
-        ]
-        return verilog_files
-
-    def get_rtlsim_input_indices(self):
-        """Only the token sequence is streamed; pad data is embedded in RTL."""
-        return [0]
+            return [
+                os.path.join(_rtlsrc_dir(), "pad1d.sv"),
+                os.path.join(
+                    self.get_nodeattr("code_gen_dir_ipgen"),
+                    self.get_nodeattr("gen_top_module") + ".v",
+                ),
+            ]
+        return ["pad1d.sv", self.get_nodeattr("gen_top_module") + ".v"]
 
     def code_generation_ipi(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        sourcefiles = self.get_rtl_file_list()
-        sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
-
-        cmd = []
+        sourcefiles = self.get_rtl_file_list(abspath=True)
+        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
+        cmd = ["file mkdir %s" % source_target]
         for f in sourcefiles:
-            cmd += ["add_files -norecurse %s" % f]
+            cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
         cmd += [
             "create_bd_cell -type module -reference %s %s"
             % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)
@@ -196,7 +160,49 @@ class Pad1D_rtl(Pad1D, RTLBackend):
         if mode == "cppsim":
             Pad1D.execute_node(self, context, graph)
         elif mode == "rtlsim":
-            RTLBackend.execute_node(self, context, graph)
+            node = self.onnx_node
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+
+            # Only input 0 is streamed. Pad inputs are embedded as RTL parameters.
+            inp = node.input[0]
+            exp_ishape = tuple(self.get_normal_input_shape(0))
+            folded_ishape = self.get_folded_input_shape(0)
+            inp_val = context[inp]
+            assert str(inp_val.dtype) == "float32", "Input datatype is not float32"
+            assert inp_val.shape == exp_ishape, "Input shape doesn't match expected shape."
+            export_idt = self.get_input_datatype(0)
+
+            reshaped_input = inp_val.reshape(folded_ishape)
+            input_path = os.path.join(code_gen_dir, "input_0.npy")
+            np.save(input_path, reshaped_input)
+            rtlsim_inp = npy_to_rtlsim_input(
+                input_path,
+                export_idt,
+                self.get_instream_width(0),
+            )
+            io_dict = {
+                "inputs": {"in0": rtlsim_inp},
+                "outputs": {"out0": []},
+            }
+
+            sim = self.get_rtlsim()
+            self.reset_rtlsim(sim)
+            self.rtlsim_multi_io(sim, io_dict)
+            self.close_rtlsim(sim)
+
+            odt = self.get_output_datatype(0)
+            output_path = os.path.join(code_gen_dir, "output.npy")
+            rtlsim_output_to_npy(
+                io_dict["outputs"]["out0"],
+                output_path,
+                odt,
+                self.get_folded_output_shape(0),
+                self.get_outstream_width(0),
+                odt.bitwidth(),
+            )
+            output = np.load(output_path)
+            exp_oshape = tuple(self.get_normal_output_shape(0))
+            context[node.output[0]] = np.asarray(output, dtype=np.float32).reshape(exp_oshape)
         else:
             raise Exception(
                 """Invalid value for attribute exec_mode! Is currently set to: {}
