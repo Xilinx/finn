@@ -1,35 +1,11 @@
-# Copyright (C) 2026, Advanced Micro Devices, Inc.
-# All rights reserved.
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are met:
-#
-# * Redistributions of source code must retain the above copyright notice,
-#   this list of conditions and the following disclaimer.
-#
-# * Redistributions in binary form must reproduce the above copyright notice,
-#   this list of conditions and the following disclaimer in the documentation
-#   and/or other materials provided with the distribution.
-#
-# * Neither the name of FINN nor the names of its
-#   contributors may be used to endorse or promote products derived from
-#   this software without specific prior written permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# Copyright Advanced Micro Devices, Inc.
+# SPDX-License-Identifier: BSD-3-Clause
 
 import pytest
 
 import numpy as np
 from functools import partial
+from importlib import import_module
 from onnx import TensorProto, helper, numpy_helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -50,7 +26,6 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
 
 FPGA_PART = "xc7z020clg400-1"
 CLK_NS = 10
@@ -218,6 +193,34 @@ def test_convert_concat_custom_padding_to_pad1d():
 
 
 @pytest.mark.fpgadataflow
+def test_convert_concat_does_not_mutate_rejected_node(monkeypatch):
+    model, _, _ = _make_concat_custom_pad_model()
+    model.set_tensor_datatype("right_pad", DataType["UINT8"])
+
+    original_get_tensor_datatype = model.get_tensor_datatype
+    original_set_tensor_datatype = model.set_tensor_datatype
+    datatype_updates = []
+
+    def get_tensor_datatype(tensor_name):
+        if tensor_name == "left_pad":
+            return None
+        return original_get_tensor_datatype(tensor_name)
+
+    def set_tensor_datatype(tensor_name, datatype):
+        datatype_updates.append((tensor_name, datatype))
+        original_set_tensor_datatype(tensor_name, datatype)
+
+    monkeypatch.setattr(model, "get_tensor_datatype", get_tensor_datatype)
+    monkeypatch.setattr(model, "set_tensor_datatype", set_tensor_datatype)
+
+    model, modified = InferPad1DLayer().apply(model)
+
+    assert not modified
+    assert model.graph.node[0].op_type == "Concat"
+    assert datatype_updates == []
+
+
+@pytest.mark.fpgadataflow
 def test_pad1d_python_execution_with_repeated_padding():
     left_values = np.asarray([[[1, 2, 3, 4]]], dtype=np.float32)
     right_values = np.asarray([[[-1, -2, -3, -4]]], dtype=np.float32)
@@ -295,21 +298,22 @@ def test_pad1d_rtl_codegen(
     topname = inst.get_nodeattr("gen_top_module")
     assert topname == node.name
     wrapper = tmp_path / (topname + ".v")
-    core = tmp_path / "pad1d.sv"
     assert wrapper.is_file()
-    assert core.is_file()
+    assert inst.get_rtl_file_list(abspath=True)[0].endswith("/pad1d.sv")
     wrapper_text = wrapper.read_text()
     assert "parameter FOLD_WIDTH = %d" % (2 * finn_dtype.bitwidth()) in wrapper_text
     assert ".SIMD(2)" in wrapper_text
-    assert ".PAD_LEFT(1)" in wrapper_text
-    assert ".PAD_RIGHT(1)" in wrapper_text
+    assert ".PAD_LEFT_TOKENS(1)" in wrapper_text
+    assert ".PAD_RIGHT_TOKENS(1)" in wrapper_text
     assert "PAD_LEFT_DATA = %s" % expected_left_data in wrapper_text
     assert "PAD_RIGHT_DATA = %s" % expected_right_data in wrapper_text
+    assert ".PAD_LEFT_DATA(PAD_LEFT_DATA)" in wrapper_text
+    assert ".PAD_RIGHT_DATA(PAD_RIGHT_DATA)" in wrapper_text
     assert "out0_V_TVALID" in wrapper_text
     assert "= '0" not in wrapper_text
 
     ipi_cmds = inst.code_generation_ipi()
-    assert any("pad1d.sv" in cmd for cmd in ipi_cmds)
+    assert any("add_files -copy_to" in cmd and "pad1d.sv" in cmd for cmd in ipi_cmds)
     assert any("create_bd_cell" in cmd and topname in cmd for cmd in ipi_cmds)
 
 
@@ -434,8 +438,9 @@ def test_pad1d_stitched_ip_rtlsim(simd, pad_left, pad_right):
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_pad1d_stitched_ip_synth_ooc():
+    synth_ooc = import_module("finn.transformation.fpgadataflow.synth_ooc")
     model, _, _ = _prepare_pad1d_stitched_ip_model(simd=2, pad_left=1, pad_right=1)
-    model = model.transform(SynthOutOfContext(FPGA_PART, CLK_NS))
+    model = model.transform(synth_ooc.SynthOutOfContext(FPGA_PART, CLK_NS))
     ret = model.get_metadata_prop("res_total_ooc_synth")
     assert ret is not None
     ret = eval(ret)

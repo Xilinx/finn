@@ -1770,12 +1770,13 @@ class InferPad1DLayer(Transformation):
                 continue
 
             const_dtypes_valid = True
+            missing_const_dtypes = []
             for inp in node.input:
                 if inp == stream_name:
                     continue
                 pad_dt = model.get_tensor_datatype(inp)
                 if pad_dt is None:
-                    model.set_tensor_datatype(inp, idt)
+                    missing_const_dtypes.append(inp)
                 elif pad_dt != idt:
                     const_dtypes_valid = False
                     break
@@ -1813,6 +1814,8 @@ class InferPad1DLayer(Transformation):
                 inputDataType=idt.name,
                 outputDataType=idt.name,
             )
+            for inp in missing_const_dtypes:
+                model.set_tensor_datatype(inp, idt)
             graph.node.insert(node_ind, new_node)
             graph.node.remove(node)
             graph_modified = True
