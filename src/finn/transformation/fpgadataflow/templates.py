@@ -247,6 +247,9 @@ set design_name $OVERLAY_NAME
 # Source the golden reference design
 source [file join $GOLDEN_DIR golden_ref.tcl]
 
+set_property -dict [list CONFIG.PS_PMC_CONFIG \
+    [list PMC_CRP_PL0_REF_CTRL_FREQMHZ [expr int($FREQ_MHZ)]]] [get_bd_cells versal_cips_0]
+
 # Remove the golden tie-offs on the interfaces FINN drives with real logic
 delete_bd_objs [get_bd_cells pl_tieoff_fpd]
 delete_bd_objs [get_bd_cells pl_tieoff_dma0]
