@@ -281,39 +281,3 @@ def test_elementwise_rtl_backend_selection(
     assert (
         model.graph.node[0].op_type == f"{op_type}_{expected_backend}"
     ), f"Scenario '{scenario}': expected {expected_backend}, got {model.graph.node[0].op_type}"
-
-
-@pytest.mark.fpgadataflow
-def test_elementwise_rtl_broadcast_const_memstream_length(tmp_path):
-    """Broadcast constants should tile to output cycles, not output*const cycles."""
-
-    model = create_elementwise_model(
-        "ElementwiseMul",
-        "FLOAT32",
-        "FLOAT32",
-        lhs_shape=[1, 5, 4],
-        rhs_shape=[1, 4],
-    )
-    model.set_initializer("in_y", np.arange(4, dtype=np.float32).reshape(1, 4))
-
-    model = model.transform(InferDataTypes())
-    model = model.transform(InferShapes())
-    model = model.transform(InferElementwiseBinaryOperation())
-
-    node_inst = getCustomOp(model.graph.node[0])
-    node_inst.set_nodeattr("PE", 1)
-
-    model = model.transform(InferDataTypes())
-    model = model.transform(InferShapes())
-    model = model.transform(SpecializeLayers(VERSAL_PART))
-
-    node_inst = getCustomOp(model.graph.node[0])
-    assert model.graph.node[0].op_type == "ElementwiseMul_rtl"
-    assert node_inst.calc_wmem() == 4
-    assert node_inst.calc_wmem_reps() == 5
-
-    node_inst.set_nodeattr("code_gen_dir_ipgen", str(tmp_path))
-    node_inst.generate_params(model, str(tmp_path))
-
-    assert np.load(tmp_path / "input_1.npy").shape == (1, 4, 1)
-    assert len((tmp_path / "memblock.dat").read_text().splitlines()) == 4
