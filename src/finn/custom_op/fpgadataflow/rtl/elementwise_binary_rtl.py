@@ -482,33 +482,25 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
                 weight_tensor, (1,) * (len(weight_tensor.shape) - 1) + (self.pe,)
             )
 
-        if "decoupled" in weight_file_mode:
-            weight_tensor = weight_tensor.reshape(1, -1, weight_tensor.shape[-1]).copy()
-            if weight_file_mode == "decoupled_npy":
-                np.save(weight_file_name, weight_tensor)
-                return
+        # Reshape to compact 3D form for decoupled modes
+        weight_tensor = weight_tensor.reshape(1, -1, weight_tensor.shape[-1]).copy()
 
+        if weight_file_mode == "decoupled_npy":
+            np.save(weight_file_name, weight_tensor)
+            return
+
+        # decoupled_verilog_dat
         export_wdt = self.get_input_datatype(1)
         weight_width = self.get_instream_width(1)
         weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
 
-        if weight_file_mode == "decoupled_verilog_dat":
-            shape = weight_tensor.shape
-            weight_tensor_hex = pack_innermost_dim_as_hex_string(
-                weight_tensor.reshape(1, -1, shape[-1]),
-                export_wdt,
-                weight_width_padded,
-                reverse_inner=True,
-                prefix="",
-            )
-        else:
-            weight_tensor_hex = pack_innermost_dim_as_hex_string(
-                weight_tensor.reshape(1, -1, weight_tensor.shape[-1]),
-                export_wdt,
-                weight_width_padded,
-                reverse_inner=True,
-                prefix="",
-            )
+        weight_tensor_hex = pack_innermost_dim_as_hex_string(
+            weight_tensor,
+            export_wdt,
+            weight_width_padded,
+            reverse_inner=True,
+            prefix="",
+        )
 
         weight_stream = weight_tensor_hex.flatten()
         with open(weight_file_name, "w") as f:
