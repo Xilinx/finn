@@ -29,6 +29,7 @@
 
 import pytest
 
+import json
 import numpy as np
 import os
 from qonnx.core.modelwrapper import ModelWrapper
@@ -58,12 +59,34 @@ def test_end2end_build_dataflow_directory():
     assert os.path.isfile(output_dir + "/driver/driver.py")
     assert os.path.isfile(output_dir + "/report/estimate_layer_cycles.json")
     assert os.path.isfile(output_dir + "/report/estimate_layer_resources.json")
-    assert os.path.isfile(output_dir + "/report/rtlsim_perf_batch_1.wdb")
+    assert os.path.isfile(output_dir + "/report/rtlsim_perf_batch_2.wdb")
     assert os.path.isfile(output_dir + "/report/fifosim_trace.wdb")
     assert os.path.isfile(output_dir + "/report/estimate_layer_config_alternatives.json")
     assert os.path.isfile(output_dir + "/report/estimate_network_performance.json")
     assert os.path.isfile(output_dir + "/report/ooc_synth_and_timing.json")
     assert os.path.isfile(output_dir + "/report/rtlsim_performance.json")
+
+    # Exercise the complete multi-frame XSI path. These assertions use raw
+    # harness statistics so that first/last completion accounting regressions
+    # cannot be hidden by downstream throughput arithmetic.
+    with open(output_dir + "/report/rtlsim_performance.json") as f:
+        rtlsim_perf = json.load(f)
+    assert rtlsim_perf["TIMEOUT"] == 0
+    assert rtlsim_perf["UNFINISHED_INS"] == 0
+    assert rtlsim_perf["UNFINISHED_OUTS"] == 0
+    assert rtlsim_perf["completed_output_frames"] == 2
+    assert rtlsim_perf["latency_cycles"] > 0
+    assert rtlsim_perf["latency_cycles"] < rtlsim_perf["cycles"]
+    assert rtlsim_perf["interval_valid"] == 1
+    assert rtlsim_perf["interval_cycles"] > 0
+    assert rtlsim_perf["steady_state_frames"] == 1
+    assert rtlsim_perf["steady_state_cycles"] == rtlsim_perf["interval_cycles"]
+    assert (
+        rtlsim_perf["latency_cycles"] + rtlsim_perf["steady_state_cycles"] <= rtlsim_perf["cycles"]
+    )
+    assert rtlsim_perf["stable_throughput_valid"] is True
+    expected_stable_throughput = 1.0e9 / (10.0 * rtlsim_perf["steady_state_cycles"])
+    assert rtlsim_perf["stable_throughput[images/s]"] == pytest.approx(expected_stable_throughput)
 
     # Verify OOC P&R flow results are present in report directory
     assert os.path.isfile(

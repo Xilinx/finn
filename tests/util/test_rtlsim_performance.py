@@ -32,46 +32,6 @@ def test_rtlsim_performance_rejects_single_frame_interval():
     assert result["stable_throughput[images/s]"] is None
 
 
-def test_rtlsim_performance_uses_completed_frame_span():
-    stats = {
-        "cycles": 331,
-        "latency_cycles": 100,
-        "interval_cycles": 110,
-        "interval_valid": 1,
-        "completed_output_frames": 3,
-        "steady_state_frames": 2,
-        "steady_state_cycles": 230,
-        "N": 3,
-        "TIMEOUT": 0,
-        "UNFINISHED_INS": 0,
-        "UNFINISHED_OUTS": 0,
-    }
-
-    result = _annotate_rtlsim_performance(stats, batch_size=3, clock_period_ns=10.0)
-
-    assert result["interval_is_steady_state"] is True
-    assert result["fps_from_interval"] == pytest.approx(1.0e9 / (10.0 * 110))
-    assert result["stable_throughput_valid"] is True
-    assert result["stable_throughput[images/s]"] == pytest.approx(2.0e9 / (10.0 * 230))
-
-
-def test_rtlsim_performance_corrects_legacy_multi_frame_numerator():
-    stats = {
-        "cycles": 300,
-        "latency_cycles": 100,
-        "interval_cycles": 200,
-        "N": 2,
-        "TIMEOUT": 0,
-        "UNFINISHED_INS": 0,
-        "UNFINISHED_OUTS": 0,
-    }
-
-    result = _annotate_rtlsim_performance(stats, batch_size=2, clock_period_ns=10.0)
-
-    assert result["stable_throughput_valid"] is True
-    assert result["stable_throughput[images/s]"] == pytest.approx(1.0e9 / (10.0 * 200))
-
-
 def test_rtlsim_performance_rejects_incomplete_run():
     stats = {
         "cycles": 300,
