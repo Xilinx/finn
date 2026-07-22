@@ -39,13 +39,13 @@ STATIC_FIFO_CONFIG = os.path.join(HERE, "configs", "static_fifo_depths.json")
 # resolves to) is kept explicit so IP synthesis / resource estimation match.
 BOARD = "VCK190"
 FPGA_PART = "xcvc1902-vsva2197-2MP-e-S"
-# Match the golden VCK190 shell's pl0_ref_clk, which clocks the FINN kernels in
-# the VIVADO_VERSAL flow. The versal shell template does NOT reconfigure the CIPS
-# clock from synth_clk_period_ns (unlike the zynq branch), so the design actually
-# runs at the golden pl0_ref_clk frequency (333 MHz, per pynq_deps/golden_ref.tcl).
-# Target FINN IP-gen / folding / OOC synthesis at that same clock so the pipelined
-# IP closes timing during the shell impl_1 run.
-CLK_PERIOD_NS = 3.0  # 333 MHz (golden pl0_ref_clk)
+# The versal shell template now reconfigures the CIPS pl0_ref_clk from FREQ_MHZ
+# (= 1 / (synth_clk_period_ns * 1e-3)); see the "Configure pl0_ref_clk based on
+# FREQ_MHZ" change to templates.py. So synth_clk_period_ns is authoritative for
+# the frequency the FINN kernels actually run at in the shell -- it no longer
+# defaults to the golden 333 MHz pl0_ref_clk. Target 250 MHz for timing margin;
+# FINN IP-gen / folding / OOC synthesis all use this same clock.
+CLK_PERIOD_NS = 4.0  # 250 MHz (pl0_ref_clk = FREQ_MHZ, set from this period)
 # MLO loops the single encoder-layer body once per layer (12 iterations/frame),
 # and SetFolding budgets the body against target_cycles_per_frame WITHOUT dividing
 # by iterations. So to hit ~50 FPS overall, fold the body to ~1/12 of the frame
@@ -80,15 +80,22 @@ FOLDING_CONFIGS = {
 }
 
 
-def select_build_steps(use_manual_folding=False):
-    """Ordered step pipeline (BERT-shaped, SigLIP-adapted, up to stitched IP).
+def select_build_steps():
+    """Ordered pipeline (BERT-shaped, SigLIP-adapted) using FINN builder phases.
 
-    When ``use_manual_folding`` is True, ``step_target_fps_parallelization`` is
-    dropped: folding comes entirely from the prebuilt config applied by
-    ``step_apply_folding_config``.
+    We use the stock phases for everything except model optimization: SigLIP needs
+    a custom streamline (see below), so ``phase_optimize_model`` -- which runs the
+    stock ``step_streamline`` -- is replaced by SigLIP's custom callables inserted
+    between ``phase_prepare_model`` and ``phase_convert_to_hardware``.
+
+    ``phase_build_hardware`` owns the MLO ordering (loop-body FIFO sizing -> hw
+    codegen -> loop-body ipgen+stitch -> main-model set_fifo_depths -> main ipgen),
+    which the previous flat step list did not perform. ``step_target_fps_parallelization``
+    self-guards on ``target_fps``, so no step-list surgery is needed for manual
+    folding: passing ``target_fps=None`` makes it a no-op.
     """
-    steps = [
-        # --- pre-processing (custom) ---
+    return [
+        # --- pre-processing (custom, before the stock import phase) ---
         custom_steps.step_siglip_cleanup,
         custom_steps.step_extract_norm_scale_bias,  # LN gamma/beta -> Mul/Add so LN converts
         # Golden reference generated on the RAW QONNX graph (before qonnx_to_finn),
@@ -96,45 +103,45 @@ def select_build_steps(use_manual_folding=False):
         # QONNX_TO_FINN_PYTHON verification measures conversion fidelity and every
         # later (equivalence-preserving) step is checked against the true QONNX output.
         custom_steps.step_generate_reference_io,
-        # --- base pipeline (stock FINN) ---
-        "step_qonnx_to_finn",
-        "step_tidy_up",
+        # --- import + tidy (stock) ---
+        "phase_prepare_model",  # step_qonnx_to_finn + step_tidy_up
+        # --- streamlining (custom; replaces phase_optimize_model) ---
         # Custom step_streamline: same as stock but threads preserve_thresh_shape=True
         # so channelwise LN gamma/beta don't expand per-tensor thresholds to per-channel
         # (which trips MultiThreshold's NCHW channel-axis assumption on [N,tokens,C]).
         custom_steps.step_streamline,  # lowers the Conv head to MatMul, streamlines
         custom_steps.step_siglip_streamlining,  # clear q/k/v fork Mul so MatMuls stay integer
         custom_steps.step_absorb_signed_ln_scale,  # uniform layers for loop rolling
-        "step_convert_to_hw",  # infers Softmax / Gelu(PWPolyF) / LayerNorm / MVAU
-        "step_create_dataflow_partition",
-        "step_specialize_layers",
-        "step_loop_rolling",  # MLO: roll 12 encoder layers into one FINNLoop body
-        # target_fps autofolding -- skipped when a prebuilt folding config is used
-        "step_target_fps_parallelization",
-        "step_apply_folding_config",
-        "step_minimize_bit_width",
-        "step_transpose_decomposition",
-        "step_hw_codegen",
-        "step_hw_ipgen",
-        "step_set_fifo_depths",
-        "step_create_stitched_ip",
-        # --- Versal (VCK190) shell integration -> full bitfile + deploy package ---
-        "step_synthesize_bitfile",
-        "step_make_driver",
-        "step_deployment_package",
+        # --- convert to hw + specialize + loop rolling (stock) ---
+        # phase_convert_to_hardware: step_convert_to_hw (infers Softmax / Gelu(PWPolyF)
+        # / LayerNorm / MVAU; now hard-asserts an all-dataflow / contiguous block) +
+        # step_create_dataflow_partition + step_specialize_layers + step_loop_rolling
+        # (MLO: rolls the 12 encoder layers into one FINNLoop body).
+        "phase_convert_to_hardware",
+        # --- folding + bit width + transpose (stock) ---
+        # phase_optimize_hardware: step_target_fps_parallelization (no-op if target_fps
+        # is None) + step_apply_folding_config + step_minimize_bit_width +
+        # step_transpose_decomposition. For MLO, set_fifo_depths is deferred to
+        # phase_build_hardware (needs the loop-body stitched IPs first).
+        "phase_optimize_hardware",
+        # --- codegen + ipgen + MLO fifo sizing (stock) ---
+        # phase_build_hardware owns the MLO order: loop-body FIFO sizing -> hw codegen
+        # -> loop-body ipgen+stitch -> main set_fifo_depths -> main ipgen.
+        "phase_build_hardware",
+        # --- stitched IP + Versal (VCK190) shell -> bitfile + driver + deploy pkg ---
+        "phase_generate_outputs",
     ]
-    if use_manual_folding:
-        steps.remove("step_target_fps_parallelization")
-    return steps
 
 
-def make_cfg(start_step=None, folding=None) -> build_cfg.DataflowBuildConfig:
+def make_cfg(start_step=None, stop_step=None, folding=None) -> build_cfg.DataflowBuildConfig:
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     # Folding source: a prebuilt config (balanced loop body, fixed DSP budget) OR
     # target_fps autofolding. The prebuilt config also carries the outside-loop
     # FIFO depth in its Defaults, so it doubles as the folding_config_file that
     # step_set_fifo_depths re-applies (auto_fifo_depths=False).
+    # With target_fps=None, step_target_fps_parallelization (run inside
+    # phase_optimize_hardware) self-guards and becomes a no-op.
     use_manual_folding = folding is not None
     if use_manual_folding:
         folding_config_file = FOLDING_CONFIGS[folding]
@@ -145,8 +152,9 @@ def make_cfg(start_step=None, folding=None) -> build_cfg.DataflowBuildConfig:
 
     return build_cfg.DataflowBuildConfig(
         output_dir=OUTPUT_DIR,
-        steps=select_build_steps(use_manual_folding=use_manual_folding),
+        steps=select_build_steps(),
         start_step=start_step,
+        stop_step=stop_step,
         synth_clk_period_ns=CLK_PERIOD_NS,
         fpga_part=FPGA_PART,
         # Versal shell: board drives the VIVADO_VERSAL flow, which integrates the
@@ -209,7 +217,17 @@ def main():
         help=(
             "Resume from this build step, reloading the intermediate model saved "
             "before it (requires a prior run with save_intermediate_models). "
-            "e.g. --start-step step_siglip_streamlining"
+            "With phase-based builds, use a phase name, e.g. "
+            "--start-step phase_build_hardware"
+        ),
+    )
+    parser.add_argument(
+        "--stop-step",
+        default=None,
+        help=(
+            "Stop after this build step/phase (inclusive). Use a phase name, e.g. "
+            "--stop-step phase_convert_to_hardware to dry-run up to and including "
+            "the hardware-conversion validation."
         ),
     )
     parser.add_argument(
@@ -227,7 +245,7 @@ def main():
     if not os.path.isfile(args.model):
         sys.exit(f"Model not found: {args.model}")
 
-    cfg = make_cfg(start_step=args.start_step, folding=args.folding)
+    cfg = make_cfg(start_step=args.start_step, stop_step=args.stop_step, folding=args.folding)
     build.build_dataflow_cfg(args.model, cfg)
 
 
