@@ -112,7 +112,13 @@ def make_loop_modelwrapper(
     T3 = np.sort(
         generate_random_threshold_values(T3_dtype, 1, dtype.get_num_possible_values() - 1), axis=1
     )
-    EltwParam = gen_finn_dt_tensor(DataType[eltw_param_dtype], rhs_shape)
+    # RTL elementwise requires matching bitwidths for int/int path
+    actual_eltw_param_dtype = (
+        add_out_dtype.name
+        if (eltw_param_dtype != "FLOAT32" and "rtl" in elemwise_optype)
+        else eltw_param_dtype
+    )
+    EltwParam = gen_finn_dt_tensor(DataType[actual_eltw_param_dtype], rhs_shape)
 
     tensor_shapes = {
         f"ifm{name_suffix}": [1, 3, 3, mw],
@@ -272,7 +278,10 @@ def make_loop_modelwrapper(
                 "rhs_shape": rhs_shape,
                 "out_shape": [1, 3, 3, mh],
                 "lhs_dtype": add_out_dtype.name,
-                "rhs_dtype": eltw_param_dtype,
+                # RTL elementwise requires matching bitwidths for int/int path
+                "rhs_dtype": add_out_dtype.name
+                if (eltw_param_dtype != "FLOAT32" and "rtl" in elemwise_optype)
+                else eltw_param_dtype,
                 "out_dtype": elemwise_output_dtype.name,
             },
         ),
@@ -392,7 +401,9 @@ def make_loop_modelwrapper(
         loop_body_model.set_tensor_datatype(w, wdtype)
 
     loop_body_model.set_tensor_datatype(f"thresh3{name_suffix}", T3_dtype)
-    loop_body_model.set_tensor_datatype(f"mul_param{name_suffix}", DataType[eltw_param_dtype])
+    loop_body_model.set_tensor_datatype(
+        f"mul_param{name_suffix}", DataType[actual_eltw_param_dtype]
+    )
 
     # Set RTL elementwise parameter datatype when FLOAT32
     if is_float:
@@ -537,7 +548,7 @@ def create_chained_loop_bodies(
 # iteration count, number of models chained together
 @pytest.mark.parametrize("iteration", [3])
 # elementwise operation
-@pytest.mark.parametrize("elemwise_optype", ["ElementwiseMul_hls", "ElementwiseAdd_hls"])
+@pytest.mark.parametrize("elemwise_optype", ["ElementwiseMul_hls", "ElementwiseAdd_rtl"])
 # elementwise shape
 @pytest.mark.parametrize("rhs_shape", [[1], [16]])
 # eltwise param dtype
