@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import math
 import numpy as np
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
@@ -38,7 +39,7 @@ from finn.custom_op.fpgadataflow.streamingdatawidthconverter import (
 
 
 class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
-    """Class that corresponds to finn-hlslib StreamingDataWidthConverter_Batch
+    """Class that corresponds to finn-hlslib StreamingDataWidthConverterGeneralized_Batch
     function."""
 
     def get_nodeattr_types(self):
@@ -50,48 +51,52 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "streamtools.h"']
 
+    def get_ap_int_max_w(self):
+        # the generalized kernel uses an inWidth+outWidth intermediate buffer
+        base = super().get_ap_int_max_w()
+        return max(base, self.get_instream_width() + self.get_outstream_width())
+
     def defines(self, var):
-        numReps = 1
-        numInWords = int(np.prod(self.get_folded_input_shape()[:-1]))
+        # in cases of convolution input generator and downsampling,
+        # we have a 4D input and padding / cropping can only happen
+        # for the final 2 dimensions,
+        # so we use numReps to represent the first 2 dimensions
+        # + batching if shape[0] != 1
+        numReps = int(np.prod(self.get_folded_input_shape()[:-2]))
+
+        # assuming folded shapes are at least 2 dim-long
+        numInWords = int(np.prod(self.get_folded_input_shape()[-2:-1]))
+        numOutWords = int(np.prod(self.get_folded_output_shape()[-2:-1]))
+
         inWidth = self.get_nodeattr("inWidth")
         outWidth = self.get_nodeattr("outWidth")
+
         self.code_gen_dict["$DEFINES$"] = [
             "#define InWidth %d " % inWidth,
             "#define OutWidth %d " % outWidth,
             "#define NumInWords %d " % numInWords,
+            "#define NumOutWords %d " % numOutWords,
             "#define numReps %d" % numReps,
         ]
-        if self.needs_lcm():
-            lcmWidth = self.get_iowidth_lcm()
-            assert numInWords % (lcmWidth / inWidth) == 0, "Error in DWC LCM calculation"
-            numLCMToOut = numInWords // (lcmWidth / inWidth)
-            self.code_gen_dict["$DEFINES$"].append("#define LCMWidth %d" % lcmWidth)
-            self.code_gen_dict["$DEFINES$"].append("#define NumLCMToOut %d" % (numLCMToOut))
 
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<ap_uint<{}>> in0_V ("in0_V");'.format(self.get_instream_width())
         )
+
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<ap_uint<{}>> out0_V ("out0_V");'.format(self.get_outstream_width())
         )
 
     def docompute(self):
         # TODO continue with fxns below, they are copy-pasted
-        op = "StreamingDataWidthConverter_Batch"
-        if self.needs_lcm():
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                'hls::stream<ap_uint<{}>> intermediate ("intermediate");'.format(
-                    self.get_iowidth_lcm()
-                ),
-                "%s<InWidth, LCMWidth, NumInWords>(in0_V, intermediate, numReps);" % op,
-                "%s<LCMWidth, OutWidth, NumLCMToOut>(intermediate, out0_V, numReps);" % op,
-            ]
-        else:
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                "%s<InWidth, OutWidth, NumInWords>(in0_V, out0_V, numReps);" % op
-            ]
+        # the generalized kernel handles arbitrary width ratios plus
+        # padding/cropping in a single call (no LCM cascade needed)
+        op = "StreamingDataWidthConverterGeneralized_Batch"
+        self.code_gen_dict["$DOCOMPUTE$"] = [
+            "%s<InWidth, OutWidth, NumInWords, NumOutWords>(in0_V, out0_V, numReps);" % op
+        ]
 
     def blackboxfunction(self):
         in_packed_bits = self.get_instream_width()
@@ -111,16 +116,64 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
         self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0_V"]
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out0_V")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
-        if self.needs_lcm():
-            self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS DATAFLOW disable_start_propagation")
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
+        node = self.onnx_node
         if mode == "cppsim":
-            exp_shape = self.get_normal_input_shape()
-            output = context[self.onnx_node.input[0]]
-            output = np.asarray([output], dtype=np.float32).reshape(*exp_shape)
-            context[self.onnx_node.output[0]] = output
+            in_shape = self.get_normal_input_shape()
+            out_shape = self.get_normal_output_shape()
+            inp = context[node.input[0]]
+            assert str(inp.dtype) == "float32", "Input datatype is not float32"
+            assert inp.shape == tuple(in_shape), "Input shape does not match expected shape."
 
+            # cppsim emulates the DWC in numpy: pad the trailing elements per frame
+            # with zeros, or crop them. The generated C++ is intentionally not run --
+            # the cppsim npy flow reverses the endianness of the leftover word when a
+            # larger input word is split into smaller output words. TODO: fix cppsim.
+            output = np.zeros(out_shape, dtype=np.float32)
+            if out_shape[-1] > in_shape[-1]:
+                output[..., : in_shape[-1]] = inp[..., : in_shape[-1]]
+            else:
+                output[..., : out_shape[-1]] = inp[..., : out_shape[-1]]
+            output = np.asarray([output], dtype=np.float32).reshape(*out_shape)
+            context[node.output[0]] = output
         elif mode == "rtlsim":
             HLSBackend.execute_node(self, context, graph)
+        else:
+            raise Exception(
+                """Invalid value for attribute exec_mode! Is currently set to: {}
+            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
+                    mode
+                )
+            )
+
+    def lut_estimation(self):
+        """Calculates resource estimations for LUTs"""
+
+        # TODO: This calculation does not currently take into account the extra
+        # tracking variables, nor the muxing of one of the stream ports to the buffer
+        # which shifts according to how many elements are in the buffer
+        # the true LUT cost is between 2*(inw+outw) and 10*(inw+outw)
+
+        inw = self.get_instream_width()
+        outw = self.get_outstream_width()
+
+        # we use an intermediate buffer of size inwidth+outwidth
+        intw = inw + outw
+
+        # we assume a shift-based implementation
+        # even if we don't use LUTs explicitly, we make some unavailable
+        # to other logic because they're tied into the DWC control sets
+
+        cnt_luts = 0
+        cset_luts = 0
+
+        cnt_luts += abs(math.ceil(math.log(intw / inw, 2)))
+
+        cset_luts += intw + outw
+
+        # generalized DWC cost penalty, this value is temporary
+        cnt_luts *= 8
+
+        return int(cnt_luts + cset_luts)
