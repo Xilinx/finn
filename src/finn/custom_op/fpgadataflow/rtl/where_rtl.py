@@ -1,30 +1,5 @@
-# Copyright (C) 2026, Advanced Micro Devices, Inc.
-# All rights reserved.
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are met:
-#
-# * Redistributions of source code must retain the above copyright notice,
-#   this list of conditions and the following disclaimer.
-#
-# * Redistributions in binary form must reproduce the above copyright notice,
-#   this list of conditions and the following disclaimer in the documentation
-#   and/or other materials provided with the distribution.
-#
-# * Neither the name of FINN nor the names of its
-#   contributors may be used to endorse or promote products derived from
-#   this software without specific prior written permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# Copyright Advanced Micro Devices, Inc.
+# SPDX-License-Identifier: BSD-3-Clause
 
 import os
 import shutil
@@ -38,7 +13,7 @@ def _rtlsrc_dir():
 
 
 class Where_rtl(Where, RTLBackend):
-    """RTL implementation of Where."""
+    """RTL implementation of the ONNX Where operator with multidirectional broadcasting."""
 
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
@@ -53,6 +28,11 @@ class Where_rtl(Where, RTLBackend):
         rtl_shape = self._rtl_shape(shape)
         return "'{ " + ", ".join(str(int(x)) for x in rtl_shape) + " }"
 
+    def _pad_shape_to_rank(self, shape, rank):
+        rtl_shape = self._rtl_shape(shape)
+        assert len(rtl_shape) <= rank, "Input rank must not exceed output rank"
+        return (1,) * (rank - len(rtl_shape)) + rtl_shape
+
     def generate_hdl(self, model, fpgapart, clk):
         pe = self._output_stream_pe()
         out_shape = self.get_normal_output_shape()
@@ -60,15 +40,19 @@ class Where_rtl(Where, RTLBackend):
         x_shape = self.get_normal_input_shape(1)
         y_shape = self.get_normal_input_shape(2)
         out_rtl_shape = self._rtl_shape(out_shape)
-        cond_rtl_shape = self._rtl_shape(cond_shape)
-        x_rtl_shape = self._rtl_shape(x_shape)
-        y_rtl_shape = self._rtl_shape(y_shape)
+        ndims = len(out_rtl_shape)
+        cond_rtl_shape = self._pad_shape_to_rank(cond_shape, ndims)
+        x_rtl_shape = self._pad_shape_to_rank(x_shape, ndims)
+        y_rtl_shape = self._pad_shape_to_rank(y_shape, ndims)
         assert out_rtl_shape[-1] % pe == 0, "PE must divide the output innermost dimension"
 
         rtlsrc = _rtlsrc_dir()
         template_path = rtlsrc + "/where_template.v"
         with open(template_path, "r") as f:
             template = f.read()
+        # Shape parameters use SystemVerilog unpacked-array literals. Keep the
+        # external AXI wrapper in Verilog and render a separate SystemVerilog
+        # core wrapper to pass those literals into the where module.
         core_template_path = rtlsrc + "/where_core_template.sv"
         with open(core_template_path, "r") as f:
             core_template = f.read()
@@ -85,14 +69,11 @@ class Where_rtl(Where, RTLBackend):
             "TOP_MODULE_NAME": topname,
             "PE": pe,
             "DATA_WIDTH": elem_width,
-            "NDIMS": len(out_rtl_shape),
-            "COND_NDIMS": len(cond_rtl_shape),
-            "X_NDIMS": len(x_rtl_shape),
-            "Y_NDIMS": len(y_rtl_shape),
-            "OUT_SHAPE": self._shape_literal(out_shape),
-            "COND_SHAPE": self._shape_literal(cond_shape),
-            "X_SHAPE": self._shape_literal(x_shape),
-            "Y_SHAPE": self._shape_literal(y_shape),
+            "NDIMS": ndims,
+            "OUT_SHAPE": self._shape_literal(out_rtl_shape),
+            "COND_SHAPE": self._shape_literal(cond_rtl_shape),
+            "X_SHAPE": self._shape_literal(x_rtl_shape),
+            "Y_SHAPE": self._shape_literal(y_rtl_shape),
             "COND_WIDTH": cond_width,
             "X_WIDTH": x_width,
             "Y_WIDTH": y_width,

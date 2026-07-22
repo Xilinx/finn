@@ -1,31 +1,7 @@
-# Copyright (C) 2026, Advanced Micro Devices, Inc.
-# All rights reserved.
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are met:
-#
-# * Redistributions of source code must retain the above copyright notice,
-#   this list of conditions and the following disclaimer.
-#
-# * Redistributions in binary form must reproduce the above copyright notice,
-#   this list of conditions and the following disclaimer in the documentation
-#   and/or other materials provided with the distribution.
-#
-# * Neither the name of FINN nor the names of its
-#   contributors may be used to endorse or promote products derived from
-#   this software without specific prior written permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# Copyright Advanced Micro Devices, Inc.
+# SPDX-License-Identifier: BSD-3-Clause
 
+import math
 import numpy as np
 import warnings
 from qonnx.core.datatype import DataType
@@ -35,6 +11,10 @@ from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
 class Where(HWCustomOp):
     """Elementwise ONNX Where with multidirectional broadcasting."""
+
+    # Approximate the Vivado ``ram_style = "auto"`` mapping decision. Smaller
+    # buffers are normally implemented as distributed RAM; larger ones use BRAM.
+    _AUTO_BRAM_THRESHOLD_BITS = 1024
 
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
@@ -60,8 +40,8 @@ class Where(HWCustomOp):
                     "auto",
                     {"auto", "block", "distributed", "ultra"},
                 ),
+                # Where has three streaming inputs, unlike the base class default.
                 "inFIFODepths": ("ints", False, [2, 2, 2]),
-                "outFIFODepths": ("ints", False, [2]),
             }
         )
         return my_attrs
@@ -180,9 +160,6 @@ class Where(HWCustomOp):
         self.set_nodeattr("outputDataType", idt.name)
         model.set_tensor_datatype(node.output[0], idt)
 
-    def verify_node(self):
-        pass
-
     def get_condition_datatype(self):
         return DataType[self.get_nodeattr("conditionDataType")]
 
@@ -228,11 +205,145 @@ class Where(HWCustomOp):
             self.get_normal_output_shape()
         )
 
+    def _input_gen_buffer_specs(self):
+        """Return the (width, depth) of each RTL input_gen buffer."""
+
+        out_shape = self._rtl_shape(self.get_normal_output_shape())
+        out_pe = self._output_stream_pe()
+        out_dims = list(out_shape)
+        out_dims[-1] //= out_pe
+        specs = []
+
+        for ind in range(3):
+            in_shape = self._rtl_shape(self.get_normal_input_shape(ind))
+            assert len(in_shape) <= len(out_shape), "Input rank must not exceed output rank"
+            aligned_shape = (1,) * (len(out_shape) - len(in_shape)) + in_shape
+
+            def word_dim(axis):
+                dim = aligned_shape[axis]
+                if axis == len(out_shape) - 1 and dim != 1:
+                    dim //= out_pe
+                return dim
+
+            fm_size = int(np.prod([word_dim(i) for i in range(len(out_shape))]))
+            coefs = []
+            for axis, dim in enumerate(aligned_shape):
+                if dim == 1:
+                    coefs.append(0)
+                else:
+                    coefs.append(
+                        int(np.prod([word_dim(i) for i in range(axis + 1, len(out_shape))]))
+                    )
+
+            # Mirror input_gen.sv's elaboration-time occupancy calculation.
+            weights = [fm_size] + coefs
+            free_flags = [True]
+            for axis, coef in enumerate(coefs):
+                free_flags.append(
+                    free_flags[-1] and coef > 0 and coef * out_dims[axis] <= weights[axis]
+                )
+
+            max_occupancy = 0
+            read_rewind = 0
+            free_rewind = 0
+            for axis in range(len(out_shape) - 1, -1, -1):
+                inner_read_rewind = read_rewind
+                inner_free_rewind = free_rewind
+                read_rewind = (out_dims[axis] - 1) * coefs[axis] + read_rewind
+                free_rewind = (
+                    (out_dims[axis] - 1) * coefs[axis] + free_rewind if free_flags[axis + 1] else 0
+                )
+                max_occupancy = max(max_occupancy, read_rewind - free_rewind)
+                if free_flags[axis]:
+                    burst = max(weights[axis] - free_rewind, 0)
+                    required = inner_read_rewind - inner_free_rewind + burst
+                    max_occupancy = max(max_occupancy, required)
+
+            # input_gen adds one write-pointer delay and two safety entries,
+            # then rounds the buffer depth up to a power of two.
+            required_depth = max_occupancy + 3
+            buffer_depth = 1 << (required_depth - 1).bit_length()
+            specs.append((self.get_instream_width(ind), buffer_depth))
+
+        return specs
+
+    @staticmethod
+    def _bram18_estimation(width, depth):
+        if width == 1:
+            return math.ceil(depth / 16384)
+        if width == 2:
+            return math.ceil(depth / 8192)
+        if width <= 4:
+            return math.ceil(depth / 4096) * math.ceil(width / 4)
+        if width <= 9:
+            return math.ceil(depth / 2048) * math.ceil(width / 9)
+        if width <= 18 or depth > 512:
+            return math.ceil(depth / 1024) * math.ceil(width / 18)
+        return math.ceil(depth / 512) * math.ceil(width / 36)
+
     def bram_estimation(self):
-        return 0
+        ram_style = self.get_nodeattr("ram_style")
+        if ram_style == "block":
+            buffer_specs = self._input_gen_buffer_specs()
+        elif ram_style == "auto":
+            buffer_specs = [
+                (width, depth)
+                for width, depth in self._input_gen_buffer_specs()
+                if width * depth >= self._AUTO_BRAM_THRESHOLD_BITS
+            ]
+        else:
+            return 0
+        return int(sum(self._bram18_estimation(width, depth) for width, depth in buffer_specs))
+
+    def uram_estimation(self):
+        if self.get_nodeattr("ram_style") != "ultra":
+            return 0
+        return int(
+            sum(
+                math.ceil(width / 72) * math.ceil(depth / 4096)
+                for width, depth in self._input_gen_buffer_specs()
+            )
+        )
+
+    def bram_efficiency_estimation(self):
+        bram_estimate = self.bram_estimation()
+        if bram_estimate == 0:
+            return 1
+        buffer_specs = self._input_gen_buffer_specs()
+        if self.get_nodeattr("ram_style") == "auto":
+            buffer_specs = [
+                (width, depth)
+                for width, depth in buffer_specs
+                if width * depth >= self._AUTO_BRAM_THRESHOLD_BITS
+            ]
+        used_bits = sum(width * depth for width, depth in buffer_specs)
+        return used_bits / (bram_estimate * 36 * 512)
+
+    def uram_efficiency_estimation(self):
+        uram_estimate = self.uram_estimation()
+        if uram_estimate == 0:
+            return 1
+        used_bits = sum(width * depth for width, depth in self._input_gen_buffer_specs())
+        return used_bits / (uram_estimate * 72 * 4096)
 
     def lut_estimation(self):
-        return int(64 + self.get_nodeattr("PE") * self.get_output_datatype().bitwidth())
+        selection_luts = 64 + self.get_nodeattr("PE") * self.get_output_datatype().bitwidth()
+        ram_style = self.get_nodeattr("ram_style")
+        if ram_style == "distributed":
+            buffer_specs = self._input_gen_buffer_specs()
+        elif ram_style == "auto":
+            buffer_specs = [
+                (width, depth)
+                for width, depth in self._input_gen_buffer_specs()
+                if width * depth < self._AUTO_BRAM_THRESHOLD_BITS
+            ]
+        else:
+            buffer_specs = []
+        if buffer_specs:
+            buffer_luts = sum(width * math.ceil(depth / 64) for width, depth in buffer_specs)
+        else:
+            buffer_luts = 0
+        return int(selection_luts + buffer_luts)
 
     def get_op_and_param_counts(self):
         return {"op_where": int(np.prod(self.get_normal_output_shape()))}

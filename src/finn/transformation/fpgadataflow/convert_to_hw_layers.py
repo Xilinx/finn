@@ -1337,19 +1337,27 @@ class InferSplitLayer(Transformation):
 class InferWhereLayer(Transformation):
     """Convert ONNX Where(condition, X, Y) into a streaming Where layer."""
 
+    @staticmethod
+    def _warn_skip(node, reason):
+        node_name = node.name if node.name else "<unnamed Where>"
+        warnings.warn("%s: %s. Can't infer Where layer." % (node_name, reason))
+
     def apply(self, model):
         graph = model.graph
         node_ind = 0
         graph_modified = False
         for node in graph.node:
             node_ind += 1
+            # The empty and explicit ai.onnx domains both denote standard ONNX ops.
             if node.op_type != "Where" or node.domain not in ["", "ai.onnx"]:
                 continue
             if len(node.input) != 3:
+                self._warn_skip(node, "Expected exactly three inputs")
                 continue
 
             cond_name, x_name, y_name = node.input
             if any(model.get_initializer(inp) is not None for inp in node.input):
+                self._warn_skip(node, "Initializer inputs are not supported by the streaming op")
                 continue
 
             cond_shape = model.get_tensor_shape(cond_name)
@@ -1357,20 +1365,26 @@ class InferWhereLayer(Transformation):
             y_shape = model.get_tensor_shape(y_name)
             out_shape = model.get_tensor_shape(node.output[0])
             if any(s is None for s in [cond_shape, x_shape, y_shape, out_shape]):
+                self._warn_skip(node, "Input and output shapes must be known")
                 continue
-            if any(x is None for x in list(cond_shape) + list(x_shape) + list(y_shape)):
+            all_dims = list(cond_shape) + list(x_shape) + list(y_shape) + list(out_shape)
+            if any(x is None for x in all_dims):
+                self._warn_skip(node, "Dynamic dimensions are not supported")
                 continue
             try:
                 broadcast_shape = np.broadcast_shapes(
                     tuple(cond_shape), tuple(x_shape), tuple(y_shape)
                 )
             except ValueError:
+                self._warn_skip(node, "Input shapes are not broadcast-compatible")
                 continue
             if list(out_shape) != [int(x) for x in broadcast_shape]:
+                self._warn_skip(node, "Output shape does not match the broadcast input shape")
                 continue
             x_dt = model.get_tensor_datatype(x_name)
             y_dt = model.get_tensor_datatype(y_name)
             if x_dt is None or y_dt is None or x_dt != y_dt:
+                self._warn_skip(node, "X and Y must have the same known datatype")
                 continue
             supported_dt = (
                 x_dt.is_integer()
@@ -1378,9 +1392,11 @@ class InferWhereLayer(Transformation):
                 or x_dt in [DataType["FLOAT32"], DataType["FLOAT16"]]
             )
             if not supported_dt:
+                self._warn_skip(node, "X and Y datatype %s is not supported" % str(x_dt))
                 continue
             out_dt = model.get_tensor_datatype(node.output[0])
             if out_dt is not None and out_dt != x_dt:
+                self._warn_skip(node, "Output datatype must match X and Y")
                 continue
 
             cond_dt = model.get_tensor_datatype(cond_name)
@@ -1388,6 +1404,7 @@ class InferWhereLayer(Transformation):
                 model.set_tensor_datatype(cond_name, DataType["BINARY"])
                 cond_dt = DataType["BINARY"]
             if cond_dt != DataType["BINARY"]:
+                self._warn_skip(node, "Condition datatype must be BINARY")
                 continue
 
             new_node = helper.make_node(
@@ -1405,7 +1422,6 @@ class InferWhereLayer(Transformation):
                 inputDataType=x_dt.name,
                 outputDataType=x_dt.name,
                 inFIFODepths=[2, 2, 2],
-                outFIFODepths=[2],
             )
             for attr_name, attr_value in [
                 ("Shape", [int(x) for x in broadcast_shape]),

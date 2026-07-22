@@ -29,25 +29,20 @@
  *	output word count (the ideal lower bound).
  ***************************************************************************/
 
-`default_nettype none
-
 module where #(
 	int unsigned  DATA_WIDTH,
 	int unsigned  PE = 1,
 	int unsigned  NDIMS,
-	int unsigned  COND_NDIMS = NDIMS,
-	int unsigned  X_NDIMS = NDIMS,
-	int unsigned  Y_NDIMS = NDIMS,
 
-	int unsigned  OUT_SHAPE[NDIMS]       = '{ default: 1 },
-	int unsigned  COND_SHAPE[COND_NDIMS] = '{ default: 1 },
-	int unsigned  X_SHAPE[X_NDIMS]       = '{ default: 1 },
-	int unsigned  Y_SHAPE[Y_NDIMS]       = '{ default: 1 },
+	int unsigned  OUT_SHAPE[NDIMS]  = '{ default: 1 },
+	int unsigned  COND_SHAPE[NDIMS] = '{ default: 1 },
+	int unsigned  X_SHAPE[NDIMS]    = '{ default: 1 },
+	int unsigned  Y_SHAPE[NDIMS]    = '{ default: 1 },
 	parameter  RAM_STYLE = "auto",
 
-	localparam int unsigned  COND_PE = (COND_SHAPE[COND_NDIMS-1] == 1)? 1 : PE,
-	localparam int unsigned  X_PE = (X_SHAPE[X_NDIMS-1] == 1)? 1 : PE,
-	localparam int unsigned  Y_PE = (Y_SHAPE[Y_NDIMS-1] == 1)? 1 : PE
+	localparam int unsigned  COND_PE = (COND_SHAPE[NDIMS-1] == 1)? 1 : PE,
+	localparam int unsigned  X_PE = (X_SHAPE[NDIMS-1] == 1)? 1 : PE,
+	localparam int unsigned  Y_PE = (Y_SHAPE[NDIMS-1] == 1)? 1 : PE
 )(
 	// Global Control
 	input	logic  clk,
@@ -74,19 +69,8 @@ module where #(
 	input	logic  ordy
 );
 
-	//=== Rank-Aligned Operand Shapes =======================================
-	//
-	// Left-pad each operand shape with 1s to output rank so that a single
-	// pair of functions can compute FM_SIZE and COEFS for any operand.
+	// Input shapes are left-padded to NDIMS by the instantiator.
 	typedef int unsigned  ig_dims_t[NDIMS];
-	function automatic ig_dims_t  PAD_SHAPE(input int unsigned  s[], input int unsigned  n);
-		automatic ig_dims_t  a = '{ default: 1 };
-		for(int unsigned  k = 0; k < n; k++)  a[NDIMS-n+k] = s[k];
-		return  a;
-	endfunction : PAD_SHAPE
-	localparam ig_dims_t  CA = PAD_SHAPE(COND_SHAPE, COND_NDIMS);
-	localparam ig_dims_t  XA = PAD_SHAPE(X_SHAPE, X_NDIMS);
-	localparam ig_dims_t  YA = PAD_SHAPE(Y_SHAPE, Y_NDIMS);
 
 	//=== Static Parameter Validation =======================================
 	initial begin
@@ -102,24 +86,15 @@ module where #(
 			$error("%m: NDIMS must be positive.");
 			$finish;
 		end
-		if(COND_NDIMS < 1 || COND_NDIMS > NDIMS) begin
-			$error("%m: COND_NDIMS out of range.");
-			$finish;
-		end
-		if(X_NDIMS < 1 || X_NDIMS > NDIMS) begin
-			$error("%m: X_NDIMS out of range.");
-			$finish;
-		end
-		if(Y_NDIMS < 1 || Y_NDIMS > NDIMS) begin
-			$error("%m: Y_NDIMS out of range.");
-			$finish;
-		end
 		if((OUT_SHAPE[NDIMS-1] % PE) != 0) begin
 			$error("%m: PE must divide output innermost dim.");
 			$finish;
 		end
 		for(int unsigned  i = 0; i < NDIMS; i++) begin
-			automatic int unsigned  cd = CA[i], xd = XA[i], yd = YA[i], mx = cd;
+			automatic int unsigned  cd = COND_SHAPE[i];
+			automatic int unsigned  xd = X_SHAPE[i];
+			automatic int unsigned  yd = Y_SHAPE[i];
+			automatic int unsigned  mx = cd;
 			if(cd < 1 || xd < 1 || yd < 1 || OUT_SHAPE[i] < 1) begin
 				$error("%m: shape dimensions must be positive.");
 				$finish;
@@ -147,15 +122,15 @@ module where #(
 				$finish;
 			end
 		end
-		if(CA[NDIMS-1] != 1 && (CA[NDIMS-1] % PE) != 0) begin
+		if(COND_SHAPE[NDIMS-1] != 1 && (COND_SHAPE[NDIMS-1] % PE) != 0) begin
 			$error("%m: PE must divide COND innermost.");
 			$finish;
 		end
-		if(XA[NDIMS-1] != 1 && (XA[NDIMS-1] % PE) != 0) begin
+		if(X_SHAPE[NDIMS-1] != 1 && (X_SHAPE[NDIMS-1] % PE) != 0) begin
 			$error("%m: PE must divide X innermost.");
 			$finish;
 		end
-		if(YA[NDIMS-1] != 1 && (YA[NDIMS-1] % PE) != 0) begin
+		if(Y_SHAPE[NDIMS-1] != 1 && (Y_SHAPE[NDIMS-1] % PE) != 0) begin
 			$error("%m: PE must divide Y innermost.");
 			$finish;
 		end
@@ -210,10 +185,10 @@ module where #(
 	uwire  c_exp_rdy;
 	input_gen #(
 		.DATA_WIDTH(COND_PE),
-		.FM_SIZE(INIT_FM_SIZE(CA)),
+		.FM_SIZE(INIT_FM_SIZE(COND_SHAPE)),
 		.D(NDIMS),
 		.DIMS(OUT_DIMS),
-		.COEFS(INIT_COEFS(CA)),
+		.COEFS(INIT_COEFS(COND_SHAPE)),
 		.RAM_STYLE(RAM_STYLE)
 	) c_gen (
 		.clk, .rst,
@@ -228,10 +203,10 @@ module where #(
 	uwire  x_exp_rdy;
 	input_gen #(
 		.DATA_WIDTH(X_PE * DATA_WIDTH),
-		.FM_SIZE(INIT_FM_SIZE(XA)),
+		.FM_SIZE(INIT_FM_SIZE(X_SHAPE)),
 		.D(NDIMS),
 		.DIMS(OUT_DIMS),
-		.COEFS(INIT_COEFS(XA)),
+		.COEFS(INIT_COEFS(X_SHAPE)),
 		.RAM_STYLE(RAM_STYLE)
 	) x_gen (
 		.clk, .rst,
@@ -246,10 +221,10 @@ module where #(
 	uwire  y_exp_rdy;
 	input_gen #(
 		.DATA_WIDTH(Y_PE * DATA_WIDTH),
-		.FM_SIZE(INIT_FM_SIZE(YA)),
+		.FM_SIZE(INIT_FM_SIZE(Y_SHAPE)),
 		.D(NDIMS),
 		.DIMS(OUT_DIMS),
-		.COEFS(INIT_COEFS(YA)),
+		.COEFS(INIT_COEFS(Y_SHAPE)),
 		.RAM_STYLE(RAM_STYLE)
 	) y_gen (
 		.clk, .rst,
@@ -286,4 +261,3 @@ module where #(
 	assign	ovld = OVld;
 
 endmodule : where
-`default_nettype wire
