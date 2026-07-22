@@ -94,15 +94,15 @@ def configure_build(board, output_dir):
         generate_outputs=build_outputs,
         output_dir=output_dir,
         steps=build_steps,
-        folding_config_file=f"""{build_flow_folder}vgg10-radioml/
-            folding_config/vgg10radioml_folding_config.json""",
+        folding_config_file=f"{build_flow_folder}vgg10-radioml/"
+        "folding_config/vgg10radioml_folding_config.json",
         synth_clk_period_ns=4.0,
         board=board,
         shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
         split_large_fifos=True,
         standalone_thresholds=True,
-        specialize_layers_config_file=f"""{build_flow_folder}vgg10-radioml/
-            specialize_layers_config/vgg10radioml_specialize_layers.json""",
+        specialize_layers_config_file=f"{build_flow_folder}vgg10-radioml/"
+        "specialize_layers_config/vgg10radioml_specialize_layers.json",
         verify_steps=verif_steps,
         verify_input_npy=verify_input_npy,
         verify_expected_output_npy=verify_expected_output_npy,
