@@ -1,3 +1,6 @@
+// Copyright Advanced Micro Devices, Inc.
+// SPDX-License-Identifier: BSD-3-Clause
+
 module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter  BASE_ADDR_BITS = 64,
 	parameter  AXIL_DATA_BITS = 32,

@@ -1,3 +1,6 @@
+// Copyright Advanced Micro Devices, Inc.
+// SPDX-License-Identifier: BSD-3-Clause
+
 module address_config #(
 	int unsigned              BASE_ADDR_BITS,
 	int unsigned              AXIL_DATA_BITS = 32,
