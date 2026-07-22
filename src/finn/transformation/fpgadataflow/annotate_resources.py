@@ -99,9 +99,9 @@ class AnnotateResources(Transformation):
                     total_dict[r_type] += r_amount
                 else:
                     total_dict[r_type] = r_amount
-        for k in total_dict.keys():
+        for k, v in total_dict.items():
             if "efficiency" in k:
-                total_dict[k] = total_dict[k] / len(graph.node)
+                total_dict[k] = v / len(graph.node)
         model.set_metadata_prop("res_total_" + self.mode, str(total_dict))
         if "(top)" in self.res_dict.keys():
             top_dict = self.res_dict["(top)"]
