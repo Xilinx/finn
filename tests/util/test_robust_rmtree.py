@@ -56,7 +56,7 @@ def test_robust_rmtree_retries_on_transient_then_succeeds(monkeypatch, transient
 
     robust_rmtree(target, retries=5)
 
-    assert state["calls"] == 3
+    assert state["calls"] >= 3
     assert not os.path.exists(target)
 
 

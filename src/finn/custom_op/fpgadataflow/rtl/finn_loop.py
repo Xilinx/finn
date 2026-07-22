@@ -557,6 +557,10 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 tap_rep = 1
                 if node.op_type == "Thresholding_rtl":
                     tap_rep = np.prod(node_inst.get_folded_input_shape(0)[:-1])
+                elif node.op_type.startswith("Elementwise") and hasattr(
+                    node_inst, "calc_wmem_reps"
+                ):
+                    tap_rep = node_inst.calc_wmem_reps()
                 stname = "IN_%s" % graph_inputs.index(node.input[1])
                 code_gen_dict = {
                     "$MODULE_NAME$": [stname],
@@ -582,6 +586,40 @@ class FINNLoop(HWCustomOp, RTLBackend):
         vivado_stitch_proj_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
         cmd = []
+
+        # Create Vivado axis_dwidth_converter IPs for intermediate_frames DWCs
+        olen_bits = self.get_outstream_width(0)
+        ilen_bits = self.get_instream_width(0)
+        data_bits = 256
+        # DWC write path: body output width -> DMA width (256)
+        dwc_sink_s_bytes = (olen_bits + 7) // 8
+        dwc_sink_m_bytes = data_bits // 8
+        cmd += [
+            "create_ip -name axis_dwidth_converter -vendor xilinx.com "
+            "-library ip -version 1.1 -module_name if_dwc_sink",
+            "set_property -dict [list "
+            "CONFIG.S_TDATA_NUM_BYTES {%d} "
+            "CONFIG.M_TDATA_NUM_BYTES {%d} "
+            "CONFIG.HAS_TLAST {1} "
+            "CONFIG.HAS_TKEEP {1} "
+            "] [get_ips if_dwc_sink]" % (dwc_sink_s_bytes, dwc_sink_m_bytes),
+            "generate_target all [get_ips if_dwc_sink]",
+        ]
+        # DWC read path: DMA width (256) -> body input width
+        dwc_source_s_bytes = data_bits // 8
+        dwc_source_m_bytes = (ilen_bits + 7) // 8
+        cmd += [
+            "create_ip -name axis_dwidth_converter -vendor xilinx.com "
+            "-library ip -version 1.1 -module_name if_dwc_source",
+            "set_property -dict [list "
+            "CONFIG.S_TDATA_NUM_BYTES {%d} "
+            "CONFIG.M_TDATA_NUM_BYTES {%d} "
+            "CONFIG.HAS_TLAST {1} "
+            "CONFIG.HAS_TKEEP {1} "
+            "] [get_ips if_dwc_source]" % (dwc_source_s_bytes, dwc_source_m_bytes),
+            "generate_target all [get_ips if_dwc_source]",
+        ]
+
         # add all the generated IP dirs to ip_repo_paths
         ip_dirs = ["list"]
         # add RTL streamer IP
