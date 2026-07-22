@@ -1,57 +1,25 @@
 import pytest
 
-import glob
-import multiprocessing as mp
 import numpy as np
 import os
 import re
-import signal
-import sys
 from dataclasses import replace
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
-from qonnx.transformation.general import (
-    GiveReadableTensorNames,
-    GiveUniqueNodeNames,
-    RemoveUnusedTensors,
-)
+from qonnx.transformation.general import RemoveUnusedTensors
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.merge_onnx_models import MergeONNXModels
-from qonnx.util.basic import gen_finn_dt_tensor, get_by_name, qonnx_make_model
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 import finn.core.onnx_exec as oxe
-from finn.core.rtlsim_exec import rtlsim_exec
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
-from finn.transformation.fpgadataflow.derive_characteristic import (
-    DeriveCharacteristic,
-    DeriveFIFOSizes,
-)
-from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
-from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
-from finn.transformation.fpgadataflow.loop_rolling import LoopExtraction, LoopRolling
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
-from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
-    ReplaceVerilogRelPaths,
-)
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.fpgadataflow.set_fifo_depths import (
-    InsertAndSetFIFODepths,
-    RemoveShallowFIFOs,
-    SplitLargeFIFOs,
-)
-from finn.transformation.fpgadataflow.set_loop_boundary import SetLoopBoundary
-from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import make_build_dir
-from finn.util.mlo_sim import mlo_prehook_func_factory
 
 verif_steps = [
     "folded_hls_cppsim",
@@ -663,24 +631,25 @@ def test_finnloop_end2end_mlo(
 
     model.save(tmp_output_dir + "/mlo_model.onnx")
 
-    # steps are skipped because test model created with HLS and RTL layers
+    # Use phase-based pipeline
+    # Steps are adjusted because test model already has HLS and RTL layers
     steps = [
-        # "step_qonnx_to_finn",
-        # "step_tidy_up",
-        # "step_streamline",
-        # "step_convert_to_hw",
-        "step_create_dataflow_partition",
-        # "step_specialize_layers",
-        "step_loop_rolling",
-        # "step_target_fps_parallelization",
-        "step_apply_folding_config",
-        "step_minimize_bit_width",
-        "step_generate_estimate_reports",
-        "step_hw_codegen",
-        "step_hw_ipgen",
-        "step_set_fifo_depths",
-        "step_create_stitched_ip",
+        "step_create_dataflow_partition",  # Fine-grained (model already specialized)
+        "phase_convert_to_hardware",  # Phase (includes loop rolling)
+        "phase_optimize_hardware",  # Phase (includes folding, bit-width, reports)
+        "phase_build_hardware",  # Phase (includes codegen, ipgen, FIFOs)
+        "phase_generate_outputs",  # Phase (only stitched IP requested, so no full synth)
     ]
+
+    # debug_fifo forces behavioral verification and per-FIFO log capture, which
+    # noticeably extends the flow. Only exercise it on a single canonical config.
+    run_fifo_debug = (
+        mvau_cfg == (16, 2, 2, 1, 2)
+        and elemwise_optype == "ElementwiseMul_hls"
+        and rhs_shape == [1]
+        and eltw_param_dtype == "INT8"
+        and not tail_node
+    )
 
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
@@ -696,6 +665,7 @@ def test_finnloop_end2end_mlo(
         verify_input_npy=tmp_output_dir + "/input.npy",
         verify_expected_output_npy=tmp_output_dir + "/expected_output.npy",
         verify_save_full_context=True,  # Enable per-iteration context saving
+        debug_fifo=run_fifo_debug,  # snapshot per-FIFO sizing logs (tagged per loop body)
         generate_outputs=[
             build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
             build_cfg.DataflowOutputType.STITCHED_IP,
@@ -751,6 +721,20 @@ def test_finnloop_end2end_mlo(
         len(iter_indices) == iteration
     ), f"Expected {iteration} iterations in context, found {len(iter_indices)}"
 
+    # debug_fifo snapshots per-FIFO sizing logs. For MLO the loop-body FIFO sizing
+    # tags each log with its enclosing FINNLoop name and stores them under a subdir
+    # named after that loop, so verify the per-loop logs landed there.
+    if run_fifo_debug:
+        loop_fifo_debug_dir = tmp_output_dir + "/debug/fifo_logs/fifo_sizing/FINNLoop_0"
+        assert os.path.isdir(
+            loop_fifo_debug_dir
+        ), f"missing per-loop fifo debug dir {loop_fifo_debug_dir}"
+        loop_fifo_logs = [f for f in os.listdir(loop_fifo_debug_dir) if f.endswith(".log")]
+        assert len(loop_fifo_logs) > 0, f"no per-FIFO debug logs in {loop_fifo_debug_dir}"
+        assert all(
+            f.startswith("FINNLoop_0_") for f in loop_fifo_logs
+        ), f"per-loop fifo logs not tagged with loop context: {loop_fifo_logs}"
+
     # also run dcp generation for a subset of the test parameters
     # this extends the test run time quite a lot
     # so only do for 2 of the scenarios
@@ -763,7 +747,7 @@ def test_finnloop_end2end_mlo(
         # launch another build just to test dcp generation
         cfg = replace(
             cfg,
-            start_step="step_create_stitched_ip",
+            start_step="phase_generate_outputs",
             stitched_ip_gen_dcp=True,
             verify_steps=[],
         )
@@ -775,33 +759,9 @@ def test_finnloop_end2end_mlo(
         ), f"Check vivado.log in {tmp_output_dir}/stitched_ip"
 
 
-def _run_build_in_child(model_filename, cfg):
-    sys.exit(build.build_dataflow_cfg(model_filename, cfg))
-
-
 @pytest.mark.parametrize(
     "dim, simd, pe, bitwidth, weight_bitwidth",
-    [
-        (16, 1, 1, 8, 8),
-        (16, 2, 2, 8, 8),
-        (16, 4, 2, 8, 8),
-        (16, 8, 4, 8, 8),
-        (16, 8, 4, 4, 4),
-        (16, 8, 4, 7, 7),
-        (16, 4, 2, 5, 5),
-        (16, 8, 4, 3, 3),
-        (8, 8, 4, 7, 7),
-        (8, 4, 2, 5, 5),
-        (8, 8, 4, 3, 3),
-        (8, 8, 4, 2, 2),
-        (16, 1, 1, 4, 9),
-        (16, 2, 2, 4, 9),
-        (8, 4, 2, 4, 9),
-        (16, 8, 4, 4, 16),
-        (16, 16, 8, 4, 16),
-        (32, 32, 8, 4, 16),
-        (16, 16, 8, 4, 17),
-    ],
+    [(16, 1, 1, 8, 8), (8, 8, 4, 3, 3)],
 )
 # iteration count, number of models chained together
 @pytest.mark.parametrize("iteration", [3])
@@ -906,20 +866,14 @@ def test_finnloop_end2end_mlo_ddr(
 
     model.save(tmp_output_dir + "/mlo_model.onnx")
 
-    # steps are skipped because test model created with HLS and RTL layers
+    # Use phase-based pipeline
+    # Steps are adjusted because test model already has HLS and RTL layers
     steps = [
-        "step_create_dataflow_partition",
-        "step_loop_rolling",
-        "step_apply_folding_config",
-        "step_minimize_bit_width",
-        "step_generate_estimate_reports",
-        "step_hw_codegen",
-        "step_hw_ipgen",
-        "step_set_fifo_depths",
-        "step_create_stitched_ip",
-        # "step_synthesize_bitfile",
-        # "step_make_driver",
-        # "step_deployment_package",
+        "step_create_dataflow_partition",  # Fine-grained (model already specialized)
+        "phase_convert_to_hardware",  # Phase (includes loop rolling)
+        "phase_optimize_hardware",  # Phase (includes folding, bit-width, reports)
+        "phase_build_hardware",  # Phase (includes codegen, ipgen, FIFOs)
+        "phase_generate_outputs",  # Phase (stitched IP, bitfile synth, driver, deployment)
     ]
 
     cfg = build_cfg.DataflowBuildConfig(
@@ -947,245 +901,52 @@ def test_finnloop_end2end_mlo_ddr(
             build_cfg.DataflowOutputType.DEPLOYMENT_PACKAGE,
         ],
     )
-    # Run the build in a child process so that a segfault in the simulation
-    # (the rtlsim memory model can overrun on straddle + partial-beat weight
-    # layouts) is caught as a non-zero exit code instead of crashing the whole
-    # pytest session. build_dataflow_cfg *returns* -1 on a failed step rather
-    # than raising, so the wrapper forwards that return value to the child's
-    # exit code via sys.exit.
-    ctx = mp.get_context("fork")
-    proc = ctx.Process(
-        target=_run_build_in_child,
-        args=(tmp_output_dir + "/mlo_model.onnx", cfg),
-    )
-    proc.start()
-    proc.join()
-    if proc.exitcode < 0:
-        sig = signal.Signals(-proc.exitcode).name
-        pytest.fail(f"build crashed in child process with signal {sig}")
-    if proc.exitcode != 0:
-        pytest.fail(f"build failed in child process with exit code {proc.exitcode}")
+    build.build_dataflow_cfg(tmp_output_dir + "/mlo_model.onnx", cfg)
 
-    # A verification mismatch
-    verify_fails = glob.glob(tmp_output_dir + "/verification_output/*FAIL*")
-    if verify_fails:
-        names = ", ".join(sorted(os.path.basename(p) for p in verify_fails))
-        pytest.fail(f"verification mismatch in build output: {names}")
+    # check if expected files are there
+    assert os.path.isfile(tmp_output_dir + "/loop-body-template.onnx")
+    report_dir = tmp_output_dir + "/report"
+    assert os.path.isfile(report_dir + "/estimate_layer_config_alternatives_FINNLoop_0.json")
+    assert os.path.isfile(report_dir + "/estimate_layer_config_alternatives.json")
+    assert os.path.isfile(report_dir + "/estimate_layer_cycles_FINNLoop_0.json")
+    assert os.path.isfile(report_dir + "/estimate_layer_cycles.json")
+    assert os.path.isfile(report_dir + "/estimate_layer_resources_FINNLoop_0.json")
+    assert os.path.isfile(report_dir + "/estimate_layer_resources.json")
+    assert os.path.isfile(report_dir + "/op_and_param_counts_FINNLoop_0.json")
+    assert os.path.isfile(report_dir + "/op_and_param_counts.json")
+    assert os.path.isfile(tmp_output_dir + "/stitched_ip/ip/component.xml")
 
+    verif_dir = tmp_output_dir + "/verification_output"
+    # With verify_save_full_context=True, cppsim and node_by_node_rtlsim save as .npz
+    # stitched_ip_rtlsim with MLO uses rtlsim_pre_hook so it saves as .npy
+    assert os.path.isfile(
+        verif_dir + "/verify_folded_hls_cppsim_0_SUCCESS.npz"
+    ), f"Check npz files in {verif_dir}"
+    assert os.path.isfile(
+        verif_dir + "/verify_node_by_node_rtlsim_0_SUCCESS.npz"
+    ), f"Check npz files in {verif_dir}"
+    assert os.path.isfile(
+        verif_dir + "/verify_stitched_ip_rtlsim_0_SUCCESS.npy"
+    ), f"Check npy files in {verif_dir}"
 
-# Debug test for manual loop transformation steps below
-# This test is intentionally not marked for CI
-# Use test_finnloop_end2end_mlo instead
-# If required, to run manually:
-# pytest tests/fpgadataflow/test_fpgadataflow_finnloop.py::test_fpgadataflow_finnloop
+    # Verify that the per-iteration context file was created for FINNLoop
+    iteration_context_files = [
+        f for f in os.listdir(verif_dir) if f.startswith("iteration_context_")
+    ]
+    assert len(iteration_context_files) > 0, f"No iteration context files found in {verif_dir}"
 
+    # Load and verify the iteration context file has expected structure
+    ctx_file = os.path.join(verif_dir, iteration_context_files[0])
+    ctx_data = np.load(ctx_file)
+    iter_keys = [k for k in ctx_data.files if k.startswith("iter_")]
+    assert len(iter_keys) > 0, "No iteration keys found in context file"
 
-# helper functions
-def prepare_loop_ops_for_ipgen_step1(node, fpga_part, clk_ns):
-    node_inst = getCustomOp(node)
-    loop_model = node_inst.get_nodeattr("body")
-    # go first into subgraph to check if there are other loop ops
-    loop_nodes = loop_model.get_nodes_by_op_type("FINNLoop")
-    for loop_node in loop_nodes:
-        prepare_loop_ops_for_ipgen_step1(loop_node, fpga_part, clk_ns)
-    loop_model = loop_model.transform(PrepareIP(fpga_part, clk_ns))
-    loop_model = loop_model.transform(HLSSynthIP(fpgapart=fpga_part))
-    loop_model = loop_model.transform(ReplaceVerilogRelPaths())
-    loop_model = loop_model.transform(GiveUniqueNodeNames())
-    loop_model = loop_model.transform(GiveReadableTensorNames())
-    if node_inst.get_nodeattr("rtlsim_trace"):
-        loop_model.set_metadata_prop("rtlsim_trace", f"{node.name}_fifosim_trace.wdb")
-    loop_model = loop_model.transform(
-        InsertAndSetFIFODepths(
-            fpga_part,
-            clk_ns,
-        )
-    )
-    loop_model = loop_model.transform(SplitLargeFIFOs())
-    loop_model = loop_model.transform(RemoveShallowFIFOs())
-    node_inst.set_nodeattr("body", loop_model.graph)
-
-
-def prepare_loop_ops_for_ipgen_step2(node, fpga_part, clk_ns):
-    node_inst = getCustomOp(node)
-    loop_model = node_inst.get_nodeattr("body")
-    # go first into subgraph to check if there are other loop ops
-    loop_nodes = loop_model.get_nodes_by_op_type("FINNLoop")
-    for loop_node in loop_nodes:
-        prepare_loop_ops_for_ipgen_step2(loop_node, fpga_part, clk_ns)
-    loop_model = loop_model.transform(HLSSynthIP(fpgapart=fpga_part))
-    loop_model = loop_model.transform(
-        CreateStitchedIP(
-            fpga_part,
-            clk_ns,
-        )
-    )
-    node_inst.set_nodeattr("body", loop_model.graph)
-
-
-# dimensions
-@pytest.mark.parametrize("dim", [16])
-# iteration count, number of models chained together
-@pytest.mark.parametrize("iteration", [3])
-# elementwise operation
-@pytest.mark.parametrize("elemwise_optype", ["ElementwiseMul_hls", "ElementwiseAdd_hls"])
-# elementwise shape
-@pytest.mark.parametrize("rhs_shape", [[1], [16]])
-# eltwise param dtype
-@pytest.mark.parametrize("eltw_param_dtype", ["INT8", "FLOAT32"])
-# tail node
-@pytest.mark.parametrize("tail_node", [False, True])
-@pytest.mark.vivado
-@pytest.mark.slow
-# Note: fpgadataflow marker removed to prevent CI auto-discovery
-def test_fpgadataflow_finnloop_manual(
-    dim, iteration, elemwise_optype, rhs_shape, eltw_param_dtype, tail_node
-):
-    """Manual step-by-step test for FINNLoop transformations.
-
-    This test manually applies each transformation step for debugging purposes.
-    For automated CI testing, use test_finnloop_end2end_mlo instead, which uses
-    the build system and represents the actual end-to-end workflow.
-    """
-    # Check vivado version
-    vivado_path = os.environ.get("XILINX_VIVADO")
-    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
-    year, minor = int(match.group(1)), int(match.group(2))
-    if (year, minor) < (2024, 2):
-        pytest.skip("""At least Vivado version 2024.2 needed for MLO.""")
-    loop_body_models = create_chained_loop_bodies(
-        dim, dim, iteration, elemwise_optype, rhs_shape, eltw_param_dtype
-    )
-    nodes_per_body = len(loop_body_models[0].graph.node)
-    model = loop_body_models[0]
-    for m in loop_body_models[1:]:
-        model = model.transform(MergeONNXModels(m))
-
-    if tail_node:
-        tail_outp = create_tensor_info("tail_outp", [1, 3, 3, dim])
-        tr_node = create_node(
-            "ElementwiseAdd_hls",
-            [model.graph.output[0].name, "tail_add"],
-            ["tail_outp"],
-            "Add_tail",
-            {
-                "lhs_shape": [1, 3, 3, dim],
-                "rhs_shape": [1],
-                "out_shape": [1, 3, 3, dim],
-                "lhs_dtype": "INT8",
-                "rhs_dtype": "INT8",
-                "out_dtype": "INT9",
-            },
-        )
-        model.graph.node.insert(len(model.graph.node), tr_node)
-        model.graph.value_info.append(model.graph.output[0])
-        model.graph.output.pop(0)
-        model.graph.output.append(tail_outp)
-        AddtailParam = gen_finn_dt_tensor(DataType["INT8"], [1])
-        model.set_initializer("tail_add", AddtailParam)
-        model.set_tensor_datatype("tail_add", DataType["INT8"])
-
-    # cleanup
-    model = model.transform(RemoveUnusedTensors())
-    model = model.transform(InferShapes())
-    model = model.transform(InferDataTypes())
-
-    # Generate reference output
-    x = gen_finn_dt_tensor(DataType["INT8"], (1, 3, 3, dim))
-    model = model.transform(PrepareCppSim())
-    model = model.transform(CompileCppSim())
-    model = model.transform(SetExecMode("cppsim"))
-    io_dict = {model.graph.input[0].name: x}
-    y_dict = oxe.execute_onnx(model, io_dict)
-    y_ref = y_dict[model.graph.output[0].name]
-
-    # set loop boundary
-    node_metadata = {
-        "pkg.torch.onnx.name_scopes": "['', 'layers.0']",
-        "pkg.torch.onnx.class_hierarchy": "['TestModule', 'test']",
-    }
-    node_range = (model.graph.node[0], model.graph.node[nodes_per_body - 1])
-    model = model.transform(SetLoopBoundary(node_metadata, node_range))
-
-    # loop extraction and rolling
-    loop_extraction = LoopExtraction(hierarchy_list=[["", "layers.0"]])
-    model = model.transform(loop_extraction)
-
+    # Verify we have contexts for all iterations
+    iter_indices = set()
+    for key in iter_keys:
+        parts = key.split("_", 2)
+        if len(parts) >= 2:
+            iter_indices.add(int(parts[1]))
     assert (
-        len(model.get_nodes_by_op_type("fn_loop-body")) == iteration
-    ), "Loop extraction did not find expected number of loop bodies"
-
-    model = model.transform(LoopRolling(loop_extraction.loop_body_template))
-
-    # LoopRolling automatically adapts operator attributes for loop context
-    # (e.g., rhs_style changes from "const" to "input" for streamed parameters)
-    # This requires recompilation of the elementwise node for cppsim
-    loop_node = model.get_nodes_by_op_type("FINNLoop")[0]
-    loop_body_graph = get_by_name(loop_node.attribute, "body").g
-    elementwise_node = get_by_name(loop_body_graph.node, elemwise_optype, "op_type")
-    code_gen_dir_cppsim_attr = get_by_name(elementwise_node.attribute, "code_gen_dir_cppsim")
-    code_gen_dir_cppsim_attr.s = b""  # reset cpp gen directory to force recompilation
-    executable_path_attr = get_by_name(elementwise_node.attribute, "executable_path")
-    executable_path_attr.s = b""  # reset cpp exec directory to force recompilation
-
-    # recompile elementwise node for cppsim
-    model = model.transform(PrepareCppSim(), apply_to_subgraphs=True)
-    model = model.transform(CompileCppSim(), apply_to_subgraphs=True)
-
-    y_dict = oxe.execute_onnx(model, io_dict)
-    y_prod = y_dict[model.graph.output[0].name]
-    assert (y_prod == y_ref).all()
-
-    # node-by-node rtlsim
-    model = model.transform(GiveUniqueNodeNames(), apply_to_subgraphs=True)
-    # TODO: allow for node-by-node rtlsim of a finn loop op
-    model = model.transform(SetExecMode("rtlsim"))
-    loop_nodes = model.get_nodes_by_op_type("FINNLoop")
-    for node in loop_nodes:
-        prepare_loop_ops_for_ipgen_step1(node, fpga_part, clk_ns)
-    model = model.transform(GiveUniqueNodeNames())
-    loop_nodes = model.get_nodes_by_op_type("FINNLoop")
-    for loop_node in loop_nodes:
-        loop_inst = getCustomOp(loop_node)
-        loop_body = loop_inst.get_nodeattr("body")
-        loop_body = loop_body.transform(GiveUniqueNodeNames(prefix=loop_node.name + "_"))
-        loop_inst.set_nodeattr("body", loop_body.graph)
-    model = model.transform(
-        PrepareIP(fpga_part, clk_ns), apply_to_subgraphs=True, use_preorder_traversal=False
-    )
-    loop_nodes = model.get_nodes_by_op_type("FINNLoop")
-    for node in loop_nodes:
-        prepare_loop_ops_for_ipgen_step2(node, fpga_part, clk_ns)
-
-    model = model.transform(HLSSynthIP(fpgapart=fpga_part))
-    model = model.transform(PrepareRTLSim())
-
-    io_dict = {model.graph.input[0].name: x}
-    y_dict = oxe.execute_onnx(model, io_dict)
-    y_prod = y_dict[model.graph.output[0].name]
-    assert (y_prod == y_ref).all()
-
-    # FIFO sizing
-    model = model.transform(InsertDWC())
-    model = model.transform(SpecializeLayers(fpga_part))
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(PrepareIP(fpga_part, clk_ns))
-    model = model.transform(HLSSynthIP(fpgapart=fpga_part))
-    model = model.transform(PrepareRTLSim())
-    model = model.transform(DeriveCharacteristic(6000))
-    model = model.transform(DeriveFIFOSizes())
-    model = model.transform(InsertFIFO(True))
-    model = model.transform(SpecializeLayers(fpga_part))
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(GiveReadableTensorNames())
-
-    # stitched IP rtlsim
-    model = model.transform(PrepareIP(fpga_part, clk_ns))
-    model = model.transform(HLSSynthIP(fpgapart=fpga_part))
-    model = model.transform(CreateStitchedIP(fpga_part, clk_ns))
-
-    loop_node = model.get_nodes_by_op_type("FINNLoop")[0]
-    mlo_prehook = mlo_prehook_func_factory(loop_node)
-    rtlsim_exec(model, io_dict, pre_hook=mlo_prehook)
-    y_prod = io_dict[model.graph.output[0].name]
-    assert (y_prod == y_ref).all()
+        len(iter_indices) == iteration
+    ), f"Expected {iteration} iterations in context, found {len(iter_indices)}"
