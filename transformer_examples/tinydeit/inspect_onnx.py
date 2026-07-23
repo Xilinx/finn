@@ -7,7 +7,7 @@ import argparse
 import onnx
 from pathlib import Path
 
-from tinydeit.common import (
+from transformer_examples.tinydeit.common import (
     add_common_args,
     resolve_common_paths,
     summarize_model,

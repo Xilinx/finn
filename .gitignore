@@ -67,7 +67,7 @@ coverage.xml
 # Build and docs folder/files
 build/*
 scripts_finn/*
-tinydeit/build/*
+transformer_examples/tinydeit/build/*
 dist/*
 sdist/*
 docs/api/*
@@ -89,7 +89,6 @@ MANIFEST
 /dataset/
 /data/
 *.csv
-!tinydeit/builds.csv
 
 # Google Drive key for dashboard
 /gdrive-key/

@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "measurements": [
+    {
+      "name": "w3a3_vck190_300mhz_10k",
+      "configuration": "configs/w3a3_vck190_300mhz_10k.json",
+      "configuration_sha256": "f966abb32a9d3ab2c0c724a24b2aafdcf24e4018dd9bc466ddc50d2b8cef21aa",
+      "target": {
+        "board": "VCK190",
+        "part": "xcvc1902-vsva2197-2MP-e-S",
+        "vivado_version": "2024.2",
+        "nominal_clock_mhz": 300.0,
+        "timing_report_clock_mhz": 300.1200480192077
+      },
+      "timing": {
+        "wns_ns": 0.018,
+        "whs_ns": 0.001,
+        "tns_ns": 0.0,
+        "ths_ns": 0.0,
+        "constraints_met": true
+      },
+      "routing": {
+        "routable_nets": 613505,
+        "fully_routed_nets": 613505,
+        "routing_error_nets": 0,
+        "passed": true
+      },
+      "rtlsim": {
+        "cycles": 32464,
+        "latency_cycles": 32463,
+        "interval_cycles": 19855,
+        "throughput_fps": 15115.59043158941,
+        "timeout": 0,
+        "unfinished_inputs": 0,
+        "unfinished_outputs": 0,
+        "passed": true
+      },
+      "resources": {
+        "lut": 337124,
+        "ff": 366279,
+        "ramb36e5": 39,
+        "ramb18e5": 20,
+        "uram": 59,
+        "dsp": 1127
+      },
+      "quantization": {
+        "profile": "strict_activation_w3a3",
+        "audit_passed": true,
+        "quant_nodes": 172,
+        "bitwidth_counts": {
+          "3": 170,
+          "8": 2
+        },
+        "eight_bit_constant_weights": [
+          "model.patch_embed.proj.weight",
+          "model.head.weight"
+        ]
+      },
+      "accuracy": {
+        "status": "not_available",
+        "top1_percent": null,
+        "top5_percent": null
+      },
+      "artifact_sha256": {
+        "prepared_model": "884e9e7e7b5aa6cda2698fc7f73ccd747820654c7d8a1fdf73397a0a96ba3ead",
+        "synth_dcp": "92b4c93e7712323742c9489390e0122942ef8c42be9748cb89b5ead051c3e66e",
+        "routed_dcp": "40424dffa95da117e4260755130b3b780b1d49bb02e26561a74a05bd5b5cda0e",
+        "timing_report": "e57113587d71a2491da3def499efbd74d170ffe713b96cde9e4b16cb2be10ec0",
+        "rtlsim_results": "06494799e3a615c65077520eaaf8c63c8ca3b8103fe0385e6041558b15ba606c"
+      }
+    },
+    {
+      "name": "w4a4_qat_smoke_vck190_200mhz_7k",
+      "configuration": "configs/w4a4_vck190_200mhz_7k.json",
+      "configuration_sha256": "cd705e385f3566f5f79fe2d5668e4adeae897245b9d91d20d7b4a176082e97fd",
+      "target": {
+        "board": "VCK190",
+        "part": "xcvc1902-vsva2197-2MP-e-S",
+        "vivado_version": "2024.2",
+        "nominal_clock_mhz": 200.0,
+        "timing_report_clock_mhz": 200.0
+      },
+      "timing": {
+        "wns_ns": 0.071,
+        "whs_ns": 0.01,
+        "tns_ns": 0.0,
+        "ths_ns": 0.0,
+        "constraints_met": true
+      },
+      "routing": {
+        "unrouted_nets": 0,
+        "partially_routed_nets": 0,
+        "failed_nets": 0,
+        "passed": true
+      },
+      "rtlsim": {
+        "cycles": 45244,
+        "latency_cycles": 45243,
+        "interval_cycles": 26331,
+        "throughput_fps": 7595.609737571684,
+        "timeout": 0,
+        "unfinished_inputs": 0,
+        "unfinished_outputs": 0,
+        "passed": true
+      },
+      "resources": {
+        "lut": 423854,
+        "ff": 466588,
+        "ramb36e5": 60,
+        "ramb18e5": 6,
+        "uram": 66,
+        "dsp": 1148
+      },
+      "quantization": {
+        "profile": "w4a4_qat_smoke",
+        "audit_passed": null
+      },
+      "accuracy": {
+        "status": "smoke_checkpoint_only",
+        "validation_subset": "tiny",
+        "top1_percent": 0.0,
+        "top5_percent": 12.5,
+        "quality_claim": false
+      },
+      "artifact_sha256": {
+        "prepared_model": "f3d26b89d28c455e48acba9c89a51de2a99ab7f3b5ca35dee77293fd1d13203c",
+        "synth_dcp": "52d0173622bef7b529980b2e3093c2ca4d58ef341df7b33e7ec3d80bbae55183",
+        "routed_dcp": "5163ca3e648bb1682059042df9bb4d6e5daf8ffc810e4d80d45d30b67572337f",
+        "timing_report": "e7a31ca9dd219b32f358af47db1000233e8a89ad1a850b38354fe3171fe2be25",
+        "rtlsim_results": "74e7c7cfcbbeeed745d7b5fa063c9aa316e37859c18bf894a59a06458f26e2d7"
+      }
+    }
+  ]
+}

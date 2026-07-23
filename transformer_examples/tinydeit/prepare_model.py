@@ -18,7 +18,7 @@ from finn.transformation.fpgadataflow.loop_rolling import LoopExtraction, LoopRo
 from finn.transformation.fpgadataflow.set_loop_boundary import SetLoopBoundary
 from finn.transformation.general import ApplyConfig
 from finn.transformation.streamline.extract_norm_scale_bias import ExtractNormScaleBias
-from tinydeit.common import (
+from transformer_examples.tinydeit.common import (
     DEFAULT_BOARD,
     DEFAULT_CLOCK_NS,
     DEFAULT_TARGET_FPS,

@@ -20,10 +20,10 @@ from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from typing import Any, Iterable
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CHECKPOINT = REPO_ROOT / "onnx-checkpoints" / "deit_tiny_quant.onnx"
-DEFAULT_BUILD_DIR = REPO_ROOT / "tinydeit" / "build"
-DEFAULT_BUILD_CSV = REPO_ROOT / "tinydeit" / "builds.csv"
+DEFAULT_BUILD_DIR = REPO_ROOT / "transformer_examples" / "tinydeit" / "build"
+DEFAULT_BUILD_CSV = DEFAULT_BUILD_DIR / "builds.csv"
 DEFAULT_BOARD = "VCK190"
 DEFAULT_TARGET_FPS = 1000
 DEFAULT_CLOCK_NS = 1000.0 / 300.0

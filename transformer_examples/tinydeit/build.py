@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 if __package__ in {None, ""}:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import numpy as np
 from qonnx.core.datatype import DataType
@@ -39,7 +39,7 @@ from finn.transformation.fpgadataflow.set_folding import SetFolding
 from finn.transformation.general import ApplyConfig
 from finn.util.basic import getHWCustomOp, part_map
 from finn.util.config import extract_model_config_to_json
-from tinydeit.common import (
+from transformer_examples.tinydeit.common import (
     DEFAULT_BOARD,
     DEFAULT_BUILD_CSV,
     DEFAULT_BUILD_DIR,
@@ -48,7 +48,7 @@ from tinydeit.common import (
     DEFAULT_TARGET_FPS,
     repo_path,
 )
-from tinydeit.prepare_model import prepare
+from transformer_examples.tinydeit.prepare_model import prepare
 
 
 def _rounded_threshold_datatype(dtype: DataType) -> DataType:
@@ -163,33 +163,22 @@ def step_tinydeit_post_transpose_parallelization(
     return model
 
 
-BUILD_STEPS_ESTIMATE = [
-    "step_target_fps_parallelization",
-    "step_apply_folding_config",
-    "step_minimize_bit_width",
-    step_round_mlo_threshold_params,
-    "step_transpose_decomposition",
-    step_tinydeit_post_transpose_parallelization,
-    "step_generate_estimate_reports",
-]
+BUILD_PHASES_ESTIMATE = ["phase_optimize_hardware"]
 
-BUILD_STEPS_RTL = BUILD_STEPS_ESTIMATE + [
-    "step_hw_codegen",
-    "step_hw_ipgen",
-    "step_set_fifo_depths",
-    "step_create_stitched_ip",
+BUILD_PHASES_HARDWARE = [
+    "phase_optimize_hardware",
+    "phase_build_hardware",
+    "phase_generate_outputs",
 ]
-
-BUILD_STEPS_FULL_RTLSIM = BUILD_STEPS_RTL + ["step_measure_rtlsim_performance"]
 
 
 def build_config(args: argparse.Namespace, output_dir: Path) -> DataflowBuildConfig:
     if args.mode == "estimate":
-        steps = BUILD_STEPS_ESTIMATE
+        steps = BUILD_PHASES_ESTIMATE
         outputs = [DataflowOutputType.ESTIMATE_REPORTS]
         verify_steps = []
     elif args.mode in ["rtl", "dcp"]:
-        steps = BUILD_STEPS_RTL
+        steps = BUILD_PHASES_HARDWARE
         outputs = [DataflowOutputType.ESTIMATE_REPORTS, DataflowOutputType.STITCHED_IP]
         if args.mode == "dcp":
             outputs.append(DataflowOutputType.OOC_SYNTH)
@@ -197,7 +186,7 @@ def build_config(args: argparse.Namespace, output_dir: Path) -> DataflowBuildCon
         if args.stitched_rtlsim:
             verify_steps.append(VerificationStepType.STITCHED_IP_RTLSIM)
     elif args.mode == "full-rtlsim":
-        steps = BUILD_STEPS_FULL_RTLSIM
+        steps = BUILD_PHASES_HARDWARE
         outputs = [
             DataflowOutputType.ESTIMATE_REPORTS,
             DataflowOutputType.STITCHED_IP,
@@ -205,12 +194,7 @@ def build_config(args: argparse.Namespace, output_dir: Path) -> DataflowBuildCon
         ]
         verify_steps = [VerificationStepType.STITCHED_IP_RTLSIM]
     else:
-        steps = BUILD_STEPS_RTL + [
-            "step_out_of_context_synthesis",
-            "step_synthesize_bitfile",
-            "step_make_driver",
-            "step_deployment_package",
-        ]
+        steps = BUILD_PHASES_HARDWARE
         outputs = [
             DataflowOutputType.ESTIMATE_REPORTS,
             DataflowOutputType.STITCHED_IP,
@@ -239,6 +223,12 @@ def build_config(args: argparse.Namespace, output_dir: Path) -> DataflowBuildCon
         verification_atol=args.atol,
         generate_outputs=outputs,
         steps=steps,
+        inject_steps_after={
+            "step_minimize_bit_width": [step_round_mlo_threshold_params],
+            "step_transpose_decomposition": [
+                step_tinydeit_post_transpose_parallelization,
+            ],
+        },
         # MLO rolling is performed explicitly in prepare_model.py before this
         # build starts. Keep cfg.mlo disabled here so build_dataflow does not
         # require loop-body metadata for another rolling pass.
@@ -479,9 +469,7 @@ def _dcp_validation_summary(output_dir: Path, min_mtime: float | None = None) ->
             if _is_fresh_artifact(path, min_mtime)
         )
         vivado_log_paths.extend(
-            path
-            for path in stitched_ip_dir.glob("**/*.log")
-            if _is_fresh_artifact(path, min_mtime)
+            path for path in stitched_ip_dir.glob("**/*.log") if _is_fresh_artifact(path, min_mtime)
         )
 
     license_error_log_paths = [
@@ -659,9 +647,7 @@ def _run_vivado_license_preflight(args: argparse.Namespace, output_dir: Path) ->
         "vivado_license_preflight_status": "failed",
         "vivado_license_preflight_board": args.board,
         "vivado_license_preflight_part": fpga_part,
-        "vivado_license_preflight_xilinxd_license_file": os.environ.get(
-            "XILINXD_LICENSE_FILE", ""
-        ),
+        "vivado_license_preflight_xilinxd_license_file": os.environ.get("XILINXD_LICENSE_FILE", ""),
         "vivado_license_preflight_log_path": str(log_path.resolve()),
     }
 
@@ -1289,9 +1275,7 @@ def main() -> None:
         dest="post_transpose_folding",
         action="store_false",
     )
-    parser.add_argument(
-        "--build-csv", default=str(DEFAULT_BUILD_CSV.relative_to(repo_path(".")))
-    )
+    parser.add_argument("--build-csv", default=str(DEFAULT_BUILD_CSV.relative_to(repo_path("."))))
     parser.add_argument("--atol", type=float, default=1e-1)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--rtlsim-batch-size", type=int, default=1)
@@ -1412,7 +1396,9 @@ def main() -> None:
             cleanup_done = True
 
     try:
-        model_path = repo_path(args.prepared_model) if args.prepared_model else repo_path(args.input)
+        model_path = (
+            repo_path(args.prepared_model) if args.prepared_model else repo_path(args.input)
+        )
         cfg = build_config(args, output_dir)
         preflight_failed = False
         if args.mode == "dcp" and args.vivado_license_preflight:

@@ -13,7 +13,7 @@ from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from tinydeit.common import DEFAULT_BUILD_DIR, repo_path
+from transformer_examples.tinydeit.common import DEFAULT_BUILD_DIR, repo_path
 
 
 def prepare_cppsim(model: ModelWrapper, num_workers: int | None) -> ModelWrapper:

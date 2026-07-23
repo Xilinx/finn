@@ -1,0 +1,208 @@
+{
+  "Defaults": {
+    "pumpedCompute": [
+      1,
+      [
+        "MVAU_rtl"
+      ]
+    ]
+  },
+  "OuterShuffle_hls_0": {
+    "SIMD": 28
+  },
+  "InnerShuffle_rtl_0": {
+    "SIMD": 3
+  },
+  "Thresholding_rtl_0": {
+    "PE": 3
+  },
+  "OuterShuffle_hls_1": {
+    "SIMD": 28
+  },
+  "InnerShuffle_rtl_1": {
+    "SIMD": 3
+  },
+  "ConvolutionInputGenerator_rtl_0": {
+    "SIMD": 3,
+    "ram_style": "distributed"
+  },
+  "InnerShuffle_rtl_2": {
+    "SIMD": 7
+  },
+  "OuterShuffle_hls_2": {
+    "SIMD": 7
+  },
+  "ElementwiseMul_rtl_0": {
+    "PE": 7,
+    "mem_mode": "internal_decoupled"
+  },
+  "ElementwiseAdd_rtl_0": {
+    "PE": 7,
+    "mem_mode": "internal_decoupled"
+  },
+  "InnerShuffle_rtl_3": {
+    "SIMD": 7
+  },
+  "AddCLSToken_rtl_0": {
+    "SIMD": 3
+  },
+  "ElementwiseAdd_rtl_1": {
+    "PE": 3,
+    "mem_mode": "internal_decoupled"
+  },
+  "LayerNorm_rtl_0": {
+    "SIMD": 3
+  },
+  "SelectToken_rtl_0": {
+    "SIMD": 3
+  },
+  "Thresholding_rtl_1": {
+    "PE": 1
+  },
+  "MVAU_rtl_0": {
+    "PE": 3,
+    "SIMD": 768,
+    "mem_mode": "internal_embedded",
+    "resType": "lut"
+  },
+  "MVAU_rtl_1": {
+    "PE": 1,
+    "SIMD": 16,
+    "mem_mode": "internal_decoupled"
+  },
+  "ElementwiseMul_rtl_1": {
+    "PE": 1,
+    "mem_mode": "internal_decoupled"
+  },
+  "FINNLoop_0_body_FINNLoop_0_DuplicateStreams_hls_0": {
+    "PE": 3
+  },
+  "FINNLoop_0_body_FINNLoop_0_LayerNorm_rtl_0": {
+    "SIMD": 3
+  },
+  "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_0": {
+    "PE": 3
+  },
+  "FINNLoop_0_body_FINNLoop_0_DuplicateStreams_hls_1": {
+    "PE": 3
+  },
+  "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_0": {
+    "PE": 3,
+    "SIMD": 192,
+    "mem_mode": "external",
+    "resType": "lut"
+  },
+  "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_1": {
+    "PE": 3,
+    "SIMD": 192,
+    "mem_mode": "external",
+    "resType": "lut"
+  },
+  "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_2": {
+    "PE": 3,
+    "SIMD": 192,
+    "mem_mode": "external",
+    "resType": "lut"
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_0": {
+    "PE": 3
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_1": {
+    "PE": 3
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_2": {
+    "PE": 3
+  },
+  "FINNLoop_0_body_FINNLoop_0_OuterShuffle_hls_0": {
+    "SIMD": 4
+  },
+  "FINNLoop_0_body_FINNLoop_0_OuterShuffle_hls_1": {
+    "SIMD": 4
+  },
+  "FINNLoop_0_body_FINNLoop_0_OuterShuffle_hls_2": {
+    "SIMD": 4
+  },
+  "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_1": {
+    "PE": 4
+  },
+  "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_2": {
+    "PE": 4
+  },
+  "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_3": {
+    "PE": 4
+  },
+  "FINNLoop_0_body_FINNLoop_0_InnerShuffle_rtl_0": {
+    "SIMD": 197
+  },
+  "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_3": {
+    "PE": 197,
+    "SIMD": 4,
+    "mem_mode": "dynamic"
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_3": {
+    "PE": 197
+  },
+  "FINNLoop_0_body_FINNLoop_0_HWSoftmax_rtl_0": {
+    "SIMD": 197
+  },
+  "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_4": {
+    "PE": 197
+  },
+  "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_4": {
+    "PE": 4,
+    "SIMD": 197,
+    "mem_mode": "dynamic"
+  },
+  "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_5": {
+    "PE": 4
+  },
+  "FINNLoop_0_body_FINNLoop_0_OuterShuffle_hls_3": {
+    "SIMD": 4
+  },
+  "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_5": {
+    "PE": 3,
+    "SIMD": 192,
+    "mem_mode": "internal_decoupled"
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_4": {
+    "PE": 3
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_0": {
+    "PE": 3
+  },
+  "FINNLoop_0_body_FINNLoop_0_DuplicateStreams_hls_2": {
+    "PE": 3
+  },
+  "FINNLoop_0_body_FINNLoop_0_LayerNorm_rtl_1": {
+    "SIMD": 3
+  },
+  "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_6": {
+    "PE": 3
+  },
+  "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_6": {
+    "PE": 12,
+    "SIMD": 192,
+    "mem_mode": "internal_decoupled"
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_5": {
+    "PE": 12
+  },
+  "FINNLoop_0_body_FINNLoop_0_PWPolyF_rtl_0": {
+    "PE": 12
+  },
+  "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_7": {
+    "PE": 12
+  },
+  "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_7": {
+    "PE": 3,
+    "SIMD": 768,
+    "mem_mode": "external",
+    "resType": "lut"
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_6": {
+    "PE": 3
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_1": {
+    "PE": 3
+  }
+}

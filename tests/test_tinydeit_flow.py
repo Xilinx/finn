@@ -1,15 +1,15 @@
+import pytest
+
 import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
 onnx = pytest.importorskip("onnx")
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from tinydeit.common import (  # noqa: E402
+from transformer_examples.tinydeit.common import (  # noqa: E402
     DEFAULT_CHECKPOINT,
     EXPORTED_PWPOLYF_SEQUENCE,
     exported_pwpolyf_match_indices,
@@ -21,9 +21,28 @@ from tinydeit.common import (  # noqa: E402
 def _tinydeit_build_module():
     pytest.importorskip("qonnx")
     pytest.importorskip("finn")
-    from tinydeit import build as tinydeit_build
+    from transformer_examples.tinydeit import build as tinydeit_build  # noqa: PLC0415
 
     return tinydeit_build
+
+
+def _tinydeit_build_args(mode):
+    return SimpleNamespace(
+        mode=mode,
+        stitched_rtlsim=False,
+        clock_ns=5.0,
+        board="VCK190",
+        target_fps=1000,
+        mvau_wwidth_max=10000,
+        folding_two_pass_relaxation=False,
+        folding_config_file=None,
+        atol=1e-1,
+        fifosim_n_inferences=1,
+        rtlsim_batch_size=1,
+        stitched_rtlsim_liveness_threshold=None,
+        stitched_ip_dcp=False,
+        post_transpose_folding=True,
+    )
 
 
 @pytest.mark.transform
@@ -174,9 +193,7 @@ def test_tinydeit_dcp_validation_requires_fresh_clean_artifacts(tmp_path):
 
 
 @pytest.mark.transform
-def test_tinydeit_vivado_license_preflight_records_license_failure(
-    tmp_path, monkeypatch
-):
+def test_tinydeit_vivado_license_preflight_records_license_failure(tmp_path, monkeypatch):
     tinydeit_build = _tinydeit_build_module()
 
     run_calls = []
@@ -216,3 +233,68 @@ def test_tinydeit_vivado_license_preflight_records_license_failure(
     assert "A valid license was not found" in log_path.read_text()
     summary_path = tmp_path / "vivado_license_preflight.json"
     assert json.loads(summary_path.read_text()) == summary
+
+
+@pytest.mark.transform
+@pytest.mark.parametrize("mode", ["estimate", "rtl", "dcp", "full-rtlsim", "bitfile"])
+def test_tinydeit_build_config_uses_phases_and_injections(tmp_path, mode):
+    tinydeit_build = _tinydeit_build_module()
+
+    cfg = tinydeit_build.build_config(_tinydeit_build_args(mode), tmp_path)
+
+    if mode == "estimate":
+        assert cfg.steps == ["phase_optimize_hardware"]
+    else:
+        assert cfg.steps == [
+            "phase_optimize_hardware",
+            "phase_build_hardware",
+            "phase_generate_outputs",
+        ]
+    assert cfg.inject_steps_after == {
+        "step_minimize_bit_width": [tinydeit_build.step_round_mlo_threshold_params],
+        "step_transpose_decomposition": [
+            tinydeit_build.step_tinydeit_post_transpose_parallelization,
+        ],
+    }
+    assert cfg.fifosim_n_inferences == 1
+    assert cfg.mlo is False
+
+
+@pytest.mark.transform
+def test_tinydeit_vck190_configs_and_signoff_evidence():
+    example_dir = Path(__file__).resolve().parents[1] / "transformer_examples" / "tinydeit"
+    evidence = json.loads((example_dir / "results" / "vck190_signoff.json").read_text())
+
+    assert evidence["schema_version"] == 1
+    measurements = {item["name"]: item for item in evidence["measurements"]}
+    assert set(measurements) == {
+        "w3a3_vck190_300mhz_10k",
+        "w4a4_qat_smoke_vck190_200mhz_7k",
+    }
+
+    for measurement in measurements.values():
+        config = json.loads((example_dir / measurement["configuration"]).read_text())
+        assert config["Defaults"]["pumpedCompute"] == [1, ["MVAU_rtl"]]
+        assert measurement["target"]["board"] == "VCK190"
+        assert measurement["timing"]["constraints_met"] is True
+        assert measurement["routing"]["passed"] is True
+        assert measurement["rtlsim"]["passed"] is True
+        assert measurement["rtlsim"]["throughput_fps"] > 1000
+        measured_fps = (measurement["target"]["timing_report_clock_mhz"] * 1_000_000) / measurement[
+            "rtlsim"
+        ]["interval_cycles"]
+        assert measurement["rtlsim"]["throughput_fps"] == pytest.approx(measured_fps)
+
+    w3a3 = measurements["w3a3_vck190_300mhz_10k"]
+    assert w3a3["quantization"]["audit_passed"] is True
+    assert w3a3["quantization"]["bitwidth_counts"] == {"3": 170, "8": 2}
+    assert w3a3["accuracy"]["status"] == "not_available"
+
+    w4a4 = measurements["w4a4_qat_smoke_vck190_200mhz_7k"]
+    assert w4a4["accuracy"] == {
+        "status": "smoke_checkpoint_only",
+        "validation_subset": "tiny",
+        "top1_percent": 0.0,
+        "top5_percent": 12.5,
+        "quality_claim": False,
+    }
