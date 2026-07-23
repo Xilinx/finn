@@ -4,6 +4,7 @@
 import pytest
 
 from finn.core.rtlsim_exec import _output_frame_sizes
+from finn.util.mlo_sim import _resolve_mlo_weight_datfile
 from finn.util.rtlsim_performance import (
     annotate_rtlsim_completion_throughput,
     summarize_output_frame_completions,
@@ -65,3 +66,12 @@ def test_output_frame_sizes_are_derived_from_batch():
 def test_output_frame_sizes_reject_partial_frames():
     with pytest.raises(AssertionError, match="whole frames"):
         _output_frame_sizes({"out0": 10}, batchsize=3)
+
+
+def test_mlo_weight_image_uses_specialized_mvau_type(tmp_path):
+    hls_weights = tmp_path / "memblock_MVAU_hls_id_4.dat"
+    hls_weights.write_text("00\n")
+
+    assert _resolve_mlo_weight_datfile(tmp_path, "MVAU_hls", 4) == hls_weights
+    with pytest.raises(FileNotFoundError, match="MVAU_rtl"):
+        _resolve_mlo_weight_datfile(tmp_path, "MVAU_rtl", 4)

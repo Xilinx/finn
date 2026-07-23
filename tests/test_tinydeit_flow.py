@@ -38,7 +38,7 @@ def _tinydeit_build_args(mode):
         folding_config_file=None,
         atol=1e-1,
         fifosim_n_inferences=1,
-        rtlsim_batch_size=1,
+        rtlsim_batch_size=2,
         stitched_rtlsim_liveness_threshold=None,
         stitched_ip_dcp=False,
         post_transpose_folding=True,
@@ -111,6 +111,11 @@ def test_tinydeit_rtlsim_results_file_validation(tmp_path):
                 "cycles 125",
                 "latency_cycles 124",
                 "interval_cycles 100",
+                "interval_valid 1",
+                "completed_output_frames 2",
+                "steady_state_frames 1",
+                "steady_state_cycles 100",
+                "N 2",
                 "TIMEOUT 0",
                 "UNFINISHED_INS 0",
                 "UNFINISHED_OUTS 0",
@@ -127,6 +132,65 @@ def test_tinydeit_rtlsim_results_file_validation(tmp_path):
     assert summary["rtlsim_timeout"] == 0
     assert summary["rtlsim_throughput_fps"] == 2_000_000.0
 
+    single_frame = tmp_path / "single_frame.txt"
+    single_frame.write_text(
+        "\n".join(
+            [
+                "cycles 125",
+                "latency_cycles 124",
+                "interval_cycles 100",
+                "N 1",
+                "TIMEOUT 0",
+                "UNFINISHED_INS 0",
+                "UNFINISHED_OUTS 0",
+                "",
+            ]
+        )
+    )
+    single_summary = tinydeit_build._rtlsim_summary_from_path(single_frame, clock_ns=5.0)
+    assert single_summary["rtlsim_interval_valid"] is False
+    assert single_summary["rtlsim_stable_throughput_valid"] is False
+    assert "rtlsim_throughput_fps" not in single_summary
+
+
+@pytest.mark.transform
+def test_tinydeit_uses_only_valid_stitched_performance_report(tmp_path):
+    tinydeit_build = _tinydeit_build_module()
+    report_dir = tmp_path / "report"
+    report_dir.mkdir()
+    report_path = report_dir / "rtlsim_performance.json"
+    report_path.write_text(
+        json.dumps(
+            {
+                "cycles": 500,
+                "latency_cycles": 300,
+                "interval_cycles": 200,
+                "completed_output_frames": 2,
+                "steady_state_frames": 1,
+                "steady_state_cycles": 200,
+                "stable_throughput_valid": True,
+                "stable_throughput[images/s]": 1_000_000.0,
+                "measurement_scope": "stitched_mlo",
+                "external_memory_model": "ideal_axi_mm",
+                "performance_interpretation": "ideal_memory_upper_bound",
+            }
+        )
+    )
+
+    summary = tinydeit_build._rtlsim_performance_summary(tmp_path)
+    assert summary["rtlsim_stable_throughput_valid"] is True
+    assert summary["rtlsim_throughput_fps"] == 1_000_000.0
+    assert summary["rtlsim_completed_output_frames"] == 2
+    assert summary["rtlsim_measurement_scope"] == "stitched_mlo"
+    assert summary["rtlsim_external_memory_model"] == "ideal_axi_mm"
+
+    invalid_report = json.loads(report_path.read_text())
+    invalid_report["stable_throughput_valid"] = False
+    report_path.write_text(json.dumps(invalid_report))
+    invalid_summary = tinydeit_build._rtlsim_performance_summary(tmp_path)
+    assert invalid_summary["rtlsim_stable_throughput_valid"] is False
+    assert "rtlsim_throughput_fps" not in invalid_summary
+
 
 @pytest.mark.transform
 def test_tinydeit_preserves_fresh_rtlsim_artifacts(tmp_path, monkeypatch):
@@ -137,14 +201,31 @@ def test_tinydeit_preserves_fresh_rtlsim_artifacts(tmp_path, monkeypatch):
     finn_build_dir = tmp_path / "finn-build"
     rtlsim_dir = finn_build_dir / "rtlsim_finn_design_wrapper_abc"
     rtlsim_dir.mkdir(parents=True)
-    (rtlsim_dir / "results.txt").write_text("interval_cycles 50\n")
+    (rtlsim_dir / "results.txt").write_text(
+        "\n".join(
+            [
+                "cycles 100",
+                "latency_cycles 50",
+                "interval_cycles 50",
+                "interval_valid 1",
+                "completed_output_frames 2",
+                "steady_state_frames 1",
+                "steady_state_cycles 50",
+                "N 2",
+                "TIMEOUT 0",
+                "UNFINISHED_INS 0",
+                "UNFINISHED_OUTS 0",
+                "",
+            ]
+        )
+    )
     (rtlsim_dir / "rtlsim_xsi_log.txt").write_text("completed\n")
     monkeypatch.setenv("FINN_BUILD_DIR", str(finn_build_dir))
 
     preserved = tinydeit_build._preserve_rtlsim_artifacts(output_dir)
 
     assert preserved == output_dir / "rtlsim_fifo_sizing" / "results.txt"
-    assert preserved.read_text() == "interval_cycles 50\n"
+    assert "interval_cycles 50" in preserved.read_text()
     assert (output_dir / "rtlsim_fifo_sizing" / "rtlsim_xsi_log.txt").read_text() == "completed\n"
     summary = tinydeit_build._rtlsim_summary(output_dir, clock_ns=4.0, search_build_dir=False)
     assert summary["rtlsim_results_path"] == str(preserved.resolve())
@@ -251,6 +332,7 @@ def test_tinydeit_build_config_uses_phases_and_injections(tmp_path, mode):
             "phase_generate_outputs",
         ]
     assert cfg.inject_steps_after == {
+        "phase_optimize_hardware": [tinydeit_build.step_tinydeit_snapshot_folding_config],
         "step_minimize_bit_width": [tinydeit_build.step_round_mlo_threshold_params],
         "step_transpose_decomposition": [
             tinydeit_build.step_tinydeit_post_transpose_parallelization,
@@ -264,7 +346,12 @@ def test_tinydeit_build_config_uses_phases_and_injections(tmp_path, mode):
 @pytest.mark.transform
 def test_tinydeit_converts_lut_mvaus_to_hls(tmp_path, monkeypatch):
     tinydeit_build = _tinydeit_build_module()
-    monkeypatch.setattr(tinydeit_build, "extract_model_config_to_json", lambda *args: None)
+    extracted_config = {}
+
+    def record_extracted_config(model, path, attrs):
+        extracted_config.update(model=model, path=path, attrs=attrs)
+
+    monkeypatch.setattr(tinydeit_build, "extract_model_config_to_json", record_extracted_config)
 
     nodes = [
         onnx.helper.make_node(
@@ -276,6 +363,12 @@ def test_tinydeit_converts_lut_mvaus_to_hls(tmp_path, monkeypatch):
             name="lut_mvau",
             resType="lut",
             pumpedCompute=1,
+            mem_mode="external",
+            mlo_max_iter=12,
+            code_gen_dir_ipgen="/stale/lut/codegen",
+            ipgen_path="/stale/lut/ipgen",
+            ip_path="/stale/lut/ip",
+            gen_top_module="stale_lut_top",
         ),
         onnx.helper.make_node(
             "MVAU_rtl",
@@ -286,6 +379,12 @@ def test_tinydeit_converts_lut_mvaus_to_hls(tmp_path, monkeypatch):
             name="dsp_mvau",
             resType="dsp",
             pumpedCompute=1,
+            mem_mode="dynamic",
+            mlo_max_iter=12,
+            code_gen_dir_ipgen="/stale/dsp/codegen",
+            ipgen_path="/stale/dsp/ipgen",
+            ip_path="/stale/dsp/ip",
+            gen_top_module="stale_dsp_top",
         ),
     ]
     graph = onnx.helper.make_graph(
@@ -296,16 +395,42 @@ def test_tinydeit_converts_lut_mvaus_to_hls(tmp_path, monkeypatch):
     )
     model = tinydeit_build.ModelWrapper(onnx.helper.make_model(graph))
 
-    model = tinydeit_build.step_tinydeit_hls_lut_mvaus(
-        model, SimpleNamespace(output_dir=str(tmp_path))
+    cfg = SimpleNamespace(
+        output_dir=str(tmp_path), folding_config_file="original_folding_config.json"
     )
+    model = tinydeit_build.step_tinydeit_hls_lut_mvaus(model, cfg)
+    model = tinydeit_build.step_tinydeit_snapshot_folding_config(model, cfg)
 
     assert [node.op_type for node in model.graph.node] == ["MVAU_hls", "MVAU_rtl"]
     assert [node.name for node in model.graph.node] == ["MVAU_hls_0", "MVAU_rtl_0"]
     assert model.graph.node[0].domain == "finn.custom_op.fpgadataflow.hls"
-    assert {attr.name for attr in model.graph.node[0].attribute}.isdisjoint(
-        {"gen_top_module", "pumpedCompute"}
+    assert (
+        tinydeit_build.getHWCustomOp(model.graph.node[0], model).get_nodeattr("mem_mode")
+        == "external_mem"
     )
+    assert (
+        tinydeit_build.getHWCustomOp(model.graph.node[1], model).get_nodeattr("mem_mode")
+        == "external_mem"
+    )
+    assert {attr.name for attr in model.graph.node[0].attribute}.isdisjoint(
+        {
+            "code_gen_dir_ipgen",
+            "gen_top_module",
+            "ip_path",
+            "ipgen_path",
+            "pumpedCompute",
+        }
+    )
+    assert {attr.name for attr in model.graph.node[1].attribute}.isdisjoint(
+        {"code_gen_dir_ipgen", "gen_top_module", "ip_path", "ipgen_path"}
+    )
+    normalized_config = str(tmp_path / "auto_folding_config.json")
+    assert cfg.folding_config_file == normalized_config
+    assert extracted_config == {
+        "model": model,
+        "path": normalized_config,
+        "attrs": tinydeit_build.FOLDING_HW_ATTRS,
+    }
 
 
 @pytest.mark.transform
@@ -326,12 +451,18 @@ def test_tinydeit_vck190_configs_and_signoff_evidence():
         assert measurement["target"]["board"] == "VCK190"
         assert measurement["timing"]["constraints_met"] is True
         assert measurement["routing"]["passed"] is True
-        assert measurement["rtlsim"]["passed"] is True
-        assert measurement["rtlsim"]["throughput_fps"] > 1000
-        measured_fps = (measurement["target"]["timing_report_clock_mhz"] * 1_000_000) / measurement[
-            "rtlsim"
-        ]["interval_cycles"]
-        assert measurement["rtlsim"]["throughput_fps"] == pytest.approx(measured_fps)
+        assert measurement["rtlsim"] == {
+            "status": "not_available",
+            "measurement_requirement": "completed_multi_frame_stitched_mlo",
+            "external_memory_model": "ideal_axi_mm",
+            "performance_interpretation": "ideal_memory_upper_bound",
+            "historical_single_frame_result_rejected": True,
+            "interval_cycles": None,
+            "throughput_fps": None,
+            "passed": None,
+        }
+        rejected_hash = measurement["artifact_sha256"]["rejected_single_frame_rtlsim_results"]
+        assert len(rejected_hash) == 64
 
     w3a3 = measurements["w3a3_vck190_300mhz_10k"]
     assert w3a3["quantization"]["audit_passed"] is True

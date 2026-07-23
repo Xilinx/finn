@@ -84,16 +84,25 @@ python -m transformer_examples.tinydeit.build \
 The build records reports, generated IP, intermediate models, and `builds.csv`
 under `transformer_examples/tinydeit/build/`, which is ignored by Git.
 
-## Retained VCK190 signoff measurements
+## Retained VCK190 implementation evidence
 
-The following measurements came from routed VCK190 OOC DCPs generated with
-Vivado 2024.2. Throughput is calculated from the measured RTL interval and the
-clock used by the timing report.
+The following timing and routing results came from routed VCK190 OOC DCPs
+generated with Vivado 2024.2. Their hashes were checked against the retained
+artifacts.
 
-| Configuration | Clock | WNS | RTL interval | Throughput | Route | Accuracy |
-| --- | ---: | ---: | ---: | ---: | --- | --- |
-| W3A3 | 300.120 MHz | +0.018 ns | 19,855 cycles | 15,115.590 FPS | clean | not available |
-| W4A4 QAT smoke | 200.000 MHz | +0.071 ns | 26,331 cycles | 7,595.610 FPS | clean | Acc@1 0.000%, Acc@5 12.500% |
+| Configuration | Clock | WNS | Route | Measured stitched throughput | Accuracy |
+| --- | ---: | ---: | --- | --- | --- |
+| W3A3 | 300.120 MHz | +0.018 ns | clean | not available | not available |
+| W4A4 QAT smoke | 200.000 MHz | +0.071 ns | clean | not available | Acc@1 0.000%, Acc@5 12.500% |
+
+The older RTL intervals were produced by single-frame loop-body FIFO sizing and
+are not end-to-end steady-state measurements, so they are deliberately excluded.
+The current flow requires at least two completed frames from stitched-MLO RTL
+simulation. When such a run completes, it labels the result as an ideal AXI-MM
+memory upper bound because platform memory latency, arbitration, contention,
+and refresh are not modeled. No completed multi-frame result is currently
+available; use `--mode full-rtlsim --rtlsim-batch-size 2` to perform one. A
+cycle-accurate TinyDeiT MLO run can take many hours.
 
 The W3A3 quantization audit passed: 170 quantization nodes were three-bit and two
 constant-weight nodes (patch embedding and classifier head) were eight-bit. No
@@ -103,8 +112,8 @@ The W4A4 model was a QAT handoff smoke checkpoint trained and validated on a
 tiny subset. Its recorded accuracy is poor and must not be treated as a model
 quality result.
 
-The exact metrics, resource counts, and SHA-256 hashes of the prepared models,
-DCPs, timing reports, and RTL results are retained in
+The exact timing metrics, resource counts, and SHA-256 hashes of the prepared
+models, DCPs, timing reports, and rejected single-frame RTL artifacts are retained in
 `results/vck190_signoff.json`. The folding configurations are committed, while
 the generated models, Vivado projects, and DCPs are not committed because they
 are large build artifacts and may carry separate model or tool licensing terms.

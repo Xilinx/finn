@@ -1304,7 +1304,15 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
 
         rtlsim_model = rtlsim_model.transform(AnnotateCycles())
         perf = rtlsim_model.analysis(dataflow_performance)
-        liveness_cycles = int(perf["critical_path_cycles"] * 1.1 + 50)
+        liveness_cycles = cfg.stitched_rtlsim_liveness_threshold
+        if liveness_cycles is None:
+            liveness_cycles = int(perf["critical_path_cycles"] * 1.1 + 50)
+            print(
+                "Using MLO performance liveness threshold from performance estimate: "
+                + str(liveness_cycles)
+            )
+        else:
+            print("Using MLO performance liveness threshold override: " + str(liveness_cycles))
         prev_liveness = get_liveness_threshold_cycles()
         loop_nodes = rtlsim_model.get_nodes_by_op_type("FINNLoop")
         assert len(loop_nodes) == 1, "MLO RTLSIM performance currently supports one FINNLoop"

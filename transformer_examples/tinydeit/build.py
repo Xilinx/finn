@@ -146,14 +146,30 @@ def _convert_lut_mvaus_to_hls(model: ModelWrapper) -> int:
     for node in model.graph.node:
         if node.op_type == "MVAU_rtl":
             inst = getHWCustomOp(node, model)
+            # Accept pre-rolled MLO models produced by older FINN revisions.
+            # Indexed loop weights require the AXI-MM fetch path; preserving a
+            # stale external/dynamic mode silently builds a set-0 memstream.
+            requires_regeneration = False
+            if (
+                inst.get_nodeattr("mlo_max_iter") > 0
+                and inst.get_nodeattr("mem_mode") != "external_mem"
+            ):
+                inst.set_nodeattr("mem_mode", "external_mem")
+                requires_regeneration = True
             if inst.get_nodeattr("resType") == "lut":
-                _delete_node_attributes(node, {"gen_top_module", "pumpedCompute"})
+                requires_regeneration = True
+                _delete_node_attributes(node, {"pumpedCompute"})
                 node.op_type = "MVAU_hls"
                 node.domain = "finn.custom_op.fpgadataflow.hls"
                 inst = getHWCustomOp(node, model)
                 inst.set_nodeattr("backend", "hls")
                 inst.set_nodeattr("resType", "lut")
                 converted += 1
+            if requires_regeneration:
+                _delete_node_attributes(
+                    node,
+                    {"code_gen_dir_ipgen", "gen_top_module", "ip_path", "ipgen_path"},
+                )
 
         for attr in node.attribute:
             if attr.type != AttributeProto.GRAPH:
@@ -169,9 +185,21 @@ def step_tinydeit_hls_lut_mvaus(model: ModelWrapper, cfg: DataflowBuildConfig) -
     if converted:
         print(f"Converted {converted} LUT-configured RTL MVAU node(s) to HLS.")
         model = _canonicalize_loop_body_names(model)
-        extract_model_config_to_json(
-            model, cfg.output_dir + "/auto_folding_config.json", FOLDING_HW_ATTRS
-        )
+    return model
+
+
+def step_tinydeit_snapshot_folding_config(
+    model: ModelWrapper, cfg: DataflowBuildConfig
+) -> ModelWrapper:
+    """Preserve the final optimized configuration for later FIFO insertion."""
+
+    # step_set_fifo_depths reapplies cfg.folding_config_file after inserting
+    # top-level FIFOs. Snapshot after the entire optimization phase so later
+    # reports or transforms cannot be followed by the pre-conversion user
+    # configuration reintroducing stale MLO memory modes.
+    normalized_config = cfg.output_dir + "/auto_folding_config.json"
+    extract_model_config_to_json(model, normalized_config, FOLDING_HW_ATTRS)
+    cfg.folding_config_file = normalized_config
     return model
 
 
@@ -273,6 +301,7 @@ def build_config(args: argparse.Namespace, output_dir: Path) -> DataflowBuildCon
         generate_outputs=outputs,
         steps=steps,
         inject_steps_after={
+            "phase_optimize_hardware": [step_tinydeit_snapshot_folding_config],
             "step_minimize_bit_width": [step_round_mlo_threshold_params],
             "step_transpose_decomposition": [
                 step_tinydeit_post_transpose_parallelization,
@@ -900,6 +929,40 @@ def _rtlsim_summary(
     return _rtlsim_summary_from_path(results_path, clock_ns)
 
 
+def _rtlsim_performance_summary(
+    output_dir: Path,
+    min_mtime: float | None = None,
+) -> dict:
+    """Return a measured stitched-RTL performance summary when one is valid."""
+
+    report_path = output_dir / "report" / "rtlsim_performance.json"
+    if not report_path.is_file() or not _is_fresh_artifact(report_path, min_mtime):
+        return {}
+
+    raw = _load_json(report_path)
+    summary = {"rtlsim_performance_path": str(report_path.resolve())}
+    for src_key, dst_key in [
+        ("cycles", "rtlsim_cycles"),
+        ("latency_cycles", "rtlsim_latency_cycles"),
+        ("interval_cycles", "rtlsim_interval_cycles"),
+        ("completed_output_frames", "rtlsim_completed_output_frames"),
+        ("steady_state_frames", "rtlsim_steady_state_frames"),
+        ("steady_state_cycles", "rtlsim_steady_state_cycles"),
+        ("measurement_scope", "rtlsim_measurement_scope"),
+        ("external_memory_model", "rtlsim_external_memory_model"),
+        ("performance_interpretation", "rtlsim_performance_interpretation"),
+    ]:
+        if src_key in raw:
+            summary[dst_key] = raw[src_key]
+
+    stable_valid = bool(raw.get("stable_throughput_valid", False))
+    stable_fps = raw.get("stable_throughput[images/s]")
+    summary["rtlsim_stable_throughput_valid"] = stable_valid
+    if stable_valid and stable_fps is not None:
+        summary["rtlsim_throughput_fps"] = float(stable_fps)
+    return summary
+
+
 def _rtlsim_summary_from_path(results_path: Path, clock_ns: float) -> dict:
     raw = _parse_rtlsim_results(results_path)
     summary = {"rtlsim_results_path": str(results_path.resolve())}
@@ -911,12 +974,37 @@ def _rtlsim_summary_from_path(results_path: Path, clock_ns: float) -> dict:
         ("UNFINISHED_INS", "rtlsim_unfinished_ins"),
         ("UNFINISHED_OUTS", "rtlsim_unfinished_outs"),
         ("RUNTIME_S", "rtlsim_runtime_s"),
+        ("completed_output_frames", "rtlsim_completed_output_frames"),
+        ("steady_state_frames", "rtlsim_steady_state_frames"),
+        ("steady_state_cycles", "rtlsim_steady_state_cycles"),
     ]:
         if src_key in raw:
             summary[dst_key] = raw[src_key]
+
+    batch_size = int(raw.get("N", 0))
+    completed_frames = int(raw.get("completed_output_frames", batch_size))
     interval = raw.get("interval_cycles")
-    if interval:
-        summary["rtlsim_throughput_fps"] = (10**9 / clock_ns) / float(interval)
+    run_complete = (
+        int(raw.get("TIMEOUT", 1)) == 0
+        and int(raw.get("UNFINISHED_INS", 1)) == 0
+        and int(raw.get("UNFINISHED_OUTS", 1)) == 0
+        and completed_frames >= batch_size
+    )
+    interval_valid = bool(int(raw.get("interval_valid", batch_size >= 2 and bool(interval))))
+    interval_valid = run_complete and completed_frames >= 2 and interval_valid and bool(interval)
+    summary["rtlsim_interval_valid"] = interval_valid
+
+    steady_frames = int(raw.get("steady_state_frames", max(0, batch_size - 1)))
+    steady_cycles = int(
+        raw.get(
+            "steady_state_cycles",
+            max(0, int(raw.get("cycles", 0)) - int(raw.get("latency_cycles", 0))),
+        )
+    )
+    stable_valid = interval_valid and steady_frames > 0 and steady_cycles > 0
+    summary["rtlsim_stable_throughput_valid"] = stable_valid
+    if stable_valid:
+        summary["rtlsim_throughput_fps"] = (steady_frames * 10**9) / (clock_ns * steady_cycles)
     return summary
 
 
@@ -1025,10 +1113,11 @@ def record_build_result(
         getattr(args, "stitched_rtlsim", False)
     )
     rtlsim_results_file = getattr(args, "rtlsim_results_file", None)
+    rtlsim_summary = _rtlsim_performance_summary(output_dir, min_mtime=build_started_at)
     if rtlsim_results_file:
         rtlsim_results_path = _resolve_existing_rtlsim_results_file(rtlsim_results_file)
         rtlsim_summary = _rtlsim_summary_from_path(rtlsim_results_path, args.clock_ns)
-    else:
+    elif not rtlsim_summary:
         rtlsim_summary = _rtlsim_summary(
             output_dir,
             args.clock_ns,
@@ -1328,7 +1417,7 @@ def main() -> None:
     parser.add_argument("--build-csv", default=str(DEFAULT_BUILD_CSV.relative_to(repo_path("."))))
     parser.add_argument("--atol", type=float, default=1e-1)
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--rtlsim-batch-size", type=int, default=1)
+    parser.add_argument("--rtlsim-batch-size", type=int, default=2)
     parser.add_argument(
         "--fifosim-n-inferences",
         type=int,

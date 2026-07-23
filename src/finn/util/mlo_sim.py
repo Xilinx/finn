@@ -31,6 +31,7 @@
 # aximm simulation tasks for handling the aximm interfaces.
 
 import numpy as np
+from pathlib import Path
 from qonnx.core.modelwrapper import ModelWrapper
 from typing import Callable
 
@@ -71,6 +72,17 @@ def dat_file_to_numpy_array(file_path):
     return byte_array
 
 
+def _resolve_mlo_weight_datfile(code_gen_dir, op_type, input_index):
+    """Return the generated external-weight image for an MLO MVAU input."""
+
+    datfile = Path(code_gen_dir) / f"memblock_{op_type}_id_{input_index}.dat"
+    if not datfile.is_file():
+        raise FileNotFoundError(
+            f"Missing {op_type} MLO weight image for loop input {input_index}: {datfile}"
+        )
+    return datfile
+
+
 def mlo_prehook_func_factory(node) -> Callable[[SimEngine], None]:
     """Factory that will construct a prehook function to
     setup the axi memory mapped interfaces for MLO validation.
@@ -89,7 +101,7 @@ def mlo_prehook_func_factory(node) -> Callable[[SimEngine], None]:
             mvau_hbm_weights[idx] = {}
             mvau_hbm_weights[idx]["name"] = lb_inp.name
             code_gen_dir = finnloop_op.get_nodeattr("code_gen_dir_ipgen")
-            datfile = f"{code_gen_dir}/memblock_MVAU_rtl_id_{idx}.dat"
+            datfile = _resolve_mlo_weight_datfile(code_gen_dir, downstream.op_type, idx)
             # memblock.dat holds the per-layer weights back-to-back, byte-aligned
             # per IWSIMD group. fetch_weights.sv places layer i at i*LAYER_OFFS,
             # where LAYER_OFFS rounds the layer size up to the AXI bus width, so

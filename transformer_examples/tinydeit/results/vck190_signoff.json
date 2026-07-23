@@ -26,14 +26,14 @@
         "passed": true
       },
       "rtlsim": {
-        "cycles": 32464,
-        "latency_cycles": 32463,
-        "interval_cycles": 19855,
-        "throughput_fps": 15115.59043158941,
-        "timeout": 0,
-        "unfinished_inputs": 0,
-        "unfinished_outputs": 0,
-        "passed": true
+        "status": "not_available",
+        "measurement_requirement": "completed_multi_frame_stitched_mlo",
+        "external_memory_model": "ideal_axi_mm",
+        "performance_interpretation": "ideal_memory_upper_bound",
+        "historical_single_frame_result_rejected": true,
+        "interval_cycles": null,
+        "throughput_fps": null,
+        "passed": null
       },
       "resources": {
         "lut": 337124,
@@ -66,7 +66,7 @@
         "synth_dcp": "92b4c93e7712323742c9489390e0122942ef8c42be9748cb89b5ead051c3e66e",
         "routed_dcp": "40424dffa95da117e4260755130b3b780b1d49bb02e26561a74a05bd5b5cda0e",
         "timing_report": "e57113587d71a2491da3def499efbd74d170ffe713b96cde9e4b16cb2be10ec0",
-        "rtlsim_results": "06494799e3a615c65077520eaaf8c63c8ca3b8103fe0385e6041558b15ba606c"
+        "rejected_single_frame_rtlsim_results": "06494799e3a615c65077520eaaf8c63c8ca3b8103fe0385e6041558b15ba606c"
       }
     },
     {
@@ -94,14 +94,14 @@
         "passed": true
       },
       "rtlsim": {
-        "cycles": 45244,
-        "latency_cycles": 45243,
-        "interval_cycles": 26331,
-        "throughput_fps": 7595.609737571684,
-        "timeout": 0,
-        "unfinished_inputs": 0,
-        "unfinished_outputs": 0,
-        "passed": true
+        "status": "not_available",
+        "measurement_requirement": "completed_multi_frame_stitched_mlo",
+        "external_memory_model": "ideal_axi_mm",
+        "performance_interpretation": "ideal_memory_upper_bound",
+        "historical_single_frame_result_rejected": true,
+        "interval_cycles": null,
+        "throughput_fps": null,
+        "passed": null
       },
       "resources": {
         "lut": 423854,
@@ -127,7 +127,7 @@
         "synth_dcp": "52d0173622bef7b529980b2e3093c2ca4d58ef341df7b33e7ec3d80bbae55183",
         "routed_dcp": "5163ca3e648bb1682059042df9bb4d6e5daf8ffc810e4d80d45d30b67572337f",
         "timing_report": "e7a31ca9dd219b32f358af47db1000233e8a89ad1a850b38354fe3171fe2be25",
-        "rtlsim_results": "74e7c7cfcbbeeed745d7b5fa063c9aa316e37859c18bf894a59a06458f26e2d7"
+        "rejected_single_frame_rtlsim_results": "74e7c7cfcbbeeed745d7b5fa063c9aa316e37859c18bf894a59a06458f26e2d7"
       }
     }
   ]

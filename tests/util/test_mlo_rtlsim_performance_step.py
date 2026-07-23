@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import json
+import os
 
 import finn.builder.build_dataflow_steps as steps
 from finn.builder.build_dataflow_config import DataflowBuildConfig, DataflowOutputType
@@ -31,7 +32,12 @@ def test_mlo_performance_step_uses_two_frames_and_ideal_memory(tmp_path, monkeyp
     monkeypatch.setattr(steps, "get_liveness_threshold_cycles", lambda: 123)
 
     def fake_throughput_test(model_arg, clk_ns, **kwargs):
-        call.update(model=model_arg, clk_ns=clk_ns, **kwargs)
+        call.update(
+            model=model_arg,
+            clk_ns=clk_ns,
+            liveness_threshold=os.environ["LIVENESS_THRESHOLD"],
+            **kwargs,
+        )
         return {
             "N": kwargs["batchsize"],
             "completed_output_frames": 2,
@@ -47,6 +53,7 @@ def test_mlo_performance_step_uses_two_frames_and_ideal_memory(tmp_path, monkeyp
         output_dir=str(tmp_path),
         synth_clk_period_ns=5.0,
         rtlsim_batch_size=1,
+        stitched_rtlsim_liveness_threshold=777,
         mlo=True,
         generate_outputs=[
             DataflowOutputType.STITCHED_IP,
@@ -62,6 +69,7 @@ def test_mlo_performance_step_uses_two_frames_and_ideal_memory(tmp_path, monkeyp
     assert call["batchsize"] == 2
     assert call["pre_hook"] is prehook
     assert call["collect_performance"] is True
+    assert call["liveness_threshold"] == "777"
 
     with open(tmp_path / "report" / "rtlsim_performance.json") as report_file:
         report = json.load(report_file)
