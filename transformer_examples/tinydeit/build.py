@@ -20,6 +20,7 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import numpy as np
+from onnx import AttributeProto
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.general import GiveUniqueNodeNames
@@ -113,6 +114,7 @@ FOLDING_HW_ATTRS = [
     "runtime_writeable_weights",
     "depth_trigger_uram",
     "depth_trigger_bram",
+    "pumpedCompute",
 ]
 
 
@@ -123,6 +125,52 @@ def _canonicalize_loop_body_names(model: ModelWrapper) -> ModelWrapper:
         loop_body = node_inst.get_nodeattr("body")
         loop_body = loop_body.transform(GiveUniqueNodeNames(prefix=node.name + "_"))
         node_inst.set_nodeattr("body", loop_body.graph)
+    return model
+
+
+def _delete_node_attributes(node, names: set[str]) -> None:
+    for index in reversed(range(len(node.attribute))):
+        if node.attribute[index].name in names:
+            del node.attribute[index]
+
+
+def _convert_lut_mvaus_to_hls(model: ModelWrapper) -> int:
+    """Use the HLS MVAU implementation for configurations requesting LUTs.
+
+    The RTL MVAU supports DSP compute only. Folding configurations select a LUT
+    implementation with ``resType=lut``, so convert those nodes after the final
+    folding configuration has been applied and before hardware code generation.
+    """
+
+    converted = 0
+    for node in model.graph.node:
+        if node.op_type == "MVAU_rtl":
+            inst = getHWCustomOp(node, model)
+            if inst.get_nodeattr("resType") == "lut":
+                _delete_node_attributes(node, {"gen_top_module", "pumpedCompute"})
+                node.op_type = "MVAU_hls"
+                node.domain = "finn.custom_op.fpgadataflow.hls"
+                inst = getHWCustomOp(node, model)
+                inst.set_nodeattr("backend", "hls")
+                inst.set_nodeattr("resType", "lut")
+                converted += 1
+
+        for attr in node.attribute:
+            if attr.type != AttributeProto.GRAPH:
+                continue
+            submodel = model.make_subgraph_modelwrapper(attr.g)
+            converted += _convert_lut_mvaus_to_hls(submodel)
+            attr.g.CopyFrom(submodel.graph)
+    return converted
+
+
+def step_tinydeit_hls_lut_mvaus(model: ModelWrapper, cfg: DataflowBuildConfig) -> ModelWrapper:
+    converted = _convert_lut_mvaus_to_hls(model)
+    if converted:
+        print(f"Converted {converted} LUT-configured RTL MVAU node(s) to HLS.")
+        extract_model_config_to_json(
+            model, cfg.output_dir + "/auto_folding_config.json", FOLDING_HW_ATTRS
+        )
     return model
 
 
@@ -227,6 +275,7 @@ def build_config(args: argparse.Namespace, output_dir: Path) -> DataflowBuildCon
             "step_minimize_bit_width": [step_round_mlo_threshold_params],
             "step_transpose_decomposition": [
                 step_tinydeit_post_transpose_parallelization,
+                step_tinydeit_hls_lut_mvaus,
             ],
         },
         # MLO rolling is performed explicitly in prepare_model.py before this

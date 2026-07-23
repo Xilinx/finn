@@ -5,6 +5,11 @@ It converts the transformer operators to FINN dataflow layers and rolls the 12
 repeated encoder blocks into a `FINNLoop`. The build uses FINN's phase-based
 flow, including separate loop-body and top-level FIFO sizing.
 
+Folding configurations may request `resType=lut` for selected matrix-vector
+layers. The TinyDeiT flow automatically uses `MVAU_hls` for those layers because
+the RTL MVAU implementation supports DSP compute only; the remaining MVAUs use
+the double-pumped RTL implementation selected by the configuration defaults.
+
 ## Input model
 
 No checkpoint is committed. The default preparation path expects the established

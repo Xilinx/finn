@@ -254,10 +254,55 @@ def test_tinydeit_build_config_uses_phases_and_injections(tmp_path, mode):
         "step_minimize_bit_width": [tinydeit_build.step_round_mlo_threshold_params],
         "step_transpose_decomposition": [
             tinydeit_build.step_tinydeit_post_transpose_parallelization,
+            tinydeit_build.step_tinydeit_hls_lut_mvaus,
         ],
     }
     assert cfg.fifosim_n_inferences == 1
     assert cfg.mlo is False
+
+
+@pytest.mark.transform
+def test_tinydeit_converts_lut_mvaus_to_hls():
+    tinydeit_build = _tinydeit_build_module()
+
+    nodes = [
+        onnx.helper.make_node(
+            "MVAU_rtl",
+            ["inp", "weights"],
+            ["lut_out"],
+            domain="finn.custom_op.fpgadataflow.rtl",
+            backend="fpgadataflow",
+            name="lut_mvau",
+            resType="lut",
+            pumpedCompute=1,
+        ),
+        onnx.helper.make_node(
+            "MVAU_rtl",
+            ["lut_out", "weights"],
+            ["out"],
+            domain="finn.custom_op.fpgadataflow.rtl",
+            backend="fpgadataflow",
+            name="dsp_mvau",
+            resType="dsp",
+            pumpedCompute=1,
+        ),
+    ]
+    graph = onnx.helper.make_graph(
+        nodes,
+        "lut_mvau_conversion",
+        [onnx.helper.make_tensor_value_info("inp", onnx.TensorProto.FLOAT, [1])],
+        [onnx.helper.make_tensor_value_info("out", onnx.TensorProto.FLOAT, [1])],
+    )
+    model = tinydeit_build.ModelWrapper(onnx.helper.make_model(graph))
+
+    converted = tinydeit_build._convert_lut_mvaus_to_hls(model)
+
+    assert converted == 1
+    assert [node.op_type for node in model.graph.node] == ["MVAU_hls", "MVAU_rtl"]
+    assert model.graph.node[0].domain == "finn.custom_op.fpgadataflow.hls"
+    assert {attr.name for attr in model.graph.node[0].attribute}.isdisjoint(
+        {"gen_top_module", "pumpedCompute"}
+    )
 
 
 @pytest.mark.transform
