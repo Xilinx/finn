@@ -14,6 +14,7 @@ import copy
 import numpy as np
 import onnx
 import onnxscript
+import os
 from enum import Enum
 from onnxscript import ir
 from onnxscript.rewriter import pattern, rewrite
@@ -24,6 +25,7 @@ from qonnx.transformation.fold_constants import FoldConstants
 from typing import List, Tuple
 
 from finn.util import onnxscript_helpers as osh
+from finn.util.basic import make_build_dir
 
 
 def get_constant_from_value(value):
@@ -214,7 +216,7 @@ def build_loop_replace_pattern(graph, LoopBody):
 
 
 class LoopExtraction(Transformation):
-    def __init__(self, hierarchy_list: List[List[str]]):
+    def __init__(self, hierarchy_list: List[List[str]], loop_body_template_path=None):
         super().__init__()
 
         assert isinstance(hierarchy_list, list), "Hierarchy list must be a list of strings"
@@ -224,6 +226,10 @@ class LoopExtraction(Transformation):
                 isinstance(item, str) for item in hlist
             ), "All items in hierarchy sub-list must be strings"
         self.hierarchy_list = hierarchy_list
+        if loop_body_template_path is None:
+            template_dir = make_build_dir("loop_body_template_")
+            loop_body_template_path = os.path.join(template_dir, "loop-body-template.onnx")
+        self.loop_body_template_path = os.fspath(loop_body_template_path)
         self.loop_body_template = None
 
     def apply(self, model: ModelWrapper) -> Tuple[ModelWrapper, bool]:
@@ -275,8 +281,8 @@ class LoopExtraction(Transformation):
         )
         proto = onnxscript.ir.serde.serialize_model(loop_body_model)
 
-        onnx.save(proto, "loop-body-template.onnx")
-        self.loop_body_template = LoopBodyTemplate("loop-body-template.onnx")
+        onnx.save(proto, self.loop_body_template_path)
+        self.loop_body_template = LoopBodyTemplate(self.loop_body_template_path)
 
         # Replace instances of the loop body with a function call to the loop body
         change_layers_to_function_calls = pattern.RewriteRule(
