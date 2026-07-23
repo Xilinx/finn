@@ -161,6 +161,7 @@ class HLSBackend(ABC):
         self.code_gen_dict["$CLKPERIOD$"] = [str(clk)]
         self.code_gen_dict["$DEFAULT_DIRECTIVES$"] = self.ipgen_default_directives()
         self.code_gen_dict["$EXTRA_DIRECTIVES$"] = self.ipgen_extra_directives()
+        self.code_gen_dict["$EXTRA_INCLUDES$"] = [self.ipgen_extra_includes()]
 
         template = templates.ipgentcl_template
 
@@ -189,6 +190,10 @@ class HLSBackend(ABC):
     def ipgen_extra_directives(self):
         "Return a list of extra tcl directives for HLS synthesis."
         return []
+
+    def ipgen_extra_includes(self):
+        """Return extra include paths for HLS compilation."""
+        return ""
 
     def ipgen_singlenode_code(self, fpgapart=None):
         """Builds the bash script for IP generation using the CallHLS utility."""

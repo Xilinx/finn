@@ -95,6 +95,21 @@ def prepare_inputs(input_tensor, idt):
     return {"inp": input_tensor}
 
 
+@pytest.mark.fpgadataflow
+def test_fpgadataflow_duplicatestreams_ipgen_tcl(tmp_path):
+    model = make_dupstreams_modelwrapper(64, 32, 7, DataType["INT4"], 2, "hls")
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+    model = model.transform(GiveUniqueNodeNames())
+
+    node = model.get_nodes_by_op_type("DuplicateStreams_hls")[0]
+    inst = getHWCustomOp(node)
+    inst.set_nodeattr("code_gen_dir_ipgen", str(tmp_path))
+    inst.code_generation_ipgen(model, "xc7z020clg400-1", 5)
+
+    tcl = (tmp_path / f"hls_syn_{node.name}.tcl").read_text()
+    assert "$EXTRA_INCLUDES$" not in tcl
+
+
 # data type
 @pytest.mark.parametrize("idt", [DataType["INT4"], DataType["FLOAT32"]])
 # channels
