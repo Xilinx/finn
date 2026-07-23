@@ -67,6 +67,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.general import ApplyConfig
+from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import is_versal
 
 finnxsi = xsi if xsi.is_available() else None
@@ -364,7 +365,7 @@ def test_fpgadataflow_mvau_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 
 
 # mem_mode: internal_embedded or internal_decoupled
-@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled", "external"])
+@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled", "external_mem"])
 # activation: None or DataType
 @pytest.mark.parametrize("act", [None, DataType["BIPOLAR"], DataType["INT4"]])
 # weight datatype
@@ -471,6 +472,35 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, pumpe
     exp_cycles = exp_cycles_dict[node.name]
     assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
     assert exp_cycles != 0
+
+    # Also exercise stitched-IP rtlsim, but only for a single representative
+    # (max-parallelism, INT4, no-activation) config per mem_mode to bound runtime.
+    # Pumped memory is only meaningful with internal_decoupled (and SIMD > 1), so
+    # cover exactly that one pumped config in addition to the non-pumped modes.
+    representative = (
+        pe == mh
+        and simd == mw
+        and act is None
+        and idt == DataType["INT4"]
+        and wdt == DataType["INT4"]
+    )
+    if pumpedMemory:
+        run_stitched = representative and mem_mode == "internal_decoupled"
+    else:
+        run_stitched = representative
+    if run_stitched:
+        part = "xczu7ev-ffvc1156-2-e"
+        model = model.transform(InsertAndSetFIFODepths(part, 5))
+        model = model.transform(PrepareIP(part, 5))
+        model = model.transform(HLSSynthIP())
+        model = model.transform(CreateStitchedIP(part, 5))
+        model.set_metadata_prop("exec_mode", "rtlsim")
+        y_produced_stitch = oxe.execute_onnx(model, {model.get_first_global_in(): x})[
+            model.get_first_global_out()
+        ]
+        assert (
+            y_produced_stitch.reshape(y_expected.shape) == y_expected
+        ).all(), "stitched-IP rtlsim failed"
 
 
 # mem_mode: internal_embedded or internal_decoupled
@@ -730,8 +760,8 @@ def test_mvau_fifocharacterize_rtlsim(
     node_inst = getCustomOp(model.graph.node[0])
     period_attr = node_inst.get_nodeattr("io_chrc_period")
     assert period_attr == exp_total_cycles
-    chrc_in = node_inst.get_nodeattr("io_chrc_in")
-    chrc_out = node_inst.get_nodeattr("io_chrc_out")
+    chrc_in = node_inst.get_io_chrc_in()
+    chrc_out = node_inst.get_io_chrc_out()
     if mem_mode == "internal_decoupled":
         assert chrc_in.shape == (2, 2 * exp_total_cycles)
     else:
@@ -745,8 +775,43 @@ def test_mvau_fifocharacterize_rtlsim(
 
 @pytest.mark.parametrize("mh", [18])
 @pytest.mark.parametrize("mw", [32])
-@pytest.mark.parametrize("pe", [1, 9, 18])
-@pytest.mark.parametrize("simd", [1, 16, 32])
+# (PE, SIMD, TH, mem_mode) as a jointly-valid tuple satisfying MH % PE == 0,
+# MW % SIMD == 0 and (PE * SIMD) % TH == 0. TH=1 selects the standard MVAU;
+# TH>1 selects the tiled MVAU (Versal DSP58 only, filtered below).
+#
+# TH must divide the number of input vectors (ofm_shape 3x3 -> 9), so the tiled
+# configs use TH in {3, 9}. The tiled set spreads across the integration-level
+# axes (the DSP-chain corner cases themselves are covered by the RTL testbench):
+#   - WSIMD = PE*SIMD/TH:   the =1 edge (1 weight/cycle) up to 192
+#   - CHAINLEN = (SIMD+2)/3: 1, 2, 3, 6, 11
+#   - TH:                    3 and 9 (high tiling)
+#   - mem_mode:              external_mem and internal_decoupled (tiling is
+#                            decoupled from the weight memory mode)
+@pytest.mark.parametrize(
+    "pe_simd_th_mem",
+    [
+        (1, 1, 1, "internal_decoupled"),
+        (1, 16, 1, "internal_decoupled"),
+        (1, 32, 1, "internal_decoupled"),
+        (9, 1, 1, "internal_decoupled"),
+        (9, 16, 1, "internal_decoupled"),
+        (9, 32, 1, "internal_decoupled"),
+        (18, 1, 1, "internal_decoupled"),
+        (18, 16, 1, "internal_decoupled"),
+        (18, 32, 1, "internal_decoupled"),
+        (3, 1, 3, "external_mem"),  # WSIMD=1 edge, CHAINLEN=1
+        (6, 1, 3, "external_mem"),  # IWSIMD=(PE*SIMD)/TH=2 != SIMD=1
+        (6, 1, 3, "internal_decoupled"),  # Same shape as above, but internal_decoupled
+        (6, 4, 3, "internal_decoupled"),  # CHAINLEN=2, decoupled
+        (9, 8, 9, "external_mem"),  # TH=9 high tiling, CHAINLEN=3
+        (9, 16, 3, "external_mem"),  # CHAINLEN=6
+        (18, 32, 3, "internal_decoupled"),  # max fold, CHAINLEN=11, decoupled
+        # external_mem + TH=1: standard MVAU fed by fetch_weights from external memory
+        # (PE>1 catches PE-lane swaps, SIMD=1 covers the sub-word byte-packing edge).
+        (9, 16, 1, "external_mem"),
+        (18, 1, 1, "external_mem"),
+    ],
+)
 @pytest.mark.parametrize(
     "idt_wdt", [[DataType["UINT4"], DataType["INT4"]], [DataType["UINT8"], DataType["INT8"]]]
 )
@@ -760,8 +825,10 @@ def test_mvau_fifocharacterize_rtlsim(
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_rtl_mvau(
-    mh, mw, pe, simd, idt_wdt, part, clk_ns, pumpedMemory, pumpedCompute
+    mh, mw, pe_simd_th_mem, idt_wdt, part, clk_ns, pumpedMemory, pumpedCompute
 ):
+    pe, simd, th, mem_mode = pe_simd_th_mem
+
     if part != "xcvc1902-vsva2197-2MP-e-S" and clk_ns != 1.66:
         pytest.skip(
             """Skip test for varying clk for devices other than Versal,
@@ -773,6 +840,18 @@ def test_fpgadataflow_rtl_mvau(
 
     if simd == 1 and pumpedCompute:
         pytest.skip("""Clock pumping an input of SIMD=1 is not meaningful. Skipping test""")
+
+    # External memory has no on-chip weight memory to clock-pump.
+    if mem_mode == "external_mem" and pumpedMemory:
+        pytest.skip("External memory has no on-chip weight memory to clock-pump")
+
+    # Tiled MVAU (TH>1) requires DSP58 (Versal) and is not combined with clock pumping.
+    # The (PE * SIMD) % TH == 0 constraint is guaranteed by the parameter tuples above.
+    if th > 1:
+        if part != "xcvc1902-vsva2197-2MP-e-S":
+            pytest.skip("Tiled MVAU (TH>1) is only supported on Versal (DSP58)")
+        if pumpedMemory or pumpedCompute:
+            pytest.skip("Tiled MVAU (TH>1) is not exercised with clock pumping")
 
     idt, wdt = idt_wdt
     # Create test input vector (produced by SWG)
@@ -812,12 +891,20 @@ def test_fpgadataflow_rtl_mvau(
         "MVAU_rtl_0": {
             "PE": pe,
             "SIMD": simd,
+            "TH": th,
             "resType": "dsp",
+            "mem_mode": mem_mode,
             "pumpedMemory": pumpedMemory,
             "pumpedCompute": pumpedCompute,
         },
     }
     model = model.transform(ApplyConfig(folding_config))
+    # Verify the folding config was actually applied to the node
+    inst = getCustomOp(model.graph.node[0])
+    for attr, expected in folding_config["MVAU_rtl_0"].items():
+        assert (
+            inst.get_nodeattr(attr) == expected
+        ), f"Config not applied: {attr}={inst.get_nodeattr(attr)}, expected {expected}"
     model = model.transform(MinimizeWeightBitWidth())
     model = model.transform(MinimizeAccumulatorWidth())
     # make sure the changed datatypes are propagated through the network
@@ -967,3 +1054,88 @@ def test_fpgadataflow_rtl_dynamic_mvau(mh, mw, n_vectors, pe, simd, idt_wdt, par
     assert (
         output_matmul == output_mvau_rtl_stitch
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
+
+
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+def test_fpgadataflow_mvau_hls_threshold_width_cppsim():
+    """
+    Test that threshold datatype is not minimized narrower than accumulator.
+
+    This tests the fix for a bug where HLS MVAU threshold comparisons could
+    produce incorrect results when thresholds were minimized to a narrower
+    datatype than the accumulator. The HLS implementation uses the threshold
+    datatype for comparisons, so if it's narrower than the accumulator,
+    accumulator values get truncated.
+
+    Setup:
+    - INT8 inputs/weights with mw=64 -> accumulator needs ~14 bits
+    - Small thresholds (INT8 range) that would be minimized to narrow type
+    - Extreme input values (min/max) to trigger full accumulator range
+
+    The test follows the builder flow:
+    MinimizeWeightBitWidth -> MinimizeAccumulatorWidth -> RoundAndClipThresholds
+    -> MinimizeWeightBitWidth
+    """
+    mw, mh = 64, 4
+    pe, simd = 2, 8
+    idt = DataType["INT8"]
+    wdt = DataType["INT8"]
+    odt = DataType["INT4"]
+    n_steps = odt.get_num_possible_values() - 1
+
+    # Generate random weights
+    W = gen_finn_dt_tensor(wdt, (mw, mh))
+
+    # Generate SMALL thresholds (INT8 range) - key to triggering the bug
+    # These will be minimized to a narrow type after RoundAndClipThresholds
+    T = gen_finn_dt_tensor(DataType["INT8"], (mh, n_steps)).astype(np.float32)
+    T = np.sort(T, axis=1)
+    tdt = DataType["INT32"]
+
+    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
+
+    # Extreme inputs to trigger full accumulator range
+    # Max accumulator = 127 * 64 * max_weight ~ 8128 (needs ~14 bits)
+    # Min accumulator = -128 * 64 * max_weight ~ -8192
+    x_max = np.ones((1, mw), dtype=np.float32) * idt.max()
+    x_min = np.ones((1, mw), dtype=np.float32) * idt.min()
+
+    # Expected outputs using numpy reference
+    y_max_expected = multithreshold(np.matmul(x_max, W), T, 1, odt.min())
+    y_min_expected = multithreshold(np.matmul(x_min, W), T, 1, odt.min())
+
+    # Apply transformations
+    model = model.transform(GiveUniqueNodeNames())
+    for node in model.graph.node:
+        inst = getCustomOp(node)
+        inst.set_nodeattr("preferred_impl_style", "hls")
+        inst.set_nodeattr("mem_mode", "internal_embedded")
+
+    model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
+    model = model.transform(GiveUniqueNodeNames())
+
+    # Full builder flow for bit width minimization
+    model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(MinimizeAccumulatorWidth())
+    model = model.transform(InferDataTypes())
+    model = model.transform(RoundAndClipThresholds())
+    model = model.transform(InferDataTypes())
+    model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(InferDataTypes())
+
+    # Run cppsim
+    model = model.transform(SetExecMode("cppsim"))
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
+
+    # Verify results with extreme inputs
+    y_max_produced = oxe.execute_onnx(model, {"inp": x_max})["outp"]
+    y_min_produced = oxe.execute_onnx(model, {"inp": x_min})["outp"]
+
+    assert np.allclose(
+        y_max_produced, y_max_expected
+    ), f"Max input test failed: expected {y_max_expected}, got {y_max_produced}"
+    assert np.allclose(
+        y_min_produced, y_min_expected
+    ), f"Min input test failed: expected {y_min_expected}, got {y_min_produced}"

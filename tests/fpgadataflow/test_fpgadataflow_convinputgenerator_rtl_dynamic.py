@@ -301,7 +301,7 @@ def test_fpgadataflow_conv_dynamic(cfg):
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))
     model = model.transform(HLSSynthIP())
-    model = model.transform(CreateStitchedIP("xc7z020clg400-1", 5, vitis=do_synth))
+    model = model.transform(CreateStitchedIP("xc7z020clg400-1", 5, run_synth=do_synth))
     model.set_metadata_prop("exec_mode", "rtlsim")
 
     # loop through experiment configurations

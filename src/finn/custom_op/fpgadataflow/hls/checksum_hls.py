@@ -157,7 +157,6 @@ class CheckSum_hls(HWCustomOp, HLSBackend):
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_input_datatype()
-        elem_bits = dtype.bitwidth()
         packed_bits = self.get_instream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
@@ -166,11 +165,10 @@ class CheckSum_hls(HWCustomOp, HLSBackend):
         self.code_gen_dict["$READNPYDATA$"] = []
         # note: the innermost dim is reversed for the input
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0_V, false);'
+            'npy2apintstream<%s, %s, %s>("%s", in0_V, false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
-                elem_bits,
                 npy_type,
                 npy_in,
             )
@@ -199,7 +197,6 @@ class CheckSum_hls(HWCustomOp, HLSBackend):
         if dtype == DataType["BIPOLAR"]:
             # use binary for bipolar storage
             dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
         packed_bits = self.get_outstream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
@@ -210,18 +207,17 @@ class CheckSum_hls(HWCustomOp, HLSBackend):
 
         # note: the innermost dim is not reversed for the output
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out0_V, %s, "%s", false);'
+            'apintstream2npy<%s, %s, %s>(out0_V, %s, "%s", false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
-                elem_bits,
                 npy_type,
                 shape_cpp_str,
                 npy_out,
             ),
             "std::vector<unsigned int> checksum(1);",
             "checksum[0] = chk;",
-            'cnpy::npy_save("%s/output_1.npy",&checksum[0],{1},"w");' % code_gen_dir,
+            'cnpy::npy_save("%s/output_1.npy",&checksum[0],{1});' % code_gen_dir,
         ]
 
     def blackboxfunction(self):

@@ -41,21 +41,6 @@ recho () {
   echo -e "${RED}$1${NC}"
 }
 
-if [ -z "$FINN_XILINX_PATH" ];then
-  recho "Please set the FINN_XILINX_PATH environment variable to the path to your Xilinx tools installation directory (e.g. /opt/Xilinx)."
-  recho "FINN functionality depending on Vivado, Vitis or HLS will not be available."
-fi
-
-if [ -z "$FINN_XILINX_VERSION" ];then
-  recho "Please set the FINN_XILINX_VERSION to the version of the Xilinx tools to use (e.g. 2022.2)"
-  recho "FINN functionality depending on Vivado, Vitis or HLS will not be available."
-fi
-
-if [ -z "$PLATFORM_REPO_PATHS" ];then
-  recho "Please set PLATFORM_REPO_PATHS pointing to Vitis platform files (DSAs)."
-  recho "This is required to be able to use Alveo PCIe cards."
-fi
-
 DOCKER_GID=$(id -g)
 DOCKER_GNAME=$(id -gn)
 DOCKER_UNAME=$(id -un)
@@ -79,6 +64,7 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${FINN_SSH_KEY_DIR="$SCRIPTPATH/ssh_keys"}
 : ${PLATFORM_REPO_PATHS="/opt/xilinx/platforms"}
 : ${XRT_DEB_VERSION="xrt_202220.2.14.354_22.04-amd64-xrt"}
+: ${V80PP_DEB_PACKAGE=""}
 : ${FINN_HOST_BUILD_DIR="/tmp/$DOCKER_INST_NAME"}
 : ${FINN_DOCKER_TAG="xilinx/finn:$(OLD_PWD=$(pwd); cd $SCRIPTPATH; git describe --always --tags --dirty; cd $OLD_PWD).$XRT_DEB_VERSION"}
 : ${FINN_DOCKER_PREBUILT="0"}
@@ -87,7 +73,6 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${FINN_DOCKER_BUILD_EXTRA=""}
 : ${FINN_SKIP_DEP_REPOS="0"}
 : ${FINN_SKIP_BOARD_FILES="0"}
-: ${OHMYXILINX="${SCRIPTPATH}/deps/oh-my-xilinx"}
 : ${NVIDIA_VISIBLE_DEVICES=""}
 : ${DOCKER_BUILDKIT="1"}
 : ${FINN_SINGULARITY=""}
@@ -95,10 +80,53 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${FINN_XRT_PATH=""}
 : ${FINN_DOCKER_NO_CACHE="0"}
 
+# print-tag emits the Docker image tag and exits, so the Jenkins publish step
+# has one source of truth for the tag (FINN_DOCKER_TAG). Placed before any
+# side effects so the invocation is read-only.
+if [ "$1" = "print-tag" ]; then
+  if [ "$#" -ne 1 ]; then
+    echo "Usage: $0 print-tag" >&2
+    exit 2
+  fi
+  echo "$FINN_DOCKER_TAG"
+  exit 0
+fi
+
 DOCKER_INTERACTIVE=""
 
 # Catch FINN_DOCKER_EXTRA options being passed in without a trailing space
 FINN_DOCKER_EXTRA+=" "
+
+if [ -z "$FINN_XILINX_PATH" ];then
+  recho "Please set the FINN_XILINX_PATH environment variable to the path to your Xilinx tools installation directory (e.g. /opt/Xilinx)."
+  recho "FINN functionality depending on Vivado, Vitis or HLS will not be available."
+fi
+
+if [ -z "$FINN_XILINX_VERSION" ];then
+  recho "Please set the FINN_XILINX_VERSION to the version of the Xilinx tools to use (e.g. 2022.2)"
+  recho "FINN functionality depending on Vivado, Vitis or HLS will not be available."
+fi
+
+if [ -z "$PLATFORM_REPO_PATHS" ];then
+  recho "Please set PLATFORM_REPO_PATHS pointing to Vitis platform files (DSAs)."
+  recho "This is required to be able to use Vitis-based Alveo PCIe cards."
+fi
+
+if [ -z "$V80PP_DEB_PACKAGE" ];then
+  recho "Please set V80PP_DEB_PACKAGE pointing to the SLASH v80++ .deb package."
+  recho "This is required to be able to use the Alveo V80 card."
+fi
+
+# Mirror the Jenkinsfile's local-fallback banner, but only inside a real
+# Jenkins run (JENKINS_URL + BUILD_NUMBER) so unrelated CI systems and
+# developer shells that happen to export BUILD_NUMBER stay quiet.
+if [ -n "$JENKINS_URL" ] && [ -n "$BUILD_NUMBER" ] \
+   && [ -z "$FINN_CI_NFS_ROOT" ] && [ -z "$FINN_DOCKER_SHARED_IMAGE_DIR" ]; then
+  recho "FINN_CI_NFS_ROOT and FINN_DOCKER_SHARED_IMAGE_DIR are unset. Running in local-fallback mode."
+  recho "  - no shared Docker image cache (this agent will build locally)"
+  recho "  - no build-to-HW artifact handoff (the HW pipeline cannot test this build)"
+  recho "Set FINN_CI_NFS_ROOT in the Jenkins job DSL to enable the shared cache."
+fi
 
 if [ "$1" = "test" ]; then
   gecho "Running test suite (all tests)"
@@ -157,45 +185,70 @@ gecho "Port-forwarding for Netron $NETRON_PORT:$NETRON_PORT"
 
 # Ensure git-based deps are checked out at correct commit
 if [ "$FINN_SKIP_DEP_REPOS" = "0" ]; then
-  ./fetch-repos.sh
+  ./fetch-repos.sh || exit 1
 fi
 
-# If xrt path given, copy .deb file to this repo
-# Be aware that we assume a certain name of the xrt deb version
-if [ -d "$FINN_XRT_PATH" ];then
-  cp $FINN_XRT_PATH/$XRT_DEB_VERSION.deb .
+# If xrt path given, copy .deb file to this repo. Gate on the .deb
+# itself, not the dir. Otherwise an empty cache dir trips LOCAL_XRT=1
+# without producing a build-context .deb, and the docker build then
+# fails because the wget branch is also skipped.
+if [ -f "$FINN_XRT_PATH/$XRT_DEB_VERSION.deb" ]; then
+  cp "$FINN_XRT_PATH/$XRT_DEB_VERSION.deb" .
   export LOCAL_XRT=1
+fi
+
+# If v80++ deb package given, copy it to repo root for docker build
+if [ -n "$V80PP_DEB_PACKAGE" ] && [ -f "$V80PP_DEB_PACKAGE" ]; then
+  cp "$V80PP_DEB_PACKAGE" ./v80pp.deb
 fi
 
 if [ "$FINN_DOCKER_NO_CACHE" = "1" ]; then
   FINN_DOCKER_BUILD_EXTRA+="--no-cache "
 fi
 
-# If the image isn't available locally, try loading from shared storage.
-# This is independent of FINN_DOCKER_PREBUILT: loading is an image
-# acquisition step, not a build step. With PREBUILT=1 it provides the
-# image so the build below is skipped; with PREBUILT=0 it warms the
-# layer cache so the build below runs faster.
-if [ ! -z "$FINN_DOCKER_SHARED_DIR" ] && \
-   ! docker image inspect "$FINN_DOCKER_TAG" > /dev/null 2>&1; then
-  SHARED_IMG="$FINN_DOCKER_SHARED_DIR/finn-docker-image.tar.gz"
-  SHARED_TAG_FILE="$FINN_DOCKER_SHARED_DIR/finn-docker-tag.txt"
+# fail fast on PREBUILT=1 with no usable image source: with no shared dir
+# configured and no local image, docker run further down would fail with
+# a generic "Unable to find image" much later in the pipeline.
+if [ "$FINN_DOCKER_PREBUILT" = "1" ] && [ -z "$FINN_DOCKER_SHARED_IMAGE_DIR" ] \
+   && ! docker image inspect "$FINN_DOCKER_TAG" > /dev/null 2>&1; then
+  recho "FINN_DOCKER_PREBUILT=1 but FINN_DOCKER_SHARED_IMAGE_DIR is unset and tag $FINN_DOCKER_TAG is not loaded locally"
+  recho "Set FINN_DOCKER_SHARED_IMAGE_DIR to a directory containing finn-docker-image.tar.gz, or unset FINN_DOCKER_PREBUILT to build locally."
+  exit 1
+fi
+
+# If a shared-image dir is configured, load from there. In prebuilt mode
+# the shared image is authoritative and any same-tag local image is ignored.
+if [ -n "$FINN_DOCKER_SHARED_IMAGE_DIR" ] && \
+   { [ "$FINN_DOCKER_PREBUILT" = "1" ] || ! docker image inspect "$FINN_DOCKER_TAG" > /dev/null 2>&1; }; then
+  SHARED_DIR="$FINN_DOCKER_SHARED_IMAGE_DIR"
+  SHARED_LOADED="0"
+  SHARED_IMG="$SHARED_DIR/finn-docker-image.tar.gz"
+  SHARED_TAG_FILE="$SHARED_DIR/finn-docker-tag.txt"
   if [ -f "$SHARED_IMG" ] && [ -f "$SHARED_TAG_FILE" ]; then
-    gecho "Loading Docker image from shared storage ($FINN_DOCKER_SHARED_DIR)..."
+    gecho "Loading Docker image from shared storage ($SHARED_DIR)..."
     SHARED_TAG=$(cat "$SHARED_TAG_FILE")
-    # Lock is local (/tmp) to serialize loads on the same host. Do not move to NFS.
-    if flock /tmp/finn-docker-load.lock bash -c "set -o pipefail; gunzip -c '$SHARED_IMG' | docker load"; then
+    if [ "$FINN_DOCKER_PREBUILT" = "1" ] && [ "$SHARED_TAG" != "$FINN_DOCKER_TAG" ]; then
+      recho "Shared Docker tag $SHARED_TAG does not match requested tag $FINN_DOCKER_TAG"
+      exit 1
+    fi
+    # local /tmp lock to serialise concurrent loads on the same host
+    if flock /tmp/finn-docker-load.lock \
+         bash -c 'set -o pipefail; gunzip -c "$1" | docker load' _ "$SHARED_IMG"; then
+      SHARED_LOADED="1"
       if [ "$SHARED_TAG" != "$FINN_DOCKER_TAG" ]; then
         gecho "Tagging $SHARED_TAG as $FINN_DOCKER_TAG"
         docker tag "$SHARED_TAG" "$FINN_DOCKER_TAG"
       fi
     else
-      gecho "WARNING: Failed to load Docker image from shared storage"
-      if [ "$FINN_DOCKER_PREBUILT" = "1" ]; then
-        gecho "Falling back to local Docker build"
-        FINN_DOCKER_PREBUILT="0"
-      fi
+      gecho "WARNING: Failed to load Docker image from shared storage ($SHARED_DIR)"
     fi
+  fi
+  if [ "$SHARED_LOADED" != "1" ] && [ "$FINN_DOCKER_PREBUILT" != "1" ]; then
+    gecho "WARNING: No usable shared Docker image found at FINN_DOCKER_SHARED_IMAGE_DIR=$SHARED_DIR. Falling back to local build"
+  fi
+  if [ "$FINN_DOCKER_PREBUILT" = "1" ] && [ "$SHARED_LOADED" != "1" ]; then
+    recho "FINN_DOCKER_PREBUILT=1 but no usable shared Docker image at FINN_DOCKER_SHARED_IMAGE_DIR=$SHARED_DIR (expected finn-docker-image.tar.gz and finn-docker-tag.txt)"
+    exit 1
   fi
 fi
 
@@ -204,23 +257,31 @@ if [ "$FINN_DOCKER_PREBUILT" = "0" ] && [ -z "$FINN_SINGULARITY" ]; then
   # Need to ensure this is done within the finn/ root folder:
   OLD_PWD=$(pwd)
   cd $SCRIPTPATH
+  # Export DOCKER_BUILDKIT to enable BuildKit features
+  export DOCKER_BUILDKIT
   docker build \
     -f docker/Dockerfile.finn \
     --build-arg XRT_DEB_VERSION=$XRT_DEB_VERSION \
     --build-arg SKIP_XRT=$FINN_SKIP_XRT_DOWNLOAD \
     --build-arg LOCAL_XRT=$LOCAL_XRT \
+    --build-arg V80PP_DEB_PACKAGE=$V80PP_DEB_PACKAGE \
     --tag=$FINN_DOCKER_TAG $FINN_DOCKER_BUILD_EXTRA \
     --build-arg GROUP_ID=$DOCKER_GID \
     --build-arg GROUPNAME=$DOCKER_GNAME \
     --build-arg USERNAME=$DOCKER_UNAME \
     --build-arg USER_UID=$DOCKER_UID \
-    .
+    . || { recho "docker build failed"; exit 1; }
   cd $OLD_PWD
 fi
 
 # Remove local xrt.deb file from repo
 if [ ! -z "$LOCAL_XRT" ];then
   rm $XRT_DEB_VERSION.deb
+fi
+
+# Remove local v80pp.deb file from repo
+if [ -f "./v80pp.deb" ]; then
+  rm ./v80pp.deb
 fi
 
 # Launch container with current directory mounted
@@ -234,7 +295,6 @@ DOCKER_EXEC+="-v $FINN_HOST_BUILD_DIR:$FINN_HOST_BUILD_DIR "
 DOCKER_EXEC+="-e FINN_BUILD_DIR=$FINN_HOST_BUILD_DIR "
 DOCKER_EXEC+="-e FINN_ROOT="$SCRIPTPATH" "
 DOCKER_EXEC+="-e LOCALHOST_URL=$LOCALHOST_URL "
-DOCKER_EXEC+="-e OHMYXILINX=$OHMYXILINX "
 DOCKER_EXEC+="-e NUM_DEFAULT_WORKERS=$NUM_DEFAULT_WORKERS "
 # Workaround for FlexLM issue, see:
 # https://community.flexera.com/t5/InstallAnywhere-Forum/Issues-when-running-Xilinx-tools-or-Other-vendor-tools-in-docker/m-p/245820#M10647
@@ -242,6 +302,16 @@ DOCKER_EXEC+="-e LD_PRELOAD=/lib/x86_64-linux-gnu/libudev.so.1 "
 # Workaround for running multiple Vivado instances simultaneously, see:
 # https://adaptivesupport.amd.com/s/article/63253?language=en_US
 DOCKER_EXEC+="-e XILINX_LOCAL_USER_DATA=no "
+# Optional host cache for torch.hub / huggingface weights to avoid CDN 504s
+# on parallel CI runs. Bind target is /finn_cache (NOT $HOME, because docker
+# creates bind parents as root and that would break pip install --user).
+: ${FINN_DOCKER_CACHE_DIR=""}
+if [ -n "$FINN_DOCKER_CACHE_DIR" ]; then
+  mkdir -p "$FINN_DOCKER_CACHE_DIR/torch" "$FINN_DOCKER_CACHE_DIR/huggingface"
+  DOCKER_EXEC+="-v $FINN_DOCKER_CACHE_DIR:/finn_cache "
+  DOCKER_EXEC+="-e TORCH_HOME=/finn_cache/torch "
+  DOCKER_EXEC+="-e HF_HOME=/finn_cache/huggingface "
+fi
 if [ "$FINN_DOCKER_RUN_AS_ROOT" = "0" ] && [ -z "$FINN_SINGULARITY" ];then
   DOCKER_EXEC+="-v $FINN_SSH_KEY_DIR:$HOME/.ssh "
   DOCKER_EXEC+="--user $DOCKER_UID:$DOCKER_GID "

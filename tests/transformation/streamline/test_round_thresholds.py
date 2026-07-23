@@ -105,7 +105,7 @@ from finn.transformation.streamline.round_thresholds import RoundAndClipThreshol
 def test_round_and_clip_thresholds_ints(op_type, i_dtype, o_dtype, n_elems):
     i_dtype = DataType[i_dtype]
     t_dtype = DataType["INT25"]  # Note: Matches configuration above
-    o_dtype = DataType[o_dtype]  # noqa: Duplicate model setup code
+    o_dtype = DataType[o_dtype]
     n_thresholds = o_dtype.get_num_possible_values() - 1
 
     if op_type == "MultiThreshold":
@@ -144,7 +144,7 @@ def test_round_and_clip_thresholds_ints(op_type, i_dtype, o_dtype, n_elems):
     inp_vals = gen_finn_dt_tensor(i_dtype, [1, n_elems])
     inp_vals[0][0] = i_dtype.max()
     thresholds = np.sort(gen_finn_dt_tensor(t_dtype, [n_elems, n_thresholds]))
-    model.set_tensor_datatype("inp", i_dtype)  # noqa: Duplicate model execution
+    model.set_tensor_datatype("inp", i_dtype)
     model.set_tensor_datatype("thresholds", t_dtype)
     model.set_tensor_datatype("out", o_dtype)
     model.set_initializer("thresholds", thresholds)
@@ -243,7 +243,7 @@ def test_round_and_clip_thresholds_ints(op_type, i_dtype, o_dtype, n_elems):
 def test_round_and_clip_thresholds_floats(op_type, i_dtype, o_dtype, n_elems):
     i_dtype = DataType[i_dtype]
     t_dtype = DataType["FLOAT32"]
-    o_dtype = DataType[o_dtype]  # noqa: Duplicate model setup code
+    o_dtype = DataType[o_dtype]
     n_thresholds = o_dtype.get_num_possible_values() - 1
 
     if op_type == "MultiThreshold":
@@ -283,11 +283,11 @@ def test_round_and_clip_thresholds_floats(op_type, i_dtype, o_dtype, n_elems):
     thresholds = np.random.rand(n_elems, n_thresholds)
     # Type alias to 25-bit signed integer type used to set the range of the
     # thresholds
-    INT25 = DataType["INT25"]  # noqa: Variable name not lowercase
+    INT25 = DataType["INT25"]
     # Map the prototype thresholds into the test integer range and sort
     thresholds = np.sort((INT25.max() - INT25.min()) * thresholds + INT25.min())
     # Set data type annotations for the input and thresholds tensor
-    model.set_tensor_datatype("inp", i_dtype)  # noqa: Duplicate model execution
+    model.set_tensor_datatype("inp", i_dtype)
     model.set_tensor_datatype("thresholds", t_dtype)
     model.set_tensor_datatype("out", o_dtype)
     model.set_initializer("thresholds", thresholds)
@@ -370,7 +370,7 @@ def test_round_and_clip_thresholds_floats(op_type, i_dtype, o_dtype, n_elems):
 def test_round_and_clip_thresholds_fxp(op_type, i_dtype, o_dtype, n_elems):
     i_dtype = DataType[i_dtype]
     t_dtype = DataType["FIXED<15,3>"]
-    o_dtype = DataType[o_dtype]  # noqa: Duplicate model setup code
+    o_dtype = DataType[o_dtype]
     n_thresholds = o_dtype.get_num_possible_values() - 1
 
     if op_type == "MultiThreshold":
@@ -410,11 +410,11 @@ def test_round_and_clip_thresholds_fxp(op_type, i_dtype, o_dtype, n_elems):
     thresholds = np.random.rand(n_elems, n_thresholds)
     # Type alias to 25-bit signed integer type used to set the range of the
     # thresholds
-    FXP25 = DataType["FIXED<15,3>"]  # noqa: Variable name not lowercase
+    FXP25 = DataType["FIXED<15,3>"]
     # Map the prototype thresholds into the test integer range and sort
     thresholds = np.sort((FXP25.max() - FXP25.min()) * thresholds + FXP25.min())
     # Set data type annotations for the input and thresholds tensor
-    model.set_tensor_datatype("inp", i_dtype)  # noqa: Duplicate model execution
+    model.set_tensor_datatype("inp", i_dtype)
     model.set_tensor_datatype("thresholds", t_dtype)
     model.set_tensor_datatype("out", o_dtype)
     model.set_initializer("thresholds", thresholds)
@@ -500,7 +500,7 @@ def test_round_and_clip_thresholds_fxp(op_type, i_dtype, o_dtype, n_elems):
 def test_round_and_clip_thresholds_fxp_float(op_type, i_dtype, o_dtype, n_elems):
     i_dtype = DataType[i_dtype]
     t_dtype = DataType["FLOAT32"]
-    o_dtype = DataType[o_dtype]  # noqa: Duplicate model setup code
+    o_dtype = DataType[o_dtype]
     n_thresholds = o_dtype.get_num_possible_values() - 1
 
     if op_type == "MultiThreshold":
@@ -540,11 +540,11 @@ def test_round_and_clip_thresholds_fxp_float(op_type, i_dtype, o_dtype, n_elems)
     thresholds = np.random.rand(n_elems, n_thresholds)
     # Type alias to 25-bit signed integer type used to set the range of the
     # thresholds
-    FXP25 = DataType["FIXED<15,3>"]  # noqa: Variable name not lowercase
+    FXP25 = DataType["FIXED<15,3>"]
     # Map the prototype thresholds into the test integer range and sort
     thresholds = np.sort((FXP25.max() - FXP25.min()) * thresholds + FXP25.min())
     # Set data type annotations for the input and thresholds tensor
-    model.set_tensor_datatype("inp", i_dtype)  # noqa: Duplicate model execution
+    model.set_tensor_datatype("inp", i_dtype)
     model.set_tensor_datatype("thresholds", t_dtype)
     model.set_tensor_datatype("out", o_dtype)
     model.set_initializer("thresholds", thresholds)

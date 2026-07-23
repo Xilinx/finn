@@ -26,7 +26,10 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from qonnx.custom_op.registry import is_custom_op
+import os
+import warnings
+from qonnx.core.datatype import DataType
+from qonnx.custom_op.registry import getCustomOp, is_custom_op
 from qonnx.util.basic import get_by_name
 
 
@@ -70,3 +73,141 @@ def is_rtl_node(node):
                     is_node = True
 
     return is_node
+
+
+def detect_hls_rtl_dsp_conflict(model, check_subgraphs=True):
+    """
+    Detect if model contains both floating-point HLS ops and RTL LayerNorm.
+
+    This combination causes incorrect simulation results in xsim due to DSP
+    primitive initialization conflicts. The hardware is correct - only
+    simulation is affected.
+
+    HLS ops that use floating-point and trigger the conflict:
+    - HLS Elementwise ops with FLOAT32 datatypes
+    - HWSoftmax_hls (uses hls::exp)
+    - LayerNorm_hls (uses hls::rsqrt)
+    - Requant_hls with FLOAT32 input
+
+    Args:
+        model: ModelWrapper to check
+        check_subgraphs: If True, also check inside FINNLoop bodies
+
+    Returns:
+        Tuple of (has_conflict, hls_fp_ops, rtl_dsp_ops)
+        - has_conflict: bool, True if both types of ops are present
+        - hls_fp_ops: list of floating-point HLS node names
+        - rtl_dsp_ops: list of RTL LayerNorm node names
+    """
+    # RTL ops that use DSPFP32 primitive (via binopf.sv)
+    RTL_DSP_OPS = {
+        "LayerNorm_rtl",
+    }
+
+    # HLS ops that trigger DSP conflict with RTL LayerNorm (via hls_math.h)
+    # Note: HWSoftmax_hls does NOT trigger the conflict despite using FP ops
+    HLS_FP_OPS = {
+        "LayerNorm_hls",
+        "Requant_hls",
+    }
+
+    HLS_DOMAIN = "finn.custom_op.fpgadataflow.hls"
+
+    hls_fp_ops = []
+    rtl_dsp_ops = []
+
+    def check_nodes(nodes, prefix=""):
+        for node in nodes:
+            full_name = f"{prefix}{node.name}" if prefix else node.name
+
+            # Check for HLS ops that always use floating-point
+            if node.op_type in HLS_FP_OPS:
+                hls_fp_ops.append(full_name)
+
+            # Check for HLS Elementwise ops with floating-point datatypes
+            # (integer-only Elementwise ops don't use FP DSP)
+            elif node.op_type.startswith("Elementwise") and node.domain == HLS_DOMAIN:
+                try:
+                    node_inst = getCustomOp(node)
+                    # Check if any of the datatypes are floating-point
+                    lhs_dtype = DataType[node_inst.get_nodeattr("lhs_dtype")]
+                    rhs_dtype = DataType[node_inst.get_nodeattr("rhs_dtype")]
+                    out_dtype = DataType[node_inst.get_nodeattr("out_dtype")]
+                    if (
+                        lhs_dtype.get_canonical_name().startswith("FLOAT")
+                        or rhs_dtype.get_canonical_name().startswith("FLOAT")
+                        or out_dtype.get_canonical_name().startswith("FLOAT")
+                    ):
+                        hls_fp_ops.append(full_name)
+                except (KeyError, AttributeError):
+                    # If we can't check datatypes, assume it could be floating-point
+                    hls_fp_ops.append(full_name)
+
+            # Check for RTL ops using DSPFP32
+            if node.op_type in RTL_DSP_OPS:
+                rtl_dsp_ops.append(full_name)
+
+            # Check inside FINNLoop bodies
+            if check_subgraphs and node.op_type == "FINNLoop":
+                try:
+                    loop_inst = getCustomOp(node)
+                    loop_body = loop_inst.get_nodeattr("body")
+                    check_nodes(loop_body.graph.node, prefix=f"{full_name}/")
+                except (KeyError, AttributeError):
+                    pass
+
+    check_nodes(model.graph.node)
+
+    has_conflict = len(hls_fp_ops) > 0 and len(rtl_dsp_ops) > 0
+    return has_conflict, hls_fp_ops, rtl_dsp_ops
+
+
+def warn_hls_rtl_dsp_conflict(model, verification_type, output_dir=None):
+    """
+    Check for HLS+RTL DSP conflict and issue warning if detected.
+
+    This is used to warn users before running rtlsim verification when the
+    model contains both HLS floating-point ops and RTL LayerNorm.
+    This combination causes incorrect simulation results in xsim due to
+    conflicting DSP primitive initializations.
+
+    Args:
+        model: ModelWrapper to check
+        verification_type: String describing the verification type
+        output_dir: Directory where verification outputs would be saved (optional)
+                    If provided, writes warning to a .txt file there
+
+    Returns:
+        bool: True if conflict was detected (and verification should be skipped)
+    """
+    has_conflict, hls_ops, rtl_ops = detect_hls_rtl_dsp_conflict(model)
+
+    if has_conflict:
+        warning_msg = (
+            f"\n{'='*70}\n"
+            f"HLS+RTL DSP CONFLICT DETECTED - SKIPPING {verification_type.upper()}\n"
+            f"{'='*70}\n"
+            f"The model contains both HLS floating-point ops and RTL LayerNorm.\n"
+            f"This causes INCORRECT simulation results in xsim (Vivado version <= 2025.2).\n"
+            f"\n"
+            f"HLS floating-point ops: {hls_ops}\n"
+            f"RTL LayerNorm ops: {rtl_ops}\n"
+            f"\n"
+            f"The HARDWARE implementation is CORRECT - only xsim is currently affected.\n"
+            f"Skipping {verification_type} verification.\n"
+            f"{'='*70}\n"
+        )
+
+        warnings.warn(warning_msg, UserWarning)
+
+        # Also save warning to file in output directory
+        if output_dir is not None:
+            log_file = os.path.join(output_dir, f"{verification_type}_SKIPPED_DSP_CONFLICT.txt")
+            try:
+                with open(log_file, "w") as f:
+                    f.write(warning_msg)
+            except (IOError, OSError):
+                pass  # Don't fail if we can't write the log file
+
+        return True
+    return False

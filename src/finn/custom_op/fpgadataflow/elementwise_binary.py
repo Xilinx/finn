@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import math
 import numpy as np
 import warnings
 from onnx import helper as oh
@@ -429,6 +430,91 @@ class ElementwiseBinaryOperation(HWCustomOp):
         # Number of iterations required to process the whole folded input stream
         #   Note: This is all but the PE (last, parallelized) dimension
         return np.prod(self.get_folded_output_shape()[:-1])
+
+    def _parameter_memory_specs(self):
+        """Return (width, depth) specs for constant/loop parameter memories."""
+        mem_mode = self.get_nodeattr("mem_mode")
+        mlo = self.get_nodeattr("mlo_max_iter")
+        specs = []
+
+        if mem_mode == "internal_embedded" and not mlo:
+            for ind, style in enumerate([self.lhs_style, self.rhs_style]):
+                if style == "const":
+                    width = self.get_instream_width(ind=ind)
+                    depth = int(np.prod(self.get_folded_input_shape(ind=ind)[:-1]))
+                    specs.append((width, depth))
+        elif mem_mode == "internal_decoupled" or mlo:
+            rhs_uses_memstream = self.rhs_style == "const" or (self.rhs_style == "input" and mlo)
+            if rhs_uses_memstream:
+                width = self.get_instream_width(ind=1)
+                depth = int(self.calc_wmem()) * max(1, mlo)
+                specs.append((width, depth))
+
+        return [(width, depth) for width, depth in specs if width > 0 and depth > 0]
+
+    @staticmethod
+    def _bram18_estimation(width, depth):
+        if width == 1:
+            return math.ceil(depth / 16384)
+        elif width == 2:
+            return math.ceil(depth / 8192)
+        elif width <= 4:
+            return math.ceil(depth / 4096) * math.ceil(width / 4)
+        elif width <= 9:
+            return math.ceil(depth / 2048) * math.ceil(width / 9)
+        elif width <= 18 or depth > 512:
+            return math.ceil(depth / 1024) * math.ceil(width / 18)
+        else:
+            return math.ceil(depth / 512) * math.ceil(width / 36)
+
+    def bram_estimation(self):
+        ram_style = self.get_nodeattr("ram_style")
+        if ram_style not in ["auto", "block"]:
+            return 0
+        return int(
+            sum(
+                self._bram18_estimation(width, depth)
+                for width, depth in self._parameter_memory_specs()
+            )
+        )
+
+    def uram_estimation(self):
+        ram_style = self.get_nodeattr("ram_style")
+        if ram_style != "ultra":
+            return 0
+        return int(
+            sum(
+                math.ceil(width / 72) * math.ceil(depth / 4096)
+                for width, depth in self._parameter_memory_specs()
+            )
+        )
+
+    def bram_efficiency_estimation(self):
+        bram18_est = self.bram_estimation()
+        if bram18_est == 0:
+            return 1
+        used_bits = sum(width * depth for width, depth in self._parameter_memory_specs())
+        bram18_est_capacity = bram18_est * 36 * 512
+        return used_bits / bram18_est_capacity
+
+    def uram_efficiency_estimation(self):
+        # TODO: Versal URAM supports flexible bit widths (9/18/36/72) unlike
+        # UltraScale+ which only supports 72-bit. This could improve efficiency
+        # for narrow data types on Versal devices.
+        uram_est = self.uram_estimation()
+        if uram_est == 0:
+            return 1
+        used_bits = sum(width * depth for width, depth in self._parameter_memory_specs())
+        uram_est_capacity = uram_est * 72 * 4096
+        return used_bits / uram_est_capacity
+
+    def lut_estimation(self):
+        ram_style = self.get_nodeattr("ram_style")
+        if ram_style != "distributed":
+            return 0
+        return int(
+            sum(width * math.ceil(depth / 64) for width, depth in self._parameter_memory_specs())
+        )
 
 
 # Derive a specialization to implement elementwise addition of two inputs
@@ -864,7 +950,7 @@ class ElementwiseMax(ElementwiseBinaryOperation):
             return DataType[f"FLOAT{max_bitwidth}"]
         else:
             all_ints = all([self.lhs_dtype.is_integer(), self.rhs_dtype.is_integer()])
-            # Get the width of the data types of the inputs  # noqa: Duplicate
+            # Get the width of the data types of the inputs
             lhs_width = self.lhs_dtype.bitwidth()
             rhs_width = self.rhs_dtype.bitwidth()
             if all_ints:

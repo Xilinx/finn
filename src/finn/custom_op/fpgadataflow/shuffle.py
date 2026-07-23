@@ -15,6 +15,11 @@ from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.transformation.fpgadataflow.transpose_decomposition import (
+    _is_inner_shuffle,
+    decompose_transpose_with_constraints,
+    shuffle_perfect_loopnest_coeffs,
+)
 
 
 class Shuffle(HWCustomOp):
@@ -141,12 +146,6 @@ class Shuffle(HWCustomOp):
         for each stage, and returns the MAX of their cycle estimates
         (stages are pipelined, so throughput is limited by the slowest).
         """
-        from finn.transformation.fpgadataflow.transpose_decomposition import (
-            _is_inner_shuffle,
-            decompose_transpose_with_constraints,
-            shuffle_perfect_loopnest_coeffs,
-        )
-
         transpose_in_shape = list(self.get_nodeattr("transpose_in_shape"))
         perm = list(self.get_nodeattr("perm"))
         simd = self.get_nodeattr("SIMD")

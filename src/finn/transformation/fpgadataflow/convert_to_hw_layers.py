@@ -157,7 +157,7 @@ class InferConvInpGen(Transformation):
 
 
 class InferThresholdingLayer(Transformation):
-    """Convert any MultiThreshold into a standalone thresholding HLS layer."""
+    """Convert any MultiThreshold into a standalone thresholding HW layer."""
 
     def __init__(self):
         super().__init__()
@@ -197,7 +197,7 @@ class InferThresholdingLayer(Transformation):
                     node_ind += 1
                     thl_in_shape = model.get_tensor_shape(thl_input)
 
-                # keep track of where we need to insert the HLS Op
+                # keep track of where we need to insert the HW Op
                 # it has to be ahead of the output transform
                 insert_point = node_ind
                 thl_output_layout = model.get_tensor_layout(thl_output)
@@ -213,11 +213,15 @@ class InferThresholdingLayer(Transformation):
                 odt = model.get_tensor_datatype(thl_output)
                 scale = getCustomOp(node).get_nodeattr("out_scale")
                 assert scale == 1.0, (
-                    node.name + ": MultiThreshold out_scale must be 1 for HLS conversion."
+                    f"{node.name}: MultiThreshold out_scale must be 1 for HW conversion. "
+                    f"Hint: Consider running ExtractMultiThresholdScaleBias() transformation "
+                    f"as a custom step to extract scale/bias into separate Add/Mul nodes."
                 )
                 actval = getCustomOp(node).get_nodeattr("out_bias")
                 assert int(actval) == actval, (
-                    node.name + ": MultiThreshold out_bias must be integer for HLS conversion."
+                    f"{node.name}: MultiThreshold out_bias must be integer for HW conversion. "
+                    f"Hint: Consider running ExtractMultiThresholdScaleBias() transformation "
+                    f"as a custom step to extract scale/bias into separate Add/Mul nodes."
                 )
                 actval = int(actval)
 
@@ -321,10 +325,18 @@ class InferRequantLayer(Transformation):
     This transformation is optional and provides an alternative implementation
     to InferThresholdingLayer. The Requant node can then be specialized to
     either HLS or RTL backend.
+
+    Args:
+        bitwidth_threshold: If set, only convert MultiThreshold nodes with
+            output bitwidth >= bitwidth_threshold. If None, convert all
+            nodes with uniform thresholds. This allows using Thresholding
+            for low-bitwidth outputs (more efficient) and Requant for
+            high-bitwidth outputs.
     """
 
-    def __init__(self):
+    def __init__(self, bitwidth_threshold=None):
         super().__init__()
+        self.bitwidth_threshold = bitwidth_threshold
 
     def apply(self, model):
         graph = model.graph
@@ -353,6 +365,13 @@ class InferRequantLayer(Transformation):
 
                 idt = model.get_tensor_datatype(inp_name)
                 odt = model.get_tensor_datatype(out_name)
+
+                # Skip based on bitwidth threshold if set
+                # This allows using Thresholding for low-bitwidth (<threshold)
+                # and Requant for high-bitwidth (>=threshold) outputs
+                if self.bitwidth_threshold is not None:
+                    if odt.bitwidth() < self.bitwidth_threshold:
+                        continue
 
                 # Only infer layers where input is integer, fixed-point, or float
                 idt_ok = (
@@ -1534,7 +1553,7 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                         scale = getCustomOp(consumer).get_nodeattr("out_scale")
                         actval = getCustomOp(consumer).get_nodeattr("out_bias")
                         assert int(actval) == actval, (
-                            consumer.name + ": out_bias must be integer for HLS conversion."
+                            consumer.name + ": out_bias must be integer for HW conversion."
                         )
                         actval = int(actval)
                         odt_is_bipolar = odt == DataType["BIPOLAR"]
@@ -1570,7 +1589,7 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             noActivation=0,
                             numInputVectors=list(mm_in_shape[:-1]),
                             name="MVAU_" + n.name,
-                            dynamic_input=W is None,
+                            mem_mode="dynamic" if W is None else "internal_decoupled",
                             inFIFODepths=[2, 2] if W is None else [2],
                         )
                         graph.node.insert(node_ind, new_node)
@@ -1602,7 +1621,7 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             noActivation=1,
                             numInputVectors=list(mm_in_shape[:-1]),
                             name="MVAU_" + n.name,
-                            dynamic_input=W is None,
+                            mem_mode="dynamic" if W is None else "internal_decoupled",
                             inFIFODepths=[2, 2] if W is None else [2],
                         )
                         graph.node.insert(node_ind, new_node)
@@ -1690,11 +1709,11 @@ class InferVectorVectorActivation(Transformation):
                         odt = model.get_tensor_datatype(mt_output)
                         scale = getCustomOp(consumer).get_nodeattr("out_scale")
                         assert scale == 1.0, (
-                            consumer.name + ": out_scale must be equal to 1.0 for HLS conversion."
+                            consumer.name + ": out_scale must be equal to 1.0 for HW conversion."
                         )
                         actval = getCustomOp(consumer).get_nodeattr("out_bias")
                         assert int(actval) == actval, (
-                            consumer.name + ": out_bias must be integer for HLS conversion."
+                            consumer.name + ": out_bias must be integer for HW conversion."
                         )
                         actval = int(actval)
                         assert (not odt.signed()) or (actval < 0), (
@@ -1788,8 +1807,6 @@ class InferHWSoftmax(Transformation):
                     name=n.name,
                     SIMD=1,
                     NumChannels=input_shape[-1],
-                    cpp_interface="hls_vector",
-                    hls_style="freerunning",
                 )
                 graph.node.insert(node_ind, new_node)
                 graph.node.remove(n)
@@ -2232,7 +2249,7 @@ class InferLayerNorm(Transformation):
                     norm_axis = (norm_axis + 2) % 4
                 ch = shape_in[-1]
 
-                # keep track of where we need to insert the HLS Op
+                # keep track of where we need to insert the HW Op
                 # it has to be ahead of the output transform
                 insert_point = node_ind
                 if model.get_tensor_layout(act_out) == DataLayout.NCHW:

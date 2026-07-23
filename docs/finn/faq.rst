@@ -64,10 +64,11 @@ Why does FINN-generated architectures need FIFOs between layers?
     See https://github.com/Xilinx/finn/discussions/383
 
 How do I tell FINN to utilize a particular type of memory resource in particular layers?
-    This is done with the ``ram_style`` attribute. Check the particular ``HWCustomOp`` attribute definition to see
-    which modes are supported (`example for MatrixVectorActivation <https://github.com/Xilinx/finn/blob/dev/src/finn/custom_op/fpgadataflow/matrixvectoractivation.py#L101>`_).
-    When using the ``build_dataflow`` system, this can be specified at a per layer basis by specifying it as part of one or more layers’
-    folding config (:py:mod:`finn.builder.build_dataflow_config.DataflowBuildConfig.folding_config_file`).
+    This is controlled by the ``ram_style`` attribute for most hardware layers and ``depth_trigger_bram``/``depth_trigger_uram`` for RTL Thresholding.
+    See :ref:`mem_mode` for detailed information about memory modes (internal_embedded, internal_decoupled, external) and
+    how to control memory primitive selection (LUTRAM, BRAM, URAM) for different layer types.
+    When using ``build_dataflow``, these can be specified per layer in the folding config file
+    (:py:mod:`finn.builder.build_dataflow_config.DataflowBuildConfig.folding_config_file`).
     See the `MobileNet-v1 build config for ZCU104 in finn-examples <https://github.com/Xilinx/finn-examples/blob/main/build/mobilenet-v1/folding_config/ZCU104_folding_config.json#L15>`_ for reference.
 
 Which data layout do FINN-generated accelerators use? Big-endian? Little-endian?
@@ -91,3 +92,54 @@ Why does FIFO sizing take so long for my network? Is something wrong?
 What's a good starting point for the folding configuration if I want to make manual changes?
     First, enable automatic folding options in ``build_dataflow`` such ``target_fps``. This should find a decent set of
     folding factors and save them to ``output_folder/auto_folding_config.json`` which you can use as a basis for creating the desired config.
+
+How do I reduce resource utilization for my model?
+    High resource usage typically comes from high parallelization (PE/SIMD values). To reduce resources:
+
+    1. Lower PE and SIMD values in your folding configuration - this trades throughput for lower resource usage
+    2. Use ``internal_decoupled`` mem_mode with appropriate ``ram_style`` to better control memory primitive usage (see :ref:`mem_mode`)
+    3. Check the ``estimate_layer_resources.json`` report to identify which layers consume the most resources
+
+How do I configure external mem_mode for weights?
+    External mem_mode streams weights from external DRAM at runtime rather than embedding them on-chip. This is useful when:
+
+    - You want to change weights without regenerating the bitstream
+    - You have very large weight tensors that don't fit in on-chip memory
+    - You need to support multiple models with the same accelerator hardware
+
+    Configure external mode by setting ``"mem_mode": "external"`` for specific layers in your folding configuration file:
+
+    .. code-block:: json
+
+        {
+            "MVAU_hls_1": {
+                "PE": 16,
+                "SIMD": 16,
+                "mem_mode": "external"
+            }
+        }
+
+    The compiler creates IODMA (Input/Output DMA) nodes to stream weights from external memory. Runtime weights are saved
+    as ``idma{name}.npy`` files in the deployment package's ``runtime_weights/`` directory. See ``tests/end2end/test_ext_weights.py``
+    for a complete example.
+
+What quantization approaches work best with FINN?
+    FINN works best with:
+
+    - Integer quantization from 1-bit (binary/bipolar) to 8-bit is recommended. FINN supports arbitrary-precision integer bitwidths (e.g., int16), but keep in mind that higher bitwidths will consume more FPGA resources.
+    - Symmetric quantization for weights (zero-point = 0)
+    - Per-tensor and per-channel quantization (both supported)
+    - Quantization-aware training (QAT) and post-training quantization (PTQ) via Brevitas
+
+    See the `QAT guidelines <https://bit.ly/finn-hls4ml-qat-guidelines>`_ for detailed recommendations.
+    Export your trained model to QONNX (supports both QAT and PTQ), then convert to FINN-ONNX following the `Brevitas network import tutorial <https://github.com/Xilinx/finn/blob/main/notebooks/basics/1_brevitas_network_import_via_QONNX.ipynb>`_.
+
+Can I use FINN for models with custom layer types not in the examples?
+    Yes, but you'll need to implement the layer yourself. FINN supports adding new hardware layers by:
+
+    1. Creating a base layer class (backend-agnostic) in ``src/finn/custom_op/fpgadataflow/``
+    2. Optionally implementing HLS variant in ``src/finn/custom_op/fpgadataflow/hls/``
+    3. Optionally implementing RTL variant in ``src/finn/custom_op/fpgadataflow/rtl/``
+    4. Adding corresponding templates to finn-hlslib or finn-rtllib
+
+    See :doc:`/implementation/index` for detailed guidance on extending FINN with new operators.
