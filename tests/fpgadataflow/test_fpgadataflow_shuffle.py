@@ -42,6 +42,7 @@ from finn.transformation.fpgadataflow.transpose_decomposition import (
     InferInnerOuterShuffles,
     ShuffleDecomposition,
 )
+from finn.util.basic import make_build_dir, robust_rmtree
 from finn.util.config import extract_model_config_consolidate_shuffles
 
 test_fpga_part: str = "xcvc1902-vsva2197-2MP-e-S"
@@ -609,7 +610,8 @@ def test_shuffle_config_consolidation():
 
     assert len(decomposed_nodes) > 0
 
-    consolidated_file = os.environ["FINN_BUILD_DIR"] + "/consolidated.json"
+    test_dir = make_build_dir("test_shuffle_config_")
+    consolidated_file = os.path.join(test_dir, "consolidated.json")
     extract_model_config_consolidate_shuffles(model, consolidated_file, ["SIMD"])
 
     with open(consolidated_file, "r") as f:
@@ -619,3 +621,4 @@ def test_shuffle_config_consolidation():
     assert consolidated_config[original_shuffle_name]["SIMD"] == 4
     for decomposed_name in decomposed_nodes:
         assert decomposed_name not in consolidated_config
+    robust_rmtree(test_dir)
