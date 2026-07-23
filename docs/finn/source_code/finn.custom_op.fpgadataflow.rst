@@ -79,6 +79,14 @@ finn.custom\_op.fpgadataflow.convolutioninputgenerator
    :undoc-members:
    :show-inheritance:
 
+finn.custom\_op.fpgadataflow.crop
+-----------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.crop
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.custom\_op.fpgadataflow.duplicatestreams
 ----------------------------------------------
 

@@ -34,6 +34,7 @@ from finn.custom_op.fpgadataflow.rtl.addclstoken_rtl import AddCLSToken_rtl
 from finn.custom_op.fpgadataflow.rtl.convolutioninputgenerator_rtl import (
     ConvolutionInputGenerator_rtl,
 )
+from finn.custom_op.fpgadataflow.rtl.crop_rtl import Crop_rtl
 from finn.custom_op.fpgadataflow.rtl.elementwise_binary_rtl import (
     ElementwiseAdd_rtl,
     ElementwiseMul_rtl,
@@ -61,6 +62,7 @@ custom_op = dict()
 # make sure new HLSCustomOp subclasses are imported here so that they get
 # registered and plug in correctly into the infrastructure
 custom_op["ConvolutionInputGenerator_rtl"] = ConvolutionInputGenerator_rtl
+custom_op["Crop_rtl"] = Crop_rtl
 custom_op["ElementwiseAdd_rtl"] = ElementwiseAdd_rtl
 custom_op["ElementwiseSub_rtl"] = ElementwiseSub_rtl
 custom_op["ElementwiseMul_rtl"] = ElementwiseMul_rtl

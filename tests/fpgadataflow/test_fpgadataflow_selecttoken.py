@@ -189,18 +189,21 @@ def test_selecttoken_rtl_codegen(tmp_path, finn_dtype, fold_width):
     topname = inst.get_nodeattr("gen_top_module")
     assert topname == node.name
     wrapper = tmp_path / (topname + ".v")
-    core = tmp_path / "select_token.sv"
+    core = tmp_path / "crop.sv"
     assert wrapper.is_file()
     assert core.is_file()
     wrapper_text = wrapper.read_text()
     assert "parameter FOLD_WIDTH = %d" % fold_width in wrapper_text
-    assert ".SIMD(2)" in wrapper_text
-    assert ".TOKEN_INDEX(3)" in wrapper_text
-    assert "select_token #(" in wrapper_text
+    assert ".H(1)" in wrapper_text
+    assert ".W(4)" in wrapper_text
+    assert ".CF(2)" in wrapper_text
+    assert ".CROP_W(3)" in wrapper_text
+    assert ".CROP_E(0)" in wrapper_text
+    assert "crop #(" in wrapper_text
     assert "out0_V_TVALID" in wrapper_text
 
     ipi_cmds = inst.code_generation_ipi()
-    assert any("select_token.sv" in cmd for cmd in ipi_cmds)
+    assert any("crop.sv" in cmd for cmd in ipi_cmds)
     assert any("create_bd_cell" in cmd and topname in cmd for cmd in ipi_cmds)
 
 
