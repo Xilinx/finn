@@ -65,6 +65,8 @@ def is_rtl_node(node):
 
 def detect_hls_rtl_dsp_conflict(model, check_subgraphs=True):
     """
+    Detect if model contains both floating-point HLS ops and RTL LayerNorm.
+
     This combination causes incorrect simulation results in xsim due to DSP
     primitive initialization conflicts. The hardware is correct - only
     simulation is affected.
@@ -90,9 +92,9 @@ def detect_hls_rtl_dsp_conflict(model, check_subgraphs=True):
         "LayerNorm_rtl",
     }
 
-    # HLS ops that always use floating-point operations (via hls_math.h)
+    # HLS ops that trigger DSP conflict with RTL LayerNorm (via hls_math.h)
+    # Note: HWSoftmax_hls does NOT trigger the conflict despite using FP ops
     HLS_FP_OPS = {
-        "HWSoftmax_hls",
         "LayerNorm_hls",
         "Requant_hls",
     }

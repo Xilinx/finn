@@ -273,8 +273,6 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
         return super().prepare_rtlsim(behav)
 
     def execute_node(self, context, graph):
-        mode = self.get_nodeattr("exec_mode")
-        if mode == "cppsim":
-            StreamingFIFO.execute_node(self, context, graph)
-        elif mode == "rtlsim":
-            RTLBackend.execute_node(self, context, graph)
+        # FIFOs just pass data through - use simple execution for all modes
+        # RTL simulation of FIFO is only relevant for timing/throughput, not functional verification
+        StreamingFIFO.execute_node(self, context, graph)

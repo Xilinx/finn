@@ -448,19 +448,12 @@ def test_hls_rtl_dsp_conflict_detection():
     with open(specialize_config_file, "w") as f:
         json.dump(specialize_config, f)
 
-    # Build steps - includes conversion to HW layers and specialization
+    # Build steps using phases
     steps = [
-        "step_convert_to_hw",
-        "step_create_dataflow_partition",
-        "step_specialize_layers",
-        "step_target_fps_parallelization",
-        "step_apply_folding_config",
-        "step_minimize_bit_width",
-        "step_generate_estimate_reports",
-        "step_hw_codegen",
-        "step_hw_ipgen",
-        "step_set_fifo_depths",
-        "step_create_stitched_ip",
+        "phase_convert_to_hardware",  # Includes convert_to_hw, partition, specialize, loop_rolling
+        "phase_optimize_hardware",  # Includes target_fps, folding, bit_width, reports
+        "phase_build_hardware",  # Includes codegen, ipgen, FIFO depths
+        "step_create_stitched_ip",  # Fine-grained (just stitched IP)
     ]
 
     # Request verification steps that will trigger DSP conflict detection
@@ -667,17 +660,10 @@ def test_integer_hls_elementwise_no_dsp_conflict():
 
     # Build steps - includes conversion to HW layers and specialization
     steps = [
-        "step_convert_to_hw",
-        "step_create_dataflow_partition",
-        "step_specialize_layers",
-        "step_target_fps_parallelization",
-        "step_apply_folding_config",
-        "step_minimize_bit_width",
-        "step_generate_estimate_reports",
-        "step_hw_codegen",
-        "step_hw_ipgen",
-        "step_set_fifo_depths",
-        "step_create_stitched_ip",
+        "phase_convert_to_hardware",  # Includes convert_to_hw, partition, specialize, loop_rolling
+        "phase_optimize_hardware",  # Includes target_fps, folding, bit_width, reports
+        "phase_build_hardware",  # Includes codegen, ipgen, FIFO depths
+        "step_create_stitched_ip",  # Fine-grained (just stitched IP)
     ]
 
     # Request verification steps - stitched_ip_rtlsim should NOT be skipped

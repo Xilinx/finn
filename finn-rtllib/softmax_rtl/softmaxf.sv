@@ -48,7 +48,7 @@ module softmaxf #(
 	input	logic                   ordy
 );
 
-	localparam int unsigned  SUM_INT = $clog2(N*SIMD + 1);
+	localparam int unsigned  SUM_INT = $clog2(N + 1);
 	localparam int unsigned  SUM_W   = SUM_INT + 23;
 
 	// Mirror of softmaxf_recip's TOTAL_LAT (IN_LAT=1 + NR_ITERS*ITER_LAT(=8)).
@@ -202,6 +202,7 @@ module softmaxf_max #(
 	output	logic         mvld,
 	input	logic         mrdy
 );
+	import softmaxf_pkg::*;
 
 	localparam int unsigned  BEATS    = N / SIMD;
 	localparam int unsigned  TREE_LAT = $clog2(SIMD);
@@ -231,12 +232,6 @@ module softmaxf_max #(
 	function automatic logic [31:0] fp32_max(input logic [31:0] a, input logic [31:0] b);
 		return  fp32_gt(a, b)? a : b;
 	endfunction
-
-	function automatic bit fp32_is_pos_inf(input logic [31:0] x);
-		return  (x[31] == 1'b0) && (x[30:23] == 8'hFF) && (x[22:0] == '0);
-	endfunction
-
-	localparam logic [31:0]  FP32_NEG_INF = 32'hFF800000;
 
 	//===========================================================================
 	// Section: input handshake / queue tee
@@ -442,17 +437,16 @@ module softmaxf_exp #(
 	input	logic                   yrdy,
 
 	// Per-vector fixed-point sum (to stage 3)
-	//   width = $clog2(N*SIMD+1) + SUM_PRECISION
-	output	logic [$clog2(N*SIMD + 1) + 22 :0]  sdat,
+	//   width = $clog2(N+1) + SUM_PRECISION
+	output	logic [$clog2(N + 1) + 22 :0]  sdat,
 	output	logic                               svld,
 	input	logic                               srdy
 );
-
-	import softmaxf_pkg::*;
+	import  softmaxf_pkg::*;
 
 	localparam int unsigned  SUM_PRECISION = 23;
 	localparam int unsigned  EXP_W    = 1 + SUM_PRECISION;
-	localparam int unsigned  SUM_INT  = $clog2(N*SIMD + 1);
+	localparam int unsigned  SUM_INT  = $clog2(N + 1);
 	localparam int unsigned  SUM_W    = SUM_INT + SUM_PRECISION;
 	localparam int unsigned  BEATS    = N / SIMD;
 	localparam int unsigned  DSP_LAT  = 4;
@@ -647,10 +641,6 @@ module softmaxf_exp #(
 	//   cycles to align with the polynomial output.  When out_has_infty is set,
 	//   replace the polynomial result with 1.0 for +inf lanes and 0 otherwise.
 	//---------------------------------------------------------------------------
-	function automatic bit fp32_is_pos_inf(input logic [31:0] x);
-		return  (x[31] == 1'b0) && (x[30:23] == 8'hFF) && (x[22:0] == '0);
-	endfunction
-
 	uwire [SIMD-1:0]  in_is_pos_inf;
 	for(genvar  i = 0; i < SIMD; i++) begin : genInfDet
 		assign	in_is_pos_inf[i] = fp32_is_pos_inf(x_cur[i]);

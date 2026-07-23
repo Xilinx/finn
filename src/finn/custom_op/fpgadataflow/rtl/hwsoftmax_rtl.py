@@ -119,18 +119,18 @@ class HWSoftmax_rtl(HWSoftmax, RTLBackend):
         return cmd
 
     def get_exp_cycles(self):
-        # softmaxf is a batch-then-emit pipeline: it must consume all BEATS=N/SIMD
-        # input beats per vector before any output emerges (max-tree, exp, sum,
-        # reciprocal, divide).  Conservatively bound the no-output gap that the
-        # cppxsi FIFO-sizing driver may observe by the full folded input length
-        # plus the per-vector pipeline latency.
+        # softmaxf is a fully-pipelined 4-stage RTL design with elastic queues
+        # between stages. Once the pipeline fills, throughput is 1 beat/cycle.
+        # Pipeline fill latency: max-tree + exp-poly + recip-NR + div-mul.
+        # The queues (CREDIT_Y, CREDIT_S) absorb inter-stage latency, so
+        # steady-state overhead is minimal.
         folded = self.get_folded_input_shape()
         n_beats = int(np.prod(folded[:-1]))
         n = self.get_normal_input_shape()[-1]
         simd = self.get_nodeattr("SIMD")
         beats_per_vec = max(1, n // simd)
-        # softmaxf pipeline (max + exp + reciprocal + divide) ~ 100 cycles
-        return n_beats + beats_per_vec + 100
+        # Pipeline fill: ~50 cycles (tree + poly + recip + div latencies)
+        return n_beats + beats_per_vec + 50
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")

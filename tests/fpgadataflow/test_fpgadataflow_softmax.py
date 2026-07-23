@@ -21,6 +21,7 @@ from qonnx.util.basic import gen_finn_dt_tensor
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
+from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferHWSoftmax
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
@@ -59,27 +60,40 @@ def create_softmax_model(io_shape, idt, build_dir):
 
 
 @pytest.mark.parametrize("simd", [1, 2, 4])
-@pytest.mark.parametrize("idt", ["INT8", "INT9"])
-@pytest.mark.parametrize("impl_style", ["hls", "rtl"])
 @pytest.mark.parametrize("sim_style", ["cppsim", "node_by_node", "stitched_ip"])
-@pytest.mark.parametrize("ifm_dim", [(1, 32, 96), (1, 3, 32, 32), (1, 3, 16, 32)])
+# Selected (idt, impl_style, ifm_dim) configs to cover key code paths:
+# - Both impl_style (hls, rtl)
+# - Different data types (HLS: integer only, RTL: integer + FLOAT32 passthrough)
+# - Different input shapes (2D, 3D, 4D)
+@pytest.mark.parametrize(
+    "idt, impl_style, ifm_dim",
+    [
+        # HLS with integer inputs
+        ("INT8", "hls", (1, 32, 96)),
+        ("INT9", "hls", (1, 3, 32, 32)),
+        # HLS with FLOAT32 (for non-Versal devices where RTL is not available)
+        ("FLOAT32", "hls", (1, 32, 96)),
+        # RTL with integer inputs (uses int_to_fp32 conversion)
+        ("INT8", "rtl", (1, 32, 96)),
+        ("INT9", "rtl", (1, 3, 16, 32)),
+        ("INT4", "rtl", (4, 32)),
+        ("UINT8", "rtl", (1, 3, 32, 32)),
+        # RTL with FLOAT32 - passthrough path (no int_to_fp32 conversion)
+        ("FLOAT32", "rtl", (1, 32, 96)),
+        ("FLOAT32", "rtl", (1, 3, 16, 32)),
+    ],
+)
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_hwsoftmax(simd, idt, impl_style, sim_style, ifm_dim):
     build_dir = make_build_dir(prefix="test_fpgadataflow_hwsoftmax_")
     try:
-        _test_fpgadataflow_hwsoftmax(
-            simd, idt, impl_style, sim_style, ifm_dim, build_dir
-        )
+        _test_fpgadataflow_hwsoftmax(simd, idt, impl_style, sim_style, ifm_dim, build_dir)
     finally:
         robust_rmtree(build_dir)
 
 
 def _test_fpgadataflow_hwsoftmax(simd, idt, impl_style, sim_style, ifm_dim, build_dir):
-    # RTL backend's cppsim path falls through to scipy.special.softmax,
-    # which adds no value over the HLS cppsim coverage; skip it.
-    if impl_style == "rtl" and sim_style == "cppsim":
-        pytest.skip("RTL cppsim duplicates scipy reference, no added coverage")
     idt = DataType[idt]
     io_shape = ifm_dim
     # tighter tolerance for HLS/cppsim, looser for RTL FP32 numerical drift
@@ -140,6 +154,16 @@ def _test_fpgadataflow_hwsoftmax(simd, idt, impl_style, sim_style, ifm_dim, buil
 
     # run the model
     y_hw = oxe.execute_onnx(model, input_t)[out_name]
+
+    # verify expected vs actual cycles for node-by-node rtlsim
+    if sim_style == "node_by_node":
+        node = model.get_nodes_by_op_type(expected_op_type)[0]
+        inst = getCustomOp(node)
+        cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
+        exp_cycles_dict = model.analysis(exp_cycles_per_layer)
+        exp_cycles = exp_cycles_dict[node.name]
+        assert np.isclose(exp_cycles, cycles_rtlsim, rtol=0.10)
+        assert exp_cycles != 0
 
     if impl_style == "rtl" and sim_style != "cppsim":
         assert np.allclose(
