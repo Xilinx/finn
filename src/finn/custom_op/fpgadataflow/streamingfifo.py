@@ -147,7 +147,7 @@ class StreamingFIFO(HWCustomOp):
     def bram_estimation(self):
         """Calculates resource estimation for BRAM"""
         try:
-            impl = self.get_nodeattr("impl_style") == "rtl"
+            impl = self.get_nodeattr("impl_style")
         except AttributeError:
             raise Exception(
                 self.onnx_node.name
@@ -183,7 +183,7 @@ class StreamingFIFO(HWCustomOp):
         """Calculates resource estimation for URAM"""
 
         try:
-            impl = self.get_nodeattr("impl_style") == "rtl"
+            impl = self.get_nodeattr("impl_style")
         except AttributeError:
             raise Exception(
                 self.onnx_node.name
@@ -235,7 +235,7 @@ class StreamingFIFO(HWCustomOp):
     def lut_estimation(self):
         """Calculates resource estimations for LUTs"""
         try:
-            impl = self.get_nodeattr("impl_style") == "rtl"
+            impl = self.get_nodeattr("impl_style")
         except AttributeError:
             raise Exception(
                 self.onnx_node.name
