@@ -1203,6 +1203,70 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
+def _annotate_rtlsim_performance(rtlsim_stats, batch_size, clock_period_ns):
+    """Add latency and throughput metrics to raw XSI simulation statistics.
+
+    Overall throughput includes pipeline fill and is available for any completed
+    run. Steady-state throughput requires at least two completed output frames;
+    one frame provides latency only and cannot define an output-to-output rate.
+    """
+
+    batch_size = int(batch_size)
+    clock_period_ns = float(clock_period_ns)
+    cycles = int(rtlsim_stats["cycles"])
+    latency_cycles = int(rtlsim_stats["latency_cycles"])
+    assert batch_size > 0, "rtlsim batch size must be >0"
+    assert cycles > 0, "rtlsim cycle count must be >0"
+    assert clock_period_ns > 0.0, "rtlsim clock period must be >0"
+
+    runtime_s = cycles * clock_period_ns * 1.0e-9
+    rtlsim_stats["runtime[ms]"] = runtime_s * 1000.0
+    rtlsim_stats["throughput[images/s]"] = batch_size / runtime_s
+    rtlsim_stats["fclk[mhz]"] = 1000.0 / clock_period_ns
+
+    timeout = int(rtlsim_stats.get("TIMEOUT", 1))
+    unfinished_inputs = int(rtlsim_stats.get("UNFINISHED_INS", 1))
+    unfinished_outputs = int(rtlsim_stats.get("UNFINISHED_OUTS", 1))
+    run_complete = timeout == 0 and unfinished_inputs == 0 and unfinished_outputs == 0
+    completed_frames = int(
+        rtlsim_stats.get("completed_output_frames", batch_size if run_complete else 0)
+    )
+    run_complete = run_complete and completed_frames >= batch_size
+
+    interval_cycles = int(rtlsim_stats.get("interval_cycles", 0))
+    xsi_interval_valid = bool(
+        int(rtlsim_stats.get("interval_valid", completed_frames >= 2 and interval_cycles > 0))
+    )
+    interval_valid = (
+        run_complete and completed_frames >= 2 and interval_cycles > 0 and xsi_interval_valid
+    )
+    rtlsim_stats["interval_is_steady_state"] = interval_valid
+    rtlsim_stats["fps_from_interval"] = (
+        1.0e9 / (clock_period_ns * interval_cycles) if interval_valid else None
+    )
+
+    # New XSI results report the exact span and frame count between the first
+    # and last completed outputs. Fall back to legacy results by removing the
+    # first (pipeline-fill) frame from both the count and elapsed cycles.
+    steady_state_frames = int(rtlsim_stats.get("steady_state_frames", max(0, batch_size - 1)))
+    steady_state_cycles = int(
+        rtlsim_stats.get("steady_state_cycles", max(0, cycles - latency_cycles))
+    )
+    stable_valid = (
+        run_complete
+        and completed_frames >= 2
+        and steady_state_frames > 0
+        and steady_state_cycles > 0
+    )
+    rtlsim_stats["stable_throughput_valid"] = stable_valid
+    rtlsim_stats["stable_throughput[images/s]"] = (
+        steady_state_frames * 1.0e9 / (clock_period_ns * steady_state_cycles)
+        if stable_valid
+        else None
+    )
+    return rtlsim_stats
+
+
 def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Measure performance + latency of stitched-IP model in rtlsim (xsi).
     Depends on the DataflowOutputType.STITCHED_IP output product.
@@ -1234,29 +1298,12 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
         # and RTL elementwise ops)
         rtlsim_perf_dict = xsi_fifosim(model, rtlsim_bs, max_iters=max_iters, behav=False)
         # keep keys consistent between the Python and C++-styles
-        cycles = rtlsim_perf_dict["cycles"]
-        clk_ns = cfg.synth_clk_period_ns
-        fclk_mhz = 1 / (clk_ns * 0.001)
-        runtime_s = (cycles * clk_ns) * (10**-9)
-        rtlsim_perf_dict["runtime[ms]"] = runtime_s * 1000
-        rtlsim_perf_dict["throughput[images/s]"] = rtlsim_bs / runtime_s
-        rtlsim_perf_dict["fclk[mhz]"] = fclk_mhz
         for key, val in rtlsim_perf_dict.items():
             if "max_count" in key:
                 del rtlsim_perf_dict[key]
-        # estimate stable-state throughput based on latency+throughput
-        if rtlsim_bs == 1:
-            rtlsim_perf_dict["stable_throughput[images/s]"] = rtlsim_perf_dict[
-                "throughput[images/s]"
-            ]
-        else:
-            total_cycles = rtlsim_perf_dict["cycles"]
-            latency_cycles = rtlsim_perf_dict["latency_cycles"]
-            stablestate_cycles = total_cycles - latency_cycles
-            clk_ns = cfg.synth_clk_period_ns
-            fclk_mhz = 1 / (clk_ns * 0.001)
-            runtime_s = (stablestate_cycles * clk_ns) * (10**-9)
-            rtlsim_perf_dict["stable_throughput[images/s]"] = rtlsim_bs / runtime_s
+        rtlsim_perf_dict = _annotate_rtlsim_performance(
+            rtlsim_perf_dict, rtlsim_bs, cfg.synth_clk_period_ns
+        )
 
         with open(report_dir + "/rtlsim_performance.json", "w") as f:
             json.dump(rtlsim_perf_dict, f, indent=2)

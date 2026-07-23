@@ -14,6 +14,7 @@
 #include <sstream>
 #include <fstream>
 #include <chrono>
+#include <algorithm>
 #include <map>
 #include <vector>
 #include <tuple>
@@ -69,19 +70,15 @@ int main(int const  argc, char const *const  argv[]) {
 			size_t  job_txns;  // [0:job_size]
 			size_t  total_txns;
 
-			union {
-				// Input Stream
-				struct {
-					size_t  first_complete; // First completion timestamp
-					size_t  job_ticks;      // throttle if job_size < job_ticks
-					size_t  await_iter;     // iteration allowing start of next job
-				};
-				// Output Stream
-				struct {
-					size_t  last_complete;
-					size_t  interval;
-				};
-			};
+			// Input stream throttling
+			size_t  job_ticks;         // throttle if job_size < job_ticks
+			size_t  await_iter;        // iteration allowing start of next job
+
+			// Output stream frame tracking (for throughput measurement)
+			size_t  first_complete;    // Timestamp of first completed frame
+			size_t  last_complete;     // Timestamp of most recent completed frame
+			size_t  interval;          // Cycles between last two completed frames
+			size_t  completed_frames;  // Total number of completed frames
 
 		public:
 			stream_status(
@@ -89,7 +86,8 @@ int main(int const  argc, char const *const  argv[]) {
 				size_t  job_size, size_t  job_ticks
 			) : name(name), port_vld(port_vld), port_rdy(port_rdy), job_size(job_size),
 				job_txns(0), total_txns(0),
-				first_complete(0), job_ticks(job_ticks), await_iter(job_ticks) {}
+				job_ticks(job_ticks), await_iter(job_ticks),
+				first_complete(0), last_complete(0), interval(0), completed_frames(0) {}
 		};
 		std::vector<stream_status>  istreams;
 		std::vector<stream_status>  ostreams;
@@ -192,13 +190,16 @@ int main(int const  argc, char const *const  argv[]) {
 				for(auto &s : ostreams) {
 					if(s.port_rdy[0] && s.port_vld.read()[0]) {
 						size_t const  txns = ++s.total_txns;
-						if(txns == s.job_size) {
-							s.first_complete = iters;
-							omute--;
-						}
 						if(++s.job_txns == s.job_size) {
-							s.interval      = iters - s.last_complete;
+							// completed_frames reflects frames done *before* this one
+							if(s.completed_frames == 0) {
+								s.first_complete = iters;
+								omute--;
+							} else {
+								s.interval = iters - s.last_complete;
+							}
 							s.last_complete = iters;
+							s.completed_frames++;  // now reflects total frames completed
 							s.job_txns = 0;
 						}
 						if(txns >= s.job_size * n_inferences) {
@@ -242,11 +243,22 @@ int main(int const  argc, char const *const  argv[]) {
 		size_t  total_out_txns = 0;
 		size_t  firstout_latency = 0;
 		size_t  max_interval = 0;
+		size_t  completed_output_frames = ostreams.empty()? 0 : n_inferences;
+		size_t  steady_state_cycles = 0;
 		for(auto const &s : ostreams) {
 			total_out_txns  += s.total_txns;
 			firstout_latency = std::max(firstout_latency, s.first_complete);
 			max_interval     = std::max(max_interval,     s.interval);
+			completed_output_frames = std::min(completed_output_frames, s.completed_frames);
+			if(s.completed_frames >= 2) {
+				steady_state_cycles = std::max(
+					steady_state_cycles, s.last_complete - s.first_complete
+				);
+			}
 		}
+		size_t const  steady_state_frames = completed_output_frames > 0?
+			completed_output_frames - 1 : 0;
+		bool const  interval_valid = completed_output_frames >= 2 && max_interval > 0;
 
 		std::ostringstream  bld;
 		bld <<
@@ -257,6 +269,10 @@ int main(int const  argc, char const *const  argv[]) {
 			"INPUT_N\t" << input_n_inferences << "\n"
 			"latency_cycles\t" << firstout_latency << "\n"
 			"interval_cycles\t" << max_interval << "\n"
+			"interval_valid\t" << interval_valid << "\n"
+			"completed_output_frames\t" << completed_output_frames << "\n"
+			"steady_state_frames\t" << steady_state_frames << "\n"
+			"steady_state_cycles\t" << steady_state_cycles << "\n"
 			"TIMEOUT\t" << (timeout > max_iters? "1" : "0") << "\n"
 			"UNFINISHED_INS\t" << itodo << "\n"
 			"UNFINISHED_OUTS\t" << otodo << "\n"
