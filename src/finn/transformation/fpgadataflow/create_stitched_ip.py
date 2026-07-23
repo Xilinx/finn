@@ -42,7 +42,6 @@ from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
 from finn.util.basic import getHWCustomOp, make_build_dir, resolve_xilinx_tool
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
-
 RTLSIM_SOURCE_EXTENSIONS = {".v", ".sv", ".vh", ".svh", ".vhd"}
 
 
@@ -91,10 +90,7 @@ def append_missing_finnloop_rtlsim_sources(model, v_file_list):
         with open(v_file_list, "a") as f:
             for source_path in appended_sources:
                 f.write(source_path + "\n")
-        print(
-            "Added %d nested FINNLoop HDL sources to %s"
-            % (len(appended_sources), v_file_list)
-        )
+        print("Added %d nested FINNLoop HDL sources to %s" % (len(appended_sources), v_file_list))
 
 
 def is_external_input(node, model, i):
@@ -191,6 +187,9 @@ class CreateStitchedIP(Transformation):
             except AttributeError:
                 pumped_compute = 0
             return pumped_compute or inst.get_nodeattr("pumpedMemory")
+        if node.op_type == "FINNLoop":
+            inst = getHWCustomOp(node, model)
+            return bool(inst.get_verilog_top_module_intf_names().get("clk2x"))
 
     def connect_clk_rst(self, node, model):
         inst_name = node.name

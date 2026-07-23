@@ -17,9 +17,10 @@ import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 import finn.core.onnx_exec as oxe
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.util.basic import make_build_dir
+from finn.util.basic import getHWCustomOp, make_build_dir
 
 verif_steps = [
     "folded_hls_cppsim",
@@ -515,6 +516,48 @@ def create_chained_loop_bodies(
         loop_body_models.append(loop_body_model)
 
     return loop_body_models
+
+
+@pytest.mark.fpgadataflow
+def test_finnloop_exposes_body_double_pumped_clock():
+    loop_body = make_loop_modelwrapper(16, 16)
+    loop_body.set_metadata_prop(
+        "vivado_stitch_ifnames",
+        str(
+            {
+                "clk": ["ap_clk"],
+                "clk2x": ["ap_clk2x"],
+                "rst": ["ap_rst_n"],
+                "s_axis": [],
+                "m_axis": [],
+                "aximm": [],
+                "axilite": [],
+            }
+        ),
+    )
+    loop_node = helper.make_node(
+        "FINNLoop",
+        ["top_in"],
+        ["top_out"],
+        domain="finn.custom_op.fpgadataflow.rtl",
+        backend="rtl",
+        name="FINNLoop_0",
+        body=loop_body.graph,
+        inputDataType="INT8",
+        outputDataType="INT8",
+        iteration=1,
+    )
+    graph = helper.make_graph(
+        [loop_node],
+        "double_pumped_loop",
+        [create_tensor_info("top_in", [1, 3, 3, 16])],
+        [create_tensor_info("top_out", [1, 3, 3, 16])],
+    )
+    model = ModelWrapper(qonnx_make_model(graph))
+
+    loop_inst = getHWCustomOp(loop_node, model)
+    assert loop_inst.get_verilog_top_module_intf_names()["clk2x"] == ["ap_clk2x"]
+    assert CreateStitchedIP(fpga_part, clk_ns).is_double_pumped(loop_node, model)
 
 
 # MVAU folding as a jointly-valid tuple (dim, mvau_pe, mvau_simd, mvau_th, helper_pe).
