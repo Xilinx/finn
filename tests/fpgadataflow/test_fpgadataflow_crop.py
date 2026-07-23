@@ -104,6 +104,7 @@ def test_fpgadataflow_gather_crop(ishape_axis_indices, simd, idt, exec_mode):
 
     assert (y_ref == y_hw).all()
 
+    getCustomOp(model.graph.node[0]).set_nodeattr("preferred_impl_style", "hls")
     model = model.transform(SpecializeLayers(test_fpga_part))
     assert model.graph.node[0].op_type == "Crop_hls"
     getCustomOp(model.graph.node[0]).set_nodeattr("SIMD", simd)
