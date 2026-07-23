@@ -428,9 +428,9 @@ def test_cppsim_shuffle_layer(cpp_shuffle_param, datatype, simd):
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_rtlsim_shuffle_layer(shuffle_param, datatype, simd):
+def test_rtlsim_shuffle_layer(shuffle_param, datatype, simd, monkeypatch):
     """Checks rtlsim of the shuffle_hls layer"""
-    os.environ["LIVENESS_THRESHOLD"] = "10000000"  # Need to bump this up for these RTL sims
+    monkeypatch.setenv("LIVENESS_THRESHOLD", "10000000")
     dt = DataType[datatype]
     simd = int(simd[-1])
     in_shape = shuffle_param["in_shape"]
