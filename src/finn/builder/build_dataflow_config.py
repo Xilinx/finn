@@ -378,7 +378,8 @@ class DataflowBuildConfig:
 
     #: Override the number of frames for rtlsim performance measurement.
     #: At least two are required to report steady-state throughput; a one-frame
-    #: run can measure latency and pipeline-fill throughput only.
+    #: run can measure latency and pipeline-fill throughput only. MLO
+    #: measurements use an ideal AXI-MM memory model.
     rtlsim_batch_size: Optional[int] = 2
 
     #: If set to True, FIFOs with impl_style=vivado will be kept during

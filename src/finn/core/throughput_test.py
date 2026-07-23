@@ -30,11 +30,22 @@ import numpy as np
 from qonnx.util.basic import gen_finn_dt_tensor
 
 from finn.core.rtlsim_exec import rtlsim_exec
+from finn.util.rtlsim_performance import annotate_rtlsim_completion_throughput
 
 
-def throughput_test_rtlsim(model, clk_ns, batchsize=100):
+def throughput_test_rtlsim(
+    model,
+    clk_ns,
+    batchsize=100,
+    pre_hook=None,
+    collect_performance=False,
+):
     """Runs a throughput test for the given IP-stitched model. When combined
-    with tracing, useful to determine bottlenecks and required FIFO sizes."""
+    with tracing, useful to determine bottlenecks and required FIFO sizes.
+    ``pre_hook`` can install models for non-stream interfaces. Enabling
+    ``collect_performance`` derives sustained throughput from output-frame
+    completion times rather than from pipeline-fill latency.
+    """
 
     assert (
         model.get_metadata_prop("exec_mode") == "rtlsim"
@@ -48,7 +59,7 @@ def throughput_test_rtlsim(model, clk_ns, batchsize=100):
         # create random input
         iname = i_vi.name
         ishape = model.get_tensor_shape(iname)
-        ishape_batch = ishape
+        ishape_batch = list(ishape)
         ishape_batch[0] = batchsize
         idt = model.get_tensor_datatype(iname)
         dummy_input = gen_finn_dt_tensor(idt, ishape_batch)
@@ -60,12 +71,17 @@ def throughput_test_rtlsim(model, clk_ns, batchsize=100):
     for o_vi in model.graph.output:
         oname = o_vi.name
         oshape = model.get_tensor_shape(oname)
-        oshape_batch = oshape
+        oshape_batch = list(oshape)
         oshape_batch[0] = batchsize
         odt = model.get_tensor_datatype(oname)
         o_bytes += (np.prod(oshape_batch) * odt.bitwidth()) / 8
 
-    rtlsim_exec(model, ctx)
+    completion_stats = rtlsim_exec(
+        model,
+        ctx,
+        pre_hook=pre_hook,
+        collect_performance=collect_performance,
+    )
     # extract metrics
     cycles = int(model.get_metadata_prop("cycles_rtlsim"))
     fclk_mhz = 1 / (clk_ns * 0.001)
@@ -78,5 +94,9 @@ def throughput_test_rtlsim(model, clk_ns, batchsize=100):
     res["DRAM_out_bandwidth[MB/s]"] = o_bytes * 0.000001 / runtime_s
     res["fclk[mhz]"] = fclk_mhz
     res["N"] = batchsize
+
+    if collect_performance:
+        res.update(completion_stats)
+        res = annotate_rtlsim_completion_throughput(res, clk_ns)
 
     return res
