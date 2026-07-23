@@ -262,8 +262,9 @@ def test_tinydeit_build_config_uses_phases_and_injections(tmp_path, mode):
 
 
 @pytest.mark.transform
-def test_tinydeit_converts_lut_mvaus_to_hls():
+def test_tinydeit_converts_lut_mvaus_to_hls(tmp_path, monkeypatch):
     tinydeit_build = _tinydeit_build_module()
+    monkeypatch.setattr(tinydeit_build, "extract_model_config_to_json", lambda *args: None)
 
     nodes = [
         onnx.helper.make_node(
@@ -295,10 +296,12 @@ def test_tinydeit_converts_lut_mvaus_to_hls():
     )
     model = tinydeit_build.ModelWrapper(onnx.helper.make_model(graph))
 
-    converted = tinydeit_build._convert_lut_mvaus_to_hls(model)
+    model = tinydeit_build.step_tinydeit_hls_lut_mvaus(
+        model, SimpleNamespace(output_dir=str(tmp_path))
+    )
 
-    assert converted == 1
     assert [node.op_type for node in model.graph.node] == ["MVAU_hls", "MVAU_rtl"]
+    assert [node.name for node in model.graph.node] == ["MVAU_hls_0", "MVAU_rtl_0"]
     assert model.graph.node[0].domain == "finn.custom_op.fpgadataflow.hls"
     assert {attr.name for attr in model.graph.node[0].attribute}.isdisjoint(
         {"gen_top_module", "pumpedCompute"}

@@ -168,6 +168,7 @@ def step_tinydeit_hls_lut_mvaus(model: ModelWrapper, cfg: DataflowBuildConfig) -
     converted = _convert_lut_mvaus_to_hls(model)
     if converted:
         print(f"Converted {converted} LUT-configured RTL MVAU node(s) to HLS.")
+        model = _canonicalize_loop_body_names(model)
         extract_model_config_to_json(
             model, cfg.output_dir + "/auto_folding_config.json", FOLDING_HW_ATTRS
         )
