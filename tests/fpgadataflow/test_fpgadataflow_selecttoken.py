@@ -27,29 +27,28 @@ from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 FPGA_PART = "xc7z020clg400-1"
 CLK_NS = 10
+NUM_TOKENS = 4
+NUM_CHANNELS = 4
 
 
-def make_crop_modelwrapper(idt):
-    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [3, 4, 4])
-    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [2, 2, 4])
-    crop_node = helper.make_node(
-        "Crop",
+def make_selecttoken_modelwrapper(token_index, idt):
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, NUM_TOKENS, NUM_CHANNELS])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, NUM_CHANNELS])
+    selecttoken_node = helper.make_node(
+        "SelectToken",
         ["inp"],
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
-        DataType=idt.name,
-        ImgDim=[3, 4],
-        NumChannels=4,
-        CropNorth=1,
-        CropEast=1,
-        CropSouth=0,
-        CropWest=1,
+        NumTokens=NUM_TOKENS,
+        NumChannels=NUM_CHANNELS,
+        TokenIndex=token_index,
         SIMD=1,
-        numInputVectors=[0],
+        inputDataType=idt.name,
+        outputDataType=idt.name,
     )
-    graph = helper.make_graph([crop_node], "crop-model", [inp], [outp])
-    model = ModelWrapper(qonnx_make_model(graph, producer_name="crop-model"))
+    graph = helper.make_graph([selecttoken_node], "selecttoken-model", [inp], [outp])
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="selecttoken-model"))
     model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("outp", idt)
     return model
@@ -61,6 +60,8 @@ def prepare_inputs(input_tensor):
 
 # data types
 @pytest.mark.parametrize("idt", [DataType["INT8"], DataType["UINT4"]])
+# token index
+@pytest.mark.parametrize("token_index", [2, -1])
 # folding
 @pytest.mark.parametrize("fold", [-1, 2, 1])
 # execution mode
@@ -68,23 +69,23 @@ def prepare_inputs(input_tensor):
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_fpgadataflow_crop_rtl(idt, fold, exec_mode):
-    simd = 1 if fold == -1 else max(1, 4 // fold)
-    assert 4 % simd == 0
+def test_fpgadataflow_selecttoken(idt, token_index, fold, exec_mode):
+    simd = 1 if fold == -1 else max(1, NUM_CHANNELS // fold)
+    assert NUM_CHANNELS % simd == 0
 
-    input_tensor = gen_finn_dt_tensor(idt, (3, 4, 4))
+    input_tensor = gen_finn_dt_tensor(idt, (1, NUM_TOKENS, NUM_CHANNELS))
     input_dict = prepare_inputs(input_tensor)
-    y_expected = input_tensor[1:, 1:3, :]
-    model = make_crop_modelwrapper(idt)
+    y_expected = input_tensor[:, token_index, :]
+    model = make_selecttoken_modelwrapper(token_index, idt)
 
     # golden reference before specializing
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     assert (y_produced == y_expected).all(), "Execution of hw layer failed"
 
-    node = getCustomOp(model.get_nodes_by_op_type("Crop")[0])
+    node = getCustomOp(model.get_nodes_by_op_type("SelectToken")[0])
     node.set_nodeattr("SIMD", simd)
     model = model.transform(SpecializeLayers(FPGA_PART))
-    assert model.graph.node[0].op_type == "Crop_rtl"
+    assert model.graph.node[0].op_type == "SelectToken_rtl"
 
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())
@@ -103,7 +104,7 @@ def test_fpgadataflow_crop_rtl(idt, fold, exec_mode):
     assert (y_produced == y_expected).all(), exec_mode + " failed"
 
     if exec_mode == "rtlsim":
-        node = model.get_nodes_by_op_type("Crop_rtl")[0]
+        node = model.get_nodes_by_op_type("SelectToken_rtl")[0]
         cycles_rtlsim = getCustomOp(node).get_nodeattr("cycles_rtlsim")
         exp_cycles = model.analysis(exp_cycles_per_layer)[node.name]
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
