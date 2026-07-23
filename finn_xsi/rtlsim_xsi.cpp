@@ -58,15 +58,15 @@ int main(int const  argc, char const *const  argv[]) {
 			size_t  job_txns;  // [0:job_size]
 			size_t  total_txns;
 
-			// Input Stream
-			size_t  job_ticks;      // throttle if job_size < job_ticks
-			size_t  await_iter;     // iteration allowing start of next job
+			// Input stream throttling
+			size_t  job_ticks;         // throttle if job_size < job_ticks
+			size_t  await_iter;        // iteration allowing start of next job
 
-			// Output Stream
-			size_t  first_complete; // First completion timestamp
-			size_t  last_complete;  // Most recent completion timestamp
-			size_t  interval;       // Most recent completion-to-completion interval
-			size_t  completed_frames;
+			// Output stream frame tracking (for throughput measurement)
+			size_t  first_complete;    // Timestamp of first completed frame
+			size_t  last_complete;     // Timestamp of most recent completed frame
+			size_t  interval;          // Cycles between last two completed frames
+			size_t  completed_frames;  // Total number of completed frames
 
 		public:
 			stream_status(
@@ -175,6 +175,7 @@ int main(int const  argc, char const *const  argv[]) {
 					if(s.port_rdy[0] && s.port_vld.read()[0]) {
 						size_t const  txns = ++s.total_txns;
 						if(++s.job_txns == s.job_size) {
+							// completed_frames reflects frames done *before* this one
 							if(s.completed_frames == 0) {
 								s.first_complete = iters;
 								omute--;
@@ -182,7 +183,7 @@ int main(int const  argc, char const *const  argv[]) {
 								s.interval = iters - s.last_complete;
 							}
 							s.last_complete = iters;
-							s.completed_frames++;
+							s.completed_frames++;  // now reflects total frames completed
 							s.job_txns = 0;
 						}
 						if(txns >= s.job_size * n_inferences) {
