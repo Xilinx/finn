@@ -68,6 +68,7 @@
   "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_0": {
     "PE": 64,
     "SIMD": 3,
+    "TH": 4,
     "ram_style": "auto",
     "resType": "dsp",
     "mem_mode": "external_mem",
@@ -76,6 +77,7 @@
   "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_1": {
     "PE": 64,
     "SIMD": 3,
+    "TH": 4,
     "ram_style": "auto",
     "resType": "dsp",
     "mem_mode": "external_mem",
@@ -84,6 +86,7 @@
   "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_2": {
     "PE": 64,
     "SIMD": 3,
+    "TH": 4,
     "ram_style": "auto",
     "resType": "dsp",
     "mem_mode": "external_mem",
@@ -234,6 +237,7 @@
   "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_5": {
     "PE": 64,
     "SIMD": 3,
+    "TH": 4,
     "ram_style": "auto",
     "resType": "dsp",
     "mem_mode": "external_mem",
@@ -272,6 +276,7 @@
   "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_6": {
     "PE": 256,
     "SIMD": 3,
+    "TH": 4,
     "ram_style": "auto",
     "resType": "dsp",
     "mem_mode": "external_mem",
@@ -301,6 +306,7 @@
   "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_7": {
     "PE": 256,
     "SIMD": 3,
+    "TH": 4,
     "ram_style": "auto",
     "resType": "dsp",
     "mem_mode": "external_mem",
