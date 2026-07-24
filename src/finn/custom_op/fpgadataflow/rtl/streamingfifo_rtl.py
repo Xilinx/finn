@@ -133,9 +133,19 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
             cmd = []
             for f in sourcefiles:
                 cmd += ["add_files -norecurse %s" % (f)]
+            create_cell_cmd = "create_bd_cell -type module -reference %s %s" % (
+                self.get_nodeattr("gen_top_module"),
+                self.onnx_node.name,
+            )
+            # Vivado can lag module-reference discovery in source-heavy block designs.
+            # Avoid the compile-order refresh unless the normal creation attempt fails.
             cmd += [
-                "create_bd_cell -type module -reference %s %s"
-                % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)
+                "if {[catch {%s} module_ref_error]} {\n"
+                '    puts "INFO: Retrying %s after refreshing compile order: '
+                '$module_ref_error"\n'
+                "    update_compile_order -fileset sources_1\n"
+                "    %s\n"
+                "}" % (create_cell_cmd, self.onnx_node.name, create_cell_cmd)
             ]
             return cmd
         elif impl_style == "vivado":
