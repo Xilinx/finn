@@ -65,7 +65,6 @@ import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.core.onnx_exec import execute_onnx
-from finn.core.throughput_test import throughput_test_rtlsim
 from finn.transformation.fpgadataflow.alveo_build import PrepareForLinking
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
@@ -86,7 +85,10 @@ from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
+from finn.transformation.fpgadataflow.set_fifo_depths import (
+    InsertAndSetFIFODepths,
+    xsi_fifosim,
+)
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
@@ -98,6 +100,7 @@ from finn.transformation.streamline.reorder import (
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import get_finn_root, make_build_dir
 from finn.util.pytorch import ToTensor
+from finn.util.rtlsim import annotate_rtlsim_performance
 from finn.util.test import (
     execute_parent,
     get_build_env,
@@ -741,14 +744,15 @@ class TestEnd2End:
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         n_nodes = len(model.graph.node)
         perf_est = model.analysis(dataflow_performance)
-        ret_b1 = throughput_test_rtlsim(model, target_clk_ns, batchsize=1)
-        latency = int(ret_b1["cycles"])
+        # Run with 2 frames to get valid steady-state throughput
+        batchsize = max(2, 2 * n_nodes)
+        ret = xsi_fifosim(model, n_inferences=batchsize)
+        ret = annotate_rtlsim_performance(ret, batchsize, target_clk_ns)
+        # Check that steady-state throughput is valid and close to estimate
+        assert ret["stable_throughput_valid"] is True
         cycles_per_sample_est = perf_est["max_cycles"]
-        batchsize = 2 * n_nodes
-        ret = throughput_test_rtlsim(model, target_clk_ns, batchsize=batchsize)
-        res_cycles = ret["cycles"]
-        est_cycles = latency + cycles_per_sample_est * batchsize
-        assert (abs(res_cycles - est_cycles) / res_cycles) < 0.15
+        est_throughput = 1.0e9 / (target_clk_ns * cycles_per_sample_est)
+        assert abs(ret["stable_throughput[images/s]"] - est_throughput) / est_throughput < 0.15
 
     @pytest.mark.slow
     @pytest.mark.vivado
