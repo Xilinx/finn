@@ -29,6 +29,7 @@ from transformer_examples.tinydeit.common import (
     find_mlo_loop_body_ranges,
     find_transformer_blocks,
     first_loop_body_node_range,
+    mark_attention_multithreshold_layouts_unknown,
     model_op_counts,
     move_forked_scalar_mul_past_matmul,
     resolve_common_paths,
@@ -116,6 +117,9 @@ def prepare(args: argparse.Namespace) -> Path:
     model, conv_attrs = ensure_conv_kernel_shape_attrs(model)
     if conv_attrs:
         print(f"Filled missing Conv kernel_shape attributes: {conv_attrs}")
+
+    model, attention_layouts = mark_attention_multithreshold_layouts_unknown(model, args.depth)
+    print(f"Marked attention MultiThreshold layouts as non-image: {attention_layouts}")
 
     if not args.skip_streamline:
         model = steps.step_streamline(model, cfg)

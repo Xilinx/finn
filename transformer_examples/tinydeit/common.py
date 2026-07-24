@@ -16,6 +16,7 @@ from collections import Counter
 from onnx import helper
 from pathlib import Path
 from qonnx.core.datatype import DataType
+from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import RemoveUnusedTensors
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
@@ -29,6 +30,7 @@ DEFAULT_BOARD = "VCK190"
 DEFAULT_TARGET_FPS = 1000
 DEFAULT_CLOCK_NS = 1000.0 / 300.0
 TRANSFORMER_DEPTH = 12
+ATTENTION_MULTITHRESHOLDS_PER_BLOCK = 5
 
 EXPORTED_PWPOLYF_SEQUENCE = [
     "Reshape",
@@ -419,6 +421,51 @@ def ensure_conv_kernel_shape_attrs(model: Any) -> tuple[Any, int]:
         )
         changed += 1
     return model, changed
+
+
+def mark_attention_multithreshold_layouts_unknown(
+    model: Any, depth: int = TRANSFORMER_DEPTH
+) -> tuple[Any, int]:
+    """Prevent image-layout inference on TinyDeiT attention activations.
+
+    The five rank-4 MultiThreshold tensors in each attention block use
+    ``[batch, head, token, feature]`` axes, not image-style NCHW axes. Leaving
+    the MultiThreshold default ``data_layout=NCHW`` in place causes
+    ``InferDataLayouts`` to label the head dimension as channels. Hardware
+    conversion then inserts redundant NCHW/NHWC shuffles and folds the
+    three-head dimension instead of the 197-token dimension.
+
+    Mark only the structurally identified attention MultiThreshold nodes as
+    layout-agnostic. The input-image MultiThreshold remains NCHW.
+    """
+
+    model = model.transform(InferShapes())
+    blocks = find_transformer_blocks(model.model, depth)
+    if len(blocks) != depth:
+        raise RuntimeError(f"Expected {depth} TinyDeiT blocks, found {len(blocks)}")
+
+    normalized = []
+    nodes = list(model.graph.node)
+    for block in blocks:
+        block_nodes = nodes[block["start_index"] : block["end_index"] + 1]
+        block_multithresholds = []
+        for node in block_nodes:
+            if node.op_type != "MultiThreshold":
+                continue
+            input_shape = model.get_tensor_shape(node.input[0])
+            if input_shape is not None and len(input_shape) == 4:
+                block_multithresholds.append(node)
+        if len(block_multithresholds) != ATTENTION_MULTITHRESHOLDS_PER_BLOCK:
+            raise RuntimeError(
+                f"Expected {ATTENTION_MULTITHRESHOLDS_PER_BLOCK} rank-4 attention "
+                f"MultiThreshold nodes in block {block['block']}, found "
+                f"{len(block_multithresholds)}"
+            )
+        for node in block_multithresholds:
+            getCustomOp(node).set_nodeattr("data_layout", "UNKNOWN")
+            normalized.append(node.name)
+
+    return model, len(normalized)
 
 
 def move_forked_scalar_mul_past_matmul(model: Any) -> tuple[Any, int]:

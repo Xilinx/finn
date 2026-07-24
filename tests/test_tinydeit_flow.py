@@ -18,6 +18,7 @@ from transformer_examples.tinydeit.common import (  # noqa: E402
     exported_pwpolyf_match_indices,
     find_mlo_loop_body_ranges,
     find_transformer_blocks,
+    mark_attention_multithreshold_layouts_unknown,
     move_forked_scalar_mul_past_matmul,
 )
 
@@ -267,6 +268,85 @@ def test_tinydeit_moves_forked_scalar_mul_past_matmul():
     assert model.find_producer("out1").op_type == "Mul"
     np.testing.assert_allclose(actual["out0"], expected["out0"])
     np.testing.assert_allclose(actual["out1"], expected["out1"])
+
+
+@pytest.mark.transform
+def test_tinydeit_marks_only_attention_multithreshold_layouts_unknown():
+    pytest.importorskip("qonnx")
+    from qonnx.core.modelwrapper import ModelWrapper  # noqa: PLC0415
+    from qonnx.custom_op.registry import getCustomOp  # noqa: PLC0415
+
+    shape = [1, 3, 7, 4]
+    nodes = [
+        onnx.helper.make_node(
+            "MultiThreshold",
+            ["global_in", "thresholds"],
+            ["image_quantized"],
+            name="image_threshold",
+            domain="qonnx.custom_op.general",
+            out_dtype="INT3",
+            data_layout="NCHW",
+        )
+    ]
+    tensor_name = "image_quantized"
+    attention_nodes = []
+    for block in range(2):
+        nodes.append(
+            onnx.helper.make_node(
+                "LayerNormalization", [tensor_name], [f"b{block}_ln0"], name=f"b{block}_ln0"
+            )
+        )
+        tensor_name = f"b{block}_ln0"
+        for threshold in range(5):
+            output_name = f"b{block}_attention_threshold_{threshold}_out"
+            node = onnx.helper.make_node(
+                "MultiThreshold",
+                [tensor_name, "thresholds"],
+                [output_name],
+                name=f"b{block}_attention_threshold_{threshold}",
+                domain="qonnx.custom_op.general",
+                out_dtype="INT3",
+                data_layout="NCHW",
+            )
+            nodes.append(node)
+            attention_nodes.append(node.name)
+            tensor_name = output_name
+        nodes.append(
+            onnx.helper.make_node(
+                "LayerNormalization", [tensor_name], [f"b{block}_ln1"], name=f"b{block}_ln1"
+            )
+        )
+        tensor_name = f"b{block}_ln1"
+    nodes.append(
+        onnx.helper.make_node(
+            "LayerNormalization", [tensor_name], ["global_out"], name="post_stack_ln"
+        )
+    )
+    graph = onnx.helper.make_graph(
+        nodes,
+        "tinydeit_attention_layouts",
+        [onnx.helper.make_tensor_value_info("global_in", onnx.TensorProto.FLOAT, shape)],
+        [onnx.helper.make_tensor_value_info("global_out", onnx.TensorProto.FLOAT, shape)],
+        initializer=[
+            onnx.numpy_helper.from_array(np.zeros((1, 7), dtype=np.float32), name="thresholds")
+        ],
+    )
+    model = ModelWrapper(
+        onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 18)])
+    )
+    for node in nodes:
+        for output_name in node.output:
+            model.set_tensor_shape(output_name, shape)
+
+    model, normalized = mark_attention_multithreshold_layouts_unknown(model, depth=2)
+
+    assert normalized == 10
+    assert getCustomOp(model.graph.node[0]).get_nodeattr("data_layout") == "NCHW"
+    by_name = {node.name: node for node in model.graph.node}
+    assert all(
+        getCustomOp(by_name[node_name]).get_nodeattr("data_layout") == "UNKNOWN"
+        for node_name in attention_nodes
+    )
 
 
 @pytest.mark.transform
@@ -642,6 +722,49 @@ def test_tinydeit_converts_lut_mvaus_to_hls(tmp_path, monkeypatch):
         "path": normalized_config,
         "attrs": tinydeit_build.FOLDING_HW_ATTRS,
     }
+
+
+@pytest.mark.transform
+def test_tinydeit_rejects_incompatible_folding_before_build(tmp_path):
+    tinydeit_build = _tinydeit_build_module()
+
+    inp = onnx.helper.make_tensor_value_info(
+        "inp", onnx.TensorProto.FLOAT, [1, 197, 197, 3]
+    )
+    outp = onnx.helper.make_tensor_value_info(
+        "outp", onnx.TensorProto.FLOAT, [1, 197, 197, 3]
+    )
+    thresholds = onnx.numpy_helper.from_array(
+        np.zeros((3, 7), dtype=np.float32), name="thresholds"
+    )
+    node = onnx.helper.make_node(
+        "Thresholding_rtl",
+        ["inp", "thresholds"],
+        ["outp"],
+        name="Thresholding_rtl_0",
+        domain="finn.custom_op.fpgadataflow.rtl",
+        backend="fpgadataflow",
+        NumChannels=3,
+        PE=1,
+        inputDataType="INT3",
+        weightDataType="INT4",
+        outputDataType="UINT3",
+        numInputVectors=[1, 197, 197],
+        numSteps=7,
+    )
+    graph = onnx.helper.make_graph(
+        [node], "folding_compatibility", [inp], [outp], initializer=[thresholds]
+    )
+    model = tinydeit_build.ModelWrapper(onnx.helper.make_model(graph))
+    incompatible = tmp_path / "incompatible.json"
+    incompatible.write_text(json.dumps({"Thresholding_rtl_0": {"PE": 197}}))
+
+    with pytest.raises(ValueError, match="NumChannels=3 is not divisible by PE=197"):
+        tinydeit_build.validate_folding_config_compatibility(model, incompatible)
+
+    compatible = tmp_path / "compatible.json"
+    compatible.write_text(json.dumps({"Thresholding_rtl_0": {"PE": 3}}))
+    tinydeit_build.validate_folding_config_compatibility(model, compatible)
 
 
 @pytest.mark.transform

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import csv
 import json
 import os
@@ -13,6 +14,7 @@ import socket
 import subprocess
 import sys
 import time
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -126,6 +128,74 @@ def _canonicalize_loop_body_names(model: ModelWrapper) -> ModelWrapper:
         loop_body = loop_body.transform(GiveUniqueNodeNames(prefix=node.name + "_"))
         node_inst.set_nodeattr("body", loop_body.graph)
     return model
+
+
+def validate_folding_config_compatibility(
+    model: ModelWrapper, folding_config_file: str | Path
+) -> None:
+    """Reject incompatible PE/SIMD settings before hardware generation.
+
+    Folding configurations name nodes after FINNLoop body canonicalization, so
+    validate a copy using the same naming and configuration application used by
+    the build. Post-transpose shuffle settings are intentionally ignored here
+    because those nodes do not exist until the later decomposition step.
+    """
+
+    config_path = repo_path(folding_config_file)
+    with config_path.open() as config_stream:
+        config = json.load(config_stream)
+
+    probe = ModelWrapper(copy.deepcopy(model.model))
+    probe = _canonicalize_loop_body_names(probe)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        probe = probe.transform(ApplyConfig(config))
+    errors = []
+
+    def validate_graph(graph_model: ModelWrapper, hierarchy: str | None = None) -> None:
+        for node in graph_model.graph.node:
+            config_key = node.name if hierarchy is None else f"{hierarchy}_{node.name}"
+            node_config = config.get(config_key, {})
+            if isinstance(node_config, dict) and ({"PE", "SIMD"} & node_config.keys()):
+                inst = getHWCustomOp(node, graph_model)
+                try:
+                    if node.op_type.startswith("Thresholding"):
+                        channels = int(inst.get_nodeattr("NumChannels"))
+                        pe = int(inst.get_nodeattr("PE"))
+                        if channels % pe != 0:
+                            raise ValueError(f"NumChannels={channels} is not divisible by PE={pe}")
+                    elif node.op_type.startswith("MVAU"):
+                        mw = int(inst.get_nodeattr("MW"))
+                        mh = int(inst.get_nodeattr("MH"))
+                        simd = int(inst.get_nodeattr("SIMD"))
+                        pe = int(inst.get_nodeattr("PE"))
+                        if mw % simd != 0:
+                            raise ValueError(f"MW={mw} is not divisible by SIMD={simd}")
+                        if mh % pe != 0:
+                            raise ValueError(f"MH={mh} is not divisible by PE={pe}")
+                    inst.get_folded_input_shape()
+                    inst.get_folded_output_shape()
+                except (AssertionError, AttributeError, TypeError, ValueError) as exc:
+                    errors.append(f"{config_key}: {exc}")
+
+            for attr in node.attribute:
+                if attr.type != AttributeProto.GRAPH:
+                    continue
+                submodel = graph_model.make_subgraph_modelwrapper(attr.g)
+                subgraph_hierarchy = (
+                    f"{node.name}_{attr.name}"
+                    if hierarchy is None
+                    else f"{hierarchy}_{node.name}_{attr.name}"
+                )
+                validate_graph(submodel, subgraph_hierarchy)
+
+    validate_graph(probe)
+    if errors:
+        details = "\n".join(f"- {error}" for error in errors)
+        raise ValueError(
+            f"Folding configuration {config_path} is incompatible with the prepared model:\n"
+            f"{details}"
+        )
 
 
 def _delete_node_attributes(node, names: set[str]) -> None:
@@ -1564,6 +1634,10 @@ def main() -> None:
                 save_intermediate=True,
             )
             model_path = prepare(prep_args)
+        if not preflight_failed and cfg.folding_config_file is not None:
+            validate_folding_config_compatibility(
+                ModelWrapper(str(model_path)), cfg.folding_config_file
+            )
         if not preflight_failed and not args.skip_reference_io and cfg.verify_steps:
             reference_model_path = (
                 repo_path(args.reference_model) if args.reference_model else model_path
