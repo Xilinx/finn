@@ -48,7 +48,7 @@ from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.util.basic import make_build_dir, resolve_xilinx_tool
 from finn.util.create import adjacency_list
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
-from finn.util.mlo_sim import mlo_prehook_func_factory
+from finn.util.rtlsim import mlo_prehook_func_factory
 
 finnxsi = xsi if xsi.is_available() else None
 
