@@ -150,8 +150,9 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
             # Avoid the compile-order refresh unless the normal creation attempt fails.
             cmd += [
                 "if {[catch {%s} module_ref_error]} {\n"
-                '    puts "INFO: Retrying %s after refreshing compile order: '
+                '    puts "INFO: Retrying %s with automatic source management: '
                 '$module_ref_error"\n'
+                "    set_property source_mgmt_mode All [current_project]\n"
                 "    update_compile_order -fileset sources_1\n"
                 "    %s\n"
                 "}" % (create_cell_cmd, self.onnx_node.name, create_cell_cmd)
