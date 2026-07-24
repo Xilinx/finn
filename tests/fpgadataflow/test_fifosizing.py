@@ -201,8 +201,12 @@ def test_characterization_fifosizing_uses_matching_consumer_input(tmp_path):
             path = tmp_path / f"{node.name}_io_chrc_in.npy"
             np.save(path, chrc_in)
             inst.set_nodeattr("io_chrc_in_file", str(path))
-        path = tmp_path / f"{node.name}_io_chrc_out.npy"
-        np.save(path, chrc_out)
+        if node is fork_node:
+            path = tmp_path / f"{node.name}_io_chrc_out.npz"
+            np.savez_compressed(path, io_chrc=chrc_out)
+        else:
+            path = tmp_path / f"{node.name}_io_chrc_out.npy"
+            np.save(path, chrc_out)
         inst.set_nodeattr("io_chrc_out_file", str(path))
 
     model = model.transform(DeriveFIFOSizes())

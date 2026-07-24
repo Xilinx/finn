@@ -86,7 +86,7 @@ class HWCustomOp(CustomOp):
             "outFIFODepths": ("ints", False, [2]),
             "output_hook": ("s", False, ""),
             # accumulated characteristic function over two periods; the arrays
-            # themselves are offloaded to sidecar .npy files (their shape is
+            # themselves are offloaded to compressed sidecar files (their shape is
             # (n_streams, 2*period), which for large periods would blow the
             # ONNX ModelProto past protobuf's 2GB limit). These attrs hold the
             # paths to those files; see get_io_chrc_in()/get_io_chrc_out().
@@ -560,8 +560,8 @@ class HWCustomOp(CustomOp):
             all_txns_out[out_idx, :] = txn_out
             all_pad_out.append(pad_out)
 
-        # Offload the (potentially very large) characteristic arrays to sidecar
-        # .npy files rather than storing them as ONNX tensor attributes, which
+        # Offload the (potentially very large) characteristic arrays to compressed
+        # sidecar files rather than storing them as ONNX tensor attributes, which
         # would otherwise push the ModelProto past protobuf's 2GB message limit
         # (the arrays are shape (n_streams, 2*period)).
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
@@ -569,34 +569,45 @@ class HWCustomOp(CustomOp):
             "code_gen_dir_ipgen not set for %s; cannot store io_chrc sidecar files"
             % self.onnx_node.name
         )
-        in_file = os.path.join(code_gen_dir, "io_chrc_in.npy")
-        out_file = os.path.join(code_gen_dir, "io_chrc_out.npy")
-        np.save(in_file, all_txns_in)
-        np.save(out_file, all_txns_out)
+        in_file = os.path.join(code_gen_dir, "io_chrc_in.npz")
+        out_file = os.path.join(code_gen_dir, "io_chrc_out.npz")
+        np.savez_compressed(in_file, io_chrc=all_txns_in)
+        np.savez_compressed(out_file, io_chrc=all_txns_out)
         self.set_nodeattr("io_chrc_in_file", in_file)
         self.set_nodeattr("io_chrc_out_file", out_file)
         self.set_nodeattr("io_chrc_pads_in", all_pad_in)
         self.set_nodeattr("io_chrc_pads_out", all_pad_out)
 
+    @staticmethod
+    def _load_io_chrc_file(fname):
+        """Load a compressed sidecar or a legacy uncompressed ``.npy`` file."""
+        loaded = np.load(fname)
+        if isinstance(loaded, np.lib.npyio.NpzFile):
+            try:
+                return loaded["io_chrc"]
+            finally:
+                loaded.close()
+        return loaded
+
     def get_io_chrc_in(self):
-        """Load the input characteristic array from its sidecar .npy file.
+        """Load the input characteristic array from its sidecar file.
 
         Returns an array of shape (n_streams, 2*period), or an empty (0, 0)
         int32 array if characterization has not been run for this node."""
         fname = self.get_nodeattr("io_chrc_in_file")
         if fname == "" or not os.path.isfile(fname):
             return np.empty((0, 0), dtype=np.int32)
-        return np.load(fname)
+        return self._load_io_chrc_file(fname)
 
     def get_io_chrc_out(self):
-        """Load the output characteristic array from its sidecar .npy file.
+        """Load the output characteristic array from its sidecar file.
 
         Returns an array of shape (n_streams, 2*period), or an empty (0, 0)
         int32 array if characterization has not been run for this node."""
         fname = self.get_nodeattr("io_chrc_out_file")
         if fname == "" or not os.path.isfile(fname):
             return np.empty((0, 0), dtype=np.int32)
-        return np.load(fname)
+        return self._load_io_chrc_file(fname)
 
     def adapt_for_loop_body(self, input_types):
         """
