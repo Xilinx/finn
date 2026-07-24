@@ -49,6 +49,7 @@ from finn import xsi
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.core.rtlsim_exec import rtlsim_exec
+from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.derive_characteristic import DeriveCharacteristic
@@ -162,6 +163,26 @@ def make_single_matmul_modelwrapper(ifm, ofm, idt, wdt, W):
     # model.set_tensor_layout("ifm", DataLayout.NHWC)
 
     return model
+
+
+def test_mvau_external_mem_characterization_streams_weights(monkeypatch):
+    wdt = DataType["INT4"]
+    idt = DataType["INT4"]
+    odt = DataType["INT32"]
+    weights = gen_finn_dt_tensor(wdt, (8, 8))
+    model = make_single_fclayer_modelwrapper(weights, 2, 2, wdt, idt, odt)
+    inst = getCustomOp(model.graph.node[0])
+    inst.set_nodeattr("mem_mode", "external_mem")
+    captured = {}
+
+    def capture_io_dict(self, period, override_rtlsim_dict=None, pre_hook=None):
+        captured.update(override_rtlsim_dict)
+
+    monkeypatch.setattr(HWCustomOp, "derive_characteristic_fxns", capture_io_dict)
+    inst.derive_characteristic_fxns(100)
+
+    expected_weight_words = inst.calc_wmem() * np.prod(inst.get_nodeattr("numInputVectors"))
+    assert len(captured["inputs"]["in1"]) == expected_weight_words
 
 
 def make_dynamic_matmul_modelwrapper(ifm, wfm, ofm, idt, wdt):

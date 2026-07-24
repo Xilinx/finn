@@ -41,6 +41,7 @@ from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
+from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.convert_to_hw_layers import (
     InferDuplicateStreamsLayer,
@@ -93,6 +94,21 @@ def make_dupstreams_modelwrapper(ch, pe, idim, idt, n_dupl, impl_style):
 
 def prepare_inputs(input_tensor, idt):
     return {"inp": input_tensor}
+
+
+def test_duplicatestreams_characterizes_every_output(monkeypatch):
+    model = make_dupstreams_modelwrapper(8, 8, 1, DataType["INT4"], 5, "rtl")
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+    inst = getCustomOp(model.graph.node[0])
+    captured = {}
+
+    def capture_io_dict(self, period, override_rtlsim_dict=None, pre_hook=None):
+        captured.update(override_rtlsim_dict)
+
+    monkeypatch.setattr(HWCustomOp, "derive_characteristic_fxns", capture_io_dict)
+    inst.derive_characteristic_fxns(10)
+
+    assert list(captured["outputs"]) == ["out0", "out1", "out2", "out3", "out4"]
 
 
 # data type
