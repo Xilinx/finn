@@ -143,28 +143,20 @@ class AbsorbScalarBiasIntoMultiThreshold(Transformation):
                     new_min = out_bias
                     new_max = out_bias + thresholds.shape[-1]
 
-                    # Derive the smallest datatype that represents the full
-                    # shifted output range [new_min, new_max]. Use an unsigned
-                    # type when the range is non-negative, otherwise a signed
-                    # type wide enough to cover both endpoints. Note a signed
-                    # type reaching -(new_max + 1) also represents +new_max, so
-                    # the negative magnitude that must fit is the more negative
-                    # of new_min and -(new_max + 1).
-                    if new_min >= 0:
-                        odt = DataType.get_smallest_possible(new_max)
-                    else:
-                        odt = DataType.get_smallest_possible(min(new_min, -(new_max + 1)))
-
-                    # Check whether the new range can be represented with the
-                    # derived integer datatype
-                    if not (odt.allowed(new_max) and odt.allowed(new_min)):
-                        # Cannot be represented, warn and skip transforming
-                        warnings.warn(
-                            f"{self.__class__.__name__}: Cannot absorb bias"
-                            f" from {consumer.name} into {node.name}: {bias}"
-                        )
-                        # Skip to the next candidate node
+                    # MultiThreshold outputs must remain integer-valued. Find
+                    # the narrowest datatype that represents every value in the
+                    # shifted range, including special types such as TERNARY.
+                    if int(new_min) != new_min or int(new_max) != new_max:
                         continue
+                    for candidate in DataType.get_accumulator_dt_cands():
+                        odt = DataType[candidate]
+                        if odt.allowed(new_min) and odt.allowed(new_max):
+                            break
+                    else:
+                        raise AssertionError(
+                            "Could not compute new MultiThreshold DataType "
+                            f"(min = {new_min} max = {new_max})"
+                        )
 
                     # Absorbing a bias can widen the output datatype (e.g. a
                     # large positive bias). Skip the absorption if the output

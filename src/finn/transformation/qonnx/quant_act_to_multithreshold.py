@@ -110,10 +110,6 @@ class ConvertQuantActToMultiThreshold(Transformation):
                     predecessor_op_type = predecessor[0].op_type
                 else:
                     predecessor_op_type = predecessor
-                if n.op_type == "Quant" and not model.get_initializer(n.input[2]) == 0:
-                    raise ValueError(
-                        "Only Quant nodes with zero-point == 0 are currently supported."
-                    )
 
                 # Check that this node passes the user filter
                 if not self._filter_function(model, n):

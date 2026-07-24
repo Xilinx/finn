@@ -179,7 +179,19 @@ class QuantActBaseHandler(ABC):
             mt_inst.set_nodeattr("out_dtype", out_dtype)
         else:
             # Set datatype
-            mt_inst.set_nodeattr("out_dtype", out_dtype)
+            # Signed Quant identity conversion inserts its negative offset as a
+            # following Add. Until that Add is absorbed, MultiThreshold itself
+            # produces the unsigned level index (for example 0..127 for INT7).
+            # Annotating this intermediate as signed makes QONNX execution
+            # sanitize valid upper-half levels before the offset is applied.
+            mt_out_dtype = out_dtype
+            if (
+                self._q_node.op_type == "Quant"
+                and out_dtype.startswith("INT")
+                and np.any(adder_bias != 0)
+            ):
+                mt_out_dtype = "U" + out_dtype
+            mt_inst.set_nodeattr("out_dtype", mt_out_dtype)
 
             # Insertion parameters
             up_stream_node = mt_node
@@ -483,10 +495,18 @@ class QuantIdentityHandler(QuantActBaseHandler):
     def _check_compatibility(self):
         # Gather parameters to check
         if self._q_node.op_type == "Quant":
-            if not self._model.get_initializer(self._q_node.input[2]) == 0:
+            quant_scale = self._model.get_initializer(self._q_node.input[1])
+            zero_point = self._model.get_initializer(self._q_node.input[2])
+            if zero_point is None:
+                raise ValueError("Quant identity activations require a static zero-point.")
+            if quant_scale is None:
+                raise ValueError("Quant identity activations require a static scale.")
+            num_scale_channels = quant_scale.flatten().shape[0]
+            num_zero_point_channels = zero_point.flatten().shape[0]
+            if num_zero_point_channels not in (1, num_scale_channels):
                 raise ValueError(
-                    "Only Quant nodes with zero-point == 0 "
-                    "are currently supported for identity activations."
+                    "Quant identity activations only support scalar zero-point or "
+                    "one zero-point per scale channel."
                 )
         elif self._q_node.op_type == "BipolarQuant":
             quant_scale = self._model.get_initializer(self._q_node.input[1])
@@ -522,7 +542,8 @@ class QuantIdentityHandler(QuantActBaseHandler):
                     min_non_scaled_val = -(2 ** (bit_width - 1) - 1)
                 else:
                     min_non_scaled_val = -(2 ** (bit_width - 1))
-            bias = np.array([min_non_scaled_val], dtype=np_default_dtype)
+            zero_point = self._model.get_initializer(self._q_node.input[2])
+            bias = np.array([min_non_scaled_val], dtype=np_default_dtype) - zero_point
         return bias
 
     def _calculate_thresholds(self):
@@ -531,10 +552,12 @@ class QuantIdentityHandler(QuantActBaseHandler):
         q_inst = getCustomOp(self._q_node)
         if self._q_node.op_type == "Quant":
             bit_width = self._model.get_initializer(self._q_node.input[3])
+            zero_point = self._model.get_initializer(self._q_node.input[2])
             narrow = q_inst.get_nodeattr("narrow")
             signed = q_inst.get_nodeattr("signed")
         elif self._q_node.op_type == "BipolarQuant":
             bit_width = 1.0
+            zero_point = np.array([0.0], dtype=np_default_dtype)
         else:
             raise RuntimeError("Got an unexpected quantizer node type")
 
@@ -559,6 +582,7 @@ class QuantIdentityHandler(QuantActBaseHandler):
             # boundary below an input that Quant legitimately rounds down, causing
             # a one-step MultiThreshold mismatch. float64 keeps that error ~1e-15.
             flat_scale = quant_scale.flatten().astype(np.float64)
+            flat_zero_point = zero_point.flatten().astype(np.float64)
             num_scale_channels = flat_scale.shape[0]
             step = np.abs(flat_scale)
             half_step = step / 2.0
@@ -571,10 +595,33 @@ class QuantIdentityHandler(QuantActBaseHandler):
             if not signed:
                 min_threshold = half_step
             for c in range(num_scale_channels):
+                zero_point_index = 0 if flat_zero_point.shape[0] == 1 else c
+                shifted_min_threshold = (
+                    min_threshold[c] - step[c] * flat_zero_point[zero_point_index]
+                )
                 for t in range(num_thresholds):
-                    thresholds[c][t] = min_threshold[c] + step[c] * t
+                    thresholds[c][t] = shifted_min_threshold + step[c] * t
             # narrow back to the storage dtype only after the accumulation
             thresholds = thresholds.astype(np_default_dtype)
+
+            # MultiThreshold uses an inclusive >= comparison, whereas QONNX
+            # ROUND/HALF_EVEN sends an exact tie to the even output level. If
+            # the lower level is even, make that boundary exclusive by moving
+            # it one representable float toward +infinity. Boundaries whose
+            # upper level is even remain inclusive.
+            rounding_mode = q_inst.get_nodeattr("rounding_mode").upper()
+            if self._q_node.op_type == "Quant" and rounding_mode in ("ROUND", "HALF_EVEN"):
+                signed = q_inst.get_nodeattr("signed")
+                bit_width_int = int(np.asarray(bit_width).reshape(-1)[0])
+                if signed:
+                    min_level = -(2 ** (bit_width_int - 1)) + int(narrow)
+                else:
+                    min_level = 0
+                lower_levels = min_level + np.arange(num_thresholds)
+                lower_even = (lower_levels % 2) == 0
+                thresholds[:, lower_even] = np.nextafter(
+                    thresholds[:, lower_even], np.float32(np.inf)
+                )
 
             # First try to consider the tensor layout of the output for
             # determining the number of output channels

@@ -45,6 +45,10 @@ from tempfile import TemporaryDirectory
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
+from finn.transformation.qonnx.quant_act_to_multithreshold import (
+    ConvertQuantActToMultiThreshold,
+)
+from finn.transformation.streamline import Streamline
 from finn.util.test import get_test_model_trained
 
 
@@ -167,6 +171,70 @@ def _make_single_quant_model(x, scale, zeropt, bitwidth, signed, narrow, roundin
     model.opset_import.append(helper.make_opsetid("qonnx.custom_op.general", 1))
     m = ModelWrapper(model)
     return m.transform(InferShapes()).transform(InferDataTypes())
+
+
+@pytest.mark.transform
+def test_quant_act_filter_leaves_rejected_candidate_untouched():
+    """A Quant candidate rejected by the caller must remain untouched."""
+
+    x = np.zeros((1, 2), dtype=np.float32)
+    model = _make_single_quant_model(x, [0.25], [3.0], [8.0], 0, 0, "ROUND")
+    with pytest.warns(UserWarning, match="filtering function returned False"):
+        converted = model.transform(ConvertQuantActToMultiThreshold(lambda _model, _node: False))
+    assert len(converted.get_nodes_by_op_type("Quant")) == 1
+    assert len(converted.get_nodes_by_op_type("MultiThreshold")) == 0
+
+
+@pytest.mark.transform
+def test_signed_quant_conversion_preserves_saturated_levels():
+    x = np.array([[-100.0, 100.0]], dtype=np.float32)
+    model = _make_single_quant_model(x, [0.25], [0.0], [7.0], 1, 0, "ROUND")
+    converted = model.transform(ConvertQONNXtoFINN())
+
+    expected = oxe.execute_onnx(model, {"global_in": x})["global_out"]
+    actual = oxe.execute_onnx(converted, {"global_in": x})["global_out"]
+    assert np.array_equal(actual, expected)
+
+
+@pytest.mark.transform
+def test_signed_quant_conversion_preserves_round_to_even_ties():
+    x = np.array([[-0.375, -0.125, 0.125, 0.375]], dtype=np.float32)
+    model = _make_single_quant_model(x, [0.25], [0.0], [7.0], 1, 0, "ROUND")
+    converted = model.transform(ConvertQONNXtoFINN())
+
+    expected = oxe.execute_onnx(model, {"global_in": x})["global_out"]
+    actual = oxe.execute_onnx(converted, {"global_in": x})["global_out"]
+    assert np.array_equal(actual, expected)
+
+
+@pytest.mark.transform
+def test_unsigned_quant_conversion_supports_nonzero_zero_point():
+    x = np.array([[-1.0, -0.125, 0.0, 0.5, 1.0]], dtype=np.float32)
+    model = _make_single_quant_model(x, [0.125], [2.25], [7.0], 0, 0, "ROUND")
+    converted = model.transform(ConvertQONNXtoFINN())
+    streamlined = converted.transform(Streamline())
+
+    expected = oxe.execute_onnx(model, {"global_in": x})["global_out"]
+    actual = oxe.execute_onnx(converted, {"global_in": x})["global_out"]
+    streamlined_actual = oxe.execute_onnx(streamlined, {"global_in": x})["global_out"]
+    assert np.array_equal(actual, expected)
+    assert np.array_equal(streamlined_actual, expected)
+
+
+@pytest.mark.transform
+def test_unsigned_quant_conversion_supports_per_channel_zero_point():
+    x = np.array([[-0.25, 0.5]], dtype=np.float32)
+    model = _make_single_quant_model(
+        x, [0.125, 0.25], [1.5, 2.25], [7.0], 0, 0, "ROUND"
+    )
+    converted = model.transform(ConvertQONNXtoFINN())
+    streamlined = converted.transform(Streamline())
+
+    expected = oxe.execute_onnx(model, {"global_in": x})["global_out"]
+    actual = oxe.execute_onnx(converted, {"global_in": x})["global_out"]
+    streamlined_actual = oxe.execute_onnx(streamlined, {"global_in": x})["global_out"]
+    assert np.array_equal(actual, expected)
+    assert np.array_equal(streamlined_actual, expected)
 
 
 @pytest.mark.transform
