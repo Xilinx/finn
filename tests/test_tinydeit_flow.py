@@ -766,6 +766,45 @@ def test_tinydeit_rejects_incompatible_folding_before_build(tmp_path):
     compatible.write_text(json.dumps({"Thresholding_rtl_0": {"PE": 3}}))
     tinydeit_build.validate_folding_config_compatibility(model, compatible)
 
+    shuffle_inp = onnx.helper.make_tensor_value_info(
+        "shuffle_inp", onnx.TensorProto.FLOAT, [1, 14, 192, 14]
+    )
+    shuffle_out = onnx.helper.make_tensor_value_info(
+        "shuffle_out", onnx.TensorProto.FLOAT, [1, 192, 14, 14]
+    )
+    shuffle = onnx.helper.make_node(
+        "OuterShuffle_hls",
+        ["shuffle_inp"],
+        ["shuffle_out"],
+        name="OuterShuffle_hls_0",
+        domain="finn.custom_op.fpgadataflow.hls",
+        backend="fpgadataflow",
+        data_type="INT3",
+        in_shape=[1, 14, 192, 14],
+        out_shape=[1, 192, 14, 14],
+        transpose_in_shape=[1, 14, 192, 14],
+        transpose_out_shape=[1, 192, 14, 14],
+        loop_coeffs=[37632, 14, 2688, 1],
+        perm=[0, 2, 1, 3],
+        SIMD=1,
+        NumChannels=14,
+    )
+    shuffle_graph = onnx.helper.make_graph(
+        [shuffle], "shuffle_folding_compatibility", [shuffle_inp], [shuffle_out]
+    )
+    shuffle_model = tinydeit_build.ModelWrapper(onnx.helper.make_model(shuffle_graph))
+    incompatible_shuffle = tmp_path / "incompatible_shuffle.json"
+    incompatible_shuffle.write_text(json.dumps({"OuterShuffle_hls_0": {"SIMD": 28}}))
+
+    with pytest.raises(ValueError, match="Unable to determine a new SIMD value"):
+        tinydeit_build.validate_folding_config_compatibility(
+            shuffle_model, incompatible_shuffle
+        )
+
+    compatible_shuffle = tmp_path / "compatible_shuffle.json"
+    compatible_shuffle.write_text(json.dumps({"OuterShuffle_hls_0": {"SIMD": 7}}))
+    tinydeit_build.validate_folding_config_compatibility(shuffle_model, compatible_shuffle)
+
 
 @pytest.mark.transform
 def test_tinydeit_vck190_configs_and_signoff_evidence():

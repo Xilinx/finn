@@ -16,20 +16,14 @@
   "Thresholding_rtl_0": {
     "PE": 3
   },
-  "OuterShuffle_hls_1": {
-    "SIMD": 28
-  },
-  "InnerShuffle_rtl_1": {
-    "SIMD": 3
-  },
   "ConvolutionInputGenerator_rtl_0": {
     "SIMD": 3,
     "ram_style": "distributed"
   },
-  "InnerShuffle_rtl_2": {
+  "InnerShuffle_rtl_1": {
     "SIMD": 7
   },
-  "OuterShuffle_hls_2": {
+  "OuterShuffle_hls_1": {
     "SIMD": 7
   },
   "ElementwiseMul_rtl_0": {
@@ -40,7 +34,7 @@
     "PE": 7,
     "mem_mode": "internal_decoupled"
   },
-  "InnerShuffle_rtl_3": {
+  "InnerShuffle_rtl_2": {
     "SIMD": 7
   },
   "AddCLSToken_rtl_0": {

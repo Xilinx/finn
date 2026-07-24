@@ -137,8 +137,8 @@ def validate_folding_config_compatibility(
 
     Folding configurations name nodes after FINNLoop body canonicalization, so
     validate a copy using the same naming and configuration application used by
-    the build. Post-transpose shuffle settings are intentionally ignored here
-    because those nodes do not exist until the later decomposition step.
+    the build. Calling this again after transpose decomposition validates the
+    final InnerShuffle/OuterShuffle settings before hardware generation.
     """
 
     config_path = repo_path(folding_config_file)
@@ -147,9 +147,15 @@ def validate_folding_config_compatibility(
 
     probe = ModelWrapper(copy.deepcopy(model.model))
     probe = _canonicalize_loop_body_names(probe)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", UserWarning)
-        probe = probe.transform(ApplyConfig(config))
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            probe = probe.transform(ApplyConfig(config))
+    except (AssertionError, AttributeError, RuntimeError, TypeError, ValueError) as exc:
+        raise ValueError(
+            f"Folding configuration {config_path} is incompatible with the prepared model: "
+            f"{exc}"
+        ) from exc
     errors = []
 
     def validate_graph(graph_model: ModelWrapper, hierarchy: str | None = None) -> None:
@@ -157,8 +163,8 @@ def validate_folding_config_compatibility(
             config_key = node.name if hierarchy is None else f"{hierarchy}_{node.name}"
             node_config = config.get(config_key, {})
             if isinstance(node_config, dict) and ({"PE", "SIMD"} & node_config.keys()):
-                inst = getHWCustomOp(node, graph_model)
                 try:
+                    inst = getHWCustomOp(node, graph_model)
                     if node.op_type.startswith("Thresholding"):
                         channels = int(inst.get_nodeattr("NumChannels"))
                         pe = int(inst.get_nodeattr("PE"))
@@ -175,7 +181,13 @@ def validate_folding_config_compatibility(
                             raise ValueError(f"MH={mh} is not divisible by PE={pe}")
                     inst.get_folded_input_shape()
                     inst.get_folded_output_shape()
-                except (AssertionError, AttributeError, TypeError, ValueError) as exc:
+                except (
+                    AssertionError,
+                    AttributeError,
+                    RuntimeError,
+                    TypeError,
+                    ValueError,
+                ) as exc:
                     errors.append(f"{config_key}: {exc}")
 
             for attr in node.attribute:
@@ -291,6 +303,9 @@ def step_tinydeit_post_transpose_parallelization(
     if target_cycles_per_frame is None:
         print("No target_fps provided, skipping step_tinydeit_post_transpose_parallelization.")
         return model
+
+    if cfg.folding_config_file is not None:
+        validate_folding_config_compatibility(model, cfg.folding_config_file)
 
     model = model.transform(
         SetFolding(
