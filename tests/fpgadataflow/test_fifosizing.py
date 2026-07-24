@@ -30,6 +30,7 @@
 import pytest
 
 import json
+import numpy as np
 import torch
 from brevitas.export import export_qonnx
 from onnx import TensorProto, helper
@@ -43,6 +44,7 @@ from qonnx.util.basic import qonnx_make_model
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
+from finn.transformation.fpgadataflow.derive_characteristic import DeriveFIFOSizes
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import make_build_dir, robust_rmtree
@@ -138,6 +140,75 @@ def test_fifosizing_multi_io():
     model = model.transform(InsertAndSetFIFODepths("xc7z020clg400-1", 5))
     fifos = model.get_nodes_by_op_type("StreamingFIFO_rtl")
     assert len(fifos) > 1, "No FIFOs inserted"
+
+
+def test_characterization_fifosizing_uses_matching_consumer_input(tmp_path):
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, 1])
+    skip = helper.make_tensor_value_info("skip", TensorProto.FLOAT, [1, 1])
+    branch = helper.make_tensor_value_info("branch", TensorProto.FLOAT, [1, 1])
+    out = helper.make_tensor_value_info("out", TensorProto.FLOAT, [1, 1])
+    fork = helper.make_node(
+        "DuplicateStreams_rtl",
+        ["inp"],
+        ["skip", "branch"],
+        name="fork",
+        domain="finn.custom_op.fpgadataflow.rtl",
+        backend="fpgadataflow",
+        NumChannels=1,
+        NumOutputStreams=2,
+        PE=1,
+        inputDataType="INT4",
+        numInputVectors=[1],
+        outFIFODepths=[2, 2],
+    )
+    join = helper.make_node(
+        "ElementwiseAdd_rtl",
+        ["skip", "branch"],
+        ["out"],
+        name="join",
+        domain="finn.custom_op.fpgadataflow.rtl",
+        backend="fpgadataflow",
+        lhs_shape=[1, 1],
+        rhs_shape=[1, 1],
+        out_shape=[1, 1],
+        lhs_dtype="INT4",
+        rhs_dtype="INT4",
+        out_dtype="INT4",
+        lhs_style="input",
+        rhs_style="input",
+        PE=1,
+        inFIFODepths=[2, 2],
+    )
+    graph = helper.make_graph(
+        [fork, join], "residual", [inp], [out], value_info=[skip, branch]
+    )
+    model = ModelWrapper(qonnx_make_model(graph))
+
+    period = 4
+    producer_chrc = np.asarray([1, 2, 3, 4, 5, 6, 7, 8], dtype=np.int32)
+    consumer_chrc = np.asarray(
+        [producer_chrc, [0, 0, 0, 1, 1, 1, 1, 2]], dtype=np.int32
+    )
+    fork_node = model.get_nodes_by_op_type("DuplicateStreams_rtl")[0]
+    join_node = model.get_nodes_by_op_type("ElementwiseAdd_rtl")[0]
+    for node, chrc_in, chrc_out in [
+        (fork_node, None, np.stack([producer_chrc, producer_chrc])),
+        (join_node, consumer_chrc, producer_chrc.reshape(1, -1)),
+    ]:
+        inst = getCustomOp(node)
+        inst.set_nodeattr("io_chrc_period", period)
+        if chrc_in is not None:
+            path = tmp_path / f"{node.name}_io_chrc_in.npy"
+            np.save(path, chrc_in)
+            inst.set_nodeattr("io_chrc_in_file", str(path))
+        path = tmp_path / f"{node.name}_io_chrc_out.npy"
+        np.save(path, chrc_out)
+        inst.set_nodeattr("io_chrc_out_file", str(path))
+
+    model = model.transform(DeriveFIFOSizes())
+
+    fork_inst = getCustomOp(model.get_nodes_by_op_type("DuplicateStreams_rtl")[0])
+    assert fork_inst.get_nodeattr("outFIFODepths") == [0, 3]
 
 
 def make_multi_io_modelwrapper(ch, pe, idt):
