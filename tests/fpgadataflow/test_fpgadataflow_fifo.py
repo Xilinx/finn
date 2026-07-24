@@ -80,7 +80,7 @@ def prepare_inputs(input_tensor, dt):
     return {"inp": input_tensor}
 
 
-def test_fpgadataflow_fifo_rtl_ipi_retries_module_resolution():
+def test_fpgadataflow_fifo_rtl_ipi_deduplicates_helpers_and_retries_module_resolution():
     model = make_single_fifo_modelwrapper([1, 8], 2, [1, 1, 8], DataType["INT2"])
     model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(GiveUniqueNodeNames())
@@ -89,6 +89,11 @@ def test_fpgadataflow_fifo_rtl_ipi_retries_module_resolution():
     fifo.set_nodeattr("gen_top_module", "StreamingFIFO_rtl_0")
 
     ipi_commands = fifo.code_generation_ipi()
+    shared_source_command = ipi_commands[0]
+    assert "::finn_streamingfifo_rtl_shared_sources_added" in shared_source_command
+    assert shared_source_command.count("add_files") == 2
+    assert ipi_commands[1].endswith("StreamingFIFO_rtl_0.v")
+
     create_cell_command = ipi_commands[-1]
 
     assert "catch {create_bd_cell" in create_cell_command

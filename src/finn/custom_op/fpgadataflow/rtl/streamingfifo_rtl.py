@@ -122,17 +122,26 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
         if impl_style == "rtl":
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
-            sourcefiles = [
+            shared_sourcefiles = [
                 "fifo_gauge.sv",
                 "Q_srl.v",
-                self.get_nodeattr("gen_top_module") + ".v",
             ]
-
-            sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
-
-            cmd = []
-            for f in sourcefiles:
-                cmd += ["add_files -norecurse %s" % (f)]
+            # These helpers are identical for every RTL FIFO. Adding duplicate
+            # copies can make Vivado lose track of later module references.
+            shared_sourcefiles = [os.path.join(code_gen_dir, f) for f in shared_sourcefiles]
+            shared_source_cmds = "\n".join(
+                ["    add_files -norecurse %s" % f for f in shared_sourcefiles]
+            )
+            cmd = [
+                "if {![info exists ::finn_streamingfifo_rtl_shared_sources_added]} {\n"
+                "%s\n"
+                "    set ::finn_streamingfifo_rtl_shared_sources_added 1\n"
+                "}" % shared_source_cmds
+            ]
+            top_sourcefile = os.path.join(
+                code_gen_dir, self.get_nodeattr("gen_top_module") + ".v"
+            )
+            cmd.append("add_files -norecurse %s" % top_sourcefile)
             create_cell_cmd = "create_bd_cell -type module -reference %s %s" % (
                 self.get_nodeattr("gen_top_module"),
                 self.onnx_node.name,
