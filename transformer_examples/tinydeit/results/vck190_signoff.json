@@ -4,24 +4,30 @@
     {
       "name": "w3a3_vck190_300mhz_10k",
       "configuration": "configs/w3a3_vck190_300mhz_10k.json",
-      "configuration_sha256": "f966abb32a9d3ab2c0c724a24b2aafdcf24e4018dd9bc466ddc50d2b8cef21aa",
+      "configuration_sha256": "10bc7533c26e31c7632e9f18950508c6903ac9aa1f9310ccb5ce5d1a5eb5f88b",
       "target": {
         "board": "VCK190",
         "part": "xcvc1902-vsva2197-2MP-e-S",
         "vivado_version": "2024.2",
-        "nominal_clock_mhz": 300.0,
-        "timing_report_clock_mhz": 300.1200480192077
+        "base_clock_period_ns": 8.334,
+        "nominal_clock_mhz": 119.990401,
+        "timing_report_clock_mhz": 119.99,
+        "double_pumped_clock_period_ns": 4.167,
+        "double_pumped_clock_mhz": 239.980802,
+        "timing_report_double_pumped_clock_mhz": 239.981
       },
       "timing": {
-        "wns_ns": 0.018,
-        "whs_ns": 0.001,
+        "wns_ns": 0.036,
+        "whs_ns": 0.01,
         "tns_ns": 0.0,
         "ths_ns": 0.0,
+        "no_clock_endpoints": 0,
+        "unconstrained_internal_endpoints": 0,
         "constraints_met": true
       },
       "routing": {
-        "routable_nets": 613505,
-        "fully_routed_nets": 613505,
+        "routable_nets": 980336,
+        "fully_routed_nets": 980336,
         "routing_error_nets": 0,
         "passed": true
       },
@@ -36,12 +42,12 @@
         "passed": null
       },
       "resources": {
-        "lut": 337124,
-        "ff": 366279,
-        "ramb36e5": 39,
-        "ramb18e5": 20,
-        "uram": 59,
-        "dsp": 1127
+        "lut": 441677,
+        "ff": 615656,
+        "ramb36e5": 600,
+        "ramb18e5": 30,
+        "uram": 71,
+        "dsp": 845
       },
       "quantization": {
         "profile": "strict_activation_w3a3",
@@ -63,9 +69,9 @@
       },
       "artifact_sha256": {
         "prepared_model": "884e9e7e7b5aa6cda2698fc7f73ccd747820654c7d8a1fdf73397a0a96ba3ead",
-        "synth_dcp": "92b4c93e7712323742c9489390e0122942ef8c42be9748cb89b5ead051c3e66e",
-        "routed_dcp": "40424dffa95da117e4260755130b3b780b1d49bb02e26561a74a05bd5b5cda0e",
-        "timing_report": "e57113587d71a2491da3def499efbd74d170ffe713b96cde9e4b16cb2be10ec0",
+        "synth_dcp": "2e9a978346d7a48a9a79613e971ef4746d55b8e8d54ad3188bc0a3dd5eeb1511",
+        "routed_dcp": "18bd3ce9ea34a92160ce68dd33fb9d72002f65fe9878af304d279e12f45c316e",
+        "timing_report": "39013f7e1003014bdef812cfbbf13fe2c2a67ed7c508ac87e78f361fea65a889",
         "rejected_single_frame_rtlsim_results": "06494799e3a615c65077520eaaf8c63c8ca3b8103fe0385e6041558b15ba606c"
       }
     },
@@ -77,20 +83,26 @@
         "board": "VCK190",
         "part": "xcvc1902-vsva2197-2MP-e-S",
         "vivado_version": "2024.2",
-        "nominal_clock_mhz": 200.0,
-        "timing_report_clock_mhz": 200.0
+        "base_clock_period_ns": 8.334,
+        "nominal_clock_mhz": 119.990401,
+        "timing_report_clock_mhz": 119.99,
+        "double_pumped_clock_period_ns": 4.167,
+        "double_pumped_clock_mhz": 239.980802,
+        "timing_report_double_pumped_clock_mhz": 239.981
       },
       "timing": {
-        "wns_ns": 0.071,
+        "wns_ns": 0.08,
         "whs_ns": 0.01,
         "tns_ns": 0.0,
         "ths_ns": 0.0,
+        "no_clock_endpoints": 0,
+        "unconstrained_internal_endpoints": 0,
         "constraints_met": true
       },
       "routing": {
-        "unrouted_nets": 0,
-        "partially_routed_nets": 0,
-        "failed_nets": 0,
+        "routable_nets": 1392360,
+        "fully_routed_nets": 1392360,
+        "routing_error_nets": 0,
         "passed": true
       },
       "rtlsim": {
@@ -104,12 +116,12 @@
         "passed": null
       },
       "resources": {
-        "lut": 423854,
-        "ff": 466588,
-        "ramb36e5": 60,
-        "ramb18e5": 6,
-        "uram": 66,
-        "dsp": 1148
+        "lut": 651999,
+        "ff": 818394,
+        "ramb36e5": 740,
+        "ramb18e5": 17,
+        "uram": 72,
+        "dsp": 1757
       },
       "quantization": {
         "profile": "w4a4_qat_smoke",
@@ -124,9 +136,9 @@
       },
       "artifact_sha256": {
         "prepared_model": "f3d26b89d28c455e48acba9c89a51de2a99ab7f3b5ca35dee77293fd1d13203c",
-        "synth_dcp": "52d0173622bef7b529980b2e3093c2ca4d58ef341df7b33e7ec3d80bbae55183",
-        "routed_dcp": "5163ca3e648bb1682059042df9bb4d6e5daf8ffc810e4d80d45d30b67572337f",
-        "timing_report": "e7a31ca9dd219b32f358af47db1000233e8a89ad1a850b38354fe3171fe2be25",
+        "synth_dcp": "e6b519ae988b0c94031303ae61859835d6a55a050bf317d1ea5587b5138ec2be",
+        "routed_dcp": "ff9916b2845972c51f8551f3d90b307a4dce387cab4808de8f7b39ea2ce3a5ad",
+        "timing_report": "e32825be503d11dbde625d4c48502cf50805ebe0735431984561e5e353754415",
         "rejected_single_frame_rtlsim_results": "74e7c7cfcbbeeed745d7b5fa063c9aa316e37859c18bf894a59a06458f26e2d7"
       }
     }

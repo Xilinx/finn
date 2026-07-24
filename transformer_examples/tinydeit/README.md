@@ -48,14 +48,15 @@ specialized FINN model using C++ simulation.
 
 ## Build
 
-For an estimate using the verified W3A3 folding configuration:
+For an estimate using the verified W3A3 folding configuration and the routed
+signoff clock:
 
 ```bash
 python -m transformer_examples.tinydeit.build \
   --mode estimate \
   --prepared-model transformer_examples/tinydeit/build/flow/tinydeit_mlo.onnx \
   --output-dir transformer_examples/tinydeit/build/w3a3_estimate \
-  --clock-ns 3.3333333333333335 \
+  --clock-ns 8.334 \
   --target-fps 10000 \
   --folding-target-cycles 0 \
   --folding-config-file \
@@ -67,14 +68,30 @@ VCK190 out-of-context synthesis and routing, or `full-rtlsim` to measure RTL
 simulation performance. DCP mode performs a small target-part Vivado license
 preflight before the full build.
 
-The W4A4 smoke configuration uses a 200 MHz clock and a 7,000 FPS target:
+The `target-fps` arguments and the target-oriented configuration filenames are
+folding inputs retained for reproducibility; they are not measured throughput
+claims. Both retained routed designs use a 119.990 MHz base clock and a 239.981
+MHz double-pumped compute clock.
+
+Prepare the W4A4 smoke configuration from a W4A4 QVS export; the folding
+configuration controls hardware parallelism but does not change model
+quantization:
+
+```bash
+python -m transformer_examples.tinydeit.prepare_model \
+  --input onnx-checkpoints/deit_tiny_w4a4_quant.onnx \
+  --output-dir transformer_examples/tinydeit/build/w4a4_flow \
+  --save-intermediate
+```
+
+Then build that W4A4-prepared model:
 
 ```bash
 python -m transformer_examples.tinydeit.build \
   --mode dcp \
-  --prepared-model transformer_examples/tinydeit/build/flow/tinydeit_mlo.onnx \
+  --prepared-model transformer_examples/tinydeit/build/w4a4_flow/tinydeit_mlo.onnx \
   --output-dir transformer_examples/tinydeit/build/w4a4_dcp \
-  --clock-ns 5.0 \
+  --clock-ns 8.334 \
   --target-fps 7000 \
   --folding-target-cycles 0 \
   --folding-config-file \
@@ -92,8 +109,8 @@ artifacts.
 
 | Configuration | Clock | WNS | Route | Measured stitched throughput | Accuracy |
 | --- | ---: | ---: | --- | --- | --- |
-| W3A3 | 300.120 MHz | +0.018 ns | clean | not available | not available |
-| W4A4 QAT smoke | 200.000 MHz | +0.071 ns | clean | not available | Acc@1 0.000%, Acc@5 12.500% |
+| W3A3 | 119.990 MHz / 239.981 MHz | +0.036 ns | clean | not available | not available |
+| W4A4 QAT smoke | 119.990 MHz / 239.981 MHz | +0.080 ns | clean | not available | Acc@1 0.000%, Acc@5 12.500% |
 
 The older RTL intervals were produced by single-frame loop-body FIFO sizing and
 are not end-to-end steady-state measurements, so they are deliberately excluded.

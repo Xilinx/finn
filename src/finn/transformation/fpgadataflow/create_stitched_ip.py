@@ -600,7 +600,16 @@ class CreateStitchedIP(Transformation):
         if self.run_pnr:
             tcl.append("")
             tcl.append("# --- Place and Route for OOC Metrics ---")
-            tcl.append("create_clock -period %f [get_ports ap_clk]" % self.clk_ns)
+            ooc_clk_period_ps = round(self.clk_ns * 1000)
+            if self.clock2x_is_external and ooc_clk_period_ps % 2:
+                # Vivado's timing resolution is one picosecond. Use an even
+                # base period so the external double-frequency clock remains
+                # exactly 2:1 after period quantization.
+                ooc_clk_period_ps += 1
+            ooc_clk_period_ns = ooc_clk_period_ps / 1000
+            tcl.append("create_clock -period %f [get_ports ap_clk]" % ooc_clk_period_ns)
+            if self.clock2x_is_external:
+                tcl.append("create_clock -period %f [get_ports ap_clk2x]" % (ooc_clk_period_ns / 2))
             tcl.append("opt_design")
             tcl.append("place_design")
             tcl.append("route_design")
@@ -616,7 +625,7 @@ class CreateStitchedIP(Transformation):
             tcl.append("# Write metadata (clock period, Vivado version) to a simple file")
             meta_file = "%s/ooc_metadata.txt" % vivado_stitch_proj_dir
             tcl.append('set fp [open "%s" w]' % meta_file)
-            tcl.append('puts $fp "clk_period_ns=%f"' % self.clk_ns)
+            tcl.append('puts $fp "clk_period_ns=%f"' % ooc_clk_period_ns)
             tcl.append('puts $fp "vivado_version=[version -short]"')
             tcl.append("close $fp")
             tcl.append("")

@@ -449,7 +449,15 @@ def test_tinydeit_vck190_configs_and_signoff_evidence():
         config = json.loads((example_dir / measurement["configuration"]).read_text())
         assert config["Defaults"]["pumpedCompute"] == [1, ["MVAU_rtl"]]
         assert measurement["target"]["board"] == "VCK190"
+        assert measurement["target"]["base_clock_period_ns"] == 8.334
+        assert measurement["target"]["double_pumped_clock_period_ns"] == 4.167
+        assert measurement["timing"]["no_clock_endpoints"] == 0
+        assert measurement["timing"]["unconstrained_internal_endpoints"] == 0
         assert measurement["timing"]["constraints_met"] is True
+        assert (
+            measurement["routing"]["fully_routed_nets"] == measurement["routing"]["routable_nets"]
+        )
+        assert measurement["routing"]["routing_error_nets"] == 0
         assert measurement["routing"]["passed"] is True
         assert measurement["rtlsim"] == {
             "status": "not_available",

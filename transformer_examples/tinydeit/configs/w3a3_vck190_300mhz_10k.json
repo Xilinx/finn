@@ -132,29 +132,29 @@
     "PE": 4
   },
   "FINNLoop_0_body_FINNLoop_0_InnerShuffle_rtl_0": {
-    "SIMD": 197
+    "SIMD": 1
   },
   "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_3": {
-    "PE": 197,
-    "SIMD": 4,
+    "PE": 1,
+    "SIMD": 64,
     "mem_mode": "dynamic"
   },
   "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_3": {
     "PE": 197
   },
   "FINNLoop_0_body_FINNLoop_0_HWSoftmax_rtl_0": {
-    "SIMD": 197
+    "SIMD": 1
   },
   "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_4": {
     "PE": 197
   },
   "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_4": {
-    "PE": 4,
+    "PE": 1,
     "SIMD": 197,
     "mem_mode": "dynamic"
   },
   "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_5": {
-    "PE": 4
+    "PE": 1
   },
   "FINNLoop_0_body_FINNLoop_0_OuterShuffle_hls_3": {
     "SIMD": 4
@@ -165,7 +165,7 @@
     "mem_mode": "internal_decoupled"
   },
   "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_4": {
-    "PE": 3
+    "PE": 1
   },
   "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_0": {
     "PE": 3
@@ -177,7 +177,7 @@
     "SIMD": 3
   },
   "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_6": {
-    "PE": 3
+    "PE": 1
   },
   "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_6": {
     "PE": 12,
