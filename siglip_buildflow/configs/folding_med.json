@@ -59,7 +59,7 @@
   "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_0": {
     "PE": 2,
     "runtime_writeable_weights": 0,
-    "depth_trigger_uram": 4096,
+    "depth_trigger_uram": 0,
     "depth_trigger_bram": 0
   },
   "FINNLoop_0_body_FINNLoop_0_DuplicateStreams_hls_1": {
@@ -270,7 +270,7 @@
   "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_8": {
     "PE": 2,
     "runtime_writeable_weights": 0,
-    "depth_trigger_uram": 4096,
+    "depth_trigger_uram": 0,
     "depth_trigger_bram": 0
   },
   "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_6": {
