@@ -40,7 +40,7 @@ from finn.util.basic import (
     make_build_dir,
 )
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
-from finn.util.mlo_sim import dat_file_to_numpy_array
+from finn.util.rtlsim import dat_file_to_numpy_array
 
 finnxsi = xsi if xsi.is_available() else None
 

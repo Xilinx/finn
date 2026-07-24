@@ -1,9 +1,11 @@
-import pytest
-
+import hashlib
 import json
+import numpy as np
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 onnx = pytest.importorskip("onnx")
 
@@ -12,9 +14,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from transformer_examples.tinydeit.common import (  # noqa: E402
     DEFAULT_CHECKPOINT,
     EXPORTED_PWPOLYF_SEQUENCE,
+    collapse_exported_pwpolyf,
     exported_pwpolyf_match_indices,
     find_mlo_loop_body_ranges,
     find_transformer_blocks,
+    move_forked_scalar_mul_past_matmul,
 )
 
 
@@ -56,6 +60,213 @@ def test_tinydeit_checkpoint_structure():
     matches = exported_pwpolyf_match_indices(model)
     assert len(matches) == 12
     assert matches[0][1] - matches[0][0] + 1 == len(EXPORTED_PWPOLYF_SEQUENCE)
+
+
+def _make_erf_gelu_model(*, complete=True):
+    from qonnx.core.modelwrapper import ModelWrapper  # noqa: PLC0415
+
+    shape = [1, 4]
+    inp = onnx.helper.make_tensor_value_info("inp", onnx.TensorProto.FLOAT, shape)
+    outp = onnx.helper.make_tensor_value_info("outp", onnx.TensorProto.FLOAT, shape)
+    sqrt2 = onnx.helper.make_tensor(
+        "sqrt2", onnx.TensorProto.FLOAT, [], [np.float32(np.sqrt(2))]
+    )
+    one = onnx.helper.make_tensor("one", onnx.TensorProto.FLOAT, [], [np.float32(1.0)])
+    half = onnx.helper.make_tensor("half", onnx.TensorProto.FLOAT, [], [np.float32(0.5)])
+    nodes = [
+        onnx.helper.make_node("Div", ["inp", "sqrt2"], ["div_out"], name="Div_0"),
+        onnx.helper.make_node("Erf", ["div_out"], ["erf_out"], name="Erf_0"),
+    ]
+    if complete:
+        nodes.extend(
+            [
+                onnx.helper.make_node("Add", ["erf_out", "one"], ["add_out"], name="Add_0"),
+                onnx.helper.make_node(
+                    "Mul", ["add_out", "half"], ["mul_half_out"], name="Mul_0"
+                ),
+                onnx.helper.make_node(
+                    "Mul", ["inp", "mul_half_out"], ["outp"], name="Mul_1"
+                ),
+            ]
+        )
+    else:
+        nodes.append(onnx.helper.make_node("Identity", ["erf_out"], ["outp"], name="Output"))
+    graph = onnx.helper.make_graph(
+        nodes,
+        "erf_gelu_graph",
+        [inp],
+        [outp],
+        initializer=[sqrt2, one, half],
+    )
+    return ModelWrapper(
+        onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 18)])
+    )
+
+
+def _make_exported_pwpolyf_model():
+    """Build a valid graph containing the legacy exported operator sequence."""
+    from qonnx.core.modelwrapper import ModelWrapper  # noqa: PLC0415
+
+    shape = [1, 4]
+    inp = onnx.helper.make_tensor_value_info("inp", onnx.TensorProto.FLOAT, shape)
+    outp = onnx.helper.make_tensor_value_info("outp", onnx.TensorProto.FLOAT, shape)
+    initializers = [
+        onnx.numpy_helper.from_array(np.array(shape, dtype=np.int64), name="shape"),
+        onnx.numpy_helper.from_array(np.zeros(shape, dtype=np.float32), name="floats"),
+        onnx.numpy_helper.from_array(np.ones(shape, dtype=np.int32), name="ints"),
+        onnx.numpy_helper.from_array(np.ones(shape, dtype=np.bool_), name="bools"),
+        onnx.numpy_helper.from_array(np.ones(shape, dtype=np.int32), name="shifts"),
+        onnx.numpy_helper.from_array(np.array([0], dtype=np.int64), name="axes"),
+        onnx.numpy_helper.from_array(np.array([0], dtype=np.int64), name="gather_indices"),
+        onnx.numpy_helper.from_array(np.array([[0]], dtype=np.int64), name="gathernd_indices"),
+        onnx.numpy_helper.from_array(np.zeros((81, 3), dtype=np.float32), name="coeffs"),
+        onnx.numpy_helper.from_array(np.array(-10.0, dtype=np.float32), name="clip_min"),
+        onnx.numpy_helper.from_array(np.array(10.0, dtype=np.float32), name="clip_max"),
+    ]
+    nodes = []
+    for idx, op_type in enumerate(EXPORTED_PWPOLYF_SEQUENCE):
+        output_name = "outp" if idx == len(EXPORTED_PWPOLYF_SEQUENCE) - 1 else f"tmp_{idx}"
+        kwargs = {}
+        if op_type == "Reshape":
+            inputs = ["inp", "shape"]
+        elif op_type == "Cast":
+            inputs = ["inp"]
+            kwargs["to"] = onnx.TensorProto.FLOAT
+        elif op_type in {"Less", "Equal", "GreaterOrEqual"}:
+            inputs = ["inp", "floats"]
+        elif op_type == "BitShift":
+            inputs = ["ints", "shifts"]
+            kwargs["direction"] = "RIGHT"
+        elif op_type in {"BitwiseOr", "BitwiseAnd"}:
+            inputs = ["ints", "ints"]
+        elif op_type == "Where":
+            inputs = ["bools", "inp", "floats"]
+        elif op_type in {"Sub", "Max", "Mul", "Add"}:
+            inputs = ["inp", "floats"]
+        elif op_type == "And":
+            inputs = ["bools", "bools"]
+        elif op_type == "Clip":
+            inputs = ["inp", "clip_min", "clip_max"]
+        elif op_type == "Unsqueeze":
+            inputs = ["inp", "axes"]
+        elif op_type == "GatherND":
+            inputs = ["coeffs", "gathernd_indices"]
+        elif op_type == "Gather":
+            inputs = ["inp", "gather_indices"]
+            kwargs["axis"] = 1
+        else:
+            raise AssertionError(f"Unhandled exported PWPolyF operator {op_type}")
+        nodes.append(
+            onnx.helper.make_node(
+                op_type,
+                inputs,
+                [output_name],
+                name=f"{op_type}_{idx}",
+                **kwargs,
+            )
+        )
+    graph = onnx.helper.make_graph(
+        nodes,
+        "exported_pwpolyf_graph",
+        [inp],
+        [outp],
+        initializer=initializers,
+    )
+    return ModelWrapper(
+        onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 18)])
+    )
+
+
+@pytest.mark.transform
+def test_tinydeit_collapse_accepts_exported_polynomial():
+    pytest.importorskip("qonnx")
+    model = _make_exported_pwpolyf_model()
+
+    model, count = collapse_exported_pwpolyf(model, expected_count=1)
+
+    assert count == 1
+    assert [node.op_type for node in model.graph.node] == ["PWPolyF"]
+
+
+@pytest.mark.transform
+def test_tinydeit_collapse_accepts_erf_gelu_export():
+    pytest.importorskip("qonnx")
+    model = _make_erf_gelu_model()
+
+    model, count = collapse_exported_pwpolyf(model, expected_count=1)
+
+    assert count == 1
+    assert [node.op_type for node in model.graph.node] == ["PWPolyF"]
+
+
+@pytest.mark.transform
+def test_tinydeit_collapse_rejects_partial_erf_gelu_export():
+    pytest.importorskip("qonnx")
+    model = _make_erf_gelu_model(complete=False)
+
+    with pytest.raises(RuntimeError, match="converted only 0 complete GELU"):
+        collapse_exported_pwpolyf(model, expected_count=1)
+
+
+@pytest.mark.transform
+def test_tinydeit_collapse_rejects_mixed_exports(monkeypatch):
+    pytest.importorskip("qonnx")
+    from transformer_examples.tinydeit import common  # noqa: PLC0415
+
+    model = _make_erf_gelu_model()
+    monkeypatch.setattr(common, "exported_pwpolyf_match_indices", lambda _: [(0, 50)])
+
+    with pytest.raises(RuntimeError, match="mixes polynomial PWPolyF and Erf GELU"):
+        collapse_exported_pwpolyf(model, expected_count=1)
+
+
+@pytest.mark.transform
+def test_tinydeit_moves_forked_scalar_mul_past_matmul():
+    pytest.importorskip("qonnx")
+    from qonnx.core.modelwrapper import ModelWrapper  # noqa: PLC0415
+    from qonnx.core.onnx_exec import execute_onnx  # noqa: PLC0415
+    from qonnx.transformation.infer_shapes import InferShapes  # noqa: PLC0415
+
+    inp = onnx.helper.make_tensor_value_info("inp", onnx.TensorProto.FLOAT, [1, 4])
+    out0 = onnx.helper.make_tensor_value_info("out0", onnx.TensorProto.FLOAT, [1, 4])
+    out1 = onnx.helper.make_tensor_value_info("out1", onnx.TensorProto.FLOAT, [1, 4])
+    scale = onnx.helper.make_tensor("scale", onnx.TensorProto.FLOAT, [1], [np.float32(0.25)])
+    w0 = onnx.numpy_helper.from_array(
+        np.arange(16, dtype=np.float32).reshape(4, 4), name="w0"
+    )
+    w1 = onnx.numpy_helper.from_array(
+        np.flip(np.arange(16, dtype=np.float32).reshape(4, 4), axis=1).copy(), name="w1"
+    )
+    nodes = [
+        onnx.helper.make_node("Mul", ["inp", "scale"], ["scaled"], name="scale_mul"),
+        onnx.helper.make_node("MatMul", ["scaled", "w0"], ["out0"], name="mm0"),
+        onnx.helper.make_node("MatMul", ["scaled", "w1"], ["out1"], name="mm1"),
+    ]
+    graph = onnx.helper.make_graph(
+        nodes,
+        "forked_scalar_mul_graph",
+        [inp],
+        [out0, out1],
+        initializer=[scale, w0, w1],
+    )
+    model = ModelWrapper(
+        onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 18)])
+    ).transform(InferShapes())
+    input_dict = {"inp": np.array([[1.0, -2.0, 3.0, -4.0]], dtype=np.float32)}
+    expected = execute_onnx(model, input_dict)
+
+    model, moved = move_forked_scalar_mul_past_matmul(model)
+    actual = execute_onnx(model, input_dict)
+
+    assert moved == 1
+    assert all(node.name != "scale_mul" for node in model.graph.node)
+    matmuls = [node for node in model.graph.node if node.op_type == "MatMul"]
+    assert len(matmuls) == 2
+    assert all(node.input[0] == "inp" for node in matmuls)
+    assert model.find_producer("out0").op_type == "Mul"
+    assert model.find_producer("out1").op_type == "Mul"
+    np.testing.assert_allclose(actual["out0"], expected["out0"])
+    np.testing.assert_allclose(actual["out1"], expected["out1"])
 
 
 @pytest.mark.transform
@@ -446,7 +657,11 @@ def test_tinydeit_vck190_configs_and_signoff_evidence():
     }
 
     for measurement in measurements.values():
-        config = json.loads((example_dir / measurement["configuration"]).read_text())
+        config_path = example_dir / measurement["configuration"]
+        config = json.loads(config_path.read_text())
+        assert hashlib.sha256(config_path.read_bytes()).hexdigest() == measurement[
+            "configuration_sha256"
+        ]
         assert config["Defaults"]["pumpedCompute"] == [1, ["MVAU_rtl"]]
         assert measurement["target"]["board"] == "VCK190"
         assert measurement["target"]["base_clock_period_ns"] == 8.334
@@ -469,8 +684,7 @@ def test_tinydeit_vck190_configs_and_signoff_evidence():
             "throughput_fps": None,
             "passed": None,
         }
-        rejected_hash = measurement["artifact_sha256"]["rejected_single_frame_rtlsim_results"]
-        assert len(rejected_hash) == 64
+        assert all(len(value) == 64 for value in measurement["artifact_sha256"].values())
 
     w3a3 = measurements["w3a3_vck190_300mhz_10k"]
     assert w3a3["quantization"]["audit_passed"] is True

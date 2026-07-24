@@ -16,7 +16,8 @@ No checkpoint is committed. The default preparation path expects the established
 quantization variance scheme (QVS) QONNX export at
 `onnx-checkpoints/deit_tiny_quant.onnx`: one `[1, 3, 224, 224]` image input, one
 `[1, 1000]` classifier output, 12 repeated transformer blocks, and the exported
-polynomial GELU subgraphs consumed by `collapse_exported_pwpolyf`.
+GELU decompositions consumed by `collapse_exported_pwpolyf`. Both the QVS
+`Erf`-based GELU export and the older exported polynomial form are supported.
 
 If quantization already produced a specialized, rolled FINN model, pass it to the
 build with `--prepared-model` and skip the preparation stage.

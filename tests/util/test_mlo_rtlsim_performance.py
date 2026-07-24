@@ -1,14 +1,25 @@
 # Copyright Advanced Micro Devices, Inc.
 # SPDX-License-Identifier: BSD-3-Clause
 
-import pytest
+from types import SimpleNamespace
 
+import pytest
+from qonnx.core.datatype import DataType
+
+import finn.core.rtlsim_exec as rtlsim_exec_module
+from finn import xsi
 from finn.core.rtlsim_exec import _output_frame_sizes
-from finn.util.mlo_sim import _resolve_mlo_weight_datfile
+from finn.util.rtlsim import _resolve_mlo_weight_datfile
 from finn.util.rtlsim_performance import (
     annotate_rtlsim_completion_throughput,
     summarize_output_frame_completions,
+    throughput_test_rtlsim,
 )
+
+
+def test_rtlsim_exec_retains_available_xsi_backend_during_import():
+    if xsi.is_available():
+        assert rtlsim_exec_module.finnxsi is xsi
 
 
 def test_single_frame_has_no_steady_state_interval():
@@ -75,3 +86,48 @@ def test_mlo_weight_image_uses_specialized_mvau_type(tmp_path):
     assert _resolve_mlo_weight_datfile(tmp_path, "MVAU_hls", 4) == hls_weights
     with pytest.raises(FileNotFoundError, match="MVAU_rtl"):
         _resolve_mlo_weight_datfile(tmp_path, "MVAU_rtl", 4)
+
+
+class _FakeStitchedModel:
+    graph = SimpleNamespace(
+        input=[SimpleNamespace(name="input")],
+        output=[SimpleNamespace(name="output")],
+    )
+
+    def get_metadata_prop(self, name):
+        return {"exec_mode": "rtlsim", "cycles_rtlsim": "301"}[name]
+
+    def make_empty_exec_context(self):
+        return {}
+
+    def get_tensor_shape(self, _name):
+        return (1, 4)
+
+    def get_tensor_datatype(self, _name):
+        return DataType["UINT8"]
+
+
+def test_python_xsi_throughput_helper_preserves_multi_frame_metrics(monkeypatch):
+    pre_hook = object()
+
+    def fake_rtlsim_exec(model, context, **kwargs):
+        assert model is stitched_model
+        assert context["input"].shape == (2, 4)
+        assert kwargs == {"pre_hook": pre_hook, "collect_performance": True}
+        return summarize_output_frame_completions({"out0": [100, 300]}, total_cycles=301)
+
+    stitched_model = _FakeStitchedModel()
+    monkeypatch.setattr(rtlsim_exec_module, "rtlsim_exec", fake_rtlsim_exec)
+    result = throughput_test_rtlsim(
+        stitched_model,
+        clk_ns=5.0,
+        batchsize=2,
+        pre_hook=pre_hook,
+        collect_performance=True,
+    )
+
+    assert result["N"] == 2
+    assert result["cycles"] == 301
+    assert result["completed_output_frames"] == 2
+    assert result["stable_throughput_valid"] is True
+    assert result["stable_throughput[images/s]"] == pytest.approx(1.0e6)

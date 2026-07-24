@@ -3,6 +3,9 @@
 
 """Helpers for deriving throughput from RTLSIM frame completion times."""
 
+import numpy as np
+from qonnx.util.basic import gen_finn_dt_tensor
+
 
 def summarize_output_frame_completions(completion_cycles, total_cycles):
     """Summarize per-stream frame completion cycles conservatively.
@@ -57,4 +60,67 @@ def annotate_rtlsim_completion_throughput(stats, clk_ns):
     stats["stable_throughput[images/s]"] = (
         steady_state_frames * 1.0e9 / (clk_ns * steady_state_cycles) if stable_valid else None
     )
+    return stats
+
+
+def throughput_test_rtlsim(
+    model,
+    clk_ns,
+    batchsize=100,
+    pre_hook=None,
+    collect_performance=False,
+):
+    """Measure a stitched design with the Python XSI simulation engine.
+
+    The Python engine is required for MLO designs because ``pre_hook`` installs
+    the ideal AXI-MM models used by external loop weights. When
+    ``collect_performance`` is enabled, sustained throughput is derived from
+    completed output-frame timestamps rather than pipeline-fill latency.
+    """
+
+    # Keep this import local: rtlsim_exec imports finn.util.rtlsim, which loads
+    # the FINN XSI adapter, and that adapter imports this module's summary helper.
+    from finn.core.rtlsim_exec import rtlsim_exec  # noqa: PLC0415
+
+    assert model.get_metadata_prop("exec_mode") == "rtlsim"
+    assert batchsize > 0, "rtlsim batch size must be greater than zero"
+    assert clk_ns > 0.0, "RTLSIM clock period must be greater than zero"
+
+    ctx = model.make_empty_exec_context()
+    input_bytes = 0
+    for input_info in model.graph.input:
+        input_name = input_info.name
+        input_shape = list(model.get_tensor_shape(input_name))
+        input_shape[0] = batchsize
+        input_datatype = model.get_tensor_datatype(input_name)
+        ctx[input_name] = gen_finn_dt_tensor(input_datatype, input_shape)
+        input_bytes += (np.prod(input_shape) * input_datatype.bitwidth()) / 8
+
+    output_bytes = 0
+    for output_info in model.graph.output:
+        output_shape = list(model.get_tensor_shape(output_info.name))
+        output_shape[0] = batchsize
+        output_datatype = model.get_tensor_datatype(output_info.name)
+        output_bytes += (np.prod(output_shape) * output_datatype.bitwidth()) / 8
+
+    completion_stats = rtlsim_exec(
+        model,
+        ctx,
+        pre_hook=pre_hook,
+        collect_performance=collect_performance,
+    )
+    cycles = int(model.get_metadata_prop("cycles_rtlsim"))
+    runtime_s = cycles * clk_ns * 1.0e-9
+    stats = {
+        "cycles": cycles,
+        "runtime[ms]": runtime_s * 1000.0,
+        "throughput[images/s]": batchsize / runtime_s,
+        "DRAM_in_bandwidth[MB/s]": input_bytes * 1.0e-6 / runtime_s,
+        "DRAM_out_bandwidth[MB/s]": output_bytes * 1.0e-6 / runtime_s,
+        "fclk[mhz]": 1000.0 / clk_ns,
+        "N": batchsize,
+    }
+    if collect_performance:
+        stats.update(completion_stats)
+        annotate_rtlsim_completion_throughput(stats, clk_ns)
     return stats

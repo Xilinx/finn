@@ -334,11 +334,11 @@ def make_silu_pattern_model(num_channels, num_input_vecs):
     return model
 
 
-def make_erf_gelu_model(num_channels, num_input_vecs):
+def make_erf_gelu_model(num_channels, num_input_vecs, x_before_half=False):
     """Build ONNX model with the Erf-based GELU decomposition.
 
     Pattern: x * 0.5 * (1 + erf(x / sqrt(2)))
-    Nodes: Div(x, sqrt(2)) -> Erf -> Add(_, 1) -> Mul(0.5, _) -> Mul(x, _)
+    The two final Mul nodes may apply x and 0.5 in either order.
     """
     shape = num_input_vecs + [num_channels]
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape)
@@ -351,11 +351,15 @@ def make_erf_gelu_model(num_channels, num_input_vecs):
     div_node = helper.make_node("Div", ["inp", "sqrt2"], ["div_out"], name="Div_0")
     erf_node = helper.make_node("Erf", ["div_out"], ["erf_out"], name="Erf_0")
     add_node = helper.make_node("Add", ["erf_out", "one"], ["add_out"], name="Add_0")
-    mul_half_node = helper.make_node("Mul", ["half", "add_out"], ["mul_half_out"], name="Mul_0")
-    mul_x_node = helper.make_node("Mul", ["inp", "mul_half_out"], ["outp"], name="Mul_1")
+    if x_before_half:
+        first_mul_node = helper.make_node("Mul", ["inp", "add_out"], ["mul_out"], name="Mul_0")
+        second_mul_node = helper.make_node("Mul", ["mul_out", "half"], ["outp"], name="Mul_1")
+    else:
+        first_mul_node = helper.make_node("Mul", ["half", "add_out"], ["mul_out"], name="Mul_0")
+        second_mul_node = helper.make_node("Mul", ["inp", "mul_out"], ["outp"], name="Mul_1")
 
     graph = helper.make_graph(
-        [div_node, erf_node, add_node, mul_half_node, mul_x_node],
+        [div_node, erf_node, add_node, first_mul_node, second_mul_node],
         "erf_gelu_graph",
         [inp],
         [outp],
@@ -531,10 +535,11 @@ def test_pwpolyf_silu_pattern_execution():
 
 @pytest.mark.parametrize("num_channels", [4, 16])
 @pytest.mark.parametrize("num_input_vecs", [[1], [1, 2, 2]])
+@pytest.mark.parametrize("x_before_half", [False, True])
 @pytest.mark.fpgadataflow
-def test_pwpolyf_infer_erf_gelu_pattern(num_channels, num_input_vecs):
+def test_pwpolyf_infer_erf_gelu_pattern(num_channels, num_input_vecs, x_before_half):
     """Erf-based GELU decomposition (opset < 20) is converted to PWPolyF."""
-    model = make_erf_gelu_model(num_channels, num_input_vecs)
+    model = make_erf_gelu_model(num_channels, num_input_vecs, x_before_half)
 
     assert len(model.graph.node) == 5
     assert model.graph.node[1].op_type == "Erf"

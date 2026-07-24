@@ -276,8 +276,17 @@ class InferPWPolyFLayer(Transformation):
             return False
         return init.size == 1 and abs(float(init.flat[0]) - value) < tol
 
+    @staticmethod
+    def _other_mul_input(mul_node, tensor_name):
+        if mul_node.op_type != "Mul":
+            return None
+        other_inputs = [inp for inp in mul_node.input if inp != tensor_name]
+        if len(other_inputs) != 1:
+            return None
+        return other_inputs[0]
+
     def _match_erf_gelu(self, model, erf_node):
-        """Match Erf-based GELU: Div(x,sqrt(2))→Erf→Add(_,1)→Mul(0.5,_)→Mul(x,_).
+        """Match Erf-based GELU: 0.5 * x * (1 + erf(x / sqrt(2))).
         Returns (pwp_input, pwp_output, nodes_to_remove) or None."""
         # backward: Erf input must come from Div(x, sqrt(2))
         div_node = model.find_producer(erf_node.input[0])
@@ -299,26 +308,40 @@ class InferPWPolyFLayer(Transformation):
         if len(other_add) != 1 or not self._is_const_scalar(model, other_add[0], 1.0):
             return None
 
-        # Add → Mul(0.5, _)
+        # Multiplication is associative, and both export orders occur in practice.
         add_consumers = model.find_consumers(add_node.output[0])
         if len(add_consumers) != 1 or add_consumers[0].op_type != "Mul":
             return None
-        mul_half = add_consumers[0]
-        other_mul_half = [i for i in mul_half.input if i != add_node.output[0]]
-        if len(other_mul_half) != 1 or not self._is_const_scalar(model, other_mul_half[0], 0.5):
+        first_mul = add_consumers[0]
+        other_first_mul = self._other_mul_input(first_mul, add_node.output[0])
+        if other_first_mul is None:
             return None
 
-        # Mul(0.5,_) → Mul(x, _)
-        half_consumers = model.find_consumers(mul_half.output[0])
-        if len(half_consumers) != 1 or half_consumers[0].op_type != "Mul":
-            return None
-        mul_x = half_consumers[0]
-        other_mul_x = [i for i in mul_x.input if i != mul_half.output[0]]
-        if len(other_mul_x) != 1 or other_mul_x[0] != gelu_input:
+        # Variant A: Add → Mul(0.5, _) → Mul(x, _)
+        if self._is_const_scalar(model, other_first_mul, 0.5):
+            first_mul_consumers = model.find_consumers(first_mul.output[0])
+            if len(first_mul_consumers) != 1 or first_mul_consumers[0].op_type != "Mul":
+                return None
+            second_mul = first_mul_consumers[0]
+            other_second_mul = self._other_mul_input(second_mul, first_mul.output[0])
+            if other_second_mul != gelu_input:
+                return None
+        # Variant B: Add → Mul(x, _) → Mul(0.5, _)
+        elif other_first_mul == gelu_input:
+            first_mul_consumers = model.find_consumers(first_mul.output[0])
+            if len(first_mul_consumers) != 1 or first_mul_consumers[0].op_type != "Mul":
+                return None
+            second_mul = first_mul_consumers[0]
+            other_second_mul = self._other_mul_input(second_mul, first_mul.output[0])
+            if other_second_mul is None or not self._is_const_scalar(
+                model, other_second_mul, 0.5
+            ):
+                return None
+        else:
             return None
 
-        nodes_to_remove = [div_node, erf_node, add_node, mul_half, mul_x]
-        return (gelu_input, mul_x.output[0], nodes_to_remove)
+        nodes_to_remove = [div_node, erf_node, add_node, first_mul, second_mul]
+        return (gelu_input, second_mul.output[0], nodes_to_remove)
 
     @staticmethod
     def _make_pwpolyf_node(pwp_input, pwp_output, func, in_shape, idt, name, K=3, degree=2):
@@ -440,7 +463,7 @@ class InferPWPolyFLayer(Transformation):
                 graph_modified = True
 
             # Case 4: Erf-based GELU (dynamo=True / opset < 20)
-            # Div(x, sqrt(2)) → Erf → Add(_, 1) → Mul(0.5, _) → Mul(x, _)
+            # Div(x, sqrt(2)) → Erf → Add(_, 1) → Mul(x or 0.5, _) → Mul(_, _)
             elif node.op_type == "Erf":
                 match = self._match_erf_gelu(model, node)
                 if match is None:
@@ -1525,9 +1548,8 @@ class InferSelectTokenLayer(Transformation):
 
             token_index = int(idx_init.flatten()[0])
             num_tokens = int(seq_shape[1])
-            if token_index < 0:
-                token_index += num_tokens
-            if token_index < 0 or token_index >= num_tokens:
+            normalized_index = token_index + num_tokens if token_index < 0 else token_index
+            if normalized_index < 0 or normalized_index >= num_tokens:
                 continue
 
             out_shape = model.get_tensor_shape(node.output[0])
@@ -2778,61 +2800,6 @@ def elements_are_consecutive(indices):
         return True
     else:
         return np.all(np.diff(np.sort(indices)) == 1)
-
-
-class InferSelectTokenLayer(Transformation):
-    """Convert a scalar Gather on the token axis into SelectToken."""
-
-    def apply(self, model):
-        graph = model.graph
-        graph_modified = False
-        for node_ind, node in enumerate(list(graph.node)):
-            if node.op_type != "Gather" or len(node.input) != 2:
-                continue
-            axis_attr = get_by_name(node.attribute, "axis")
-            axis = axis_attr.i if axis_attr is not None else 0
-            seq_shape = model.get_tensor_shape(node.input[0])
-            if seq_shape is None or len(seq_shape) != 3:
-                continue
-            if axis < 0:
-                axis += len(seq_shape)
-            if axis != 1 or seq_shape[0] != 1:
-                continue
-
-            indices = model.get_initializer(node.input[1])
-            if indices is None or indices.ndim != 0 or not np.issubdtype(indices.dtype, np.integer):
-                continue
-            token_index = int(indices.item())
-            num_tokens = int(seq_shape[1])
-            if not -num_tokens <= token_index < num_tokens:
-                continue
-
-            idt = model.get_tensor_datatype(node.input[0])
-            odt = model.get_tensor_datatype(node.output[0])
-            if idt is None or (odt is not None and odt != idt):
-                continue
-            new_node = helper.make_node(
-                "SelectToken",
-                [node.input[0]],
-                node.output,
-                domain="finn.custom_op.fpgadataflow",
-                backend="fpgadataflow",
-                name="SelectToken_" + node.name,
-                NumTokens=num_tokens,
-                NumChannels=int(seq_shape[2]),
-                TokenIndex=token_index,
-                SIMD=1,
-                inputDataType=idt.name,
-                outputDataType=idt.name,
-            )
-            graph.node.insert(node_ind, new_node)
-            graph.node.remove(node)
-            graph_modified = True
-
-        if graph_modified:
-            model = model.transform(InferShapes())
-            model = model.transform(InferDataTypes())
-        return (model, graph_modified)
 
 
 class InferCrop(Transformation):

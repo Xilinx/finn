@@ -44,7 +44,7 @@ from finn.builder.build_dataflow_steps import (
     step_tidy_up,
     step_transpose_decomposition,
 )
-from finn.util.mlo_sim import is_mlo
+from finn.util.fpgadataflow import is_mlo
 
 
 def _save_intermediate_model(model: ModelWrapper, step_name: str, cfg: DataflowBuildConfig):

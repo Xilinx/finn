@@ -30,6 +30,7 @@ from transformer_examples.tinydeit.common import (
     find_transformer_blocks,
     first_loop_body_node_range,
     model_op_counts,
+    move_forked_scalar_mul_past_matmul,
     resolve_common_paths,
     summarize_model,
     write_json,
@@ -109,7 +110,7 @@ def prepare(args: argparse.Namespace) -> Path:
 
     if args.collapse_pwpolyf:
         model, count = collapse_exported_pwpolyf(model, expected_count=TRANSFORMER_DEPTH)
-        print(f"Collapsed exported PWPolyF decompositions: {count}")
+        print(f"Collapsed exported GELU/PWPolyF decompositions: {count}")
         save_checkpoint(model, output_dir, "03_collapse_pwpolyf", args.save_intermediate)
 
     model, conv_attrs = ensure_conv_kernel_shape_attrs(model)
@@ -124,6 +125,11 @@ def prepare(args: argparse.Namespace) -> Path:
     model = model.transform(InferShapes())
     model = model.transform(InferDataTypes())
     save_checkpoint(model, output_dir, "04b_extract_norm_scale_bias", args.save_intermediate)
+
+    model, moved_muls = move_forked_scalar_mul_past_matmul(model)
+    if moved_muls:
+        print(f"Moved forked scalar Mul nodes past MatMul consumers: {moved_muls}")
+        save_checkpoint(model, output_dir, "04c_move_forked_scalar_muls", args.save_intermediate)
 
     model = steps.step_convert_to_hw(model, cfg)
     model = model.transform(InferShapes())

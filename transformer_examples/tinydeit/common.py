@@ -1,8 +1,9 @@
 """Shared utilities for the TinyDeiT FINN MLO flow.
 
-The input checkpoint exports the GELU approximation as a repeated 51-node
-floating-point polynomial subgraph.  The flow collapses those subgraphs into
-PWPolyF before regular FINN conversion so the merged RTL operator can be used.
+TinyDeiT checkpoints can export GELU either as a repeated 51-node floating-point
+polynomial subgraph or as an Erf-based ONNX decomposition. The flow collapses
+both forms into PWPolyF before regular FINN conversion so the merged RTL operator
+can be used.
 """
 
 from __future__ import annotations
@@ -300,16 +301,47 @@ def _infer_pwpolyf_k_and_degree(model: Any, nodes: Iterable[Any]) -> tuple[int, 
 def collapse_exported_pwpolyf(
     model: Any, expected_count: int | None = TRANSFORMER_DEPTH
 ) -> tuple[Any, int]:
-    """Replace exported TinyDeiT polynomial GELU subgraphs with PWPolyF nodes."""
+    """Replace exported TinyDeiT GELU/PWPolyF subgraphs with PWPolyF nodes."""
 
     model = model.transform(InferShapes())
     model = model.transform(InferDataTypes())
     matches = exported_pwpolyf_match_indices(model.model)
-    if expected_count is not None and len(matches) != expected_count:
+    erf_count = len(model.get_nodes_by_op_type("Erf"))
+    if matches and erf_count:
+        raise RuntimeError(
+            "TinyDeiT export mixes polynomial PWPolyF and Erf GELU decompositions"
+        )
+    if expected_count is not None and matches and len(matches) != expected_count:
         raise RuntimeError(
             f"Expected {expected_count} exported PWPolyF decompositions, found {len(matches)}"
         )
     if not matches:
+        if erf_count:
+            from finn.transformation.fpgadataflow.convert_to_hw_layers import (  # noqa: PLC0415
+                InferPWPolyFLayer,
+            )
+
+            model = model.transform(InferPWPolyFLayer())
+            remaining_erf_count = len(model.get_nodes_by_op_type("Erf"))
+            converted_count = erf_count - remaining_erf_count
+            if remaining_erf_count:
+                raise RuntimeError(
+                    f"Found {erf_count} Erf nodes but converted only {converted_count} "
+                    "complete GELU decompositions"
+                )
+            if expected_count is not None and converted_count != expected_count:
+                raise RuntimeError(
+                    f"Expected {expected_count} Erf GELU decompositions, "
+                    f"converted {converted_count}"
+                )
+            model = model.transform(RemoveUnusedTensors())
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+            return model, converted_count
+        if expected_count is not None:
+            raise RuntimeError(
+                f"Expected {expected_count} exported PWPolyF decompositions, found 0"
+            )
         return model, 0
 
     nodes = list(model.graph.node)
@@ -387,6 +419,81 @@ def ensure_conv_kernel_shape_attrs(model: Any) -> tuple[Any, int]:
         )
         changed += 1
     return model, changed
+
+
+def move_forked_scalar_mul_past_matmul(model: Any) -> tuple[Any, int]:
+    """Move scalar dequantization past forked MatMul consumers.
+
+    QVS exports layer-normalization activations as Thresholding -> scalar Mul
+    before the three Q/K/V projections. The scalar Mul fans out to all three
+    MatMuls, so the generic single-consumer streamline transform cannot move it.
+    Moving the scalar to each MatMul output preserves the math and exposes
+    integer MatMul inputs for FINN MVAU inference.
+    """
+
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+    nodes_to_remove = set()
+    new_nodes_after = {}
+    moved = 0
+    for node in list(model.graph.node):
+        if node.op_type != "Mul" or len(node.input) != 2 or len(node.output) != 1:
+            continue
+        lhs_init = model.get_initializer(node.input[0])
+        rhs_init = model.get_initializer(node.input[1])
+        if lhs_init is not None and lhs_init.size == 1 and rhs_init is None:
+            scalar_input = node.input[0]
+            data_input = node.input[1]
+        elif rhs_init is not None and rhs_init.size == 1 and lhs_init is None:
+            scalar_input = node.input[1]
+            data_input = node.input[0]
+        else:
+            continue
+
+        consumers = model.find_consumers(node.output[0])
+        if len(consumers) < 2:
+            continue
+        if any(
+            consumer.op_type != "MatMul" or node.output[0] not in consumer.input
+            for consumer in consumers
+        ):
+            continue
+
+        for consumer in consumers:
+            output_name = consumer.output[0]
+            moved_matmul_output = f"{consumer.name}_prescale_out"
+            for input_idx, input_name in enumerate(consumer.input):
+                if input_name == node.output[0]:
+                    consumer.input[input_idx] = data_input
+            consumer.output[0] = moved_matmul_output
+            output_shape = model.get_tensor_shape(output_name)
+            if output_shape is not None:
+                model.set_tensor_shape(moved_matmul_output, output_shape)
+            new_mul = helper.make_node(
+                "Mul",
+                [moved_matmul_output, scalar_input],
+                [output_name],
+                name=f"{node.name}_after_{consumer.name}",
+            )
+            if hasattr(node, "metadata_props"):
+                new_mul.metadata_props.extend(node.metadata_props)
+            new_nodes_after.setdefault(consumer.name, []).append(new_mul)
+        nodes_to_remove.add(node.name)
+        moved += 1
+
+    if moved == 0:
+        return model, 0
+
+    new_nodes = []
+    for node in model.graph.node:
+        if node.name not in nodes_to_remove:
+            new_nodes.append(node)
+            new_nodes.extend(new_nodes_after.get(node.name, []))
+    del model.graph.node[:]
+    model.graph.node.extend(new_nodes)
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+    return model, moved
 
 
 def add_common_args(parser: argparse.ArgumentParser) -> None:
