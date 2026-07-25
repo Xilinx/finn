@@ -165,14 +165,15 @@ def make_single_matmul_modelwrapper(ifm, ofm, idt, wdt, W):
     return model
 
 
-def test_mvau_external_mem_characterization_streams_weights(monkeypatch):
+@pytest.mark.parametrize("mem_mode", ["external_mem", "dynamic"])
+def test_mvau_streamed_weight_characterization_supplies_weights(monkeypatch, mem_mode):
     wdt = DataType["INT4"]
     idt = DataType["INT4"]
     odt = DataType["INT32"]
     weights = gen_finn_dt_tensor(wdt, (8, 8))
     model = make_single_fclayer_modelwrapper(weights, 2, 2, wdt, idt, odt)
     inst = getCustomOp(model.graph.node[0])
-    inst.set_nodeattr("mem_mode", "external_mem")
+    inst.set_nodeattr("mem_mode", mem_mode)
     captured = {}
 
     def capture_io_dict(self, period, override_rtlsim_dict=None, pre_hook=None):
