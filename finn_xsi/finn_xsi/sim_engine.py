@@ -250,11 +250,13 @@ class SimEngine:
             def __init__(self, sim, stream):
                 self.vld = sim.get_bus_port(stream, "tvalid")
                 self.rdy = sim.get_bus_port(stream, "tready")
-                self.trace = ""
+                self.trace = bytearray()
 
             def __call__(self, sim):
-                self.trace += (
-                    "1" if self.vld.read().as_bool() and self.rdy.read().as_bool() else "0"
+                self.trace.append(
+                    ord("1")
+                    if self.vld.read().as_bool() and self.rdy.read().as_bool()
+                    else ord("0")
                 )
                 return {}
 
@@ -262,7 +264,7 @@ class SimEngine:
                 return False
 
             def __str__(self):
-                return self.trace
+                return self.trace.decode("ascii")
 
         ret = StreamTracer(self, stream)
         self.enlist(ret)
