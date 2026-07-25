@@ -105,13 +105,13 @@ under `transformer_examples/tinydeit/build/`, which is ignored by Git.
 ## Retained VCK190 implementation evidence
 
 The following timing and routing results came from routed VCK190 OOC DCPs
-generated with Vivado 2024.2. Their hashes were checked against the retained
-artifacts.
+generated with Vivado 2024.2. The copied DCPs were reopened in independent
+Vivado sessions, and their hashes were checked against the retained artifacts.
 
 | Configuration | Clock | WNS | Route | Measured stitched throughput | Accuracy |
 | --- | ---: | ---: | --- | --- | --- |
-| W3A3 | 119.990 MHz / 239.981 MHz | +0.036 ns | clean | not available | not available |
-| W4A4 QAT smoke | 119.990 MHz / 239.981 MHz | +0.080 ns | clean | not available | Acc@1 0.000%, Acc@5 12.500% |
+| W3A3 | 119.990 MHz / 239.981 MHz | +0.148 ns | clean | not available | not available |
+| W4A4 QAT smoke | 119.990 MHz / 239.981 MHz | +0.086 ns | clean | not available | Acc@1 0.000%, Acc@5 12.500% |
 
 The older RTL intervals were produced by single-frame loop-body FIFO sizing and
 are not end-to-end steady-state measurements, so they are deliberately excluded.
@@ -131,7 +131,8 @@ tiny subset. Its recorded accuracy is poor and must not be treated as a model
 quality result.
 
 The exact timing metrics, resource counts, and SHA-256 hashes of the prepared
-models, DCPs, timing reports, and rejected single-frame RTL artifacts are retained in
-`results/vck190_signoff.json`. The folding configurations are committed, while
-the generated models, Vivado projects, and DCPs are not committed because they
-are large build artifacts and may carry separate model or tool licensing terms.
+models, DCPs, timing reports, and rejected single-frame RTL artifacts are
+retained in `results/vck190_signoff.json`. The folding configurations are
+committed, while the generated models, Vivado projects, and DCPs are not
+committed because they are large build artifacts and may carry separate model
+or tool licensing terms.
