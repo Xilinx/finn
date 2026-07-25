@@ -3,6 +3,7 @@
   "measurements": [
     {
       "name": "w3a3_vck190_300mhz_10k",
+      "build_source_commit": "31f0248060f03c0226bab95fb37686af7f281c53",
       "configuration": "configs/w3a3_vck190_300mhz_10k.json",
       "configuration_sha256": "5c351dda2687b41c73f89501d472d4f51f3c891291d98c58e35d541793efa7a8",
       "target": {
@@ -30,6 +31,10 @@
         "fully_routed_nets": 1007608,
         "routing_error_nets": 0,
         "passed": true
+      },
+      "implementation_validation": {
+        "build_return_code": 0,
+        "independent_routed_dcp_reopen": true
       },
       "rtlsim": {
         "status": "not_available",
@@ -62,6 +67,24 @@
           "model.head.weight"
         ]
       },
+      "software_verification": {
+        "method": "rolled_vs_unrolled_specialized_cppsim",
+        "reference_stage": "07_specialize_layers.onnx",
+        "seed": 1,
+        "input_shape": [
+          1,
+          3,
+          224,
+          224
+        ],
+        "output_shape": [
+          1,
+          1000
+        ],
+        "atol": 0.001,
+        "max_abs_diff": 0.0,
+        "passed": true
+      },
       "accuracy": {
         "status": "not_available",
         "top1_percent": null,
@@ -72,11 +95,19 @@
         "synth_dcp": "dcc7a0dc9c6fd5e5aec8183488cf3c064b6772a20506d02d9aea97c6049b4e6d",
         "routed_dcp": "c22d861d22debcce61c4904ca7a2e53e4fd9c6c167f2487f9b8fa5f736880446",
         "timing_report": "59c2f66d496e47a5e468d3fee59c24d9b800ab79a0fb581c7a819fbaf6704a4d",
-        "rejected_single_frame_rtlsim_results": "c4419ce11b81eab493e6ddebcbc5eeb0d1cbbb74fbfd6a4021fa470536e31439"
+        "rejected_single_frame_rtlsim_results": "c4419ce11b81eab493e6ddebcbc5eeb0d1cbbb74fbfd6a4021fa470536e31439",
+        "independent_route_status_report": "7f296ac59fda45d8a40ee3fd3e990f88863953bbf0aa92aad0de6ed865e701da",
+        "independent_timing_report": "ca75ed2bb423b8c559a32185d06cb13c9ec527d98362d49ed17dd873ee5d55c9",
+        "independent_utilization_report": "747a592de58b395c6992065e27c7e98c15e49e547e27b88b2c355d0754034220",
+        "independent_check_timing_report": "f3ad393e4c295f1132be36235f1afc404f8e3839e0b1ae9a54d6d778b3a94876",
+        "verification_input": "cd0167163c76d9dabab1ed68ba1494e6abdfa632a26dc59094a90df61c594a3e",
+        "verification_produced_output": "45f81227d650de2f8b37bfc5b57a5a2f67c3039793ae3bb229f91efe52106fb3",
+        "verification_expected_output": "45f81227d650de2f8b37bfc5b57a5a2f67c3039793ae3bb229f91efe52106fb3"
       }
     },
     {
       "name": "w4a4_qat_smoke_vck190_200mhz_7k",
+      "build_source_commit": "31f0248060f03c0226bab95fb37686af7f281c53",
       "configuration": "configs/w4a4_vck190_200mhz_7k.json",
       "configuration_sha256": "b119ae8977967e8038703f30f5e2956f062430a90bb3bc94e2199a9a0cb8ab2c",
       "target": {
@@ -105,6 +136,10 @@
         "routing_error_nets": 0,
         "passed": true
       },
+      "implementation_validation": {
+        "build_return_code": 0,
+        "independent_routed_dcp_reopen": true
+      },
       "rtlsim": {
         "status": "not_available",
         "measurement_requirement": "completed_multi_frame_stitched_mlo",
@@ -127,6 +162,24 @@
         "profile": "w4a4_qat_smoke",
         "audit_passed": null
       },
+      "software_verification": {
+        "method": "rolled_vs_unrolled_specialized_cppsim",
+        "reference_stage": "07_specialize_layers.onnx",
+        "seed": 1,
+        "input_shape": [
+          1,
+          3,
+          224,
+          224
+        ],
+        "output_shape": [
+          1,
+          1000
+        ],
+        "atol": 0.001,
+        "max_abs_diff": 0.0,
+        "passed": true
+      },
       "accuracy": {
         "status": "smoke_checkpoint_only",
         "validation_subset": "tiny",
@@ -139,7 +192,14 @@
         "synth_dcp": "d2958bcbf2b721a8d97ebf9b5fa37a9d299508d45ddb52f6e5c09032bd40ed29",
         "routed_dcp": "0627680d8b8ead611480c92ca697994c49c8c09a62ed9ec7c950ca55b8c3a4a3",
         "timing_report": "b152306ed7ab529971590e1d2b24c297c8c4eaf3bf4bc51a9474b60325d05fba",
-        "rejected_single_frame_rtlsim_results": "ab01af07e1d259e52bb9f69ad45df8524146e2a5b98a03e79c61f5625a38f5be"
+        "rejected_single_frame_rtlsim_results": "ab01af07e1d259e52bb9f69ad45df8524146e2a5b98a03e79c61f5625a38f5be",
+        "independent_route_status_report": "5a9adca034fca8005052d8355727d0cd40a49a8a3bbfd8ad4f361ba5bc78c939",
+        "independent_timing_report": "1e8214ea48ec337e752cd857c5cf74e726aca2107aba16009bce0938b33f20ba",
+        "independent_utilization_report": "8771ae4cc06b56869f815c21f85d990acdeab5bb09f79e07eea058507ecc8aee",
+        "independent_check_timing_report": "77af073457d522807de6ceec55dfab0898e51f81b6c1d80df69b6d9dfe287096",
+        "verification_input": "cd0167163c76d9dabab1ed68ba1494e6abdfa632a26dc59094a90df61c594a3e",
+        "verification_produced_output": "0dff255cd3b3605a9727ae1d43add9907fe3e37f44c31b7d9b8951f4df7c3515",
+        "verification_expected_output": "0dff255cd3b3605a9727ae1d43add9907fe3e37f44c31b7d9b8951f4df7c3515"
       }
     }
   ]

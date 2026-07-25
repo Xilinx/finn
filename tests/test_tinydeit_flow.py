@@ -1,11 +1,11 @@
+import pytest
+
 import hashlib
 import json
 import numpy as np
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-
-import pytest
 
 onnx = pytest.importorskip("onnx")
 
@@ -69,9 +69,7 @@ def _make_erf_gelu_model(*, complete=True):
     shape = [1, 4]
     inp = onnx.helper.make_tensor_value_info("inp", onnx.TensorProto.FLOAT, shape)
     outp = onnx.helper.make_tensor_value_info("outp", onnx.TensorProto.FLOAT, shape)
-    sqrt2 = onnx.helper.make_tensor(
-        "sqrt2", onnx.TensorProto.FLOAT, [], [np.float32(np.sqrt(2))]
-    )
+    sqrt2 = onnx.helper.make_tensor("sqrt2", onnx.TensorProto.FLOAT, [], [np.float32(np.sqrt(2))])
     one = onnx.helper.make_tensor("one", onnx.TensorProto.FLOAT, [], [np.float32(1.0)])
     half = onnx.helper.make_tensor("half", onnx.TensorProto.FLOAT, [], [np.float32(0.5)])
     nodes = [
@@ -82,12 +80,8 @@ def _make_erf_gelu_model(*, complete=True):
         nodes.extend(
             [
                 onnx.helper.make_node("Add", ["erf_out", "one"], ["add_out"], name="Add_0"),
-                onnx.helper.make_node(
-                    "Mul", ["add_out", "half"], ["mul_half_out"], name="Mul_0"
-                ),
-                onnx.helper.make_node(
-                    "Mul", ["inp", "mul_half_out"], ["outp"], name="Mul_1"
-                ),
+                onnx.helper.make_node("Mul", ["add_out", "half"], ["mul_half_out"], name="Mul_0"),
+                onnx.helper.make_node("Mul", ["inp", "mul_half_out"], ["outp"], name="Mul_1"),
             ]
         )
     else:
@@ -232,9 +226,7 @@ def test_tinydeit_moves_forked_scalar_mul_past_matmul():
     out0 = onnx.helper.make_tensor_value_info("out0", onnx.TensorProto.FLOAT, [1, 4])
     out1 = onnx.helper.make_tensor_value_info("out1", onnx.TensorProto.FLOAT, [1, 4])
     scale = onnx.helper.make_tensor("scale", onnx.TensorProto.FLOAT, [1], [np.float32(0.25)])
-    w0 = onnx.numpy_helper.from_array(
-        np.arange(16, dtype=np.float32).reshape(4, 4), name="w0"
-    )
+    w0 = onnx.numpy_helper.from_array(np.arange(16, dtype=np.float32).reshape(4, 4), name="w0")
     w1 = onnx.numpy_helper.from_array(
         np.flip(np.arange(16, dtype=np.float32).reshape(4, 4), axis=1).copy(), name="w1"
     )
@@ -728,15 +720,9 @@ def test_tinydeit_converts_lut_mvaus_to_hls(tmp_path, monkeypatch):
 def test_tinydeit_rejects_incompatible_folding_before_build(tmp_path):
     tinydeit_build = _tinydeit_build_module()
 
-    inp = onnx.helper.make_tensor_value_info(
-        "inp", onnx.TensorProto.FLOAT, [1, 197, 197, 3]
-    )
-    outp = onnx.helper.make_tensor_value_info(
-        "outp", onnx.TensorProto.FLOAT, [1, 197, 197, 3]
-    )
-    thresholds = onnx.numpy_helper.from_array(
-        np.zeros((3, 7), dtype=np.float32), name="thresholds"
-    )
+    inp = onnx.helper.make_tensor_value_info("inp", onnx.TensorProto.FLOAT, [1, 197, 197, 3])
+    outp = onnx.helper.make_tensor_value_info("outp", onnx.TensorProto.FLOAT, [1, 197, 197, 3])
+    thresholds = onnx.numpy_helper.from_array(np.zeros((3, 7), dtype=np.float32), name="thresholds")
     node = onnx.helper.make_node(
         "Thresholding_rtl",
         ["inp", "thresholds"],
@@ -797,9 +783,7 @@ def test_tinydeit_rejects_incompatible_folding_before_build(tmp_path):
     incompatible_shuffle.write_text(json.dumps({"OuterShuffle_hls_0": {"SIMD": 28}}))
 
     with pytest.raises(ValueError, match="Unable to determine a new SIMD value"):
-        tinydeit_build.validate_folding_config_compatibility(
-            shuffle_model, incompatible_shuffle
-        )
+        tinydeit_build.validate_folding_config_compatibility(shuffle_model, incompatible_shuffle)
 
     compatible_shuffle = tmp_path / "compatible_shuffle.json"
     compatible_shuffle.write_text(json.dumps({"OuterShuffle_hls_0": {"SIMD": 7}}))
@@ -821,9 +805,10 @@ def test_tinydeit_vck190_configs_and_signoff_evidence():
     for measurement in measurements.values():
         config_path = example_dir / measurement["configuration"]
         config = json.loads(config_path.read_text())
-        assert hashlib.sha256(config_path.read_bytes()).hexdigest() == measurement[
-            "configuration_sha256"
-        ]
+        assert (
+            hashlib.sha256(config_path.read_bytes()).hexdigest()
+            == measurement["configuration_sha256"]
+        )
         assert config["Defaults"]["pumpedCompute"] == [1, ["MVAU_rtl"]]
         assert measurement["target"]["board"] == "VCK190"
         assert measurement["target"]["base_clock_period_ns"] == 8.334
@@ -836,6 +821,21 @@ def test_tinydeit_vck190_configs_and_signoff_evidence():
         )
         assert measurement["routing"]["routing_error_nets"] == 0
         assert measurement["routing"]["passed"] is True
+        assert len(measurement["build_source_commit"]) == 40
+        assert measurement["implementation_validation"] == {
+            "build_return_code": 0,
+            "independent_routed_dcp_reopen": True,
+        }
+        assert measurement["software_verification"] == {
+            "method": "rolled_vs_unrolled_specialized_cppsim",
+            "reference_stage": "07_specialize_layers.onnx",
+            "seed": 1,
+            "input_shape": [1, 3, 224, 224],
+            "output_shape": [1, 1000],
+            "atol": 0.001,
+            "max_abs_diff": 0.0,
+            "passed": True,
+        }
         assert measurement["rtlsim"] == {
             "status": "not_available",
             "measurement_requirement": "completed_multi_frame_stitched_mlo",
@@ -847,6 +847,10 @@ def test_tinydeit_vck190_configs_and_signoff_evidence():
             "passed": None,
         }
         assert all(len(value) == 64 for value in measurement["artifact_sha256"].values())
+        assert (
+            measurement["artifact_sha256"]["verification_produced_output"]
+            == measurement["artifact_sha256"]["verification_expected_output"]
+        )
 
     w3a3 = measurements["w3a3_vck190_300mhz_10k"]
     assert w3a3["quantization"]["audit_passed"] is True

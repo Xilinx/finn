@@ -126,13 +126,19 @@ The W3A3 quantization audit passed: 170 quantization nodes were three-bit and tw
 constant-weight nodes (patch embedding and classifier head) were eight-bit. No
 defensible production accuracy measurement is available for this model.
 
+For both retained configurations, the exact prepared model recorded in the
+signoff evidence was compared with its unrolled, specialized FINN reference by
+C++ simulation using seed 1. Both `[1, 1000]` outputs matched exactly
+(`max_abs_diff=0.0`, `atol=0.001`). This verifies the graph rolling and
+specialization flow; it is separate from classifier accuracy.
+
 The W4A4 model was a QAT handoff smoke checkpoint trained and validated on a
 tiny subset. Its recorded accuracy is poor and must not be treated as a model
 quality result.
 
 The exact timing metrics, resource counts, and SHA-256 hashes of the prepared
-models, DCPs, timing reports, and rejected single-frame RTL artifacts are
-retained in `results/vck190_signoff.json`. The folding configurations are
-committed, while the generated models, Vivado projects, and DCPs are not
-committed because they are large build artifacts and may carry separate model
-or tool licensing terms.
+models, DCPs, original and independent validation reports, software-verification
+inputs and outputs, and rejected single-frame RTL artifacts are retained in
+`results/vck190_signoff.json`. The folding configurations are committed, while
+the generated models, Vivado projects, and DCPs are not committed because they
+are large build artifacts and may carry separate model or tool licensing terms.
