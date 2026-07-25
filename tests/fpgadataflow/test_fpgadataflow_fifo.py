@@ -97,9 +97,12 @@ def test_fpgadataflow_fifo_rtl_ipi_deduplicates_helpers_and_retries_module_resol
     create_cell_command = ipi_commands[-1]
 
     assert "catch {create_bd_cell" in create_cell_command
+    assert "for {set module_ref_attempt 1}" in create_cell_command
+    assert "$module_ref_attempt <= 5" in create_cell_command
     assert "set_property source_mgmt_mode All [current_project]" in create_cell_command
     assert "update_compile_order -fileset sources_1" in create_cell_command
-    assert create_cell_command.count("create_bd_cell") == 2
+    assert "after 1000" in create_cell_command
+    assert create_cell_command.count("create_bd_cell") == 1
 
 
 # shape

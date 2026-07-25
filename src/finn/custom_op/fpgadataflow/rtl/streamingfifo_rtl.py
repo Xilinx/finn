@@ -147,15 +147,28 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
                 self.onnx_node.name,
             )
             # Vivado can lag module-reference discovery in source-heavy block designs.
-            # Avoid the compile-order refresh unless the normal creation attempt fails.
+            # Avoid compile-order refreshes unless the normal creation attempt fails,
+            # then give automatic source management time to settle before retrying.
             cmd += [
-                "if {[catch {%s} module_ref_error]} {\n"
-                '    puts "INFO: Retrying %s with automatic source management: '
+                "set module_ref_resolved 0\n"
+                "for {set module_ref_attempt 1} {$module_ref_attempt <= 5} "
+                "{incr module_ref_attempt} {\n"
+                "    if {![catch {%s} module_ref_error]} {\n"
+                "        set module_ref_resolved 1\n"
+                "        break\n"
+                "    }\n"
+                "    if {$module_ref_attempt < 5} {\n"
+                '        puts "INFO: Retrying %s with automatic source management '
+                '(attempt [expr {$module_ref_attempt + 1}]/5): $module_ref_error"\n'
+                "        set_property source_mgmt_mode All [current_project]\n"
+                "        update_compile_order -fileset sources_1\n"
+                "        after 1000\n"
+                "    }\n"
+                "}\n"
+                "if {!$module_ref_resolved} {\n"
+                '    error "Unable to resolve module reference %s after 5 attempts: '
                 '$module_ref_error"\n'
-                "    set_property source_mgmt_mode All [current_project]\n"
-                "    update_compile_order -fileset sources_1\n"
-                "    %s\n"
-                "}" % (create_cell_cmd, self.onnx_node.name, create_cell_cmd)
+                "}" % (create_cell_cmd, self.onnx_node.name, self.onnx_node.name)
             ]
             return cmd
         elif impl_style == "vivado":
