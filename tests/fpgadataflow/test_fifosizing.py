@@ -44,7 +44,10 @@ from qonnx.util.basic import qonnx_make_model
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
-from finn.transformation.fpgadataflow.derive_characteristic import DeriveFIFOSizes
+from finn.transformation.fpgadataflow.derive_characteristic import (
+    DeriveFIFOSizes,
+    _find_minimum_phase_shift,
+)
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import make_build_dir, robust_rmtree
@@ -140,6 +143,19 @@ def test_fifosizing_multi_io():
     model = model.transform(InsertAndSetFIFODepths("xc7z020clg400-1", 5))
     fifos = model.get_nodes_by_op_type("StreamingFIFO_rtl")
     assert len(fifos) > 1, "No FIFOs inserted"
+
+
+def test_characterization_phase_shift_binary_search_matches_linear_scan():
+    rng = np.random.default_rng(0)
+    for period in range(1, 65):
+        prod_chrc = np.cumsum(rng.integers(0, 3, size=2 * period))
+        cons_chrc = np.cumsum(rng.integers(0, 3, size=2 * period))
+        expected = period - 1
+        for candidate in range(period):
+            if (prod_chrc[candidate:period] >= cons_chrc[: period - candidate]).all():
+                expected = candidate
+                break
+        assert _find_minimum_phase_shift(prod_chrc, cons_chrc, period) == expected
 
 
 def test_characterization_fifosizing_uses_matching_consumer_input(tmp_path):

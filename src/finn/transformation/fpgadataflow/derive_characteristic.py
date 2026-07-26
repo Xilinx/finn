@@ -34,6 +34,28 @@ from qonnx.transformation.base import NodeLocalTransformation
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
+def _find_minimum_phase_shift(prod_chrc, cons_chrc, period):
+    """Find the first phase shift where production covers consumption."""
+
+    def is_valid(pshift):
+        return (prod_chrc[pshift:period] >= cons_chrc[: period - pshift]).all()
+
+    # Validity is monotonic because the characteristics are cumulative: once a
+    # shift is valid, every larger shift compares later production values over
+    # a shorter interval. Binary search avoids a linear scan over long periods.
+    low = 0
+    high = period - 1
+    if not is_valid(high):
+        return high
+    while low < high:
+        candidate = (low + high) // 2
+        if is_valid(candidate):
+            high = candidate
+        else:
+            low = candidate + 1
+    return low
+
+
 class DeriveCharacteristic(NodeLocalTransformation):
     """For each node in the graph, run rtlsim to obtain the i/o
     characteristic function for FIFO sizing and set the attribute.
@@ -117,13 +139,7 @@ class DeriveFIFOSizes(NodeLocalTransformation):
                     )
                     cons_chrc = cons_chrcs[cons_chrc_index]
                     # find minimum phase shift satisfying the constraint
-                    pshift_min = period - 1
-                    for pshift_cand in range(period):
-                        prod_chrc_part = prod_chrc[pshift_cand:period]
-                        cons_chrc_part = cons_chrc[: period - pshift_cand]
-                        if (prod_chrc_part >= cons_chrc_part).all():
-                            pshift_min = pshift_cand
-                            break
+                    pshift_min = _find_minimum_phase_shift(prod_chrc, cons_chrc, period)
                     prod_chrc_part = prod_chrc[pshift_min : (pshift_min + period)]
                     cons_chrc_part = cons_chrc[:period]
                     fifo_depth = int((prod_chrc_part - cons_chrc_part).max())
