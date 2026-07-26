@@ -195,6 +195,9 @@ def make_e2e_cfg(mod, board, model, out):
         build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
     ]
     cfg.stitched_ip_gen_dcp = False
+    # depths beyond 32768 exceed the RTL FIFO IP's cap and fail at stitching
+    # (e.g. the AlignLabels bypass buffer); splitting preserves total storage
+    cfg.split_large_fifos = True
     cfg.rtlsim_batch_size = RTLSIM_BATCH.get(_model_dir_of(mod), RTLSIM_BATCH_DEFAULT)
     cfg.steps = rtlsim_step_list(cfg)
     return cfg
