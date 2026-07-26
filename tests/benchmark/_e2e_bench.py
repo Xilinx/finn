@@ -259,7 +259,12 @@ def flow_use_folding_optimizer(cfg, target_fps, with_padding=True, fifo_heuristi
 def matched_target_fps(mod, board, model, key):
     """Throughput target for the optimizer flows: the committed folding JSON's
     own estimated fps. Derived from a cheap cached estimate-only build so the
-    optimizer competes at matched throughput instead of an arbitrary target."""
+    optimizer competes at matched throughput instead of an arbitrary target.
+
+    A headroom factor (default 1.1) is applied because the optimizer meets its
+    target at the estimate level while the comparison is measured in rtlsim:
+    estimate-vs-rtlsim slack plus discrete fold factors would otherwise leave
+    solutions a few percent short of the baseline's measured throughput."""
     out = os.path.join(build_root(), f"est_json_{key}")
     cfg = fb.make_base_cfg(mod, board, model, out)
     cfg.target_fps = None
@@ -269,7 +274,8 @@ def matched_target_fps(mod, board, model, key):
     ), f"estimate build (json folding) failed for {key}"
     json_cycles = fb.network_max_cycles(out)
     clock_hz = 1e9 / cfg.synth_clk_period_ns
-    return int(clock_hz / json_cycles), json_cycles
+    headroom = float(os.environ.get("FINN_E2E_FOLDING_HEADROOM", "1.1"))
+    return int(clock_hz / json_cycles * headroom), json_cycles
 
 
 # ---- running + metric collection --------------------------------------------
