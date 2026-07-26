@@ -351,7 +351,14 @@ def load_result(flow, key):
 
 
 def stable_throughput(metrics_or_result):
+    """Steady-state rtlsim throughput. Prefer fclk/interval_cycles: the builder's
+    stable_throughput divides by (total - latency) cycles, which degenerates when
+    the whole batch drains within the pipeline-fill window (tiny models)."""
     rtlsim = (metrics_or_result or {}).get("rtlsim") or {}
+    interval = rtlsim.get("interval_cycles")
+    fclk_mhz = rtlsim.get("fclk[mhz]")
+    if interval and fclk_mhz and interval > 0:
+        return fclk_mhz * 1e6 / interval
     return rtlsim.get("stable_throughput[images/s]") or rtlsim.get("throughput[images/s]")
 
 

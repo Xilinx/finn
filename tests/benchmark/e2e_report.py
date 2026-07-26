@@ -45,7 +45,12 @@ def load_results(results_dir):
 
 
 def _tp(r):
+    # steady-state throughput: prefer fclk/interval_cycles (the builder's
+    # stable_throughput degenerates when the batch drains within the fill window)
     rtl = (r or {}).get("rtlsim") or {}
+    interval, fclk_mhz = rtl.get("interval_cycles"), rtl.get("fclk[mhz]")
+    if interval and fclk_mhz and interval > 0:
+        return fclk_mhz * 1e6 / interval
     return rtl.get("stable_throughput[images/s]") or rtl.get("throughput[images/s]")
 
 
