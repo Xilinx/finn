@@ -175,10 +175,16 @@ def test_oversized_vivado_axis_fifo_stays_rtl():
     assert len(fifos) == 1
     assert getCustomOp(fifos[0]).get_nodeattr("impl_style") == "rtl"
 
+    model = model.transform(GiveUniqueNodeNames())
     model = model.transform(SplitLargeFIFOs())
     fifos = model.get_nodes_by_op_type("StreamingFIFO_rtl")
-    assert len(fifos) == 1
-    assert getCustomOp(fifos[0]).get_nodeattr("impl_style") == "rtl"
+    assert [getCustomOp(fifo).get_nodeattr("depth") for fifo in fifos] == [
+        256,
+        256,
+        256,
+        16,
+    ]
+    assert all(getCustomOp(fifo).get_nodeattr("impl_style") == "rtl" for fifo in fifos)
 
 
 def test_characterization_fifosizing_uses_matching_consumer_input(tmp_path):

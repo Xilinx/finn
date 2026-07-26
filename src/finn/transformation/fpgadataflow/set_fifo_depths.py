@@ -761,14 +761,23 @@ class SplitLargeFIFOs(Transformation):
             node_ind += 1
             if node.op_type == ("StreamingFIFO_rtl"):
                 n_inst = getCustomOp(node)
-                if (
+                width_exceeds_vivado_limit = (
                     n_inst.get_outstream_width_padded()
                     > VIVADO_AXIS_DATA_FIFO_MAX_WIDTH
-                ):
-                    n_inst.set_nodeattr("impl_style", "rtl")
-                    continue
+                )
                 depth = n_inst.get_nodeattr("depth")
-                cfgs = get_fifo_split_configs(depth, self.max_qsrl_depth, self.max_vivado_depth)
+                if width_exceeds_vivado_limit:
+                    n_inst.set_nodeattr("impl_style", "rtl")
+                    cfgs = []
+                    remaining_depth = depth
+                    while remaining_depth > 0:
+                        chunk_depth = min(remaining_depth, self.max_qsrl_depth)
+                        cfgs.append((max(2, chunk_depth), "rtl"))
+                        remaining_depth -= chunk_depth
+                else:
+                    cfgs = get_fifo_split_configs(
+                        depth, self.max_qsrl_depth, self.max_vivado_depth
+                    )
                 if len(cfgs) > 1:
                     fld_shape = n_inst.get_folded_output_shape()
                     n_shape = n_inst.get_normal_output_shape()
