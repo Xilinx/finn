@@ -395,6 +395,7 @@ class HWCustomOp(CustomOp):
                 "$SIMD$": [str(simd)],
                 "$N_REPS$": [str(n_reps)],
                 "$WEIGHT_WIDTH$": [str(wdt.bitwidth())],
+                "$RAM_STYLE$": [self.get_nodeattr("ram_style")],
                 "$N_LAYERS$": [str(n_max_layers)],
                 "$TH$": [str(theight)],
                 "$EN_MLO$": [en_mlo],

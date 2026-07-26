@@ -3,6 +3,31 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *****************************************************************************/
 
+module local_weight_ram #(
+	int unsigned  DATA_WIDTH,
+	int unsigned  DEPTH,
+	int unsigned  ADDR_WIDTH = (DEPTH == 1)? 1 : $clog2(DEPTH),
+	parameter  RAM_STYLE = "block"
+)(
+	input   logic  clk,
+	input   logic  w_en,
+	input   logic [ADDR_WIDTH-1:0]  w_addr,
+	input   logic [DATA_WIDTH-1:0]  w_data,
+	input   logic  r_en,
+	input   logic [ADDR_WIDTH-1:0]  r_addr,
+	output  logic [DATA_WIDTH-1:0]  r_data
+);
+
+	(* RAM_STYLE = RAM_STYLE *)
+	logic [DATA_WIDTH-1:0]  Ram[DEPTH];
+
+	always_ff @(posedge clk) begin
+		if(w_en)  Ram[w_addr] <= w_data;
+		if(r_en)  r_data <= Ram[r_addr];
+	end
+
+endmodule : local_weight_ram
+
 module local_weight_buffer #(
 	int unsigned  PE,
 	int unsigned  SIMD,
@@ -33,6 +58,15 @@ module local_weight_buffer #(
 	localparam int unsigned  WGT_ADDR_BITS = $clog2(NF * SF);
 	localparam int unsigned  N_TLS_BITS    = $clog2(N_TLS);
 	localparam int unsigned  N_REPS_BITS   = $clog2(N_REPS);
+	localparam int unsigned  WGT_WORD_BITS = SIMD * WEIGHT_WIDTH;
+	localparam int unsigned  MAX_RAM_BITS  = 1_000_000;
+	localparam int unsigned  MAX_BANK_DEPTH = (WGT_WORD_BITS > MAX_RAM_BITS)?
+	                                           1 : MAX_RAM_BITS / WGT_WORD_BITS;
+	localparam int unsigned  BANK_ADDR_BITS = (MAX_BANK_DEPTH == 1)?
+	                                           0 : $clog2(MAX_BANK_DEPTH + 1) - 1;
+	localparam int unsigned  BANK_DEPTH     = 2**BANK_ADDR_BITS;
+	localparam int unsigned  N_RAM_BANKS    = (N_TLS + BANK_DEPTH - 1) / BANK_DEPTH;
+	localparam int unsigned  RAM_BANK_BITS  = (N_RAM_BANKS == 1)? 1 : $clog2(N_RAM_BANKS);
 
 	typedef enum logic [1:0] {ST_WR_0, ST_WR_0_WAIT, ST_WR_1, ST_WR_1_WAIT}  state_wr_e;
 	typedef enum logic       {ST_RD_0, ST_RD_1}  state_rd_e;
@@ -229,15 +263,52 @@ module local_weight_buffer #(
 	//=== Weight RAMs =======================================================
 	for(genvar i = 0; i < 2; i++) begin : genBank
 		for(genvar j = 0; j < PE; j++) begin : genPe
-			(* RAM_STYLE = RAM_STYLE *)
-			logic [SIMD-1:0][WEIGHT_WIDTH-1:0]  Ram[2**WGT_ADDR_BITS];
-			logic [SIMD-1:0][WEIGHT_WIDTH-1:0]  RdReg;
+			if(N_TLS * WGT_WORD_BITS <= MAX_RAM_BITS) begin : genSingle
+				logic [SIMD-1:0][WEIGHT_WIDTH-1:0]  RdData;
 
-			always_ff @(posedge clk) begin
-				if(a_we[i][j])  Ram[a_addr[i]] <= a_data_in[i];
-				if(ordy) begin
-					RdReg          <= Ram[b_addr[i]];
-					odat_ram[i][j] <= RdReg;
+				local_weight_ram #(
+					.DATA_WIDTH(WGT_WORD_BITS), .DEPTH(N_TLS), .RAM_STYLE(RAM_STYLE)
+				) inst_ram (
+					.clk(clk),
+					.w_en(a_we[i][j]), .w_addr(a_addr[i]), .w_data(a_data_in[i]),
+					.r_en(ordy), .r_addr(b_addr[i]), .r_data(RdData)
+				);
+
+				always_ff @(posedge clk) begin
+					if(ordy)  odat_ram[i][j] <= RdData;
+				end
+			end
+			else begin : genBanked
+				logic [N_RAM_BANKS-1:0][SIMD-1:0][WEIGHT_WIDTH-1:0]  BankRdData;
+				logic [RAM_BANK_BITS-1:0]  ReadBank;
+
+				for(genvar k = 0; k < N_RAM_BANKS; k++) begin : genRam
+					localparam int unsigned  THIS_BANK_DEPTH = (k == N_RAM_BANKS-1)?
+					                                               N_TLS - k * BANK_DEPTH : BANK_DEPTH;
+					localparam int unsigned  THIS_ADDR_BITS = (THIS_BANK_DEPTH == 1)?
+					                                             1 : $clog2(THIS_BANK_DEPTH);
+					logic [THIS_ADDR_BITS-1:0]  LocalWAddr;
+					logic [THIS_ADDR_BITS-1:0]  LocalRAddr;
+
+					assign  LocalWAddr = a_addr[i] % BANK_DEPTH;
+					assign  LocalRAddr = b_addr[i] % BANK_DEPTH;
+
+					local_weight_ram #(
+						.DATA_WIDTH(WGT_WORD_BITS), .DEPTH(THIS_BANK_DEPTH), .RAM_STYLE(RAM_STYLE)
+					) inst_ram (
+						.clk(clk),
+						.w_en(a_we[i][j] && (a_addr[i] / BANK_DEPTH == k)),
+						.w_addr(LocalWAddr), .w_data(a_data_in[i]),
+						.r_en(ordy && (b_addr[i] / BANK_DEPTH == k)),
+						.r_addr(LocalRAddr), .r_data(BankRdData[k])
+					);
+				end
+
+				always_ff @(posedge clk) begin
+					if(ordy) begin
+						ReadBank       <= b_addr[i] / BANK_DEPTH;
+						odat_ram[i][j] <= BankRdData[ReadBank];
+					end
 				end
 			end
 		end : genPe

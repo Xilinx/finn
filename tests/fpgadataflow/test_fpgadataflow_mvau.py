@@ -49,6 +49,7 @@ from finn import xsi
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.core.rtlsim_exec import rtlsim_exec
+from finn.custom_op.fpgadataflow.rtl.matrixvectoractivation_rtl import MVAU_rtl
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.derive_characteristic import DeriveCharacteristic
@@ -162,6 +163,33 @@ def make_single_matmul_modelwrapper(ifm, ofm, idt, wdt, W):
     # model.set_tensor_layout("ifm", DataLayout.NHWC)
 
     return model
+
+
+def test_fetch_weights_forwards_ram_style(tmp_path):
+    node = helper.make_node(
+        "MVAU_rtl",
+        ["inp", "weights"],
+        ["outp"],
+        name="MVAU_rtl_0",
+        domain="finn.custom_op.fpgadataflow",
+        backend="fpgadataflow",
+        MW=12,
+        MH=8,
+        SIMD=4,
+        PE=2,
+        inputDataType="INT8",
+        weightDataType="INT8",
+        outputDataType="INT32",
+        noActivation=1,
+        mem_mode="external_mem",
+        ram_style="ultra",
+        code_gen_dir_ipgen=str(tmp_path),
+    )
+    MVAU_rtl(node).generate_hdl_fetch_weights()
+
+    wrapper = (tmp_path / "MVAU_rtl_0_fetch_weights_wrapper.v").read_text()
+    assert 'parameter  RAM_STYLE = "ultra"' in wrapper
+    assert ".WEIGHT_WIDTH(WEIGHT_WIDTH), .RAM_STYLE(RAM_STYLE)" in wrapper
 
 
 def make_dynamic_matmul_modelwrapper(ifm, wfm, ofm, idt, wdt):

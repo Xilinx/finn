@@ -11,6 +11,7 @@ module fetch_weights #(
 	int unsigned  MW,
 	int unsigned  N_REPS,
 	int unsigned  WEIGHT_WIDTH = 8,
+	parameter  RAM_STYLE = "block",
 
 	int unsigned  ADDR_BITS = 64,
 	int unsigned  DATA_BITS = 256,
@@ -288,7 +289,7 @@ module fetch_weights #(
 	if(TH == 1) begin : genLwb
 		local_weight_buffer #(
 			.PE(PE), .SIMD(SIMD), .MH(MH), .MW(MW),
-			.N_REPS(N_REPS), .WEIGHT_WIDTH(WEIGHT_WIDTH), .DBG(DBG)
+			.N_REPS(N_REPS), .WEIGHT_WIDTH(WEIGHT_WIDTH), .RAM_STYLE(RAM_STYLE), .DBG(DBG)
 		) inst_weight_buff (
 			.clk(aclk), .rst(~aresetn),
 			.ivld(axis_dwc_tvalid), .irdy(axis_dwc_tready), .idat(axis_dwc_tdata),
