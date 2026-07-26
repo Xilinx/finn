@@ -42,8 +42,15 @@ def test_e2e_combined(entry):
     mod = fb.load_bench_module(model_dir)
     target_fps, json_cycles = eb.matched_target_fps(mod, board, model, key)
 
+    # the optimizer's in-loop FIFO scoring re-sizes every candidate fold; even
+    # synthesis-free that multiplies sizing cost by folding_effort, so it is
+    # opt-in for the benchmark matrix
+    fifo_heuristic = os.environ.get("FINN_E2E_FOLDING_FIFO_HEURISTIC") == "1"
+
     def mutate(cfg):
-        eb.flow_use_folding_optimizer(cfg, target_fps, with_padding=True, fifo_heuristic=True)
+        eb.flow_use_folding_optimizer(
+            cfg, target_fps, with_padding=True, fifo_heuristic=fifo_heuristic
+        )
         eb.flow_use_analytic_fifo_sizing(cfg)
 
     metrics = eb.run_flow(
