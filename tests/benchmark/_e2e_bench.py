@@ -229,7 +229,11 @@ def rtlsim_step_list(cfg):
 
 
 def flow_use_json_folding(cfg):
-    cfg.target_fps = None  # committed folding_config_file drives the folding
+    """Reference folding: the committed folding JSON where the model ships one;
+    cybersecurity-mlp (non-AUP boards) instead folds via its own target_fps, so
+    that must be preserved -- nulling it there builds the UNFOLDED model."""
+    if cfg.folding_config_file is not None:
+        cfg.target_fps = None
 
 
 def flow_use_rtlsim_fifo_sizing(cfg):
