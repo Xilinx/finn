@@ -32,6 +32,9 @@ from qonnx.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
 
+VIVADO_AXIS_DATA_FIFO_MAX_WIDTH = 256 * 8
+
+
 class StreamingFIFO(HWCustomOp):
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)

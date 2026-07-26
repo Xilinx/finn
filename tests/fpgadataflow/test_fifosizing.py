@@ -48,7 +48,11 @@ from finn.transformation.fpgadataflow.derive_characteristic import (
     DeriveFIFOSizes,
     _find_minimum_phase_shift,
 )
-from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
+from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
+from finn.transformation.fpgadataflow.set_fifo_depths import (
+    InsertAndSetFIFODepths,
+    SplitLargeFIFOs,
+)
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import make_build_dir, robust_rmtree
 from finn.util.test import get_trained_network_and_ishape
@@ -156,6 +160,25 @@ def test_characterization_phase_shift_binary_search_matches_linear_scan():
                 expected = candidate
                 break
         assert _find_minimum_phase_shift(prod_chrc, cons_chrc, period) == expected
+
+
+def test_oversized_vivado_axis_fifo_stays_rtl():
+    model = make_multi_io_modelwrapper(300, 300, DataType["INT8"])
+    producer = getCustomOp(model.graph.node[0])
+    consumer = getCustomOp(model.graph.node[1])
+    producer.set_nodeattr("outFIFODepths", [784])
+    consumer.set_nodeattr("inFIFODepths", [784])
+
+    model = model.transform(InsertFIFO(max_qsrl_depth=256))
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+    fifos = model.get_nodes_by_op_type("StreamingFIFO_rtl")
+    assert len(fifos) == 1
+    assert getCustomOp(fifos[0]).get_nodeattr("impl_style") == "rtl"
+
+    model = model.transform(SplitLargeFIFOs())
+    fifos = model.get_nodes_by_op_type("StreamingFIFO_rtl")
+    assert len(fifos) == 1
+    assert getCustomOp(fifos[0]).get_nodeattr("impl_style") == "rtl"
 
 
 def test_characterization_fifosizing_uses_matching_consumer_input(tmp_path):

@@ -33,6 +33,7 @@ from onnx import helper as oh
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 
+from finn.custom_op.fpgadataflow.streamingfifo import VIVADO_AXIS_DATA_FIFO_MAX_WIDTH
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
@@ -152,7 +153,15 @@ class InsertFIFO(Transformation):
                             graph.value_info.append(fifo_output_tensor)
                             model.set_tensor_datatype(fifo_output_tensor.name, dtype)
 
-                            if self.max_qsrl_depth is None or fifo_depth <= self.max_qsrl_depth:
+                            vivado_width_supported = (
+                                n0.get_outstream_width_padded(idx_out)
+                                <= VIVADO_AXIS_DATA_FIFO_MAX_WIDTH
+                            )
+                            if (
+                                self.max_qsrl_depth is None
+                                or fifo_depth <= self.max_qsrl_depth
+                                or not vivado_width_supported
+                            ):
                                 impl_style = "rtl"
                             else:
                                 impl_style = "vivado"

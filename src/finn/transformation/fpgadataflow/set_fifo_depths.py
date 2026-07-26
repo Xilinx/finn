@@ -43,6 +43,7 @@ from qonnx.util.basic import gen_finn_dt_tensor
 
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.core.rtlsim_exec import rtlsim_exec_cppxsi
+from finn.custom_op.fpgadataflow.streamingfifo import VIVADO_AXIS_DATA_FIFO_MAX_WIDTH
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
@@ -505,7 +506,15 @@ class InsertAndSetFIFODepths(Transformation):
                 toplevel_out = node.output[0] in [x.name for x in model.graph.output]
                 toplevel_style_exception = toplevel_in or toplevel_out
                 # Set FIFO implementation/ram styles
-                if (depth > self.max_qsrl_depth) and (not toplevel_style_exception):
+                vivado_width_supported = (
+                    node_inst.get_outstream_width_padded()
+                    <= VIVADO_AXIS_DATA_FIFO_MAX_WIDTH
+                )
+                if (
+                    depth > self.max_qsrl_depth
+                    and not toplevel_style_exception
+                    and vivado_width_supported
+                ):
                     node_inst.set_nodeattr("impl_style", "vivado")
                     node_inst.set_nodeattr("ram_style", self.vivado_ram_style)
                 else:
@@ -752,6 +761,12 @@ class SplitLargeFIFOs(Transformation):
             node_ind += 1
             if node.op_type == ("StreamingFIFO_rtl"):
                 n_inst = getCustomOp(node)
+                if (
+                    n_inst.get_outstream_width_padded()
+                    > VIVADO_AXIS_DATA_FIFO_MAX_WIDTH
+                ):
+                    n_inst.set_nodeattr("impl_style", "rtl")
+                    continue
                 depth = n_inst.get_nodeattr("depth")
                 cfgs = get_fifo_split_configs(depth, self.max_qsrl_depth, self.max_vivado_depth)
                 if len(cfgs) > 1:
