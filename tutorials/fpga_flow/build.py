@@ -34,11 +34,11 @@
 
 import numpy as np
 import os
+from qonnx.custom_op.registry import getCustomOp
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 import finn.util.data_packing as dpk
-from finn.util.basic import getHWCustomOp
 
 model_name = "tfc_w1a1"
 platform_name = "fpga"
@@ -60,7 +60,7 @@ def custom_step_gen_tb_and_io(model, cfg):
     # query the parallelism-dependent folded input shape from the
     # node consuming the graph input
     inp_name = model.get_first_global_in()
-    inp_node = getHWCustomOp(model.find_consumer(inp_name), model)
+    inp_node = getCustomOp(model.find_consumer(inp_name))
     inp_shape_folded = list(inp_node.get_folded_input_shape())
     inp_stream_width = inp_node.get_instream_width_padded()
     # fix first dimension (N: batch size) to correspond to input data
@@ -77,7 +77,7 @@ def custom_step_gen_tb_and_io(model, cfg):
     # load expected output and calculate folded shape
     exp_out = np.load("expected_output.npy")
     out_name = model.get_first_global_out()
-    out_node = getHWCustomOp(model.find_producer(out_name), model)
+    out_node = getCustomOp(model.find_producer(out_name))
     out_shape_folded = list(out_node.get_folded_output_shape())
     out_stream_width = out_node.get_outstream_width_padded()
     out_shape_folded[0] = batchsize
