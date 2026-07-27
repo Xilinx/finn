@@ -37,6 +37,40 @@ from finn.util.vivado import out_of_context_synth
 from finn.transformation.fpgadataflow.add_multi_dedup import generate_unified_add_multi
 
 
+def _stage_ooc_sources(model, build_dir):
+    """Copy every stitched Verilog/SystemVerilog source (and `include`-only .svh
+    headers) from all_verilog_srcs.txt into build_dir, then rewrite the canonical
+    add_multi.sv. Shared by the plain and sandwich OOC transforms."""
+    vivado_stitch_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
+    assert vivado_stitch_proj_dir is not None, "Need stitched IP to run."
+    # .svh headers are registered but must be copied beside their hosts so the
+    # `include`s resolve during OOC synth.
+    verilog_extensions = [".v", ".sv", ".vh", ".svh"]
+    with open(vivado_stitch_proj_dir + "/all_verilog_srcs.txt", "r") as f:
+        all_verilog_srcs = f.read().split()
+    for file in all_verilog_srcs:
+        if any([file.endswith(x) for x in verilog_extensions]):
+            copy2(file, build_dir)
+    # Rewrite add_multi.sv only for RTL-compressor builds: it `include`s
+    # add_multi_sched.svh (+ mvu_pkg::*), absent in pure-HLS designs where
+    # emitting it would create an uncompilable out-of-hierarchy file.
+    if os.path.isfile(os.path.join(build_dir, "add_multi_sched.svh")):
+        generate_unified_add_multi(model, build_dir)
+
+
+def _collect_float_ip_tcl(model):
+    """Extra tcl to set up floating-point HLS IPs correctly (unchanged legacy path)."""
+    float_ip_tcl = []
+    for node in model.graph.node:
+        if is_hls_float_op(node, model):
+            code_gen_dir = getCustomOp(node).get_nodeattr("code_gen_dir_ipgen")
+            verilog_path = "{}/project_{}/sol1/impl/verilog/".format(code_gen_dir, node.name)
+            for fname in os.listdir(verilog_path):
+                if fname.endswith(".tcl"):
+                    float_ip_tcl.append(verilog_path + fname)
+    return float_ip_tcl
+
+
 def is_hls_float_op(node, model):
     if is_hls_node(node):
         for inp in node.input:
@@ -58,32 +92,11 @@ class SynthOutOfContext(Transformation):
         def file_to_basename(x):
             return os.path.basename(os.path.realpath(x))
 
-        vivado_stitch_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
-        assert vivado_stitch_proj_dir is not None, "Need stitched IP to run."
         top_module_name = model.get_metadata_prop("wrapper_filename")
         top_module_name = file_to_basename(top_module_name).strip(".v")
         build_dir = make_build_dir("synth_out_of_context_")
-        verilog_extensions = [".v", ".sv", ".vh"]
-        with open(vivado_stitch_proj_dir + "/all_verilog_srcs.txt", "r") as f:
-            all_verilog_srcs = f.read().split()
-        for file in all_verilog_srcs:
-            if any([file.endswith(x) for x in verilog_extensions]):
-                copy2(file, build_dir)
-
-        # Generate unified add_multi.sv with aggregated CATCH_COMP entries
-        # This overwrites any per-node add_multi.sv files that were copied above
-        generate_unified_add_multi(model, build_dir)
-
-        # extract additional tcl commands to set up floating-point ips correctly
-        float_ip_tcl = []
-        for node in model.graph.node:
-            if is_hls_float_op(node, model):
-                code_gen_dir = getCustomOp(node).get_nodeattr("code_gen_dir_ipgen")
-                verilog_path = "{}/project_{}/sol1/impl/verilog/".format(code_gen_dir, node.name)
-                file_suffix = ".tcl"
-                for fname in os.listdir(verilog_path):
-                    if fname.endswith(file_suffix):
-                        float_ip_tcl.append(verilog_path + fname)
+        _stage_ooc_sources(model, build_dir)
+        float_ip_tcl = _collect_float_ip_tcl(model)
         ret = out_of_context_synth(
             build_dir, top_module_name, float_ip_tcl, self.part, self.clk_name, self.clk_period_ns
         )

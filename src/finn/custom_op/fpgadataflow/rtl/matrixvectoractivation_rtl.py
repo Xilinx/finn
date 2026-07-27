@@ -29,7 +29,7 @@
 import numpy as np
 import os
 
-from compressor import generate_add_multi_comps, generate_dotp_comp
+import subprocess
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.util.basic import get_dsp_block
@@ -52,15 +52,10 @@ class MVAU_rtl(MVAU, RTLBackend):
         my_attrs = {
             # Double-pumped DSPs enabled
             "pumpedCompute": ("i", False, 0, {0, 1}),
-            # Compressor module name (set by generate_hdl when compressor is used)
+            # Set to "compress_dotp" by generate_hdl when the LUT-compressor path is used.
             "comp_module_name": ("s", False, ""),
-            # dotp_comp wrapper module name (set by generate_hdl when dotp compressor is used)
-            "dotp_module_name": ("s", False, ""),
-            # add_multi compressor module names, semicolon-separated
-            "add_multi_comp_names": ("s", False, ""),
-            # add_multi compressor specs for synthesis aggregation
-            # Format: "N,W,D;N,W,D;..." e.g. "16,4,0;16,3,0;16,8,0"
-            "add_multi_comp_specs": ("s", False, ""),
+            # LUT-compressor last->vld latency ceiling; 0 = full pipelining. Compressor path only.
+            "cycle_budget": ("i", False, 0),
         }
         my_attrs.update(MVAU.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
@@ -221,34 +216,16 @@ class MVAU_rtl(MVAU, RTLBackend):
         sourcefiles = [
             os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v")
         ] + [rtllib_dir + f for f in base_files]
+        sourcefiles.append(os.path.join(code_gen_dir, "mvu_vvu_axi.sv"))
 
-        # Add compressor files if dotp_comp was generated
-        comp_name = self.get_nodeattr("comp_module_name")
-        if comp_name:
-            dotp_module_name = self.get_nodeattr("dotp_module_name")
-            sourcefiles.append(os.path.join(code_gen_dir, f"{dotp_module_name}.sv"))
-            sourcefiles.append(os.path.join(code_gen_dir, "mul_comp_map.sv"))
-            sourcefiles.append(os.path.join(code_gen_dir, comp_name + ".sv"))
-            sourcefiles.append(os.path.join(code_gen_dir, "compress_core.sv"))
-            sourcefiles.append(os.path.join(code_gen_dir, "compressor_counters.sv"))
-            # `include`d header must be registered too, else stitching fails (56-591)
-            sourcefiles.append(os.path.join(code_gen_dir, "compressor_tags.svh"))
-            sourcefiles.append(os.path.join(code_gen_dir, "mvu_vvu_axi.sv"))
-        else:
-            # DSP path: use local mvu_vvu_axi.sv (no placeholder substitution needed)
-            sourcefiles.append(os.path.join(code_gen_dir, "mvu_vvu_axi.sv"))
-            # add_multi.sv always exists in code_gen_dir
-            # (either patched with comps or copy of template)
+        # DSP path also compiles the FINN add_multi wrapper (comp_module_name
+        # doubles as the compressor-path flag).
+        if not self.get_nodeattr("comp_module_name"):
             sourcefiles.append(os.path.join(code_gen_dir, "add_multi.sv"))
-            add_multi_names_str = self.get_nodeattr("add_multi_comp_names")
-            if add_multi_names_str:
-                # Add compressor modules if present
-                for name in add_multi_names_str.split(";"):
-                    sourcefiles.append(os.path.join(code_gen_dir, name + ".sv"))
-                sourcefiles.append(os.path.join(code_gen_dir, "compress_core.sv"))
-                sourcefiles.append(os.path.join(code_gen_dir, "compressor_counters.sv"))
-                # `include`d header must be registered too, else stitching fails (56-591)
-                sourcefiles.append(os.path.join(code_gen_dir, "compressor_tags.svh"))
+
+        # Compressor HDL (incl. the schedule headers, which must be registered too
+        # or stitching fails 56-591); the file set is owned by its filelist.f.
+        sourcefiles += self._read_compressor_filelist(code_gen_dir)
 
         return sourcefiles
 
@@ -380,72 +357,50 @@ class MVAU_rtl(MVAU, RTLBackend):
         )
         code_gen_dict["$NARROW_WEIGHTS$"] = str(narrow_weights)
 
-        # Extract params from code_gen_dict for compressor generation.
-        simd = int(code_gen_dict["$SIMD$"][0])
+        # Extract params from code_gen_dict for compressor-path selection.
         ww = int(code_gen_dict["$WEIGHT_WIDTH$"][0])
         aw = int(code_gen_dict["$ACTIVATION_WIDTH$"][0])
-        accu_width = int(code_gen_dict["$ACCU_WIDTH$"][0])
-        signed_act = int(code_gen_dict["$SIGNED_ACTIVATIONS$"][0]) != 0
         pumped_compute = int(code_gen_dict["$PUMPED_COMPUTE$"][0])
-        version = int(code_gen_dict["$VERSION$"][0])
 
         # Unique per-node core name; avoids flat-namespace collision in whole-design sim
         mvu_core_name = "mvu_vvu_axi_" + self.get_verilog_top_module_name()
         code_gen_dict["$MVU_CORE_NAME$"] = [mvu_core_name]
 
-        # Compressor generation if applicable.
+        # Stage the compressor HDL beside the node sources; both paths need it
+        # since mvu_vvu_axi.sv unconditionally includes the schedule.
+        compressor_root = os.environ.get("COMPRESSOR_ROOT")
+        if not compressor_root:
+            raise RuntimeError("COMPRESSOR_ROOT environment variable not set")
+        copy_script = os.path.join(compressor_root, "copy_sources.sh")
+        subprocess.run([copy_script, code_gen_dir], check=True)
+
+        # Compressor path selection.
         if self._is_dotp_comp_eligible(fpgapart, ww, aw, pumped_compute):
-            result = generate_dotp_comp(
-                fpgapart, simd, ww, aw, accu_width, signed_act, code_gen_dir
-            )
-            code_gen_dict["$COMP_PIPELINE_DEPTH$"] = [str(result["comp_delay"])]
+            # LUT dot-product path; compress_dotp builds its schedule at elaboration.
             code_gen_dict["$USE_COMPRESSOR$"] = [str(1)]
-            self.set_nodeattr("comp_module_name", result["comp_name"])
-            self.set_nodeattr("dotp_module_name", result["dotp_module_name"])
-            # Copy mvu_vvu_axi.sv and substitute $DOTP_MODULE_NAME$
+            code_gen_dict["$CYCLE_BUDGET$"] = [str(self.get_nodeattr("cycle_budget"))]
+            # Flags the compressor path for _get_rtl_source_files.
+            self.set_nodeattr("comp_module_name", "compress_dotp")
+            # Copy mvu_vvu_axi.sv and substitute the unique core name.
             rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
             with open(os.path.join(rtllib_dir, "mvu_vvu_axi.sv"), "r") as f:
                 mvu_vvu_axi_content = f.read()
-            mvu_vvu_axi_content = mvu_vvu_axi_content.replace(
-                "$DOTP_MODULE_NAME$", result["dotp_module_name"]
-            ).replace("$MVU_CORE_NAME$", mvu_core_name)
+            mvu_vvu_axi_content = mvu_vvu_axi_content.replace("$MVU_CORE_NAME$", mvu_core_name)
             with open(os.path.join(code_gen_dir, "mvu_vvu_axi.sv"), "w") as f:
                 f.write(mvu_vvu_axi_content)
         else:
-            # DSP path: Generate compressor cores
-            result = generate_add_multi_comps(
-                fpgapart, version, simd, ww, aw, accu_width, narrow_weights, code_gen_dir
-            )
-            if result["comp_names"]:
-                self.set_nodeattr("add_multi_comp_names", ";".join(result["comp_names"]))
-                # Store compressor specs for synthesis aggregation
-                # Format: "N,W,D;N,W,D;..." e.g. "16,4,0;16,3,0;16,8,0"
-                specs_str = ";".join(f"{n},{w},{d}" for n, w, d in result.get("comp_specs", []))
-                self.set_nodeattr("add_multi_comp_specs", specs_str)
-
-            # Patch add_multi.sv with CATCH_COMP entries from compressor
+            # DSP path: copy add_multi.sv verbatim (add_multi_sv + headers already staged).
             rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
             with open(os.path.join(rtllib_dir, "add_multi.sv"), "r") as f:
                 add_multi_src = f.read()
-            marker = "\t// FINN_GENERATED_COMP_ENTRIES\n"
-            if marker not in add_multi_src:
-                raise RuntimeError(
-                    "Cannot find FINN_GENERATED_COMP_ENTRIES marker in add_multi.sv. "
-                    "Has the file been modified?"
-                )
-            add_multi_src = add_multi_src.replace(
-                marker, result.get("catch_comp_lines", "") + marker
-            )
             with open(os.path.join(code_gen_dir, "add_multi.sv"), "w") as f:
                 f.write(add_multi_src)
 
-            # Copy mvu_vvu_axi.sv and substitute placeholder with dummy name
-            # (not used since USE_COMPRESSOR=0, but Vivado parses entire file)
+            # Substitute the unique core name; the pruned compressor branch's
+            # schedule include still resolves (clamped inputs keep it trivial).
             with open(os.path.join(rtllib_dir, "mvu_vvu_axi.sv"), "r") as f:
                 mvu_vvu_axi_content = f.read()
-            mvu_vvu_axi_content = mvu_vvu_axi_content.replace(
-                "$DOTP_MODULE_NAME$", "dotp_comp"  # Dummy name, won't be instantiated
-            ).replace("$MVU_CORE_NAME$", mvu_core_name)
+            mvu_vvu_axi_content = mvu_vvu_axi_content.replace("$MVU_CORE_NAME$", mvu_core_name)
             with open(os.path.join(code_gen_dir, "mvu_vvu_axi.sv"), "w") as f:
                 f.write(mvu_vvu_axi_content)
 
@@ -523,6 +478,7 @@ class MVAU_rtl(MVAU, RTLBackend):
         )
         code_gen_dict["$SEGMENTLEN$"] = [str(self._resolve_segment_len(clk))]
         code_gen_dict["$COMP_PIPELINE_DEPTH$"] = [str(1)]
+        code_gen_dict["$CYCLE_BUDGET$"] = [str(0)]
         code_gen_dict["$USE_COMPRESSOR$"] = [str(0)]
 
         return template_path, code_gen_dict

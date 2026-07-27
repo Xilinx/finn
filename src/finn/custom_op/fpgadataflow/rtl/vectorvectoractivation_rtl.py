@@ -30,6 +30,7 @@ import numpy as np
 import os
 from qonnx.core.datatype import DataType
 
+import subprocess
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.custom_op.fpgadataflow.vectorvectoractivation import VVAU
 from finn.util.basic import is_versal
@@ -144,22 +145,33 @@ class VVAU_rtl(VVAU, RTLBackend):
         Q = self.get_nodeattr("SIMD")
         return int(P * np.ceil(Q / 3))
 
-    def instantiate_ip(self, cmd):
-        # instantiate the RTL IP
-        node_name = self.onnx_node.name
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
+    def _collect_rtl_sourcefiles(self, code_gen_dir, rtllib_dir):
+        """Ordered RTL source list for this VVU node. `code_gen_dir` holds the
+        per-node copies, `rtllib_dir` the shared cores. Both args carry their own
+        trailing separator (or are empty for relative paths)."""
         rtllib_files = [
             "mvu_pkg.sv",
             "replay_buffer.sv",
             "mvu.sv",
             "mvu_vvu_8sx9_dsp58.sv",
-            "add_multi.sv",
         ]
-        sourcefiles = [
-            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"),
-            os.path.join(code_gen_dir, "mvu_vvu_axi.sv"),  # Local copy with substituted placeholder
-        ] + [rtllib_dir + _ for _ in rtllib_files]
+        return (
+            [
+                os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"),
+                os.path.join(code_gen_dir, "mvu_vvu_axi.sv"),  # local copy w/ substituted placeholder
+                os.path.join(code_gen_dir, "add_multi.sv"),  # FINN wrapper over add_multi_sv
+            ]
+            + [rtllib_dir + _ for _ in rtllib_files]
+            # Compressor HDL (incl. schedule headers); file set owned by filelist.f.
+            + self._read_compressor_filelist(code_gen_dir)
+        )
+
+    def instantiate_ip(self, cmd):
+        # instantiate the RTL IP
+        node_name = self.onnx_node.name
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
+        sourcefiles = self._collect_rtl_sourcefiles(code_gen_dir, rtllib_dir)
 
         for f in sourcefiles:
             cmd.append("add_files -norecurse %s" % (f))
@@ -223,16 +235,27 @@ class VVAU_rtl(VVAU, RTLBackend):
         ) as f:
             f.write(template_wrapper)
 
-        # Copy mvu_vvu_axi.sv and substitute placeholder with dummy name
-        # (not used since USE_COMPRESSOR=0, but Vivado parses entire file)
+        # Stage the compressor HDL; mvu_vvu_axi.sv unconditionally includes the
+        # schedule even though the VVU never uses the compressor path.
+        compressor_root = os.environ.get("COMPRESSOR_ROOT")
+        if not compressor_root:
+            raise RuntimeError("COMPRESSOR_ROOT environment variable not set")
+        copy_script = os.path.join(compressor_root, "copy_sources.sh")
+        subprocess.run([copy_script, code_gen_dir], check=True)
+        # Substitute the unique core name into the local mvu_vvu_axi.sv copy.
         rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
         with open(os.path.join(rtllib_dir, "mvu_vvu_axi.sv"), "r") as f:
             mvu_vvu_axi_content = f.read()
-        mvu_vvu_axi_content = mvu_vvu_axi_content.replace(
-            "$DOTP_MODULE_NAME$", "dotp_comp"  # Dummy name, won't be instantiated
-        ).replace("$MVU_CORE_NAME$", mvu_core_name)
+        mvu_vvu_axi_content = mvu_vvu_axi_content.replace("$MVU_CORE_NAME$", mvu_core_name)
         with open(os.path.join(code_gen_dir, "mvu_vvu_axi.sv"), "w") as f:
             f.write(mvu_vvu_axi_content)
+
+        # Stage add_multi.sv into code_gen_dir so its `include` resolves beside the
+        # copied headers (includes resolve relative to each file's own dir).
+        with open(os.path.join(rtllib_dir, "add_multi.sv"), "r") as f:
+            add_multi_content = f.read()
+        with open(os.path.join(code_gen_dir, "add_multi.sv"), "w") as f:
+            f.write(add_multi_content)
 
         if self.get_nodeattr("mem_mode") == "internal_decoupled":
             if self.get_nodeattr("ram_style") == "ultra" and not is_versal(fpgapart):
@@ -300,6 +323,7 @@ class VVAU_rtl(VVAU, RTLBackend):
         )
         code_gen_dict["$SEGMENTLEN$"] = [str(self._resolve_segment_len(clk))]
         code_gen_dict["$COMP_PIPELINE_DEPTH$"] = [str(1)]
+        code_gen_dict["$CYCLE_BUDGET$"] = [str(0)]
         code_gen_dict["$USE_COMPRESSOR$"] = [str(0)]
 
         return template_path, code_gen_dict
@@ -312,19 +336,7 @@ class VVAU_rtl(VVAU, RTLBackend):
             code_gen_dir = ""
             rtllib_dir = ""
 
-        rtllib_files = [
-            "mvu_pkg.sv",
-            "replay_buffer.sv",
-            "mvu.sv",
-            "mvu_vvu_8sx9_dsp58.sv",
-            "add_multi.sv",
-        ]
-        verilog_files = [
-            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"),
-            os.path.join(code_gen_dir, "mvu_vvu_axi.sv"),  # Local copy with substituted placeholder
-        ] + [rtllib_dir + _ for _ in rtllib_files]
-
-        return verilog_files
+        return self._collect_rtl_sourcefiles(code_gen_dir, rtllib_dir)
 
     def get_verilog_paths(self):
         verilog_paths = super().get_verilog_paths()

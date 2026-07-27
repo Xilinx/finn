@@ -93,6 +93,18 @@ MANIFEST
 
 # generated files as part of end2end notebooks
 /notebooks/end2end_example/**/*.onnx
+/notebooks/advanced/**/*.onnx
+/notebooks/advanced/output_*/
 
 # downloaded dep repos
 /deps/
+
+# stray build/test artifacts at repo root (all regenerable)
+/*.onnx
+/*.npy
+/*.npz
+/*.pth
+/*.log
+/output_*/
+/folding_config_*.json
+/specialize_layers_*.json

@@ -801,7 +801,8 @@ module mvu #(
 				add_multi #(
 					.N(SIMD), .DEPTH(PIPELINE_DEPTH-4),
 					.ARG_WIDTH(LO_WIDTH),
-					.RESET_ZERO(0)
+					.RESET_ZERO(0),
+					.TARGET((VERSION == 3)? 1'b0 : 1'b1)  // VERSION 3 = Versal
 				) reduce (
 					.clk, .rst, .en,
 					.arg, .sum

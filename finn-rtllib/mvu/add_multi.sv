@@ -39,6 +39,7 @@ module add_multi import mvu_pkg::*; #(
 	int  ARG_LO = 0,
 	int  ARG_HI = 0,
 	bit  RESET_ZERO = 1,
+	bit  TARGET = 0,   // 0 = Versal; 1 = 7-series/UltraScale (compressor path only)
 
 	localparam int unsigned  SUM_WIDTH = sumwidth(N, ARG_WIDTH, ARG_LO, ARG_HI)
 )(
@@ -51,52 +52,48 @@ module add_multi import mvu_pkg::*; #(
 );
 
 //---------------------------------------------------------------------------
-// Compressor Path
-//
-// CATCH_COMP entries instantiate a generated compressor module for a
-// specific (N, ARG_WIDTH, delay) triple.  The macro transposes arg[i][j]
-// to the column-major bit-vector expected by the compressor and pads any
-// remaining DEPTH with a shift-register delay.
-//
-// Generated compressors have no en port — when en=0, upstream holds
-// inputs stable and the downstream accumulator does not latch, so
-// correctness is preserved.
+// Compressor path: unsigned low reduction via parametric add_multi_sv, whose
+// LUT-compressor schedule is built at elaboration (add_multi_sched.svh).
+// add_multi_sv is free-running (no en); en=0 holds inputs upstream.
 
-`define CATCH_COMP(n,w,d) \
-else if(!RESET_ZERO && (N == n) && (ARG_WIDTH == w) && (DEPTH >= d) && (0 <= ARG_LO)) begin : genComp``n``u``w``_d``d \
-	initial $display("[ADD_MULTI_PATH] COMP N=%0d D=%0d W=%0d", N, DEPTH, ARG_WIDTH); \
-\
-	uwire [N*ARG_WIDTH-1:0]  in; \
-	uwire [SUM_WIDTH  -1:0]  out; \
-	for(genvar  i = 0; i < N; i++) begin : genIn \
-		for(genvar  j = 0; j < ARG_WIDTH; j++) begin : genBit \
-				assign	in[j*N+i] = arg[i][j]; \
-		end : genBit \
-	end : genIn \
-	comp_``n``u``w``_d``d comp_inst ( \
-		.clk, \
-		.in, .out \
-	); \
-	initial assert($bits(out) >= $bits(comp_inst.out)) else $warning("CATCH_COMP(%0d,%0d,%0d): compressor output width %0d > SUM_WIDTH %0d", n, w, d, $bits(comp_inst.out), SUM_WIDTH); \
-\
-	localparam int unsigned  COMP_DELAY = d; \
-	localparam int unsigned  SUM_DELAY = DEPTH - COMP_DELAY; \
-	if(SUM_DELAY == 0)  assign  sum = out; \
-	else begin : genDelay \
-		logic [SUM_WIDTH-1:0]  SumZ[SUM_DELAY] = '{ default: '0 }; \
-		always_ff @(posedge clk) begin \
-			if(rst)  SumZ <= '{ default: '0 }; \
-			else if(en) begin \
-				for(int unsigned  i = 0; i < SUM_DELAY-1; i++)  SumZ[i] <= SumZ[i+1]; \
-				SumZ[SUM_DELAY-1] <= out; \
-			end \
-		end \
-		assign	sum = SumZ[0]; \
-	end : genDelay \
-end : genComp``n``u``w``_d``d
+	// Re-derive NP (output width) and PIPE (latency) from the same schedule.
+	localparam int unsigned  SCHED_N          = N;
+	localparam int unsigned  SCHED_ARG_WIDTH  = ARG_WIDTH;
+	localparam bit           SCHED_SIGNED     = 1'b0;
+	localparam int unsigned  SCHED_COMB_DEPTH = 1;
+	`include "add_multi_sched.svh"
 
-	if(0) begin end
-	// FINN_GENERATED_COMP_ENTRIES
+	// Eligible only when there is pipeline budget to hide the compressor latency.
+	localparam bit  USE_COMP = !RESET_ZERO && (ARG_LO >= 0) && (DEPTH >= PIPE);
+
+	if(USE_COMP) begin : genComp
+		uwire [N-1:0][ARG_WIDTH-1:0]  a;
+		for(genvar  i = 0; i < N; i++)  assign  a[i] = arg[i];
+
+		uwire [NP-1:0]  out;
+		add_multi_sv #(
+			.N(N), .ARG_WIDTH(ARG_WIDTH), .TARGET(TARGET), .SIGNED(1'b0), .COMB_DEPTH(1)
+		) comp_inst (
+			.clk, .en(1'b1), .a, .vld(), .p(out)
+		);
+		initial assert(SUM_WIDTH >= NP) else
+			$warning("add_multi: compressor output width %0d > SUM_WIDTH %0d", NP, SUM_WIDTH);
+
+		// Pad the remaining pipeline depth (en-gated).
+		localparam int unsigned  SUM_DELAY = DEPTH - PIPE;
+		if(SUM_DELAY == 0)  assign  sum = out;
+		else begin : genDelay
+			logic [SUM_WIDTH-1:0]  SumZ[SUM_DELAY] = '{ default: '0 };
+			always_ff @(posedge clk) begin
+				if(rst)  SumZ <= '{ default: '0 };
+				else if(en) begin
+					for(int unsigned  i = 0; i < SUM_DELAY-1; i++)  SumZ[i] <= SumZ[i+1];
+					SumZ[SUM_DELAY-1] <= out;
+				end
+			end
+			assign	sum = SumZ[0];
+		end : genDelay
+	end : genComp
 
 //- Generic Behavioral Addition ---------
 	else begin : genGeneric
@@ -108,7 +105,6 @@ end : genComp``n``u``w``_d``d
 		assign	sum0 = arg[0];
 	end : genPassThrough
 	else begin : genTree
-		initial $display("[ADD_MULTI_PATH] TREE N=%0d D=%0d W=%0d", N, DEPTH, ARG_WIDTH);
 		localparam int unsigned  D = L < DEPTH? L : DEPTH;  // Pipeline stages absorbed by tree
 
 		// Compute the count of decendents for all nodes in the reduction trees.

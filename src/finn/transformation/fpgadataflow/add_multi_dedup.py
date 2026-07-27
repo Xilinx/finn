@@ -29,52 +29,27 @@
 import os
 from qonnx.custom_op.registry import getCustomOp
 
-# All per-node add_multi.sv copies share one module name, so a flat-namespace
-# compile (whole-design xsi sim, stitched IP, OOC synth) keeps only the last
-# one. Unifying every copy to the superset of all CATCH_COMP specs keeps
-# it valid for every node.
+# add_multi.sv is now a single parametric module (it wraps the elaboration-
+# scheduled add_multi_sv), so every node's copy is byte-identical. These helpers
+# stay a stable hook (prepare_ip / synth_ooc) that rewrites the canonical body.
 
 
 def build_unified_add_multi_body(model):
-    """Return add_multi.sv text whose CATCH_COMP entries are the union of all
-    MVAU_rtl nodes' ``add_multi_comp_specs``."""
-    all_specs = set()
-    for node in model.graph.node:
-        if node.op_type == "MVAU_rtl":
-            specs_str = getCustomOp(node).get_nodeattr("add_multi_comp_specs")
-            if specs_str:
-                for spec in specs_str.split(";"):
-                    n, w, d = map(int, spec.split(","))
-                    all_specs.add((n, w, d))
-
+    """Return the canonical add_multi.sv body (the rtllib source verbatim)."""
     rtllib_template = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/add_multi.sv")
     with open(rtllib_template, "r") as f:
-        template = f.read()
-
-    if all_specs:
-        entries = "\n".join(f"\t`CATCH_COMP({n},{w},{d})" for n, w, d in sorted(all_specs)) + "\n"
-    else:
-        entries = ""
-
-    marker = "\t// FINN_GENERATED_COMP_ENTRIES\n"
-    if marker not in template:
-        raise RuntimeError(
-            "FINN_GENERATED_COMP_ENTRIES marker not found in finn-rtllib/mvu/add_multi.sv!"
-        )
-    return template.replace(marker, entries + marker)
+        return f.read()
 
 
 def generate_unified_add_multi(model, build_dir):
-    """Write the unified add_multi.sv into ``build_dir`` (used by OOC synth,
-    which flattens all sources into one directory)."""
+    """Write the canonical add_multi.sv into ``build_dir`` (flat OOC synth dir)."""
     with open(os.path.join(build_dir, "add_multi.sv"), "w") as f:
         f.write(build_unified_add_multi_body(model))
 
 
 def unify_add_multi_per_node(model):
-    """Overwrite each MVAU_rtl node's add_multi.sv with the unified body. Only
-    MVAU_rtl uses the LUT compressor (add_multi) path; VVAU_rtl targets the
-    DSP58 core and never instantiates add_multi compressors."""
+    """Overwrite each MVAU_rtl node's add_multi.sv with the canonical body.
+    VVAU_rtl targets the DSP58 core and never uses the add_multi path."""
     unified = build_unified_add_multi_body(model)
     for node in model.graph.node:
         if node.op_type == "MVAU_rtl":

@@ -67,6 +67,10 @@ module $MVU_CORE_NAME$ #(
 	// LUT-based compressor tree pipeline depth. This is set by default for maximum Pipelining (inbetween every stage).
 	int unsigned  COMP_PIPELINE_DEPTH = 1,
 
+	// LUT-compressor last->vld latency ceiling; 0 = full pipelining (default).
+	// Clamped to the natural depth; compressor path only.
+	int unsigned  CYCLE_BUDGET = 0,
+
 	// Passed at generation time, whether compressors were generated if deemed worth it.
 	// Decides wether to use LUT-based compressors instead of DSPs.
 	bit USE_COMPRESSOR = 0,
@@ -134,6 +138,27 @@ module $MVU_CORE_NAME$ #(
 	end
 
 	uwire  rst = !ap_rst_n;
+
+	//- LUT-compressor schedule / pipeline depth ----------------------------
+	// Re-derive the compressor's last->vld latency (PIPE) from the same
+	// schedule the core builds at elaboration; a hierarchical ref into the
+	// core is not a constant expression. DSP path clamps the inputs cheap.
+	localparam int unsigned  SCHED_SIMD       = USE_COMPRESSOR? SIMD             : 1;
+	localparam int unsigned  SCHED_WW         = USE_COMPRESSOR? WEIGHT_WIDTH     : 1;
+	localparam int unsigned  SCHED_AW         = USE_COMPRESSOR? ACTIVATION_WIDTH : 1;
+	localparam int unsigned  SCHED_ACCU       = USE_COMPRESSOR? ACCU_WIDTH       : 2;
+	localparam bit           SCHED_SACT       = SIGNED_ACTIVATIONS;
+	localparam bit           SCHED_SWT        = 1'b1;                        // FINN weights signed
+	localparam bit           TARGET           = (VERSION == 3)? 1'b0 : 1'b1; // VERSION 3 = Versal
+	localparam int unsigned  SCHED_COMB_DEPTH = 1;
+	localparam bit           SCHED_ACC        = 1'b1;
+	localparam bit           SCHED_EN         = 1'b1;
+	localparam int unsigned  SCHED_TERMINAL_KIND = 0;   // quaternary (accumulating path)
+	localparam int           SCHED_BUDGET     = USE_COMPRESSOR? CYCLE_BUDGET : 0;
+	localparam bit           SCHED_FORCE_BOOTH  = 1'b0;
+	localparam bit           SCHED_FORCE_RADIX2 = 1'b0;
+
+	`include "compress_dotp_sched.svh"   // -> R, PIPE (last->vld latency)
 
 	//- Replay to Accommodate Neuron Fold -----------------------------------
 	typedef logic [(IS_MVU? 1:PE)*SIMD-1:0][ACTIVATION_WIDTH-1:0]  mvu_flatin_t;
@@ -318,11 +343,11 @@ module $MVU_CORE_NAME$ #(
 		localparam int unsigned  NUM_LANES = A_WIDTH == WEIGHT_WIDTH? 1 : 1 + (A_WIDTH - !NARROW_WEIGHTS - WEIGHT_WIDTH) / MIN_LANE_WIDTH;
 
 		if(USE_COMPRESSOR) begin : genCompressor
-			$DOTP_MODULE_NAME$ #(
+			compress_dotp #(
 				.PE(PE), .SIMD(DSP_SIMD),
 				.WEIGHT_WIDTH(WEIGHT_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .ACCU_WIDTH(ACCU_WIDTH),
-				.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS),
-				.COMP_PIPELINE_DEPTH(COMP_PIPELINE_DEPTH)
+				.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .SIGNED_WEIGHTS(1'b1), .TARGET(TARGET),
+				.CYCLE_BUDGET(SCHED_BUDGET)
 			) core (
 				.clk(ap_clk), .rst, .en('1),
 				.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
@@ -362,7 +387,7 @@ module $MVU_CORE_NAME$ #(
 
 	if(1) begin : blkOutput
 		localparam int unsigned  CORE_PIPELINE_DEPTH =
-			USE_COMPRESSOR? COMP_PIPELINE_DEPTH :
+			USE_COMPRESSOR? PIPE :   // exact compressor latency (compress_dotp_sched.svh)
 			VERSION == 3?   3 + (SEGMENTLEN == 0? 0 : ((SIMD+2)/3 -1)/SEGMENTLEN) :
 			/* else */      3 + $clog2(SIMD+1) + (SIMD == 1);
 
