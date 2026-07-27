@@ -30,11 +30,10 @@
 # This module contains helpers for RTL simulation, including MLO prehook setup
 # and performance metrics annotation.
 
-from pathlib import Path
-from typing import Callable
-
 import numpy as np
+from pathlib import Path
 from qonnx.custom_op.registry import getCustomOp
+from typing import Callable
 
 from finn import xsi
 

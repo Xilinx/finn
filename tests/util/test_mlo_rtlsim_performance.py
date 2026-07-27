@@ -1,10 +1,10 @@
 # Copyright Advanced Micro Devices, Inc.
 # SPDX-License-Identifier: BSD-3-Clause
 
-from types import SimpleNamespace
-
 import pytest
+
 from qonnx.core.datatype import DataType
+from types import SimpleNamespace
 
 import finn.core.rtlsim_exec as rtlsim_exec_module
 from finn import xsi

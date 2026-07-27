@@ -57,7 +57,7 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.basic import getHWCustomOp, get_vivado_version
+from finn.util.basic import get_vivado_version, getHWCustomOp
 
 # Mapping of ElementwiseBinaryOperation specializations to numpy reference
 # implementation functions
