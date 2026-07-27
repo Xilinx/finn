@@ -59,18 +59,18 @@ recho () {
 # qonnx (using workaround for https://github.com/pypa/pip/issues/7953)
 # to be fixed in future Ubuntu versions (https://bugs.launchpad.net/ubuntu/+source/setuptools/+bug/1994016)
 # set -e propagates pip failures, so the trap covers only the qonnx-only swap.
-_qonnx_pyproj_toml="${FINN_DEPS_DIR}/qonnx/pyproject.toml"
-_qonnx_pyproj_tmp="${FINN_DEPS_DIR}/qonnx/pyproject.tmp"
+_qonnx_pyproj_toml="${FINN_ROOT}/deps/qonnx/pyproject.toml"
+_qonnx_pyproj_tmp="${FINN_ROOT}/deps/qonnx/pyproject.tmp"
 mv "$_qonnx_pyproj_toml" "$_qonnx_pyproj_tmp"
 trap 'mv "$_qonnx_pyproj_tmp" "$_qonnx_pyproj_toml" 2>/dev/null || true' EXIT
-pip install --user -e "${FINN_DEPS_DIR}/qonnx"
+pip install --user -e "${FINN_ROOT}/deps/qonnx"
 mv "$_qonnx_pyproj_tmp" "$_qonnx_pyproj_toml"
 trap - EXIT
 
 # finn-experimental
-pip install --user -e "${FINN_DEPS_DIR}/finn-experimental"
+pip install --user -e "${FINN_ROOT}/deps/finn-experimental"
 # brevitas
-pip install --user -e "${FINN_DEPS_DIR}/brevitas"
+pip install --user -e "${FINN_ROOT}/deps/brevitas"
 
 if [ -f "${FINN_ROOT}/setup.py" ];then
   # run pip install for finn
