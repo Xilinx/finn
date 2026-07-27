@@ -28,7 +28,7 @@ DEFAULT_BUILD_DIR = REPO_ROOT / "transformer_examples" / "tinydeit" / "build"
 DEFAULT_BUILD_CSV = DEFAULT_BUILD_DIR / "builds.csv"
 DEFAULT_BOARD = "VCK190"
 DEFAULT_TARGET_FPS = 1000
-DEFAULT_CLOCK_NS = 1000.0 / 300.0
+DEFAULT_CLOCK_NS = 4.0
 TRANSFORMER_DEPTH = 12
 ATTENTION_MULTITHRESHOLDS_PER_BLOCK = 5
 
@@ -310,9 +310,7 @@ def collapse_exported_pwpolyf(
     matches = exported_pwpolyf_match_indices(model.model)
     erf_count = len(model.get_nodes_by_op_type("Erf"))
     if matches and erf_count:
-        raise RuntimeError(
-            "TinyDeiT export mixes polynomial PWPolyF and Erf GELU decompositions"
-        )
+        raise RuntimeError("TinyDeiT export mixes polynomial PWPolyF and Erf GELU decompositions")
     if expected_count is not None and matches and len(matches) != expected_count:
         raise RuntimeError(
             f"Expected {expected_count} exported PWPolyF decompositions, found {len(matches)}"
