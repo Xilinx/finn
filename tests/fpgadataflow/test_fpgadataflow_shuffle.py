@@ -15,7 +15,7 @@ import os
 import tempfile
 import torch
 import torch.onnx
-from onnx import helper
+from onnx import TensorProto, helper
 from brevitas.export import export_qonnx
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -24,7 +24,7 @@ from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 from torch import nn
 
@@ -33,6 +33,8 @@ from finn import xsi as finnxsi
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.custom_op.fpgadataflow.hls.outer_shuffle_hls import OuterShuffle_hls
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
+from finn.custom_op.fpgadataflow.rtl.inner_shuffle_rtl import InnerShuffle_rtl
+from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferShuffle
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
@@ -156,6 +158,72 @@ def test_outer_shuffle_hls_accepts_reshape_equivalent_context(monkeypatch):
     instance.execute_node(context, None)
 
     assert context["inp"] is input_value
+    assert context["inp"].shape == (1, 2, 2, 3)
+
+
+def test_inner_shuffle_uses_transpose_input_shape(monkeypatch):
+    node = helper.make_node(
+        "Shuffle",
+        ["inp"],
+        ["out"],
+        domain="finn.custom_op.fpgadataflow",
+        backend="fpgadataflow",
+        in_shape=[1, 3, 2, 2],
+        transpose_in_shape=[1, 3, 4],
+        transpose_out_shape=[1, 4, 3],
+        out_shape=[1, 4, 3],
+        perm=[0, 2, 1],
+        data_type="INT8",
+        SIMD=1,
+        name="Shuffle_test",
+    )
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, 3, 2, 2])
+    out = helper.make_tensor_value_info("out", TensorProto.FLOAT, [1, 4, 3])
+    graph = helper.make_graph([node], "inner-shuffle-reshape", [inp], [out])
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="inner-shuffle-reshape"))
+    model.set_tensor_datatype("inp", DataType["INT8"])
+    model.set_tensor_datatype("out", DataType["INT8"])
+
+    model = model.transform(InferInnerOuterShuffles())
+
+    transformed_node = model.graph.node[0]
+    transformed_inst = getCustomOp(transformed_node)
+    assert transformed_node.op_type == "InnerShuffle"
+    assert transformed_inst.get_normal_input_shape() == [1, 3, 2, 2]
+    assert transformed_inst.get_nodeattr("transpose_in_shape") == [1, 3, 4]
+    assert transformed_inst.get_normal_output_shape() == (1, 4, 3)
+
+    input_value = np.arange(12, dtype=np.float32).reshape(1, 3, 2, 2)
+    software_context = {"inp": input_value}
+    transformed_inst.execute_node(software_context, None)
+    expected = input_value.reshape(1, 3, 4).transpose(0, 2, 1)
+    assert np.array_equal(software_context["out"], expected)
+
+    rtl_node = helper.make_node(
+        "InnerShuffle_rtl",
+        ["inp"],
+        ["out"],
+        domain="finn.custom_op.fpgadataflow.rtl",
+        backend="fpgadataflow",
+        in_shape=[1, 3, 2, 2],
+        transpose_in_shape=[1, 3, 4],
+        data_type="INT8",
+        SIMD=1,
+        name="InnerShuffle_rtl_test",
+    )
+    rtl_inst = InnerShuffle_rtl(rtl_node)
+    rtl_inst.set_nodeattr("exec_mode", "rtlsim")
+    rtl_input_value = input_value.reshape(1, 2, 2, 3)
+    context = {"inp": rtl_input_value}
+
+    def fake_rtl_execute(_instance, execution_context, _graph):
+        assert execution_context["inp"].shape == (1, 3, 2, 2)
+        execution_context["out"] = np.zeros((1, 4, 3), dtype=np.float32)
+
+    monkeypatch.setattr(RTLBackend, "execute_node", fake_rtl_execute)
+    rtl_inst.execute_node(context, None)
+
+    assert context["inp"] is rtl_input_value
     assert context["inp"].shape == (1, 2, 2, 3)
 
 
