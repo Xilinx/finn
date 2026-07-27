@@ -51,8 +51,11 @@ scratch space. The generated models, IP, reports, and Vivado projects are
 written below `transformer_examples/tinydeit/build/`, which is ignored by Git.
 
 The example expects QONNX checkpoints with one `[1, 3, 224, 224]` image input,
-one `[1, 1000]` classifier output, and 12 repeated transformer blocks. The
-commands below use:
+one `[1, 1000]` classifier output, and 12 repeated transformer blocks. The W3A3
+and W4A4 checkpoints are generated using
+[HuangOwen/Quantization-Variation](https://github.com/HuangOwen/Quantization-Variation).
+After exporting the quantized models from that repository, place the QONNX
+files under `onnx-checkpoints/` in the FINN repository. The commands below use:
 
 ```text
 onnx-checkpoints/deit_tiny_quant.onnx
