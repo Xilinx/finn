@@ -15,6 +15,7 @@ import os
 import tempfile
 import torch
 import torch.onnx
+from onnx import helper
 from brevitas.export import export_qonnx
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -30,6 +31,8 @@ from torch import nn
 import finn.core.onnx_exec as oxe
 from finn import xsi as finnxsi
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
+from finn.custom_op.fpgadataflow.hls.outer_shuffle_hls import OuterShuffle_hls
+from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferShuffle
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
@@ -122,6 +125,38 @@ class SetShuffleSIMD(Transformation):
                 if self.enable_waveforms:
                     inst.set_nodeattr("rtlsim_trace", "debug.wdb")
         return model, False
+
+
+def test_outer_shuffle_hls_accepts_reshape_equivalent_context(monkeypatch):
+    node = helper.make_node(
+        "OuterShuffle_hls",
+        ["inp"],
+        ["out"],
+        domain="finn.custom_op.fpgadataflow.hls",
+        in_shape=[1, 3, 2, 2],
+        transpose_in_shape=[1, 3, 2, 2],
+        transpose_out_shape=[1, 2, 3, 2],
+        out_shape=[1, 2, 3, 2],
+        perm=[0, 2, 1, 3],
+        data_type="INT8",
+        SIMD=2,
+        NumChannels=2,
+        name="OuterShuffle_hls_test",
+    )
+    instance = OuterShuffle_hls(node)
+    input_value = np.arange(12, dtype=np.float32).reshape(1, 2, 2, 3)
+    context = {"inp": input_value}
+
+    def fake_hls_execute(_instance, execution_context, _graph):
+        assert execution_context["inp"].shape == (1, 3, 2, 2)
+        execution_context["out"] = np.zeros((1, 2, 3, 2), dtype=np.float32)
+
+    monkeypatch.setattr(HLSBackend, "execute_node", fake_hls_execute)
+
+    instance.execute_node(context, None)
+
+    assert context["inp"] is input_value
+    assert context["inp"].shape == (1, 2, 2, 3)
 
 
 @pytest.mark.parametrize(
