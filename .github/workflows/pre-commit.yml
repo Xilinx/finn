@@ -2,9 +2,9 @@ name: Pre-commit
 
 on:
   pull_request:
-    branches: [ main, dev, custom/transformer ]
+    branches: [ main, dev ]
   push:
-    branches: [ main, dev, custom/transformer ]
+    branches: [ main, dev ]
 
 jobs:
   lint:
