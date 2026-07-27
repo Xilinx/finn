@@ -349,6 +349,24 @@ def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
     return verify_model
 
 
+def prepare_for_node_by_node_rtlsim(model):
+    """Return a verification copy with Vivado FIFOs represented as RTL.
+
+    Node-by-node execution treats StreamingFIFO nodes as functional
+    pass-throughs, but PrepareRTLSim still compiles every node first. Vivado
+    FIFO IP is only available inside a stitched design, so compile the
+    generated RTL wrapper in the verification copy without changing the model
+    used for synthesis.
+    """
+
+    verify_model = deepcopy(model)
+    for fifo_node in verify_model.get_nodes_by_op_type("StreamingFIFO_rtl"):
+        fifo_inst = getCustomOp(fifo_node)
+        if fifo_inst.get_nodeattr("impl_style") == "vivado":
+            fifo_inst.set_nodeattr("impl_style", "rtl")
+    return verify_model
+
+
 def step_qonnx_to_finn(model: ModelWrapper, cfg: DataflowBuildConfig):
     """
     This step will only execute if QONNX nodes are found.
@@ -922,22 +940,25 @@ def step_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
                 )
 
         if not skip_verification:
+            verify_model = prepare_for_node_by_node_rtlsim(model)
             if cfg.verify_save_rtlsim_waveforms:
                 verify_out_dir = cfg.output_dir + "/verification_output"
                 waveform_dir = verify_out_dir + "/node_by_node_rtlsim_waveforms"
                 os.makedirs(waveform_dir, exist_ok=True)
                 abspath = os.path.abspath(waveform_dir)
                 # Set rtlsim_trace on each node BEFORE PrepareRTLSim so compilation uses debug=True
-                for node in model.graph.node:
+                for node in verify_model.graph.node:
                     node_inst = getCustomOp(node)
                     node_inst.set_nodeattr("rtlsim_trace", f"{abspath}/{node.name}_rtlsim.wdb")
-            model = model.transform(PrepareRTLSim(behav=cfg.verify_rtlsim_behavioral))
-            model = model.transform(SetExecMode("rtlsim"))
-            verify_step(model, cfg, "node_by_node_rtlsim", need_parent=True)
+            verify_model = verify_model.transform(
+                PrepareRTLSim(behav=cfg.verify_rtlsim_behavioral)
+            )
+            verify_model = verify_model.transform(SetExecMode("rtlsim"))
+            verify_step(verify_model, cfg, "node_by_node_rtlsim", need_parent=True)
             # Clear rtlsim_trace attributes to prevent later simulations from
             # accidentally writing waveform files
             if cfg.verify_save_rtlsim_waveforms:
-                for node in model.graph.node:
+                for node in verify_model.graph.node:
                     node_inst = getCustomOp(node)
                     node_inst.set_nodeattr("rtlsim_trace", "")
     return model
