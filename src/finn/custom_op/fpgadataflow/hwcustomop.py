@@ -245,10 +245,15 @@ class HWCustomOp(CustomOp):
         check if the number of inputs is equal to the expected number."""
         pass
 
-    def generate_params(self, model, path):
+    def generate_params(self, model, path, fpgapart=None):
         """Function to generate parameters (i.e. weights and thresholds),
         is member function of HWCustomOp class but has to be filled
-        by every node that needs to generate parameters."""
+        by every node that needs to generate parameters.
+
+        ``fpgapart`` is optional and only consumed by nodes whose parameter
+        layout depends on the target device (e.g. Requant, which resolves the
+        DSP version from it). Overrides that don't need it may keep the shorter
+        ``(model, path)`` signature."""
         pass
 
     def get_number_output_values(self):

@@ -366,7 +366,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # Generate params as part of IP preparation
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         self.generate_hdl_stream_tap()
-        self.generate_params(model, code_gen_dir)
+        self.generate_params(model, code_gen_dir, fpgapart)
         code_gen_dict = {}
         code_gen_dict["$LOOP_CONTROL_WRAPPER_NAME$"] = [f"{self.onnx_node.name}_loop_cont_wrapper"]
         code_gen_dict["$N_MAX_LAYERS$"] = (str(self.get_nodeattr("iteration")),)
@@ -400,10 +400,14 @@ class FINNLoop(HWCustomOp, RTLBackend):
         ) as f:
             f.write(template_wrapper)
 
-    def generate_params(self, model, path):
+    def generate_params(self, model, path, fpgapart=None):
         iteration = self.get_nodeattr("iteration")
         loop_node = self.onnx_node
         loop_body = self.get_nodeattr("body")
+        # Nodes with multiple parameter inputs (e.g. Requant: scale+bias) are
+        # handled once, across all their param inputs, and skipped on later
+        # passes of the per-graph-input loop below.
+        handled_nodes = set()
         for i, inp in enumerate(loop_node.input[1:]):
             params = model.get_initializer(inp)
             param_dtype = model.get_tensor_datatype(inp)
@@ -411,6 +415,14 @@ class FINNLoop(HWCustomOp, RTLBackend):
             # get node that initializer is attached to
             loop_tensor = loop_body.graph.input[i + 1].name
             param_node = loop_body.find_consumer(loop_tensor)
+            if param_node.name in handled_nodes:
+                continue
+            if param_node.op_type == "Requant_rtl":
+                self._generate_params_requant(
+                    model, path, loop_node, loop_body, param_node, fpgapart
+                )
+                handled_nodes.add(param_node.name)
+                continue
             for iter in range(iteration):
                 loop_body.set_initializer(loop_tensor, params[iter])
                 loop_body.set_tensor_datatype(loop_tensor, param_dtype)
@@ -535,6 +547,81 @@ class FINNLoop(HWCustomOp, RTLBackend):
                                 with open(fpath, "w") as f:
                                     f.write(s)
 
+    def _generate_params_requant(self, model, path, loop_node, loop_body, param_node, fpgapart):
+        """Generate per-iteration memstream init files for a Requant_rtl body node.
+
+        Requant is the first body op with two parameter inputs (scale=input[1],
+        bias=input[2]). Its fixed-point decomposition is *coupled*: the bias
+        alignment depends on the scale-derived per-channel tap of the SAME
+        iteration (see requant.py). Therefore both initializers must be set
+        together for each iteration before calling ``generate_params`` (the
+        generic one-param-per-pass flow would produce mismatched bias files).
+
+        Each iteration emits ``scale_memblock.dat``/``bias_memblock.dat``; these
+        are renamed per iteration, concatenated (set i at offset i*DEPTH) into
+        ``scale_memblock_id_{gid}.dat``/``bias_memblock_id_{gid}.dat``, and the
+        two memstream wrappers' ``$INIT_FILE$`` paths are rewritten to point at
+        the concatenated files.
+        """
+        iteration = self.get_nodeattr("iteration")
+        inst = getCustomOp(param_node)
+
+        # Map the Requant's scale/bias tensors to loop-body graph-input ids.
+        graph_input_names = [x.name for x in loop_body.graph.input]
+        scale_tensor = param_node.input[1]
+        bias_tensor = param_node.input[2]
+        scale_gid = graph_input_names.index(scale_tensor)
+        bias_gid = graph_input_names.index(bias_tensor)
+
+        # Stacked per-iteration params live on the matching FINNLoop inputs
+        # (loop_node.input[k] corresponds positionally to graph.input[k]).
+        scale_stack = model.get_initializer(loop_node.input[scale_gid])
+        bias_stack = model.get_initializer(loop_node.input[bias_gid])
+        scale_dtype = model.get_tensor_datatype(loop_node.input[scale_gid])
+        bias_dtype = model.get_tensor_datatype(loop_node.input[bias_gid])
+        assert scale_stack.shape[0] == iteration
+        assert bias_stack.shape[0] == iteration
+
+        for iter in range(iteration):
+            # Set BOTH initializers for this iteration (coupled decomposition).
+            loop_body.set_initializer(scale_tensor, scale_stack[iter])
+            loop_body.set_tensor_datatype(scale_tensor, scale_dtype)
+            loop_body.set_initializer(bias_tensor, bias_stack[iter])
+            loop_body.set_tensor_datatype(bias_tensor, bias_dtype)
+            inst.generate_params(loop_body, path, fpgapart)
+            for kind in ["scale", "bias"]:
+                src = "{}/{}_memblock.dat".format(path, kind)
+                dst = "{}/{}_memblock_{}.dat".format(path, kind, iter)
+                shutil.move(src, dst)
+
+        # Concatenate per-iteration files into one memblock per param stream.
+        concat_files = {}
+        for kind, gid in [("scale", scale_gid), ("bias", bias_gid)]:
+            concat_file = "{}/{}_memblock_id_{}.dat".format(path, kind, gid)
+            with open(concat_file, "w") as outfile:
+                for iter in range(iteration):
+                    memblock_file = "{}/{}_memblock_{}.dat".format(path, kind, iter)
+                    with open(memblock_file, "r") as infile:
+                        for line in infile:
+                            outfile.write(line)
+                    os.remove(memblock_file)
+            concat_files[kind] = concat_file
+
+        # Rewrite the memstream wrappers' $INIT_FILE$ paths (Elementwise-style).
+        ipgen_path = inst.get_nodeattr("code_gen_dir_ipgen")
+        if ipgen_path is not None and os.path.isdir(ipgen_path):
+            for dname, dirs, files in os.walk(ipgen_path):
+                for fname in files:
+                    if fname.endswith("_memstream_wrapper.v"):
+                        fpath = os.path.join(dname, fname)
+                        with open(fpath, "r") as f:
+                            s = f.read()
+                        for kind in ["scale", "bias"]:
+                            old = os.path.join(ipgen_path, "%s_memblock.dat" % kind)
+                            s = s.replace(old, concat_files[kind])
+                        with open(fpath, "w") as f:
+                            f.write(s)
+
     def generate_hdl_stream_tap(self):
         """Helper function to generate verilog code for stream tap components."""
         template_path = (
@@ -561,24 +648,39 @@ class FINNLoop(HWCustomOp, RTLBackend):
                     node_inst, "calc_wmem_reps"
                 ):
                     tap_rep = node_inst.calc_wmem_reps()
-                stname = "IN_%s" % graph_inputs.index(node.input[1])
-                code_gen_dict = {
-                    "$MODULE_NAME$": [stname],
-                    "$DATA_WIDTH$": [str(data_width)],
-                    "$TAP_REP$": [str(tap_rep)],
-                }
-                # apply code generation to template
-                with open(template_path, "r") as f:
-                    template_wrapper = f.read()
-                for key, value in code_gen_dict.items():
-                    # transform list into long string separated by '\n'
-                    code_gen_line = "\n".join(value)
-                    template_wrapper = template_wrapper.replace(key, code_gen_line)
-                with open(
-                    os.path.join(code_gen_dir, stname + "_stream_tap_wrapper.v"),
-                    "w",
-                ) as f:
-                    f.write(template_wrapper)
+                elif node.op_type == "Requant_rtl":
+                    # The decoupled Requant core consumes one scale + one bias
+                    # word per input beat, cycling through the CF stored words
+                    # (memstream DEPTH=CF). A multi-set memstream emits exactly
+                    # DEPTH words per set-select and does not auto-wrap, so the
+                    # set index must be replayed once per spatial position to
+                    # re-stream the CF-word block. folded_input_shape is
+                    # [*numInputVectors, CF, PE]; [:-2] drops CF and PE.
+                    tap_rep = int(np.prod(node_inst.get_folded_input_shape(0)[:-2]))
+                # Emit one stream tap per parameter graph-input of this node.
+                # Single-param ops (MVAU/Thresholding/Elementwise) yield exactly
+                # one tap; multi-param ops (Requant: scale+bias) yield one each.
+                for pinp in node.input[1:]:
+                    if pinp not in graph_inputs:
+                        continue
+                    stname = "IN_%s" % graph_inputs.index(pinp)
+                    code_gen_dict = {
+                        "$MODULE_NAME$": [stname],
+                        "$DATA_WIDTH$": [str(data_width)],
+                        "$TAP_REP$": [str(tap_rep)],
+                    }
+                    # apply code generation to template
+                    with open(template_path, "r") as f:
+                        template_wrapper = f.read()
+                    for key, value in code_gen_dict.items():
+                        # transform list into long string separated by '\n'
+                        code_gen_line = "\n".join(value)
+                        template_wrapper = template_wrapper.replace(key, code_gen_line)
+                    with open(
+                        os.path.join(code_gen_dir, stname + "_stream_tap_wrapper.v"),
+                        "w",
+                    ) as f:
+                        f.write(template_wrapper)
 
     def ipgen_singlenode_code(self, fpgapart=None):
         prjname = "MakeLoopIP"
@@ -760,33 +862,77 @@ class FINNLoop(HWCustomOp, RTLBackend):
             or (
                 node.op_type.startswith("Elementwise")
                 and any(attr.name == "mlo_max_iter" and attr.i > 0 for attr in node.attribute)
+            )
+            or (
+                node.op_type == "Requant_rtl"
+                and any(attr.name == "mlo_max_iter" and attr.i > 0 for attr in node.attribute)
             ),
         )
 
-        # create map that maps each stream tap to its param node
-        st_map = {}
-        for id, inp in enumerate(loop_body.graph.input[1:]):
+        # Map each parameter graph-input to its stream tap. A node may consume
+        # several parameter inputs (e.g. Requant: scale=input[1], bias=input[2]),
+        # so keep a per-graph-input tap list plus a node -> [tap ids] index.
+        # taps: list of (gid, tap_name, consumer_name); node_to_taps: name -> [gid]
+        taps = []
+        node_to_taps = {}
+        for id, inp in enumerate(loop_body.graph.input[1:], start=1):
             consumer = loop_body.find_consumer(inp.name)
-            st_map[consumer.name] = "IN_%d_stream_tap_wrapper" % (id + 1)
+            tap_name = "IN_%d_stream_tap_wrapper" % id
+            taps.append((id, tap_name, consumer.name))
+            node_to_taps.setdefault(consumer.name, []).append(id)
 
-        # instantiate all stream taps and connect their clk and rst
-        for id, st_name in enumerate(st_map.values()):
+        def node_entry(node_name):
+            # Entry tap (lowest gid) of a node: where the set index enters the
+            # node's param taps. A multi-param node chains its taps internally
+            # (below), so the index flows in here and out of node_exit.
+            return "IN_%d_stream_tap_wrapper" % min(node_to_taps[node_name])
+
+        def node_exit(node_name):
+            # Exit tap (highest gid) of a node: forwards the set index onward to
+            # the next node in the chain. For a single-param node entry == exit.
+            return "IN_%d_stream_tap_wrapper" % max(node_to_taps[node_name])
+
+        def dst_entry_taps(dsts):
+            # One entry tap per destination node. Intra-node params (e.g. Requant
+            # scale+bias) are chained in series internally, so a multi-param node
+            # contributes exactly one sink here -- fork duplication only applies
+            # across distinct destination nodes (branching dataflow).
+            return [node_entry(d) for d in dsts]
+
+        # instantiate all stream taps and connect their clk and rst; wire each
+        # tap's m_axis_1 to the stg output m_axis_<gid> by its true graph-input id
+        for gid, tap_name, _consumer in taps:
             cmd.append(
-                "create_bd_cell -type hier -reference %s /%s/%s" % (st_name, bd_name, st_name)
+                "create_bd_cell -type hier -reference %s /%s/%s" % (tap_name, bd_name, tap_name)
             )
             # connect
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk]"
-                % (bd_name, clk_name, bd_name, st_name)
+                % (bd_name, clk_name, bd_name, tap_name)
             )
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_rst_n]"
-                % (bd_name, rst_name, bd_name, st_name)
+                % (bd_name, rst_name, bd_name, tap_name)
             )
             cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/m_axis_%s] "
-                "[get_bd_intf_pins %s/%s/m_axis_1]" % (bd_name, id + 1, bd_name, st_name)
+                "[get_bd_intf_pins %s/%s/m_axis_1]" % (bd_name, gid, bd_name, tap_name)
             )
+
+        # Chain a multi-param node's taps in series (e.g. Requant scale -> bias):
+        # each tap taps off its own m_axis_1 to its memstream and forwards the
+        # set index on m_axis_0 to the next param tap. This keeps every tap's
+        # forward output consumed (the stream_tap stalls if m_axis_0/ordy is left
+        # dangling) while still delivering the same index to all param memstreams.
+        for consumer_name, gids in node_to_taps.items():
+            ordered = sorted(gids)
+            for a, b in zip(ordered[:-1], ordered[1:]):
+                cmd.append(
+                    "connect_bd_intf_net "
+                    "[get_bd_intf_pins %s/IN_%d_stream_tap_wrapper/m_axis_0] "
+                    "[get_bd_intf_pins %s/IN_%d_stream_tap_wrapper/s_axis_0]"
+                    % (bd_name, a, bd_name, b)
+                )
 
         # prune adj_list to remove join duplicates
         pruned_adj_list = copy.deepcopy(adj_list)
@@ -839,12 +985,18 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 src_inst_name = bd_name
                 src_intf_name = "s_axis_0"
             else:
-                src_inst_name = bd_name + "/" + st_map[src]
+                # A multi-param node forwards the set index from its exit (last)
+                # tap; its internal params were already chained in series above.
+                src_inst_name = bd_name + "/" + node_exit(src)
                 src_intf_name = "m_axis_0"
 
+            # One sink per destination node (its entry tap). A multi-param node
+            # is a single sink here -- fork duplication is only for branching to
+            # distinct downstream nodes.
+            sink_taps = dst_entry_taps(dsts)
             dst_intf_name = "s_axis_0"
-            if len(dsts) == 1:
-                dst_inst_name = st_map[dsts[0]]
+            if len(sink_taps) == 1:
+                dst_inst_name = sink_taps[0]
                 cmd.append(
                     "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
                     "[get_bd_intf_pins %s/%s/%s]"
@@ -858,7 +1010,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 )
             # if node is a fork connect data signals directly
             # and insert AND logic for rdy and vld signals
-            elif len(dsts) > 1:
+            elif len(sink_taps) > 1:
                 if "__INPUT0__" in src:
                     cmd.append(
                         "create_bd_cell -type ip "
@@ -867,7 +1019,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
                     )
                     cmd.append(
                         "set_property CONFIG.NUM_MI {%d} [get_bd_cells %s/axi_broadcaster_0]"
-                        % (len(dsts), src_inst_name)
+                        % (len(sink_taps), src_inst_name)
                     )
                     # connect component to clk, rst and input
                     cmd.append(
@@ -886,8 +1038,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
                         "[get_bd_intf_pins %s/axi_broadcaster_0/S_AXIS]"
                         % (src_inst_name, src_inst_name)
                     )
-                    for id, dst in enumerate(dsts):
-                        dst_inst_name = st_map[dst]
+                    for id, dst_inst_name in enumerate(sink_taps):
                         cmd.append(
                             "connect_bd_intf_net "
                             "[get_bd_intf_pins %s/axi_broadcaster_0/M0%s_AXIS] "
@@ -895,8 +1046,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
                             % (src_inst_name, id, src_inst_name, dst_inst_name, dst_intf_name)
                         )
                 else:
-                    for id, dst in enumerate(dsts):
-                        dst_inst_name = st_map[dst]
+                    for id, dst_inst_name in enumerate(sink_taps):
                         cmd.append(
                             "connect_bd_net "
                             "[get_bd_pins %s/%s_TDATA] [get_bd_pins %s/%s/%s_TDATA]"
@@ -929,7 +1079,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
                                     id,
                                 )
                             )
-                        elif id < len(dsts):
+                        elif id < len(sink_taps):
                             cmd.append(
                                 "connect_bd_net "
                                 "[get_bd_pins %s_util_vector_logic_%d/Res] "
@@ -949,13 +1099,12 @@ class FINNLoop(HWCustomOp, RTLBackend):
                         "[get_bd_pins %s_util_vector_logic_%d/Res] [get_bd_pins %s/%s_TREADY]"
                         % (
                             src_inst_name,
-                            len(dsts) - 1,
+                            len(sink_taps) - 1,
                             src_inst_name,
                             src_intf_name,
                         )
                     )
-                    for dst in dsts:
-                        dst_inst_name = st_map[dst]
+                    for dst_inst_name in sink_taps:
                         dst_intf_name = "s_axis_0"
                         cmd.append(
                             "connect_bd_net "
@@ -963,7 +1112,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
                             "[get_bd_pins %s/%s/%s_TVALID]"
                             % (
                                 src_inst_name,
-                                len(dsts) - 1,
+                                len(sink_taps) - 1,
                                 bd_name,
                                 dst_inst_name,
                                 dst_intf_name,
@@ -977,7 +1126,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         ]
         cmd.append(
             "connect_bd_intf_net [get_bd_intf_pins %s/m_axis_0] "
-            "[get_bd_intf_pins %s/%s/m_axis_0]" % (bd_name, bd_name, st_map[last_nodes[0]])
+            "[get_bd_intf_pins %s/%s/m_axis_0]" % (bd_name, bd_name, node_exit(last_nodes[0]))
         )
 
         # connect stream tap graph to clk and reset
