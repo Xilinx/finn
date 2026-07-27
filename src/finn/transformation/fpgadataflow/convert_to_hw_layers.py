@@ -1,4 +1,4 @@
-# Copyright (C) 2023-2024, Advanced Micro Devices, Inc.
+# Copyright (C) 2023-2026, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -30,12 +30,11 @@
 import numpy as np
 import qonnx.core.data_layout as DataLayout
 import warnings
-from onnx import NodeProto, TensorProto, helper
+from onnx import AttributeProto, NodeProto, TensorProto, helper, numpy_helper
 from qonnx.core.datatype import DataType
 
 # QONNX wrapper to ONNX model graphs
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import SortGraph
 from qonnx.transformation.infer_datatypes import InferDataTypes
@@ -45,6 +44,7 @@ from qonnx.util.onnx import nchw_to_nhwc
 
 # Module containing specializations of elementwise binary operations
 import finn.custom_op.fpgadataflow.elementwise_binary as elementwise_binary
+from finn.util.basic import getHWCustomOp
 
 
 class InferConvInpGen(Transformation):
@@ -68,7 +68,7 @@ class InferConvInpGen(Transformation):
                 if not dt.is_integer():
                     warnings.warn("%s : Input is not int. Can't infer ConvInpGen." % n.name)
                     continue
-                i2c_inst = getCustomOp(n)
+                i2c_inst = getHWCustomOp(n, model)
                 stride_h, stride_w = i2c_inst.get_nodeattr("stride")
                 k_h, k_w = i2c_inst.get_nodeattr("kernel_size")
                 pad_attr = i2c_inst.get_nodeattr("pad_amount")
@@ -124,6 +124,8 @@ class InferConvInpGen(Transformation):
                         SIMD=ifm_ch,
                         name="FMPadding_Batch_" + n.name,
                     )
+                    if hasattr(n, "metadata_props"):
+                        padding_node.metadata_props.extend(n.metadata_props)
                     graph.node.insert(node_ind, padding_node)
 
                 is_1D = (ifm_dim_h == 1) or (ifm_dim_w == 1)
@@ -146,6 +148,8 @@ class InferConvInpGen(Transformation):
                     is1D=is_1D,
                     name="ConvolutionInputGenerator_" + n.name,
                 )
+                if hasattr(n, "metadata_props"):
+                    ConvInpGen_node.metadata_props.extend(n.metadata_props)
                 graph.node.insert(ConvInpGen_node_idx, ConvInpGen_node)
                 # remove old nodes
                 graph.node.remove(n)
@@ -211,13 +215,13 @@ class InferThresholdingLayer(Transformation):
                 pe = 1
 
                 odt = model.get_tensor_datatype(thl_output)
-                scale = getCustomOp(node).get_nodeattr("out_scale")
+                scale = getHWCustomOp(node, model).get_nodeattr("out_scale")
                 assert scale == 1.0, (
                     f"{node.name}: MultiThreshold out_scale must be 1 for HW conversion. "
                     f"Hint: Consider running ExtractMultiThresholdScaleBias() transformation "
                     f"as a custom step to extract scale/bias into separate Add/Mul nodes."
                 )
-                actval = getCustomOp(node).get_nodeattr("out_bias")
+                actval = getHWCustomOp(node, model).get_nodeattr("out_bias")
                 assert int(actval) == actval, (
                     f"{node.name}: MultiThreshold out_bias must be integer for HW conversion. "
                     f"Hint: Consider running ExtractMultiThresholdScaleBias() transformation "
@@ -251,6 +255,236 @@ class InferThresholdingLayer(Transformation):
                 graph.node.insert(insert_point, new_node)
                 # remove old node
                 graph.node.remove(node)
+                graph_modified = True
+
+        return (model, graph_modified)
+
+
+class InferPWPolyFLayer(Transformation):
+    """Convert activations to piecewise polynomial HW layers."""
+
+    _SINGLE_OP_MAP = {"Gelu": "gelu", "Tanh": "tanh"}
+
+    def __init__(self):
+        super().__init__()
+
+    @staticmethod
+    def _is_const_scalar(model, tensor_name, value, tol=1e-3):
+        """Check if *tensor_name* is a constant initializer equal to *value*."""
+        init = model.get_initializer(tensor_name)
+        if init is None:
+            return False
+        return init.size == 1 and abs(float(init.flat[0]) - value) < tol
+
+    @staticmethod
+    def _other_mul_input(mul_node, tensor_name):
+        if mul_node.op_type != "Mul":
+            return None
+        other_inputs = [inp for inp in mul_node.input if inp != tensor_name]
+        if len(other_inputs) != 1:
+            return None
+        return other_inputs[0]
+
+    def _match_erf_gelu(self, model, erf_node):
+        """Match Erf-based GELU: 0.5 * x * (1 + erf(x / sqrt(2))).
+        Returns (pwp_input, pwp_output, nodes_to_remove) or None."""
+        # backward: Erf input must come from Div(x, sqrt(2))
+        div_node = model.find_producer(erf_node.input[0])
+        if div_node is None or div_node.op_type != "Div":
+            return None
+        if self._is_const_scalar(model, div_node.input[1], 1.4142135):
+            gelu_input = div_node.input[0]
+        elif self._is_const_scalar(model, div_node.input[0], 1.4142135):
+            gelu_input = div_node.input[1]
+        else:
+            return None
+
+        # forward: Erf → Add(_, 1)
+        erf_consumers = model.find_consumers(erf_node.output[0])
+        if len(erf_consumers) != 1 or erf_consumers[0].op_type != "Add":
+            return None
+        add_node = erf_consumers[0]
+        other_add = [i for i in add_node.input if i != erf_node.output[0]]
+        if len(other_add) != 1 or not self._is_const_scalar(model, other_add[0], 1.0):
+            return None
+
+        # Multiplication is associative, and both export orders occur in practice.
+        add_consumers = model.find_consumers(add_node.output[0])
+        if len(add_consumers) != 1 or add_consumers[0].op_type != "Mul":
+            return None
+        first_mul = add_consumers[0]
+        other_first_mul = self._other_mul_input(first_mul, add_node.output[0])
+        if other_first_mul is None:
+            return None
+
+        # Variant A: Add → Mul(0.5, _) → Mul(x, _)
+        if self._is_const_scalar(model, other_first_mul, 0.5):
+            first_mul_consumers = model.find_consumers(first_mul.output[0])
+            if len(first_mul_consumers) != 1 or first_mul_consumers[0].op_type != "Mul":
+                return None
+            second_mul = first_mul_consumers[0]
+            other_second_mul = self._other_mul_input(second_mul, first_mul.output[0])
+            if other_second_mul != gelu_input:
+                return None
+        # Variant B: Add → Mul(x, _) → Mul(0.5, _)
+        elif other_first_mul == gelu_input:
+            first_mul_consumers = model.find_consumers(first_mul.output[0])
+            if len(first_mul_consumers) != 1 or first_mul_consumers[0].op_type != "Mul":
+                return None
+            second_mul = first_mul_consumers[0]
+            other_second_mul = self._other_mul_input(second_mul, first_mul.output[0])
+            if other_second_mul is None or not self._is_const_scalar(model, other_second_mul, 0.5):
+                return None
+        else:
+            return None
+
+        nodes_to_remove = [div_node, erf_node, add_node, first_mul, second_mul]
+        return (gelu_input, second_mul.output[0], nodes_to_remove)
+
+    @staticmethod
+    def _make_pwpolyf_node(pwp_input, pwp_output, func, in_shape, idt, name, K=3, degree=2):
+        num_channels = in_shape[-1]
+        return helper.make_node(
+            "PWPolyF",
+            [pwp_input],
+            [pwp_output],
+            domain="finn.custom_op.fpgadataflow",
+            backend="fpgadataflow",
+            func=func,
+            K=K,
+            degree=degree,
+            NumChannels=num_channels,
+            PE=1,
+            inputDataType=idt.name,
+            outputDataType=idt.name,
+            numInputVectors=list(in_shape[:-1]),
+            name=name,
+        )
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+
+            # Case 1: PWPolyF custom op (dynamo=False export path)
+            if node.op_type == "PWPolyF" and node.domain != "finn.custom_op.fpgadataflow":
+                pwp_input = node.input[0]
+                pwp_output = node.output[0]
+                pwp_in_shape = model.get_tensor_shape(pwp_input)
+                idt = model.get_tensor_datatype(pwp_input)
+
+                func = get_by_name(node.attribute, "func").s.decode("utf-8")
+                K_attr = get_by_name(node.attribute, "K")
+                K = K_attr.i if K_attr is not None else 3
+                degree_attr = get_by_name(node.attribute, "degree")
+                degree = degree_attr.i if degree_attr is not None else 2
+
+                new_node = self._make_pwpolyf_node(
+                    pwp_input,
+                    pwp_output,
+                    func,
+                    pwp_in_shape,
+                    idt,
+                    "PWPolyF_" + node.name,
+                    K,
+                    degree,
+                )
+                graph.node.insert(node_ind, new_node)
+                graph.node.remove(node)
+                graph_modified = True
+
+            # Case 2: single-node standard ONNX activations (Gelu, Tanh)
+            elif node.op_type in self._SINGLE_OP_MAP:
+                pwp_input = node.input[0]
+                pwp_output = node.output[0]
+                pwp_in_shape = model.get_tensor_shape(pwp_input)
+                if pwp_in_shape is None or len(pwp_in_shape) < 1:
+                    continue
+                idt = model.get_tensor_datatype(pwp_input)
+                if idt != DataType["FLOAT32"]:
+                    continue
+
+                func = self._SINGLE_OP_MAP[node.op_type]
+                new_node = self._make_pwpolyf_node(
+                    pwp_input,
+                    pwp_output,
+                    func,
+                    pwp_in_shape,
+                    idt,
+                    "PWPolyF_" + node.name,
+                )
+                graph.node.insert(node_ind, new_node)
+                graph.node.remove(node)
+                graph_modified = True
+
+            # Case 3: Sigmoid — standalone or part of SiLU pattern
+            elif node.op_type == "Sigmoid":
+                sig_input = node.input[0]
+                sig_output = node.output[0]
+                pwp_in_shape = model.get_tensor_shape(sig_input)
+                if pwp_in_shape is None or len(pwp_in_shape) < 1:
+                    continue
+                idt = model.get_tensor_datatype(sig_input)
+                if idt != DataType["FLOAT32"]:
+                    continue
+
+                nodes_to_remove = [node]
+                func = "sigmoid"
+                pwp_output = sig_output
+
+                # Probe for SiLU: Sigmoid feeds a Mul whose other input
+                # is the same tensor x that enters the Sigmoid.
+                sig_consumers = model.find_consumers(sig_output)
+                if len(sig_consumers) == 1:
+                    mul_cand = sig_consumers[0]
+                    if mul_cand.op_type == "Mul":
+                        mul_inputs = list(mul_cand.input)
+                        other_idx = 1 if mul_inputs[0] == sig_output else 0
+                        if mul_inputs[other_idx] == sig_input:
+                            func = "silu"
+                            pwp_output = mul_cand.output[0]
+                            nodes_to_remove.append(mul_cand)
+
+                new_node = self._make_pwpolyf_node(
+                    sig_input,
+                    pwp_output,
+                    func,
+                    pwp_in_shape,
+                    idt,
+                    "PWPolyF_" + node.name,
+                )
+                graph.node.insert(node_ind, new_node)
+                for nd in nodes_to_remove:
+                    graph.node.remove(nd)
+                graph_modified = True
+
+            # Case 4: Erf-based GELU (dynamo=True / opset < 20)
+            # Div(x, sqrt(2)) → Erf → Add(_, 1) → Mul(x or 0.5, _) → Mul(_, _)
+            elif node.op_type == "Erf":
+                match = self._match_erf_gelu(model, node)
+                if match is None:
+                    continue
+                pwp_input, pwp_output, nodes_to_remove = match
+                pwp_in_shape = model.get_tensor_shape(pwp_input)
+                if pwp_in_shape is None or len(pwp_in_shape) < 1:
+                    continue
+                idt = model.get_tensor_datatype(pwp_input)
+                if idt != DataType["FLOAT32"]:
+                    continue
+
+                new_node = self._make_pwpolyf_node(
+                    pwp_input,
+                    pwp_output,
+                    "gelu",
+                    pwp_in_shape,
+                    idt,
+                    "PWPolyF_" + node.name,
+                )
+                graph.node.insert(node_ind, new_node)
+                for nd in nodes_to_remove:
+                    graph.node.remove(nd)
                 graph_modified = True
 
         return (model, graph_modified)
@@ -399,7 +633,7 @@ class InferRequantLayer(Transformation):
                     continue
 
                 # Check MultiThreshold out_scale and out_bias
-                mt_inst = getCustomOp(node)
+                mt_inst = getHWCustomOp(node)
                 out_scale = mt_inst.get_nodeattr("out_scale")
                 out_bias = mt_inst.get_nodeattr("out_bias")
 
@@ -430,7 +664,7 @@ class InferRequantLayer(Transformation):
             elif node.op_type == "Quant":
                 # Handle Quant nodes with scale=1 and zeropt=0
                 # (typically after ExtractQuantScaleZeroPt transformation)
-                node_inst = getCustomOp(node)
+                node_inst = getHWCustomOp(node)
 
                 # Check rounding mode
                 rmode = node_inst.get_nodeattr("rounding_mode")
@@ -609,6 +843,8 @@ class InferUpsample(Transformation):
                     cpp_interface="hls_vector",
                     hls_style="freerunning",
                 )
+                if hasattr(n, "metadata_props"):
+                    Upsample_HW_node.metadata_props.extend(n.metadata_props)
 
                 # Remove the old node
                 graph.node.insert(node_ind, Upsample_HW_node)
@@ -689,6 +925,9 @@ class InferDuplicateStreamsLayer(Transformation):
                 hls_style="freerunning",
             )
 
+            # take metadata from first node in graph
+            if hasattr(model.find_consumer(output_tensor), "metadata_props"):
+                dup_node.metadata_props.extend(model.find_consumer(output_tensor).metadata_props)
             graph.node.insert(0, dup_node)
 
             # connect successors to out tensor clone
@@ -716,9 +955,7 @@ class InferDuplicateStreamsLayer(Transformation):
 
                 if total_consumers >= 2:
                     n_outputs = total_consumers
-
                     dt = model.get_tensor_datatype(output_tensor)
-
                     # create clone tensors
                     out_shape = model.get_tensor_shape(output_tensor)
                     out_tensor_clones = []
@@ -758,6 +995,10 @@ class InferDuplicateStreamsLayer(Transformation):
                         hls_style="freerunning",
                     )
 
+                    if hasattr(model.find_consumer(output_tensor), "metadata_props"):
+                        dup_node.metadata_props.extend(
+                            model.find_consumer(output_tensor).metadata_props
+                        )
                     graph.node.insert(node_ind, dup_node)
 
                     # connect successors to out tensor clone
@@ -859,6 +1100,8 @@ class InferLabelSelectLayer(Transformation):
                     numInputVectors=num_inp_vecs,
                     name="LabelSelect_" + node.name,
                 )
+                if hasattr(node, "metadata_props"):
+                    new_node.metadata_props.extend(node.metadata_props)
                 graph.node.insert(node_ind, new_node)
                 # remove old node
                 graph.node.remove(node)
@@ -946,6 +1189,9 @@ class InferGlobalAccPoolLayer(Transformation):
                     [pool_out, mul_value.name],
                     [result],
                 )
+                if hasattr(node, "metadata_props"):
+                    new_pool.metadata_props.extend(node.metadata_props)
+                    new_mul.metadata_props.extend(node.metadata_props)
                 graph.node.insert(insert_point, new_pool)
                 graph.node.insert(insert_point + 1, new_mul)
                 node_ind += 1
@@ -986,14 +1232,14 @@ class InferPool(Transformation):
                     sh, sw = list(get_by_name(node.attribute, "strides").ints)
                     dlayout = "NCHW"
                 elif node.op_type == "QuantAvgPool2d":
-                    inst = getCustomOp(node)
+                    inst = getHWCustomOp(node, model)
                     # QuantAvgPool2d has a single scalar attribute
                     # for kernel size and stride (implicit square)
                     kh = kw = inst.get_nodeattr("kernel")
                     sh = sw = inst.get_nodeattr("stride")
                     dlayout = inst.get_nodeattr("data_layout")
                 elif node.op_type == "MaxPoolNHWC":
-                    inst = getCustomOp(node)
+                    inst = getHWCustomOp(node, model)
                     kh, kw = inst.get_nodeattr("kernel_shape")
                     sh, sw = inst.get_nodeattr("strides")
                     dlayout = "NHWC"
@@ -1072,7 +1318,7 @@ class InferPool(Transformation):
                     assert odt.is_integer(), """Output data type for QuantAvgPool2d
                     needs to be integer"""
                     assert all(x == 0 for x in pad), "Padding is not supported for QuantAvgPool2d"
-                    inst = getCustomOp(node)
+                    inst = getHWCustomOp(node, model)
                     pool_fxn = "QuantAvgPool"
                     pool_size_param = inst.get_shifts()
                     accum_bits = inst.get_accum_size()
@@ -1265,9 +1511,90 @@ class InferConcatLayer(Transformation):
         return (model, graph_modified)
 
 
+class InferSelectTokenLayer(Transformation):
+    """Convert scalar Gather(input, token_index, axis=1) into SelectToken."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type != "Gather":
+                continue
+
+            axis = get_by_name(node.attribute, "axis")
+            if axis is None or len(node.input) != 2:
+                continue
+
+            seq_name = node.input[0]
+            idx_name = node.input[1]
+            idx_init = model.get_initializer(idx_name)
+            if idx_init is None or idx_init.size != 1:
+                continue
+            if model.get_initializer(seq_name) is not None:
+                continue
+
+            seq_shape = model.get_tensor_shape(seq_name)
+            if seq_shape is None or any(x is None for x in seq_shape):
+                continue
+
+            rank = len(seq_shape)
+            gather_axis = axis.i if axis.i >= 0 else axis.i + rank
+            if rank != 3 or gather_axis != 1:
+                continue
+
+            token_index = int(idx_init.flatten()[0])
+            num_tokens = int(seq_shape[1])
+            normalized_index = token_index + num_tokens if token_index < 0 else token_index
+            if normalized_index < 0 or normalized_index >= num_tokens:
+                continue
+
+            out_shape = model.get_tensor_shape(node.output[0])
+            exp_oshape = [int(seq_shape[0]), int(seq_shape[2])]
+            if out_shape is not None and list(out_shape) != exp_oshape:
+                continue
+            if seq_shape[0] != 1:
+                continue
+
+            idt = model.get_tensor_datatype(seq_name)
+            if idt is None or (
+                not idt.is_integer() and idt not in [DataType["FLOAT16"], DataType["FLOAT32"]]
+            ):
+                continue
+            odt = model.get_tensor_datatype(node.output[0])
+            if odt is None:
+                odt = idt
+            elif odt != idt:
+                continue
+
+            new_node = helper.make_node(
+                "SelectToken",
+                [seq_name],
+                node.output,
+                domain="finn.custom_op.fpgadataflow",
+                backend="fpgadataflow",
+                name="SelectToken_" + node.name,
+                NumTokens=num_tokens,
+                NumChannels=int(seq_shape[2]),
+                TokenIndex=token_index,
+                SIMD=1,
+                inputDataType=idt.name,
+                outputDataType=odt.name,
+            )
+            graph.node.insert(node_ind, new_node)
+            graph.node.remove(node)
+            graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
 class InferSplitLayer(Transformation):
     """Convert suitable Split nodes (operating on last/-1 axis)
-    into StreamingConcat HW layers."""
+    into StreamingSplit HW layers."""
 
     def apply(self, model):
         graph = model.graph
@@ -1327,6 +1654,261 @@ class InferSplitLayer(Transformation):
                 # remove old node
                 graph.node.remove(node)
                 graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferPad1DLayer(Transformation):
+    """Convert 1D Concat padding patterns into Pad1D.
+
+    This covers class-token insertion as ``Concat([cls_token, tokens], axis=1)``
+    as well as constant left/right 1D padding around one streamed tensor.
+    """
+
+    def _get_tensor_shape(self, model, tensor_name):
+        shape = model.get_tensor_shape(tensor_name)
+        if shape is not None:
+            return list(shape)
+
+        init = model.get_initializer(tensor_name)
+        if init is not None:
+            return list(init.shape)
+        return None
+
+    def _make_pad_initializer(self, model, graph, values, idt):
+        values = np.asarray(values, dtype=np.float32)
+        pad_name = model.make_new_valueinfo_name()
+        graph.initializer.append(numpy_helper.from_array(values, name=pad_name))
+        model.set_tensor_datatype(pad_name, idt)
+        return pad_name
+
+    def _make_or_reuse_pad_initializer(self, model, graph, values, tensor_names, idt):
+        if len(tensor_names) == 1:
+            return tensor_names[0]
+        return self._make_pad_initializer(model, graph, values, idt)
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type != "Concat":
+                continue
+
+            axis = get_by_name(node.attribute, "axis")
+            if axis is None:
+                continue
+
+            stream_inds = [
+                ind for ind, inp in enumerate(node.input) if model.get_initializer(inp) is None
+            ]
+            if len(stream_inds) != 1:
+                continue
+            stream_ind = stream_inds[0]
+            stream_name = node.input[stream_ind]
+
+            stream_shape = self._get_tensor_shape(model, stream_name)
+            if stream_shape is None:
+                continue
+            if any(x is None for x in stream_shape):
+                continue
+
+            rank = len(stream_shape)
+            concat_axis = axis.i if axis.i >= 0 else axis.i + rank
+            if rank != 3 or concat_axis != 1:
+                continue
+            if stream_shape[0] != 1:
+                continue
+
+            const_values = []
+            valid_const_inputs = True
+            for inp in node.input:
+                init = model.get_initializer(inp)
+                if init is None:
+                    const_values.append(None)
+                    continue
+
+                const_shape = self._get_tensor_shape(model, inp)
+                if const_shape is None or any(x is None for x in const_shape):
+                    valid_const_inputs = False
+                    break
+                if (
+                    len(const_shape) != 3
+                    or const_shape[0] != 1
+                    or const_shape[2] != stream_shape[2]
+                ):
+                    valid_const_inputs = False
+                    break
+                const_values.append(np.asarray(init, dtype=np.float32))
+            if not valid_const_inputs:
+                continue
+
+            left_values = [const_values[ind] for ind in range(stream_ind)]
+            right_values = [const_values[ind] for ind in range(stream_ind + 1, len(node.input))]
+            left_names = [node.input[ind] for ind in range(stream_ind)]
+            right_names = [node.input[ind] for ind in range(stream_ind + 1, len(node.input))]
+            pad_left = sum(x.shape[1] for x in left_values)
+            pad_right = sum(x.shape[1] for x in right_values)
+            if pad_left == 0 and pad_right == 0:
+                continue
+
+            out_shape = model.get_tensor_shape(node.output[0])
+            exp_oshape = [1, stream_shape[1] + pad_left + pad_right, stream_shape[2]]
+            if out_shape is not None and list(out_shape) != exp_oshape:
+                continue
+
+            idt = model.get_tensor_datatype(stream_name)
+            if idt is None or (
+                not idt.is_integer() and idt not in [DataType["FLOAT16"], DataType["FLOAT32"]]
+            ):
+                continue
+
+            const_dtypes_valid = True
+            missing_const_dtypes = []
+            for inp in node.input:
+                if inp == stream_name:
+                    continue
+                pad_dt = model.get_tensor_datatype(inp)
+                if pad_dt is None:
+                    missing_const_dtypes.append(inp)
+                elif pad_dt != idt:
+                    const_dtypes_valid = False
+                    break
+            if not const_dtypes_valid:
+                continue
+
+            if pad_left == 0:
+                left_pad = np.zeros((1, 1, stream_shape[2]), dtype=np.float32)
+            else:
+                left_pad = np.concatenate(left_values, axis=1)
+            if pad_right == 0:
+                right_pad = np.zeros((1, 1, stream_shape[2]), dtype=np.float32)
+            else:
+                right_pad = np.concatenate(right_values, axis=1)
+
+            left_pad_name = self._make_or_reuse_pad_initializer(
+                model, graph, left_pad, left_names, idt
+            )
+            right_pad_name = self._make_or_reuse_pad_initializer(
+                model, graph, right_pad, right_names, idt
+            )
+
+            new_node = helper.make_node(
+                "Pad1D",
+                [stream_name, left_pad_name, right_pad_name],
+                node.output,
+                domain="finn.custom_op.fpgadataflow",
+                backend="fpgadataflow",
+                name="Pad1D_" + node.name,
+                NumTokens=int(stream_shape[1]),
+                NumChannels=int(stream_shape[2]),
+                PadLeft=int(pad_left),
+                PadRight=int(pad_right),
+                SIMD=1,
+                inputDataType=idt.name,
+                outputDataType=idt.name,
+            )
+            for inp in missing_const_dtypes:
+                model.set_tensor_datatype(inp, idt)
+            graph.node.insert(node_ind, new_node)
+            graph.node.remove(node)
+            graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferWhereLayer(Transformation):
+    """Convert ONNX Where(condition, X, Y) into a streaming Where layer."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type != "Where" or node.domain not in ["", "ai.onnx"]:
+                continue
+            if len(node.input) != 3:
+                continue
+
+            cond_name, x_name, y_name = node.input
+            if any(model.get_initializer(inp) is not None for inp in node.input):
+                continue
+
+            cond_shape = model.get_tensor_shape(cond_name)
+            x_shape = model.get_tensor_shape(x_name)
+            y_shape = model.get_tensor_shape(y_name)
+            out_shape = model.get_tensor_shape(node.output[0])
+            if any(s is None for s in [cond_shape, x_shape, y_shape, out_shape]):
+                continue
+            if any(x is None for x in list(cond_shape) + list(x_shape) + list(y_shape)):
+                continue
+            try:
+                broadcast_shape = np.broadcast_shapes(
+                    tuple(cond_shape), tuple(x_shape), tuple(y_shape)
+                )
+            except ValueError:
+                continue
+            if list(out_shape) != [int(x) for x in broadcast_shape]:
+                continue
+            x_dt = model.get_tensor_datatype(x_name)
+            y_dt = model.get_tensor_datatype(y_name)
+            if x_dt is None or y_dt is None or x_dt != y_dt:
+                continue
+            supported_dt = (
+                x_dt.is_integer()
+                or x_dt.is_fixed_point()
+                or x_dt in [DataType["FLOAT32"], DataType["FLOAT16"]]
+            )
+            if not supported_dt:
+                continue
+            out_dt = model.get_tensor_datatype(node.output[0])
+            if out_dt is not None and out_dt != x_dt:
+                continue
+
+            cond_dt = model.get_tensor_datatype(cond_name)
+            if cond_dt is None:
+                model.set_tensor_datatype(cond_name, DataType["BINARY"])
+                cond_dt = DataType["BINARY"]
+            if cond_dt != DataType["BINARY"]:
+                continue
+
+            new_node = helper.make_node(
+                "Where",
+                node.input,
+                node.output,
+                domain="finn.custom_op.fpgadataflow",
+                backend="fpgadataflow",
+                name="Where_" + node.name,
+                CondRank=len(cond_shape),
+                XRank=len(x_shape),
+                YRank=len(y_shape),
+                PE=1,
+                conditionDataType=cond_dt.name,
+                inputDataType=x_dt.name,
+                outputDataType=x_dt.name,
+                inFIFODepths=[2, 2, 2],
+                outFIFODepths=[2],
+            )
+            for attr_name, attr_value in [
+                ("Shape", [int(x) for x in broadcast_shape]),
+                ("CondShape", [int(x) for x in cond_shape]),
+                ("XShape", [int(x) for x in x_shape]),
+                ("YShape", [int(x) for x in y_shape]),
+            ]:
+                new_node.attribute.append(
+                    helper.make_attribute(attr_name, attr_value, attr_type=AttributeProto.INTS)
+                )
+            graph.node.insert(node_ind, new_node)
+            graph.node.remove(node)
+            graph_modified = True
 
         if graph_modified:
             model = model.transform(InferShapes())
@@ -1550,8 +2132,8 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                         thresholds neither 1 nor MH."""
                         )
                         odt = model.get_tensor_datatype(mt_output)
-                        scale = getCustomOp(consumer).get_nodeattr("out_scale")
-                        actval = getCustomOp(consumer).get_nodeattr("out_bias")
+                        scale = getHWCustomOp(consumer, model).get_nodeattr("out_scale")
+                        actval = getHWCustomOp(consumer, model).get_nodeattr("out_bias")
                         assert int(actval) == actval, (
                             consumer.name + ": out_bias must be integer for HW conversion."
                         )
@@ -1611,7 +2193,7 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             backend="fpgadataflow",
                             MW=mw,
                             MH=mh,
-                            SIMD=simd,
+                            SIMD=simd,  # Height of the input tensor A for dynamic MVAU
                             PE=pe,
                             inputDataType=idt.name,
                             weightDataType=wdt.name,
@@ -1707,11 +2289,11 @@ class InferVectorVectorActivation(Transformation):
                         thresholds neither 1 nor Channels."""
                         )
                         odt = model.get_tensor_datatype(mt_output)
-                        scale = getCustomOp(consumer).get_nodeattr("out_scale")
+                        scale = getHWCustomOp(consumer, model).get_nodeattr("out_scale")
                         assert scale == 1.0, (
                             consumer.name + ": out_scale must be equal to 1.0 for HW conversion."
                         )
-                        actval = getCustomOp(consumer).get_nodeattr("out_bias")
+                        actval = getHWCustomOp(consumer, model).get_nodeattr("out_bias")
                         assert int(actval) == actval, (
                             consumer.name + ": out_bias must be integer for HW conversion."
                         )
@@ -1808,6 +2390,8 @@ class InferHWSoftmax(Transformation):
                     SIMD=1,
                     NumChannels=input_shape[-1],
                 )
+                if hasattr(n, "metadata_props"):
+                    new_node.metadata_props.extend(n.metadata_props)
                 graph.node.insert(node_ind, new_node)
                 graph.node.remove(n)
         return (model, graph_modified)
@@ -1941,6 +2525,8 @@ class InferShuffle(Transformation):
                     NumChannels=in_reshaped[-1],
                 )
                 new_node.attribute.extend([perm])
+                if hasattr(n, "metadata_props"):
+                    new_node.metadata_props.extend(n.metadata_props)
                 graph.node.insert(node_ind, new_node)
 
                 for i in to_remove:
@@ -2277,6 +2863,8 @@ class InferLayerNorm(Transformation):
                     outputDataType=odt.name,
                     name="LayerNorm_" + node.name,
                 )
+                if hasattr(node, "metadata_props"):
+                    new_node.metadata_props.extend(node.metadata_props)
                 graph.node.insert(insert_point, new_node)
                 # remove old node
                 graph.node.remove(node)
@@ -2291,8 +2879,7 @@ def elements_are_consecutive(indices):
     if indices.size == 1:
         return True
     else:
-        indices.sort()
-        return np.all(np.diff(indices) == 1)
+        return np.all(np.diff(np.sort(indices)) == 1)
 
 
 class InferCrop(Transformation):
@@ -2408,6 +2995,8 @@ class InferCrop(Transformation):
                     cpp_interface="hls_vector",
                     hls_style="freerunning",
                 )
+                if hasattr(n, "metadata_props"):
+                    new_node.metadata_props.extend(n.metadata_props)
                 graph.node.insert(node_ind, new_node)
                 graph.node.remove(n)
                 graph_modified = True

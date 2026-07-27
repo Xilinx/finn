@@ -29,13 +29,13 @@
 import json
 import numpy as np
 import os
-from qonnx.custom_op.registry import getCustomOp
 
 from finn import xsi
 from finn.util.basic import (
     get_finn_root,
     get_liveness_threshold_cycles,
     get_vivado_root,
+    getHWCustomOp,
     launch_process_helper,
     make_build_dir,
 )
@@ -43,6 +43,11 @@ from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 from finn.util.rtlsim import dat_file_to_numpy_array
 
 finnxsi = xsi if xsi.is_available() else None
+
+
+def _debug_stage(msg):
+    if os.getenv("FINN_RTLSIM_DEBUG_STAGES"):
+        print("rtlsim_exec: " + msg, flush=True)
 
 
 def prep_rtlsim_io_dict(model, execution_context):
@@ -55,8 +60,9 @@ def prep_rtlsim_io_dict(model, execution_context):
         i_tensor = execution_context[i_name]
         i_dt = model.get_tensor_datatype(i_name)
         first_node_onnx = model.find_consumer(i_name)
-        first_node = getCustomOp(first_node_onnx)
+        first_node = getHWCustomOp(first_node_onnx, model)
         node_inp_ind = list(first_node_onnx.input).index(i_name)
+
         if node_inp_ind == 0:
             # default node input (input 0)
             i_stream_w = first_node.get_instream_width()
@@ -94,7 +100,7 @@ def prep_rtlsim_io_dict(model, execution_context):
         o_name = o_vi.name
         o_shape = model.get_tensor_shape(o_name)
         o_dt = model.get_tensor_datatype(o_name)
-        last_node = getCustomOp(model.find_producer(o_name))
+        last_node = getHWCustomOp(model.find_producer(o_name), model)
         o_folded_shape = last_node.get_folded_output_shape()
         # override batch size from actual input
         o_shape = list(o_shape)
@@ -209,7 +215,7 @@ def rtlsim_exec_cppxsi(
         iname = top_inp.name
         first_node = model.find_consumer(iname)
         assert first_node is not None, "Failed to find consumer for " + iname
-        fnode_inst = getCustomOp(first_node)
+        fnode_inst = getHWCustomOp(first_node, model)
         top_ind = list(first_node.input).index(iname)
         ishape_folded = fnode_inst.get_folded_input_shape(ind=top_ind)
         instream_iters.append(np.prod(ishape_folded[:-1]))
@@ -217,7 +223,7 @@ def rtlsim_exec_cppxsi(
         oname = top_out.name
         last_node = model.find_producer(oname)
         assert last_node is not None, "Failed to find producer for " + oname
-        lnode_inst = getCustomOp(last_node)
+        lnode_inst = getHWCustomOp(last_node, model)
         top_ind = list(last_node.output).index(oname)
         oshape_folded = lnode_inst.get_folded_output_shape(ind=top_ind)
         outstream_iters.append(np.prod(oshape_folded[:-1]))
@@ -236,7 +242,7 @@ def rtlsim_exec_cppxsi(
     instream_names = [x[0] for x in ifnames["s_axis"]]
     outstream_names = [x[0] for x in ifnames["m_axis"]]
     instream_descrs = [
-        (instream_names[i], instream_iters[i], instream_iters[i] + throttle_cycles)
+        (instream_names[i], int(instream_iters[i]), int(instream_iters[i] + throttle_cycles))
         for i in range(len(instream_names))
     ]
     instream_descrs_str = str(instream_descrs).replace("[", "").replace("]", "")
@@ -244,7 +250,7 @@ def rtlsim_exec_cppxsi(
     instream_descrs_str = instream_descrs_str.replace("'", '"')
 
     outstream_descrs = [
-        (outstream_names[i], outstream_iters[i], outstream_iters[i])
+        (outstream_names[i], int(outstream_iters[i]), int(outstream_iters[i]))
         for i in range(len(outstream_names))
     ]
     outstream_descrs_str = str(outstream_descrs).replace("[", "").replace("]", "")
@@ -323,10 +329,33 @@ def rtlsim_exec_cppxsi(
     return ret_dict
 
 
-def rtlsim_exec_finnxsi(model, execution_context, pre_hook=None, post_hook=None):
+def _output_frame_sizes(num_out_values, batchsize):
+    """Return the number of transactions per output frame."""
+
+    if isinstance(num_out_values, dict):
+        frame_sizes = {}
+        for name, count in num_out_values.items():
+            assert count % batchsize == 0, f"Output {name} does not contain whole frames"
+            frame_sizes[name] = count // batchsize
+        return frame_sizes
+
+    assert num_out_values % batchsize == 0, "Output does not contain whole frames"
+    return num_out_values // batchsize
+
+
+def rtlsim_exec_finnxsi(
+    model,
+    execution_context,
+    pre_hook=None,
+    post_hook=None,
+    collect_performance=False,
+):
     """Use finnxsi to execute given model with stitched IP. The execution
     context contains the input values. Hook functions can be optionally
-    specified to observe/alter the state of the circuit
+    specified to observe/alter the state of the circuit. When
+    ``collect_performance`` is enabled, return output-frame completion timing
+    in addition to storing the total cycle count in model metadata.
+
     - pre_hook : hook function to be called before sim start (after reset)
     - post_hook : hook function to be called after sim end
     """
@@ -340,13 +369,16 @@ def rtlsim_exec_finnxsi(model, execution_context, pre_hook=None, post_hook=None)
     ), """The
     directory from metadata property "vivado_stitch_proj" doesn't exist"""
     trace_file = model.get_metadata_prop("rtlsim_trace")
+    _debug_stage("preparing IO")
     io_dict, if_dict, num_out_values, o_tensor_info, batchsize = prep_rtlsim_io_dict(
         model, execution_context
     )
+    _debug_stage("prepared IO")
 
     # prepare rtlsim model
     rtlsim_so = model.get_metadata_prop("rtlsim_so")
     if (rtlsim_so is None) or (not os.path.isfile(rtlsim_so)):
+        _debug_stage("compiling simulation object")
         vivado_stitch_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
         with open(vivado_stitch_proj_dir + "/all_verilog_srcs.txt", "r") as f:
             all_verilog_srcs = f.read().split()
@@ -365,14 +397,19 @@ def rtlsim_exec_finnxsi(model, execution_context, pre_hook=None, post_hook=None)
         # pass in correct tracefile from attribute
         if trace_file == "default":
             trace_file = top_module_file_name + ".wdb"
+        _debug_stage("loading compiled simulation object")
         sim = finnxsi.load_sim_obj(sim_base, sim_rel, trace_file)
     else:
         sim_base, sim_rel = rtlsim_so.split("xsim.dir")
         sim_rel = "xsim.dir" + sim_rel
+        _debug_stage("loading cached simulation object")
         sim = finnxsi.load_sim_obj(sim_base, sim_rel, trace_file)
+    _debug_stage("loaded simulation object")
 
     # reset and call rtlsim, including any pre/post hooks
+    _debug_stage("resetting simulation")
     finnxsi.reset_rtlsim(sim)
+    _debug_stage("reset simulation")
 
     # automatically load AXI-MM weight images for external_mem nodes
     aximm_weights_json = model.get_metadata_prop("vivado_stitch_aximm_weights")
@@ -387,18 +424,29 @@ def rtlsim_exec_finnxsi(model, execution_context, pre_hook=None, post_hook=None)
             sim.aximm_ro_image(aximm_name, 0, weight_data.flatten())
 
     if pre_hook is not None:
+        _debug_stage("running pre-hook")
         pre_hook(sim)
-    n_cycles = finnxsi.rtlsim_multi_io(
+        _debug_stage("ran pre-hook")
+    output_frame_sizes = (
+        _output_frame_sizes(num_out_values, batchsize) if collect_performance else None
+    )
+    _debug_stage("starting multi-IO simulation")
+    rtlsim_result = finnxsi.rtlsim_multi_io(
         sim,
         io_dict,
         num_out_values,
         sname="",
         liveness_threshold=get_liveness_threshold_cycles() * batchsize,
+        output_frame_sizes=output_frame_sizes,
     )
+    _debug_stage("finished multi-IO simulation")
+    n_cycles = rtlsim_result["cycles"] if collect_performance else rtlsim_result
     if post_hook is not None:
         post_hook(sim)
     # important to call close_rtlsim for finnxsi to flush traces and stop
+    _debug_stage("closing simulation")
     finnxsi.close_rtlsim(sim)
+    _debug_stage("closed simulation")
 
     # unpack outputs and put back into execution context
     for o, o_vi in enumerate(model.graph.output):
@@ -412,14 +460,29 @@ def rtlsim_exec_finnxsi(model, execution_context, pre_hook=None, post_hook=None)
         execution_context[o_name] = o_folded_tensor.reshape(o_shape)
 
     model.set_metadata_prop("cycles_rtlsim", str(n_cycles))
+    return rtlsim_result if collect_performance else None
 
 
-def rtlsim_exec(model, execution_context, pre_hook=None, post_hook=None):
+def rtlsim_exec(
+    model,
+    execution_context,
+    pre_hook=None,
+    post_hook=None,
+    collect_performance=False,
+):
     """Use XSI to execute given model with stitched IP. The execution
     context contains the input values. Hook functions can be optionally
     specified to observe/alter the state of the circuit, receiving the
-    sim object as their first argument:
+    sim object as their first argument. When ``collect_performance`` is
+    enabled, return output-frame completion timing.
+
     - pre_hook : hook function to be called before sim start (after reset)
     - post_hook : hook function to be called after sim end
     """
-    rtlsim_exec_finnxsi(model, execution_context, pre_hook, post_hook)
+    return rtlsim_exec_finnxsi(
+        model,
+        execution_context,
+        pre_hook,
+        post_hook,
+        collect_performance=collect_performance,
+    )

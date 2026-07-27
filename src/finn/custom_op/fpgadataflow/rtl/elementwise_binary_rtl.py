@@ -146,6 +146,10 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
         a_width = lhs_dtype.bitwidth()
         b_width = rhs_dtype.bitwidth()
 
+        a_core_stream_bits = pe * a_width
+        b_core_stream_bits = pe * b_width
+        o_core_stream_bits = pe * out_dtype.bitwidth()
+
         code_gen_dict = {
             "TOP_MODULE_NAME": self.get_verilog_top_module_name(),
             "PE": pe,
@@ -157,9 +161,12 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             "A_SIGNED": 1 if (not lhs_float and lhs_dtype.signed()) else 0,
             "B_WIDTH": b_width,
             "B_SIGNED": 1 if (not rhs_float and rhs_dtype.signed()) else 0,
-            "A_STREAM_BITS": pe * a_width,
-            "B_STREAM_BITS": pe * b_width,
-            "O_STREAM_BITS": pe * out_dtype.bitwidth(),
+            "A_CORE_STREAM_BITS": a_core_stream_bits,
+            "B_CORE_STREAM_BITS": b_core_stream_bits,
+            "O_CORE_STREAM_BITS": o_core_stream_bits,
+            "A_STREAM_BITS": roundup_to_integer_multiple(a_core_stream_bits, 8),
+            "B_STREAM_BITS": roundup_to_integer_multiple(b_core_stream_bits, 8),
+            "O_STREAM_BITS": roundup_to_integer_multiple(o_core_stream_bits, 8),
         }
 
         with open(template_path, "r") as f:

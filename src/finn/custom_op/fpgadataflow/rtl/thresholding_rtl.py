@@ -261,6 +261,12 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             code_gen_dict["$SIGNED$"] = [str(1)]
         else:
             code_gen_dict["$SIGNED$"] = [str(0)]
+        # Is the input datatype non-integer?
+        # (assume this means floating-point)
+        if self.get_input_datatype().is_integer():
+            code_gen_dict["$FPARG$"] = [str(0)]
+        else:
+            code_gen_dict["$FPARG$"] = [str(1)]
 
         # Is the input datatype floating-point?
         if self.get_input_datatype(0) in ["FLOAT32", "FLOAT16"]:

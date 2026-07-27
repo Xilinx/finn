@@ -29,12 +29,13 @@
 import numpy as np
 import qonnx.core.onnx_exec as oxe
 from onnx import TensorProto, helper
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.quant_constant_folding import FoldTransposeIntoQuantInit
 from qonnx.transformation.remove import remove_node_and_rewire
 from qonnx.util.basic import get_preferred_qonnx_opset
+
+from finn.util.basic import getHWCustomOp
 
 
 class FoldQuantWeights(Transformation):
@@ -140,7 +141,7 @@ class FoldQuantWeights(Transformation):
                         # Round, to correct for floating point errors
                         new_initializer = np.round(new_initializer)
                         model.set_initializer(node_out, new_initializer)
-                        q_inst = getCustomOp(n)
+                        q_inst = getHWCustomOp(n, model)
                         new_dtype = q_inst.get_integer_datatype(model)
                         model.set_tensor_datatype(node_out, new_dtype)
 

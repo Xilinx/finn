@@ -35,6 +35,9 @@ from qonnx.util.basic import roundup_to_integer_multiple
 
 from finn import xsi
 from finn.util.basic import get_liveness_threshold_cycles, is_versal
+from finn.util.fpgadataflow import SUPPORTED_BACKENDS
+
+finnxsi = xsi if xsi.is_available() else None
 
 finnxsi = xsi if xsi.is_available() else None
 
@@ -51,7 +54,11 @@ class HWCustomOp(CustomOp):
 
     def get_nodeattr_types(self):
         return {
-            "backend": ("s", True, "fpgadataflow"),
+            # Backend attribute indicates implementation style:
+            # - "fpgadataflow": generic/unspecialized HWCustomOp
+            # - "hls": HLS-specialized implementation (e.g., MVAU_hls)
+            # - "rtl": RTL-specialized implementation (e.g., MVAU_rtl)
+            "backend": ("s", True, "fpgadataflow", SUPPORTED_BACKENDS),
             "preferred_impl_style": ("s", False, "", {"", "hls", "rtl"}),
             "code_gen_dir_ipgen": ("s", False, ""),
             "ipgen_path": ("s", False, ""),
@@ -610,7 +617,6 @@ class HWCustomOp(CustomOp):
         """
         Called by LoopRolling transformation to allow operators to adapt their
         attributes when being placed inside a loop body.
-
         This base implementation does nothing. Operators that need to modify
         their behavior when placed in loops should override this method.
 
@@ -618,7 +624,6 @@ class HWCustomOp(CustomOp):
             input_types: List of LoopBodyInputType values for each input,
                          indicating whether inputs are ACTIVATION, CONSTANT,
                          PARAMETER, etc.
-
         Example:
             If an operator has a parameter that becomes a streamed input
             in a loop context (PARAMETER type), it might need to change

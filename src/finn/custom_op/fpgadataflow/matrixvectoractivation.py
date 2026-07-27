@@ -42,6 +42,7 @@ from qonnx.util.basic import (
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 from finn.util.basic import is_versal
 from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
+from finn.util.fpgadataflow import is_fpgadataflow_node
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation:
 # input 0 is the input tensor, shape (.., i_size) = (..., MW)
@@ -168,12 +169,12 @@ class MVAU(HWCustomOp):
 
     def verify_node(self):
         info_messages = []
-        # verify that "backend" is set to "fpgadataflow"
-        backend_value = self.get_nodeattr("backend")
-        if backend_value == "fpgadataflow":
+        # verify that "backend" is set correctly
+        if is_fpgadataflow_node(self.onnx_node):
             info_messages.append("Attribute backend is set correctly")
         else:
-            info_messages.append('Attribute backend should be set to "fpgadataflow"')
+            msg = "Attribute backend {} is invalid".format(self.get_nodeattr("backend"))
+            info_messages.append(msg)
 
         # verify that all necessary attributes exist
         # TODO collect automatically from get_nodeattr_types

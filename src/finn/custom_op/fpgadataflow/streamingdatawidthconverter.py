@@ -32,6 +32,7 @@ import warnings
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.fpgadataflow import is_fpgadataflow_node
 
 # does not do anything at the ONNX node-by-node level, and input-output
 # tensor shapes are the same. performs data width conversion at the rtlsim level
@@ -84,46 +85,33 @@ class StreamingDataWidthConverter(HWCustomOp):
     def check_divisible_iowidths(self):
         pass
 
+    def _folded_shape_for_width(self, width):
+        shape = self.get_normal_input_shape()
+        bits = self.get_input_datatype().bitwidth()
+        assert (
+            width % bits == 0
+        ), """DWC stream width must be divisible by
+        input element bitwidth"""
+        elems = int(width // bits)
+        channels = shape[-1]
+        if channels % elems == 0:
+            return tuple(shape[:-1] + [int(channels // elems), elems])
+
+        total_elems = int(np.prod(shape))
+        assert (
+            total_elems % elems == 0
+        ), "DWC stream width with %d elements does not divide tensor shape %s" % (elems, str(shape))
+        return (int(total_elems // elems), elems)
+
     def get_folded_input_shape(self, ind=0):
         self.check_divisible_iowidths()
         iwidth = self.get_nodeattr("inWidth")
-        ishape = self.get_normal_input_shape()
-        dummy_t = np.random.randn(*ishape)
-        ibits = self.get_input_datatype().bitwidth()
-        assert (
-            iwidth % ibits == 0
-        ), """DWC input width must be divisible by
-        input element bitwidth"""
-        ielems = int(iwidth // ibits)
-        ichannels = ishape[-1]
-        new_shape = []
-        for i in ishape[:-1]:
-            new_shape.append(i)
-        new_shape.append(int(ichannels // ielems))
-        new_shape.append(ielems)
-        dummy_t = dummy_t.reshape(new_shape)
-        return dummy_t.shape
+        return self._folded_shape_for_width(iwidth)
 
     def get_folded_output_shape(self, ind=0):
         self.check_divisible_iowidths()
         owidth = self.get_nodeattr("outWidth")
-        oshape = self.get_normal_output_shape()
-        dummy_t = np.random.randn(*oshape)
-        obits = self.get_output_datatype().bitwidth()
-        assert (
-            owidth % obits == 0
-        ), """DWC output width must be divisible by
-        input element bitwidth"""
-        oelems = int(owidth // obits)
-        ochannels = oshape[-1]
-        new_shape = []
-        for i in oshape[:-1]:
-            new_shape.append(i)
-        new_shape.append(int(ochannels // oelems))
-        new_shape.append(oelems)
-        dummy_t = dummy_t.reshape(new_shape)
-
-        return dummy_t.shape
+        return self._folded_shape_for_width(owidth)
 
     def get_instream_width(self, ind=0):
         in_width = self.get_nodeattr("inWidth")
@@ -149,12 +137,12 @@ class StreamingDataWidthConverter(HWCustomOp):
 
     def verify_node(self):
         info_messages = []
-        # verify that "backend" is set to "fpgadataflow"
-        backend_value = self.get_nodeattr("backend")
-        if backend_value == "fpgadataflow":
+        # verify that "backend" is set to a valid fpgadataflow value
+        if is_fpgadataflow_node(self.onnx_node):
             info_messages.append("Attribute backend is set correctly")
         else:
-            info_messages.append('Attribute backend should be set to "fpgadataflow"')
+            msg = "Attribute backend {} is invalid".format(self.get_nodeattr("backend"))
+            info_messages.append(msg)
 
         # verify the number of inputs
         if len(self.onnx_node.input) == 1:

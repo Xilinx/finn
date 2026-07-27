@@ -30,7 +30,6 @@
 import os
 import subprocess
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
@@ -48,6 +47,7 @@ from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import (
+    getHWCustomOp,
     make_build_dir,
     pynq_native_port_width,
     pynq_part_map,
@@ -62,7 +62,7 @@ def collect_ip_dirs(model, ipstitch_path):
     ip_dirs = []
     need_memstreamer = False
     for node in model.graph.node:
-        node_inst = getCustomOp(node)
+        node_inst = getHWCustomOp(node, model)
         ip_dir_value = node_inst.get_nodeattr("ip_path")
         assert os.path.isdir(
             ip_dir_value
@@ -109,7 +109,7 @@ class MakeZYNQProject(Transformation):
         instance_names = {}
         for node in model.graph.node:
             assert node.op_type == "StreamingDataflowPartition", "Invalid link graph"
-            sdp_node = getCustomOp(node)
+            sdp_node = getHWCustomOp(node, model)
             dataflow_model_filename = sdp_node.get_nodeattr("model")
             kernel_model = ModelWrapper(dataflow_model_filename)
 
@@ -335,7 +335,7 @@ class ZynqBuild(Transformation):
         sdp_nodes = model.get_nodes_by_op_type("StreamingDataflowPartition")
         for sdp_node in sdp_nodes:
             prefix = sdp_node.name + "_"
-            sdp_node = getCustomOp(sdp_node)
+            sdp_node = getHWCustomOp(sdp_node, model)
             dataflow_model_filename = sdp_node.get_nodeattr("model")
             kernel_model = ModelWrapper(dataflow_model_filename)
             kernel_model = kernel_model.transform(InsertFIFO())

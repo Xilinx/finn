@@ -36,6 +36,7 @@ from qonnx.util.basic import (
 )
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
 class Thresholding(HWCustomOp):
@@ -88,12 +89,12 @@ class Thresholding(HWCustomOp):
 
     def verify_node(self):
         info_messages = []
-        # verify that "backend" is set to "fpgadataflow"
-        backend_value = self.get_nodeattr("backend")
-        if backend_value == "fpgadataflow":
+        # verify that "backend" is set to a valid fpgadataflow value
+        if is_fpgadataflow_node(self.onnx_node):
             info_messages.append("Attribute backend is set correctly")
         else:
-            info_messages.append('Attribute backend should be set to "fpgadataflow"')
+            msg = "Attribute backend {} is invalid".format(self.get_nodeattr("backend"))
+            info_messages.append(msg)
 
         # verify that all necessary attributes exist
         # TODO collect automatically from get_nodeattr_types
@@ -269,14 +270,19 @@ class Thresholding(HWCustomOp):
         out_bias = self.get_nodeattr("ActVal")
         # MT expects inputs to be in the shape (N,C,H,W) or (N, C)
         # if 4D then input values in context are (N,H,W,C) and need to
-        # be transposed.
+        # be transposed. Same for 3D input values
         # if 2D then inputs can be passed directly to MT function
         is_4d = len(inp_values.shape) == 4
         if is_4d:
             inp_values = np.transpose(inp_values, (0, 3, 1, 2))
+        is_3d = len(inp_values.shape) == 3
+        if is_3d:
+            inp_values = np.transpose(inp_values, (0, 2, 1))
         y = multithreshold(inp_values, th_val, out_bias=out_bias)
         if is_4d:
             y = y.transpose(0, 2, 3, 1)
+        if is_3d:
+            y = y.transpose(0, 2, 1)
         act = DataType[self.get_nodeattr("outputDataType")]
         if act == DataType["BIPOLAR"]:
             # binary to bipolar

@@ -38,7 +38,6 @@ from brevitas.export import export_qonnx
 from PIL import Image
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.change_datalayout import ChangeDataLayoutQuantAvgPool2d
 from qonnx.transformation.double_to_single_float import DoubleToSingleFloat
 from qonnx.transformation.fold_constants import FoldConstants
@@ -90,7 +89,7 @@ from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.collapse_repeated import CollapseRepeatedMul
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import get_finn_root, make_build_dir
+from finn.util.basic import get_finn_root, getHWCustomOp, make_build_dir
 from finn.util.pytorch import NormalizePreProc
 from finn.util.test import (
     crop_center,
@@ -284,7 +283,7 @@ def test_end2end_mobilenet_create_dataflow_partition():
     parent_model = model.transform(CreateDataflowPartition())
     parent_model.save(build_dir + "/end2end_mobilenet_dataflow_parent.onnx")
     sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
-    sdp_node = getCustomOp(sdp_node)
+    sdp_node = getHWCustomOp(sdp_node)
     dataflow_model_filename = sdp_node.get_nodeattr("model")
     dataflow_model = load_test_checkpoint_or_skip(dataflow_model_filename)
     dataflow_model = dataflow_model.transform(RemoveUnusedTensors())
@@ -320,7 +319,7 @@ def test_end2end_mobilenet_folding():
         (4, 4, "block"),
     ]
     for fcl, (pe, simd, ramstyle) in zip(fc_layers, folding):
-        fcl_inst = getCustomOp(fcl)
+        fcl_inst = getHWCustomOp(fcl)
         fcl_inst.set_nodeattr("PE", pe // extra_fold)
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
@@ -344,32 +343,32 @@ def test_end2end_mobilenet_folding():
     ]
     for vvau, pe_simd in zip(vvau_layers, pe_simd_fold):
         pe, simd = pe_simd
-        vvau_inst = getCustomOp(vvau)
+        vvau_inst = getHWCustomOp(vvau)
         vvau_inst.set_nodeattr("PE", pe // extra_fold)
         vvau_inst.set_nodeattr("SIMD", simd)
         # set SIMD in preceeding ConvInputGen to same value
         convinputgen = model.find_direct_predecessors(vvau)[0]
-        convinputgen_inst = getCustomOp(convinputgen)
+        convinputgen_inst = getHWCustomOp(convinputgen)
         convinputgen_inst.set_nodeattr("SIMD", pe // extra_fold)
         # Enable parallel_window mode for SIMD parallelism VVU
         convinputgen_inst.set_nodeattr("parallel_window", 1)
         # set SIMD in preceeding FMPadding to same value
         padding = model.find_direct_predecessors(convinputgen)[0]
         if padding.op_type == "FMPadding_rtl":
-            padding_inst = getCustomOp(padding)
+            padding_inst = getHWCustomOp(padding)
             padding_inst.set_nodeattr("SIMD", pe // extra_fold)
     # Set folding Thresholding layers
     thresholding_layers = model.get_nodes_by_op_type("Thresholding_rtl")
     folding = [2, 2, 4, 1, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
     for thresholding, pe in zip(thresholding_layers, folding):
-        thresholding_inst = getCustomOp(thresholding)
+        thresholding_inst = getHWCustomOp(thresholding)
         thresholding_inst.set_nodeattr("PE", pe)
     # adjust final pooling layer + its inpgen
     pool_node = model.get_nodes_by_op_type("Pool_hls")[0]
-    pool_inst = getCustomOp(pool_node)
+    pool_inst = getHWCustomOp(pool_node)
     pool_inst.set_nodeattr("PE", 4 // extra_fold)
     pool_inpgen = model.find_direct_predecessors(pool_node)[0]
-    pool_inpgen_inst = getCustomOp(pool_inpgen)
+    pool_inpgen_inst = getHWCustomOp(pool_inpgen)
     pool_inpgen_inst.set_nodeattr("SIMD", 4 // extra_fold)
     model = model.transform(InferDataLayouts())
     model.save(build_dir + "/end2end_mobilenet_folded.onnx")

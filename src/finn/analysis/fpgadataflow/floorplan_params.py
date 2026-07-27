@@ -27,8 +27,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from qonnx.custom_op.registry import getCustomOp
-
+from finn.util.basic import getHWCustomOp
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
@@ -47,7 +46,7 @@ def floorplan_params(model):
     }
     for node in model.graph.node:
         if is_fpgadataflow_node(node):
-            node_inst = getCustomOp(node)
+            node_inst = getHWCustomOp(node, model)
             node_slr = node_inst.get_nodeattr("slr")
             node_pid = node_inst.get_nodeattr("partition_id")
             node_mport = node_inst.get_nodeattr("mem_port")

@@ -157,9 +157,10 @@ class VVAU_rtl(VVAU, RTLBackend):
             "mvu_vvu_8sx9_dsp58.sv",
             "add_multi.sv",
         ]
-        sourcefiles = [
-            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v")
-        ] + [rtllib_dir + _ for _ in sourcefiles]
+        wrapper_file = self.get_nodeattr("gen_top_module") + "_wrapper.v"
+        sourcefiles = [os.path.join(code_gen_dir, wrapper_file)] + [
+            rtllib_dir + _ for _ in sourcefiles
+        ]
 
         for f in sourcefiles:
             cmd.append("add_files -norecurse %s" % (f))

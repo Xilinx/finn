@@ -66,6 +66,8 @@ coverage.xml
 
 # Build and docs folder/files
 build/*
+scripts_finn/*
+transformer_examples/tinydeit/build/*
 dist/*
 sdist/*
 docs/api/*

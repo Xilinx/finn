@@ -26,6 +26,19 @@ output	out0_V_TVALID,
 output	[$STREAM_BITS$-1:0] out0_V_TDATA
 );
 
+wire [$CORE_STREAM_BITS$-1:0] in0_core_TDATA;
+wire [$CORE_STREAM_BITS$-1:0] out0_core_TDATA;
+
+assign in0_core_TDATA = in0_V_TDATA[$CORE_STREAM_BITS$-1:0];
+assign out0_V_TDATA[$CORE_STREAM_BITS$-1:0] = out0_core_TDATA;
+
+generate
+if ($STREAM_BITS$ > $CORE_STREAM_BITS$) begin : gen_pad_out0
+	assign out0_V_TDATA[$STREAM_BITS$-1:$CORE_STREAM_BITS$] =
+		{($STREAM_BITS$-$CORE_STREAM_BITS$){1'b0}};
+end
+endgenerate
+
 inner_shuffle #(
 	.BITS($WIDTH$),
 	.I($I$),
@@ -36,10 +49,10 @@ inner_shuffle #(
 	.rst(!ap_rst_n),
 	.irdy(in0_V_TREADY),
 	.ivld(in0_V_TVALID),
-	.idat(in0_V_TDATA),
+	.idat(in0_core_TDATA),
 	.ordy(out0_V_TREADY),
 	.ovld(out0_V_TVALID),
-	.odat(out0_V_TDATA)
+	.odat(out0_core_TDATA)
 );
 
 endmodule

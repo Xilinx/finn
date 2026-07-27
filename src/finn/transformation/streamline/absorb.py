@@ -31,11 +31,12 @@ import qonnx.core.data_layout as DataLayout
 import warnings
 from onnx import helper as oh
 from qonnx.core.datatype import DataType
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import get_by_name
+
+from finn.util.basic import getHWCustomOp
 
 
 class AbsorbSignBiasIntoMultiThreshold(Transformation):
@@ -72,7 +73,7 @@ class AbsorbSignBiasIntoMultiThreshold(Transformation):
                         continue
                     bias = A.flatten()[0]
                     # set MultiThreshold bias property
-                    mt_inst = getCustomOp(mt_node)
+                    mt_inst = getHWCustomOp(mt_node, model)
                     bias += mt_inst.get_nodeattr("out_bias")
                     mt_inst.set_nodeattr("out_bias", bias)
                     graph_modified = True
@@ -104,6 +105,10 @@ class AbsorbAddIntoMultiThreshold(Transformation):
     """Absorb preceding Add ops into MultiThreshold by updating the threshold
     values. Only scalar/1D add vectors can be absorbed."""
 
+    def __init__(self, preserve_thresh_shape=False):
+        super().__init__()
+        self.preserve_thresh_shape = preserve_thresh_shape
+
     def apply(self, model):
         graph = model.graph
         node_ind = 0
@@ -121,6 +126,21 @@ class AbsorbAddIntoMultiThreshold(Transformation):
                     assert T is not None, "Initializer for thresholds is not set."
                     start_name = n.input[0]
                     is_scalar = A.ndim == 0 or all(x == 1 for x in A.shape)
+                    # if preserve_thresh_shape is set to True we need to make sure that we
+                    # do not merge a channelwise Add into a per-tensor Thresholding
+                    # this would change the threshold array from
+                    # for int8 for example (1, 255) to (channels, 255)
+                    if self.preserve_thresh_shape:
+                        if T.shape[0] == 1 and not is_scalar:
+                            # Issue a warning to the user, so they are aware of this
+                            warnings.warn(
+                                "preserve_thresh_shape is set to True "
+                                f"and merging {n.name} into {consumer.name} "
+                                "would change the threshold array shape. "
+                                "If you would like the merge to still happen, "
+                                "set preserve_thresh_shape to False."
+                            )
+                            continue
 
                     # Get the shape of the parameter tensor of the add
                     shape = A.shape
@@ -171,6 +191,10 @@ class AbsorbMulIntoMultiThreshold(Transformation):
     """Absorb preceding Mul ops into MultiThreshold by updating the threshold
     values. Only *positive* scalar/1D mul vectors can be absorbed."""
 
+    def __init__(self, preserve_thresh_shape=False):
+        super().__init__()
+        self.preserve_thresh_shape = preserve_thresh_shape
+
     def apply(self, model):
         graph = model.graph
         node_ind = 0
@@ -191,6 +215,22 @@ class AbsorbMulIntoMultiThreshold(Transformation):
                         threshold_name = consumer.input[1]
                         T = model.get_initializer(threshold_name)
                         assert T is not None, "Initializer for thresholds is not set."
+                        # if preserve_thresh_shape is set to True we need to make sure that we
+                        # do not merge a channelwise Add into a per-tensor Thresholding
+                        # this would change the threshold array from
+                        # for int8 for example (1, 255) to (channels, 255)
+                        if self.preserve_thresh_shape:
+                            if T.shape[0] == 1 and not is_scalar:
+                                # Issue a warning to the user, so they are aware of this
+                                warnings.warn(
+                                    "preserve_thresh_shape is set to True "
+                                    f"and merging {n.name} into {consumer.name} "
+                                    "would change the threshold array shape. "
+                                    "If you would like the merge to still happen, "
+                                    "set preserve_thresh_shape to False."
+                                )
+                                continue
+
                         start_name = n.input[0]
                         # compute new thresholds and set initializer
                         Tnew = T / A.reshape(-1, 1)
@@ -353,7 +393,7 @@ class AbsorbTransposeIntoMultiThreshold(Transformation):
                         # and not model.is_fork_node(mt_cand)
                     ):
                         mt_cand_orig_output = mt_cand.output[0]
-                        mt = getCustomOp(mt_cand)
+                        mt = getHWCustomOp(mt_cand, model)
                         mt.set_nodeattr("data_layout", "NHWC")
                         # Rewire input of MultiThreshold node
                         mt_cand.input[0] = n.input[0]

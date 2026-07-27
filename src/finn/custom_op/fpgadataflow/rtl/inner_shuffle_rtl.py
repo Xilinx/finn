@@ -10,6 +10,7 @@ import math
 import os
 import shutil
 from qonnx.core.datatype import DataType
+from qonnx.util.basic import roundup_to_integer_multiple
 from typing import Optional
 
 from finn.custom_op.fpgadataflow.inner_shuffle import InnerShuffle
@@ -65,13 +66,15 @@ class InnerShuffle_rtl(InnerShuffle, RTLBackend):
         return my_attrs
 
     def get_template_values(self, idims, simd, dt):
+        core_stream_bits = simd * dt.bitwidth()
         code_gen_dict = {
             "TOP_MODULE_NAME": self.get_verilog_top_module_name(),
             "I": idims[0],
             "J": idims[1],
             "SIMD": simd,
             "WIDTH": dt.bitwidth(),
-            "STREAM_BITS": simd * dt.bitwidth(),
+            "CORE_STREAM_BITS": core_stream_bits,
+            "STREAM_BITS": roundup_to_integer_multiple(core_stream_bits, 8),
         }
         return code_gen_dict
 
@@ -81,13 +84,15 @@ class InnerShuffle_rtl(InnerShuffle, RTLBackend):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         dt = DataType[self.get_nodeattr("data_type")]
         simd = self.get_nodeattr("SIMD")
+        core_stream_bits = simd * dt.bitwidth()
         code_gen_dict = {
             "TOP_MODULE_NAME": self.get_verilog_top_module_name(),
             "I": self.get_nodeattr("in_shape")[-2],
             "J": self.get_nodeattr("in_shape")[-1],
             "SIMD": simd,
             "WIDTH": dt.bitwidth(),
-            "STREAM_BITS": simd * dt.bitwidth(),
+            "CORE_STREAM_BITS": core_stream_bits,
+            "STREAM_BITS": roundup_to_integer_multiple(core_stream_bits, 8),
         }
         with open(template_path, "r") as f:
             template = f.read()

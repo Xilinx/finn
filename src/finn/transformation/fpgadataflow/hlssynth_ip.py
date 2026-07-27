@@ -28,10 +28,10 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
-import qonnx.custom_op.registry as registry
 import warnings
 from qonnx.transformation.base import NodeLocalTransformation
 
+from finn.util.basic import getHWCustomOp
 from finn.util.fpgadataflow import is_hls_node
 
 
@@ -59,7 +59,7 @@ class HLSSynthIP(NodeLocalTransformation):
         if is_hls_node(node) or node.op_type == "FINNLoop":
             try:
                 # lookup op_type in registry of CustomOps
-                inst = registry.getCustomOp(node)
+                inst = getHWCustomOp(node, self.ref_input_model)
                 # ensure that code is generated
                 assert (
                     inst.get_nodeattr("code_gen_dir_ipgen") != ""

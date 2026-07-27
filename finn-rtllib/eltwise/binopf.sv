@@ -10,7 +10,7 @@ module binopf #(
 	parameter  OP,	// ADD(a+b), SUB(a-b), SBR(b-a), MUL(a*b)
 	shortreal  B_SCALE = 1.0,	// Scale `b` input, must be 1.0 for MUL
 	bit  A_MATCH_OP_DELAY = 0,	// Add delay on `a` input equivalent to this op
-	                         	// not available for OP == "MUL" || B_SCALE != 1.0
+	                         // not available for OP == "MUL" || B_SCALE != 1.0
 	bit  FORCE_BEHAVIORAL = 0
 )(
 	input	logic  clk,

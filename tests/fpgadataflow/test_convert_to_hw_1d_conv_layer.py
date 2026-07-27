@@ -34,7 +34,6 @@ from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
@@ -51,6 +50,7 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.basic import getHWCustomOp
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
@@ -139,7 +139,7 @@ def test_convert_to_hw_1d_conv_layer(conv_config, depthwise, use_rtl_swg, exec_m
     if not use_rtl_swg:
         for node in new_model.graph.node:
             if is_fpgadataflow_node(node):
-                inst = getCustomOp(node)
+                inst = getHWCustomOp(node)
                 inst.set_nodeattr("preferred_impl_style", "hls")
     if depthwise is True:
         new_model = new_model.transform(to_hw.InferVectorVectorActivation())
@@ -152,7 +152,7 @@ def test_convert_to_hw_1d_conv_layer(conv_config, depthwise, use_rtl_swg, exec_m
             fc_node = new_model.get_nodes_by_op_type("MVAU_hls")[0]
         else:
             fc_node = new_model.get_nodes_by_op_type("MVAU_rtl")[0]
-        fc_inst = getCustomOp(fc_node)
+        fc_inst = getHWCustomOp(fc_node)
         mw = fc_inst.get_nodeattr("MW")
         mh = fc_inst.get_nodeattr("MH")
         pe_cands = list(filter(lambda x: mh % x == 0, range(2, mh + 1)))
@@ -183,12 +183,12 @@ def test_convert_to_hw_1d_conv_layer(conv_config, depthwise, use_rtl_swg, exec_m
 
     if pad_h == 1 and pad_w == 1:
         padding_node = new_model.get_nodes_by_op_type("FMPadding_rtl")[0]
-        padding_inst = getCustomOp(padding_node)
+        padding_inst = getHWCustomOp(padding_node)
         assert padding_inst.get_nodeattr("SIMD") == in_chn
 
     if depthwise is True and exec_mode == "rtlsim":
         node = new_model.get_nodes_by_op_type("VVAU_hls")[0]
-        inst = getCustomOp(node)
+        inst = getHWCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = new_model.analysis(exp_cycles_per_layer)
         exp_cycles = exp_cycles_dict[node.name]

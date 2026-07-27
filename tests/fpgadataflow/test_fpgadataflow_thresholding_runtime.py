@@ -33,7 +33,6 @@ from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.multithreshold import multithreshold
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
@@ -45,6 +44,7 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.basic import getHWCustomOp
 from finn.util.test import make_runtime_weight_stream
 
 finnxsi = xsi if xsi.is_available() else None
@@ -166,7 +166,7 @@ def test_runtime_thresholds_read(impl_style, idt_act_cfg, cfg, narrow, per_tenso
     assert model.graph.node[0].op_type == "Thresholding_" + str(impl_style)
 
     node = model.get_nodes_by_op_type(f"Thresholding_{impl_style}")[0]
-    op_inst = getCustomOp(node)
+    op_inst = getHWCustomOp(node)
     op_inst.set_nodeattr("PE", pe)
     if impl_style == "hls":
         op_inst.set_nodeattr("mem_mode", hls_mem_mode)
@@ -272,7 +272,7 @@ def test_runtime_thresholds_write(impl_style, idt_act_cfg, cfg, narrow, per_tens
     # Validate that specialize layer did not default to HLS implementation
     assert model.graph.node[0].op_type == "Thresholding_" + str(impl_style)
 
-    op_inst = getCustomOp(model.graph.node[0])
+    op_inst = getHWCustomOp(model.graph.node[0])
     op_inst.set_nodeattr("PE", pe)
     if impl_style == "hls":
         op_inst.set_nodeattr("mem_mode", hls_mem_mode)

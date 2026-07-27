@@ -30,6 +30,21 @@ output  out0_V_TVALID,
 output  [$O_STREAM_BITS$-1:0] out0_V_TDATA
 );
 
+wire [$A_CORE_STREAM_BITS$-1:0] in0_core_TDATA;
+wire [$B_CORE_STREAM_BITS$-1:0] in1_core_TDATA;
+wire [$O_CORE_STREAM_BITS$-1:0] out0_core_TDATA;
+
+assign in0_core_TDATA = in0_V_TDATA[$A_CORE_STREAM_BITS$-1:0];
+assign in1_core_TDATA = in1_V_TDATA[$B_CORE_STREAM_BITS$-1:0];
+assign out0_V_TDATA[$O_CORE_STREAM_BITS$-1:0] = out0_core_TDATA;
+
+generate
+if ($O_STREAM_BITS$ > $O_CORE_STREAM_BITS$) begin : gen_pad_out0
+        assign out0_V_TDATA[$O_STREAM_BITS$-1:$O_CORE_STREAM_BITS$] =
+                {($O_STREAM_BITS$-$O_CORE_STREAM_BITS$){1'b0}};
+end
+endgenerate
+
 eltwise #(
         .PE($PE$),
         .OP($OP$),
@@ -46,13 +61,13 @@ eltwise #(
 ) impl (
         .clk(ap_clk),
         .rst(!ap_rst_n),
-        .adat(in0_V_TDATA),
+        .adat(in0_core_TDATA),
         .avld(in0_V_TVALID),
         .ardy(in0_V_TREADY),
-        .bdat(in1_V_TDATA),
+        .bdat(in1_core_TDATA),
         .bvld(in1_V_TVALID),
         .brdy(in1_V_TREADY),
-        .odat(out0_V_TDATA),
+        .odat(out0_core_TDATA),
         .ovld(out0_V_TVALID),
         .ordy(out0_V_TREADY)
 );

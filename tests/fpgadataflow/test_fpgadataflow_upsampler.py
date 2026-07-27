@@ -34,7 +34,6 @@ import torch
 from brevitas.export import export_qonnx
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
@@ -55,7 +54,7 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
-from finn.util.basic import make_build_dir, robust_rmtree
+from finn.util.basic import getHWCustomOp, make_build_dir, robust_rmtree
 
 
 class ForceDataTypeForTensors(Transformation):
@@ -162,7 +161,7 @@ def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode, SIMD)
     for n in model.get_finn_nodes():
         node_check = n.op_type == "UpsampleNearestNeighbour"
         assert node_check, "All nodes should be UpsampleNearestNeighbour nodes."
-        inst = getCustomOp(n)
+        inst = getHWCustomOp(n)
         inst.set_nodeattr("SIMD", SIMD)
 
     test_in_transposed = test_in.numpy().transpose(_to_chan_last_args)

@@ -29,9 +29,10 @@
 import numpy as np
 from onnx import TensorProto
 from onnx import helper as oh
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.util.basic import get_by_name
+
+from finn.util.basic import getHWCustomOp
 
 
 class InsertTLastMarker(Transformation):
@@ -56,7 +57,7 @@ class InsertTLastMarker(Transformation):
             final_node.op_type == "IODMA_hls"
             and get_by_name(final_node.attribute, "direction").s.decode("UTF-8") == "out"
         ):
-            custom_op = getCustomOp(final_node)
+            custom_op = getHWCustomOp(final_node, model)
             num_iters = int(custom_op.get_number_output_values())
             stream_width = int(custom_op.get_outstream_width())
             out_shape = model.get_tensor_shape(graph_out_name)
@@ -113,7 +114,7 @@ class InsertTLastMarker(Transformation):
                     first_node.op_type == "IODMA_hls"
                     and get_by_name(first_node.attribute, "direction").s.decode("UTF-8") == "in"
                 ):
-                    custom_op = getCustomOp(first_node)
+                    custom_op = getHWCustomOp(first_node, model)
                     num_iters = np.prod(custom_op.get_folded_input_shape()[1:-1])
                     inp_idx = list(first_node.input).index(graph_in_name)
                     if inp_idx > 0:

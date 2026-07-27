@@ -26,10 +26,10 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import os
-import qonnx.custom_op.registry as registry
 import warnings
 import xml.etree.ElementTree as ET
 
+from finn.util.basic import getHWCustomOp
 from finn.util.fpgadataflow import is_hls_node
 
 
@@ -52,7 +52,7 @@ def hls_synth_res_estimation(model):
             res_dict[node.name]["LUT"] = 0
             res_dict[node.name]["DSP48E"] = 0
             res_dict[node.name]["URAM"] = 0
-            inst = registry.getCustomOp(node)
+            inst = getHWCustomOp(node, model)
             code_gen_dir = inst.get_nodeattr("code_gen_dir_ipgen")
             if code_gen_dir == "":
                 warnings.warn(

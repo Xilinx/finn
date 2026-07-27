@@ -80,6 +80,8 @@ class CollapseRepeatedOp(Transformation):
                     new_node = oh.make_node(
                         self.op_name, [start_name, new_node_param_name], [end_name]
                     )
+                    if hasattr(n, "metadata_props"):
+                        new_node.metadata_props.extend(n.metadata_props)
                     graph.node.insert(node_ind, new_node)
                     # replace parameter value
                     model.set_initializer(new_node_param_name, new_param)

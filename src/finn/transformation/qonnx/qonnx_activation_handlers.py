@@ -30,7 +30,8 @@ import warnings
 from abc import ABC, abstractmethod
 from onnx import TensorProto, helper
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
+
+from finn.util.basic import getHWCustomOp
 
 np_default_dtype = np.float32
 
@@ -94,7 +95,7 @@ class QuantActBaseHandler(ABC):
 
     def _extract_output_datatype(self):
         """Get the output datatype for the MultiThreshold node."""
-        q_inst = getCustomOp(self._q_node)
+        q_inst = getHWCustomOp(self._q_node, self._model)
         dtype = q_inst.get_integer_datatype(self._model)
         dtype = dtype.name
         return dtype
@@ -147,12 +148,14 @@ class QuantActBaseHandler(ABC):
             out_dtype="FLOAT32",
             domain="qonnx.custom_op.general",
         )
+        if hasattr(n, "metadata_props"):
+            outp_trans_node.metadata_props.extend(n.metadata_props)
         graph.node.insert(running_node_index, outp_trans_node)
         running_node_index += 1
 
         # Get the MultiThreshold node instance to work with
         mt_node = graph.node[running_node_index - 1]
-        mt_inst = getCustomOp(mt_node)
+        mt_inst = getHWCustomOp(mt_node, model)
 
         # Set scale and bias
         # If these values are scalar then they can be set as attributes
@@ -218,6 +221,8 @@ class QuantActBaseHandler(ABC):
                     [act_add_tensor.name, add_tensor.name],
                     [n.output[0]],
                 )
+                if hasattr(n, "metadata_props"):
+                    add_node.metadata_props.extend(n.metadata_props)
                 graph.node.insert(running_node_index, add_node)
                 running_node_index += 1
                 add_node = graph.node[running_node_index - 1]
@@ -260,6 +265,8 @@ class QuantActBaseHandler(ABC):
                     [act_mul_tensor.name, mul_tensor.name],
                     [n.output[0]],
                 )
+                if hasattr(n, "metadata_props"):
+                    mul_node.metadata_props.extend(n.metadata_props)
                 graph.node.insert(running_node_index, mul_node)
                 running_node_index += 1
                 mul_node = graph.node[running_node_index - 1]
@@ -291,7 +298,7 @@ class QuantReluHandler(QuantActBaseHandler):
 
     def _check_compatibility(self):
         if self._q_node.op_type == "Quant":
-            q_inst = getCustomOp(self._q_node)
+            q_inst = getHWCustomOp(self._q_node, self._model)
             narrow = q_inst.get_nodeattr("narrow")
             signed = q_inst.get_nodeattr("signed")
             if not self._model.get_initializer(self._q_node.input[2]) == 0:
@@ -322,7 +329,7 @@ class QuantReluHandler(QuantActBaseHandler):
             bias = np.array([0.0], dtype=np_default_dtype)
         elif act_node.op_type == "Selu":
             # Gather parameters
-            q_inst = getCustomOp(self._q_node)
+            q_inst = getHWCustomOp(self._q_node, self._model)
             if self._q_node.op_type == "Quant":
                 bit_width = self._model.get_initializer(self._q_node.input[3])
                 narrow = q_inst.get_nodeattr("narrow")
@@ -374,7 +381,7 @@ class QuantReluHandler(QuantActBaseHandler):
                     thresholds[c][t] = min_threshold[c] + step[c] * t
 
         elif act_node.op_type == "Selu":
-            q_inst = getCustomOp(self._q_node)
+            q_inst = getHWCustomOp(self._q_node, self._model)
             narrow = q_inst.get_nodeattr("narrow")
             if narrow:
                 num_distinct_values = 2**bit_width - 1
@@ -483,10 +490,6 @@ class QuantIdentityHandler(QuantActBaseHandler):
     def _check_compatibility(self):
         # Gather parameters to check
         if self._q_node.op_type == "Quant":
-            q_inst = getCustomOp(self._q_node)
-            signed = q_inst.get_nodeattr("signed")
-            if not signed:
-                raise ValueError("FINN only supports signed Quant nodes for identity activations.")
             if not self._model.get_initializer(self._q_node.input[2]) == 0:
                 raise ValueError(
                     "Only Quant nodes with zero-point == 0 "
@@ -504,10 +507,11 @@ class QuantIdentityHandler(QuantActBaseHandler):
 
     def _calculate_act_bias(self):
         # Gather parameters
-        q_inst = getCustomOp(self._q_node)
+        q_inst = getHWCustomOp(self._q_node, self._model)
         if self._q_node.op_type == "Quant":
             bit_width = self._model.get_initializer(self._q_node.input[3])
             narrow = q_inst.get_nodeattr("narrow")
+            signed = q_inst.get_nodeattr("signed")
         elif self._q_node.op_type == "BipolarQuant":
             bit_width = 1.0
         else:
@@ -518,20 +522,24 @@ class QuantIdentityHandler(QuantActBaseHandler):
         if bit_width == 1.0:
             bias = np.array([-0.5], dtype=np_default_dtype)
         else:
-            if narrow:
-                min_non_scaled_val = -(2 ** (bit_width - 1) - 1)
+            if not signed:
+                min_non_scaled_val = 0
             else:
-                min_non_scaled_val = -(2 ** (bit_width - 1))
+                if narrow:
+                    min_non_scaled_val = -(2 ** (bit_width - 1) - 1)
+                else:
+                    min_non_scaled_val = -(2 ** (bit_width - 1))
             bias = np.array([min_non_scaled_val], dtype=np_default_dtype)
         return bias
 
     def _calculate_thresholds(self):
         # Gather parameters
         quant_scale = self._model.get_initializer(self._q_node.input[1])
-        q_inst = getCustomOp(self._q_node)
+        q_inst = getHWCustomOp(self._q_node, self._model)
         if self._q_node.op_type == "Quant":
             bit_width = self._model.get_initializer(self._q_node.input[3])
             narrow = q_inst.get_nodeattr("narrow")
+            signed = q_inst.get_nodeattr("signed")
         elif self._q_node.op_type == "BipolarQuant":
             bit_width = 1.0
         else:
@@ -567,6 +575,8 @@ class QuantIdentityHandler(QuantActBaseHandler):
             min_threshold = -half_step - step * ((num_thresholds // 2) - 1)
             if not narrow:
                 min_threshold -= step
+            if not signed:
+                min_threshold = half_step
             for c in range(num_scale_channels):
                 for t in range(num_thresholds):
                     thresholds[c][t] = min_threshold[c] + step[c] * t

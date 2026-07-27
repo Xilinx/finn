@@ -38,7 +38,7 @@ test_fpga_part: str = "xczu7ev-ffvc1156-2-e"
 target_clk_ns = 5
 
 
-def make_gather_model(indices, ishape, axis):
+def make_crop_modelwrapper(indices, ishape, axis, idt):
     # Define the input tensor
     data = helper.make_tensor_value_info("data", TensorProto.FLOAT, ishape)
 
@@ -66,13 +66,16 @@ def make_gather_model(indices, ishape, axis):
     model = qonnx_make_model(graph, producer_name="gather-model")
     model = ModelWrapper(model, fix_missing_initializer_valueinfo=True)
     model = model.transform(InferShapes())
+    model.set_tensor_datatype("data", idt)
 
     return model
 
 
-@pytest.mark.fpgadataflow
-@pytest.mark.slow
-@pytest.mark.vivado
+def prepare_inputs(input_tensor):
+    return {"data": input_tensor}
+
+
+# crop configuration
 @pytest.mark.parametrize(
     "ishape_axis_indices",
     [
@@ -82,45 +85,51 @@ def make_gather_model(indices, ishape, axis):
         ([1, 16, 48, 16], 2, [1]),
     ],
 )
+# folding
 @pytest.mark.parametrize("simd", [1, 8, 16])
+# data types
 @pytest.mark.parametrize("idt", [DataType["INT8"], DataType["FLOAT32"]])
+# execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
-def test_fpgadataflow_gather_crop(ishape_axis_indices, simd, idt, exec_mode):
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_fpgadataflow_crop(ishape_axis_indices, simd, idt, exec_mode):
     ishape, axis, indices = ishape_axis_indices
     indices = np.array(indices)
-    model = make_gather_model(indices, ishape, axis=axis)
-    model.set_tensor_datatype(model.graph.input[0].name, idt)
+    model = make_crop_modelwrapper(indices, ishape, axis, idt)
 
     # reference calculation
-    input = gen_finn_dt_tensor(idt, ishape)
-    input_t = {model.graph.input[0].name: input}
+    input_tensor = gen_finn_dt_tensor(idt, ishape)
+    input_dict = prepare_inputs(input_tensor)
 
-    y_ref = oxe.execute_onnx(model, input_t)[model.graph.output[0].name]
+    y_ref = oxe.execute_onnx(model, input_dict)["output"]
 
     model = model.transform(to_hw.InferCrop())
 
-    input_t = {model.graph.input[0].name: input}
-    y_hw = oxe.execute_onnx(model, input_t)[model.graph.output[0].name]
+    y_hw = oxe.execute_onnx(model, input_dict)["output"]
 
     assert (y_ref == y_hw).all()
 
+    getCustomOp(model.graph.node[0]).set_nodeattr("preferred_impl_style", "hls")
     model = model.transform(SpecializeLayers(test_fpga_part))
     assert model.graph.node[0].op_type == "Crop_hls"
     getCustomOp(model.graph.node[0]).set_nodeattr("SIMD", simd)
     model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(SetExecMode(exec_mode))
 
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())
         model = model.transform(CompileCppSim())
+        model = model.transform(SetExecMode("cppsim"))
     elif exec_mode == "rtlsim":
+        model = model.transform(SetExecMode("rtlsim"))
         model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
         model = model.transform(HLSSynthIP())
         model = model.transform(PrepareRTLSim())
+    else:
+        raise Exception("Unknown exec_mode")
 
-    input_t = {model.graph.input[0].name: input}
-
-    y_sim = oxe.execute_onnx(model, input_t)[model.graph.output[0].name]
+    y_sim = oxe.execute_onnx(model, input_dict)["output"]
 
     assert (y_ref == y_sim).all()
 

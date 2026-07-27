@@ -32,7 +32,6 @@ import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
@@ -55,10 +54,11 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import get_vivado_version, is_versal, make_build_dir
+from finn.util.basic import get_vivado_version, getHWCustomOp, is_versal, make_build_dir
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
+EXPAND_FLOAT_RANGE = 100
 
 
 def generate_edge_threshold_values(
@@ -304,14 +304,14 @@ def test_fpgadataflow_thresholding(
     # Transform to the specified implementation style, either the
     # RTL or HLS according to test parameters
     node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
-    inst = getCustomOp(node)
+    inst = getHWCustomOp(node)
     inst.set_nodeattr("preferred_impl_style", impl_style)
     model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(InferShapes())
     assert model.graph.node[0].op_type == "Thresholding_" + str(impl_style)
 
     node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
-    inst = getCustomOp(node)
+    inst = getHWCustomOp(node)
     inst.set_nodeattr("PE", pe)
     if round_thresh is True:
         model = model.transform(RoundAndClipThresholds())
@@ -339,7 +339,7 @@ def test_fpgadataflow_thresholding(
             hls_synt_res_est = model.analysis(hls_synth_res_estimation)
             assert model.graph.node[0].name in hls_synt_res_est
         node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
-        inst = getCustomOp(node)
+        inst = getHWCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)
         exp_cycles = exp_cycles_dict[node.name]
@@ -413,14 +413,14 @@ def test_fpgadataflow_thresholding_stitched_ip(
     # Transform to the specified implementation style, either the
     # RTL or HLS according to test parameters
     node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
-    inst = getCustomOp(node)
+    inst = getHWCustomOp(node)
     inst.set_nodeattr("preferred_impl_style", "hls")
     model = model.transform(SpecializeLayers(part))
     model = model.transform(InferShapes())
     assert model.graph.node[0].op_type == "Thresholding_hls"
 
     node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
-    inst = getCustomOp(node)
+    inst = getHWCustomOp(node)
     inst.set_nodeattr("PE", pe)
     inst.set_nodeattr("mem_mode", "internal_decoupled")
     inst.set_nodeattr("ram_style", ram_style)
@@ -519,14 +519,14 @@ def test_fpgadataflow_thresholding_hls_internal_embedded_ram_style(
 
     # Transform to HLS implementation
     node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
-    inst = getCustomOp(node)
+    inst = getHWCustomOp(node)
     inst.set_nodeattr("preferred_impl_style", "hls")
     model = model.transform(SpecializeLayers(part))
     model = model.transform(InferShapes())
     assert model.graph.node[0].op_type == "Thresholding_hls"
 
     node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
-    inst = getCustomOp(node)
+    inst = getHWCustomOp(node)
     inst.set_nodeattr("PE", pe)
     inst.set_nodeattr("mem_mode", "internal_embedded")
     inst.set_nodeattr("ram_style", ram_style)
@@ -552,7 +552,7 @@ def test_fpgadataflow_thresholding_hls_internal_embedded_ram_style(
         hls_synt_res_est = model.analysis(hls_synth_res_estimation)
         assert model.graph.node[0].name in hls_synt_res_est
         node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
-        inst = getCustomOp(node)
+        inst = getHWCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)
         exp_cycles = exp_cycles_dict[node.name]
@@ -596,7 +596,7 @@ def test_rtl_thresholding_unsorted_assertion():
 
     # Set preferred_impl_style to RTL
     node = model.graph.node[0]
-    inst = getCustomOp(node)
+    inst = getHWCustomOp(node)
     inst.set_nodeattr("preferred_impl_style", "rtl")
 
     # Specialize to RTL variant
@@ -604,7 +604,7 @@ def test_rtl_thresholding_unsorted_assertion():
     assert model.graph.node[0].op_type == "Thresholding_rtl"
 
     node = model.graph.node[0]
-    inst = getCustomOp(node)
+    inst = getHWCustomOp(node)
     inst.set_nodeattr("PE", pe)
 
     # Try to generate params - should raise AssertionError due to unsorted thresholds

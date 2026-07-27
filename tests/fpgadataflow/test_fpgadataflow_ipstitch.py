@@ -34,17 +34,20 @@ import os
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 from finn.core.onnx_exec import execute_onnx
+from finn.transformation.fpgadataflow import create_stitched_ip
 from finn.transformation.fpgadataflow.alveo_build import PrepareForLinking, VitisLink
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
-from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.create_stitched_ip import (
+    CreateStitchedIP,
+    append_missing_finnloop_rtlsim_sources,
+)
 from finn.transformation.fpgadataflow.floorplan import Floorplan
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
@@ -52,6 +55,7 @@ from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarke
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.util.basic import (
+    getHWCustomOp,
     make_build_dir,
     pynq_part_map,
     robust_rmtree,
@@ -65,6 +69,105 @@ test_pynq_board = "Pynq-Z1"
 test_fpga_part = pynq_part_map[test_pynq_board]
 
 ip_stitch_model_dir = os.environ["FINN_BUILD_DIR"]
+
+
+class FakeHWCustomOp:
+    def __init__(self, code_gen_dir):
+        self.code_gen_dir = code_gen_dir
+
+    def get_nodeattr(self, name):
+        assert name == "code_gen_dir_ipgen"
+        return self.code_gen_dir
+
+
+class FakeNode:
+    def __init__(self, op_type, code_gen_dir=None):
+        self.op_type = op_type
+        self.code_gen_dir = code_gen_dir
+
+
+class FakeGraph:
+    def __init__(self, nodes):
+        self.node = nodes
+
+
+class FakeModel:
+    def __init__(self, nodes):
+        self.graph = FakeGraph(nodes)
+
+
+@pytest.mark.fpgadataflow
+def test_ipstitch_appends_missing_finnloop_rtlsim_sources(tmp_path, monkeypatch):
+    top_list = tmp_path / "all_verilog_srcs.txt"
+    existing_top = tmp_path / "top_existing.v"
+    existing_duplicate_basename = tmp_path / "same_name.sv"
+    existing_top.write_text("// top\n")
+    existing_duplicate_basename.write_text("// duplicate basename\n")
+    top_list.write_text(str(existing_top) + "\n" + str(existing_duplicate_basename) + "\n")
+
+    loop_a = tmp_path / "loop_a"
+    loop_b = tmp_path / "loop_b"
+    loop_a.mkdir()
+    loop_b.mkdir()
+
+    loop_a_new_v = loop_a / "nested_a.v"
+    loop_a_new_sv = loop_a / "nested_a_extra.SV"
+    loop_a_skip_txt = loop_a / "ignore.txt"
+    loop_a_dup_basename = loop_a / "same_name.sv"
+    for source_path in [
+        loop_a_new_v,
+        loop_a_new_sv,
+        loop_a_skip_txt,
+        loop_a_dup_basename,
+    ]:
+        source_path.write_text("// loop a\n")
+    (loop_a / "all_verilog_srcs.txt").write_text(
+        "\n".join(
+            map(
+                str,
+                [
+                    loop_a_new_v,
+                    loop_a_new_sv,
+                    loop_a_skip_txt,
+                    loop_a_dup_basename,
+                ],
+            )
+        )
+        + "\n"
+    )
+
+    loop_b_new_vhd = loop_b / "nested_b.vhd"
+    loop_b_dup_basename = loop_b / "nested_a.v"
+    for source_path in [loop_b_new_vhd, loop_b_dup_basename]:
+        source_path.write_text("// loop b\n")
+    (loop_b / "all_verilog_srcs.txt").write_text(
+        "\n".join(map(str, [loop_b_new_vhd, loop_b_dup_basename])) + "\n"
+    )
+
+    model = FakeModel(
+        [
+            FakeNode("MVAU_rtl", str(loop_a)),
+            FakeNode("FINNLoop", str(loop_a)),
+            FakeNode("FINNLoop", str(loop_b)),
+            FakeNode("FINNLoop", str(tmp_path / "missing_loop")),
+        ]
+    )
+    monkeypatch.setattr(
+        create_stitched_ip,
+        "getHWCustomOp",
+        lambda node, model: FakeHWCustomOp(node.code_gen_dir),
+    )
+
+    append_missing_finnloop_rtlsim_sources(model, str(top_list))
+    assert top_list.read_text().splitlines() == [
+        str(existing_top),
+        str(existing_duplicate_basename),
+        str(loop_a_new_v),
+        str(loop_a_new_sv),
+        str(loop_b_new_vhd),
+    ]
+
+    append_missing_finnloop_rtlsim_sources(model, str(tmp_path / "missing_top.txt"))
 
 
 def create_one_fc_model(mem_mode="internal_embedded"):
@@ -217,7 +320,7 @@ MEM_MODE_PARAMS = [
 def test_fpgadataflow_ipstitch_gen_model(mem_mode):
     model = create_one_fc_model(mem_mode)
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
-        sdp_node = getCustomOp(model.graph.node[0])
+        sdp_node = getHWCustomOp(model.graph.node[0])
         assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
         assert os.path.isfile(sdp_node.get_nodeattr("model"))
         model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))
@@ -288,16 +391,16 @@ def test_fpgadataflow_ipstitch_rtlsim(mem_mode):
 def test_fpgadataflow_ipstitch_iodma_floorplan():
     model = create_one_fc_model()
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
-        sdp_node = getCustomOp(model.graph.node[0])
+        sdp_node = getHWCustomOp(model.graph.node[0])
         assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
         assert os.path.isfile(sdp_node.get_nodeattr("model"))
         model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))
     model = model.transform(InferDataLayouts())
     model = model.transform(InsertIODMA())
     model = model.transform(Floorplan())
-    assert getCustomOp(model.graph.node[0]).get_nodeattr("partition_id") == 0
-    assert getCustomOp(model.graph.node[1]).get_nodeattr("partition_id") == 2
-    assert getCustomOp(model.graph.node[2]).get_nodeattr("partition_id") == 1
+    assert getHWCustomOp(model.graph.node[0]).get_nodeattr("partition_id") == 0
+    assert getHWCustomOp(model.graph.node[1]).get_nodeattr("partition_id") == 2
+    assert getHWCustomOp(model.graph.node[2]).get_nodeattr("partition_id") == 1
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_iodma_floorplan.onnx")
 
 
@@ -319,7 +422,7 @@ def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
     fpga_part = vitis_part_map[board]
     model = create_two_fc_model("external" if extw else "internal_decoupled")
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
-        sdp_node = getCustomOp(model.graph.node[0])
+        sdp_node = getHWCustomOp(model.graph.node[0])
         assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
         assert os.path.isfile(sdp_node.get_nodeattr("model"))
         model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))
@@ -343,7 +446,7 @@ def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
 def test_fpgadataflow_ipstitch_zynqbuild_end2end(board):
     model = create_two_fc_model()
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
-        sdp_node = getCustomOp(model.graph.node[0])
+        sdp_node = getHWCustomOp(model.graph.node[0])
         assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
         assert os.path.isfile(sdp_node.get_nodeattr("model"))
         model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))

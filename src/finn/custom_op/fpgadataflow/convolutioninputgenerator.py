@@ -31,10 +31,10 @@ from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.util.basic import qonnx_make_model
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import getHWCustomOp
 
 # ONNX i/o tensor shape assumptions for ConvolutionInputGenerator:
 # input 0 is the input tensor, shape NHWC = (1, IFMDim, IFMDim, IFMChannels)
@@ -257,5 +257,5 @@ class ConvolutionInputGenerator(HWCustomOp):
         model_im2col.set_tensor_datatype(node.input[0], self.get_input_datatype())
         # use execution function from Im2Col node
         # this automatically updates the execution context
-        inst = getCustomOp(im2col_node)
+        inst = getHWCustomOp(im2col_node, model_im2col)
         inst.execute_node(context, model_im2col.graph)

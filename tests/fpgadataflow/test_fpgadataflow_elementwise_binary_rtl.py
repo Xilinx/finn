@@ -281,3 +281,89 @@ def test_elementwise_rtl_backend_selection(
     assert (
         model.graph.node[0].op_type == f"{op_type}_{expected_backend}"
     ), f"Scenario '{scenario}': expected {expected_backend}, got {model.graph.node[0].op_type}"
+
+
+@pytest.mark.fpgadataflow
+def test_elementwise_rtl_broadcast_const_memstream_length(tmp_path):
+    """Broadcast constants should tile to output cycles, not output*const cycles."""
+
+    model = create_elementwise_model(
+        "ElementwiseMul",
+        "FLOAT32",
+        "FLOAT32",
+        lhs_shape=[1, 5, 4],
+        rhs_shape=[1, 4],
+    )
+    model.set_initializer("in_y", np.arange(4, dtype=np.float32).reshape(1, 4))
+
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(InferElementwiseBinaryOperation())
+
+    node_inst = getCustomOp(model.graph.node[0])
+    node_inst.set_nodeattr("PE", 1)
+
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(SpecializeLayers(VERSAL_PART))
+
+    node_inst = getCustomOp(model.graph.node[0])
+    assert model.graph.node[0].op_type == "ElementwiseMul_rtl"
+    assert node_inst.calc_wmem() == 4
+    assert node_inst.calc_wmem_reps() == 5
+
+    node_inst.set_nodeattr("code_gen_dir_ipgen", str(tmp_path))
+    node_inst.generate_params(model, str(tmp_path))
+
+    assert np.load(tmp_path / "input_1.npy").shape == (1, 4, 1)
+    assert len((tmp_path / "memblock.dat").read_text().splitlines()) == 4
+
+
+@pytest.mark.fpgadataflow
+def test_elementwise_rtl_wrapper_axis_widths_are_byte_padded(tmp_path):
+    """Generated AXIS ports must be byte-padded while the core sees payload bits."""
+
+    model = create_elementwise_model(
+        "ElementwiseAdd",
+        "INT10",
+        "INT10",
+        lhs_shape=[1, 4],
+        rhs_shape=[1, 4],
+    )
+    model.set_initializer("in_y", gen_finn_dt_tensor(DataType["INT10"], [1, 4]))
+
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(InferElementwiseBinaryOperation())
+
+    node_inst = getCustomOp(model.graph.node[0])
+    node_inst.set_nodeattr("PE", 2)
+
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(SpecializeLayers(VERSAL_PART))
+    model = model.transform(MinimizeAccumulatorWidth())
+    model = model.transform(GiveUniqueNodeNames())
+
+    node = model.graph.node[0]
+    node_inst = getCustomOp(node)
+    assert node.op_type == "ElementwiseAdd_rtl"
+    assert node_inst.get_instream_width(0) == 20
+    assert node_inst.get_instream_width_padded(0) == 24
+    assert node_inst.get_outstream_width(0) == 22
+    assert node_inst.get_outstream_width_padded(0) == 24
+
+    node_inst.set_nodeattr("code_gen_dir_ipgen", str(tmp_path))
+    node_inst.generate_hdl(model, VERSAL_PART, 10)
+
+    wrapper_text = (tmp_path / f"{node.name}.v").read_text()
+    assert "input   [24-1:0] in0_V_TDATA" in wrapper_text
+    assert "input   [24-1:0] in1_V_TDATA" in wrapper_text
+    assert "output  [24-1:0] out0_V_TDATA" in wrapper_text
+    assert "wire [20-1:0] in0_core_TDATA" in wrapper_text
+    assert "wire [20-1:0] in1_core_TDATA" in wrapper_text
+    assert "wire [22-1:0] out0_core_TDATA" in wrapper_text
+    assert "assign out0_V_TDATA[22-1:0] = out0_core_TDATA" in wrapper_text
+    assert ".adat(in0_core_TDATA)" in wrapper_text
+    assert ".bdat(in1_core_TDATA)" in wrapper_text
+    assert ".odat(out0_core_TDATA)" in wrapper_text

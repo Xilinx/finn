@@ -28,9 +28,9 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-import qonnx.custom_op.registry as registry
 from qonnx.transformation.base import NodeLocalTransformation
 
+from finn.util.basic import getHWCustomOp
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
@@ -48,7 +48,7 @@ def _assert_no_reconvergent_residuals(model):
     """
     for node in model.graph.node:
         if "ElementwiseAdd" in node.op_type:
-            inst = registry.getCustomOp(node)
+            inst = getHWCustomOp(node, model)
             if inst.get_nodeattr("lhs_style") == "input" and (
                 inst.get_nodeattr("rhs_style") == "input"
             ):
@@ -89,7 +89,7 @@ class DeriveCharacteristic(NodeLocalTransformation):
         if is_hls_node(node) or is_rtl_node(node):
             try:
                 # lookup op_type in registry of CustomOps
-                inst = registry.getCustomOp(node)
+                inst = getHWCustomOp(node, self.ref_input_model)
                 inst.derive_characteristic_fxns(period=self.period)
             except KeyError:
                 # exception if op_type is not supported
@@ -116,7 +116,7 @@ class DeriveFIFOSizes(NodeLocalTransformation):
         if is_hls_node(node) or is_rtl_node(node):
             try:
                 # lookup op_type in registry of CustomOps
-                prod = registry.getCustomOp(node)
+                prod = getHWCustomOp(node, self.ref_input_model)
                 assert not (op_type.startswith("StreamingFIFO")), "Found existing FIFOs"
                 period = prod.get_nodeattr("io_chrc_period")
                 prod_chrc = prod.get_io_chrc_out()[0]
@@ -135,7 +135,7 @@ class DeriveFIFOSizes(NodeLocalTransformation):
                         # need an entry in the list anyway
                         out_fifo_depths.append(self.io_fifo_depth)
                         continue
-                    cons = registry.getCustomOp(cons_node)
+                    cons = getHWCustomOp(cons_node, model)
                     cons_chrc = cons.get_io_chrc_in()[0]
                     # find minimum phase shift satisfying the constraint
                     pshift_min = period - 1

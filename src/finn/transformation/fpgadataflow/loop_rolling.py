@@ -19,13 +19,13 @@ from enum import Enum
 from onnxscript import ir
 from onnxscript.rewriter import pattern, rewrite
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp, is_custom_op
+from qonnx.custom_op.registry import is_custom_op
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.fold_constants import FoldConstants
 from typing import List, Tuple
 
 from finn.util import onnxscript_helpers as osh
-from finn.util.basic import make_build_dir
+from finn.util.basic import getHWCustomOp, make_build_dir
 
 
 def get_constant_from_value(value):
@@ -583,17 +583,17 @@ class LoopRolling(Transformation):
         # This must be done after serialization so we can work with protobuf nodes
 
         for loop_node in model_wrapper.get_nodes_by_op_type("FINNLoop"):
-            loop_body = getCustomOp(loop_node).get_nodeattr("body")
+            loop_body = getHWCustomOp(loop_node).get_nodeattr("body")
             for node in loop_body.graph.node:
                 if not is_custom_op(node.domain):
                     continue
                 try:
-                    inst = getCustomOp(node)
+                    inst = getHWCustomOp(node)
                     inst.adapt_for_loop_body(LoopBody.signature)
                 except (KeyError, AttributeError):
                     # Operator doesn't need adaptation or doesn't support it
                     pass
-            getCustomOp(loop_node).set_nodeattr("body", loop_body.graph)
+            getHWCustomOp(loop_node).set_nodeattr("body", loop_body.graph)
 
         model = model_wrapper.transform(FoldConstants(), apply_to_subgraphs=True)
 

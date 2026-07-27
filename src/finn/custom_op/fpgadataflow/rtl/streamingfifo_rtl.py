@@ -33,10 +33,59 @@ import warnings
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
 
+MAX_QSRL_VAR_BITS = 1000000
+
 
 class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
+
+    def _generate_qsrl_fifo_impl(self, width, depth, count_range):
+        if width * max(depth - 1, 1) <= MAX_QSRL_VAR_BITS:
+            return """\tQ_srl #(.depth(%d), .width(%d)) fifo (
+\t\t.clock(ap_clk), .reset(!ap_rst_n),
+\t\t.i_d(in0_V_TDATA), .i_v(in0_V_TVALID), .i_r(in0_V_TREADY),
+\t\t.o_d(out0_V_TDATA), .o_v(out0_V_TVALID), .o_r(out0_V_TREADY),
+\t\t.count(count), .maxcount(maxcount)
+\t);""" % (
+                depth,
+                width,
+            )
+
+        max_chunk_width = max(1, MAX_QSRL_VAR_BITS // max(depth - 1, 1))
+        chunks = []
+        lo = 0
+        while lo < width:
+            chunk_width = min(max_chunk_width, width - lo)
+            hi = lo + chunk_width - 1
+            chunks.append((lo, hi, chunk_width))
+            lo = hi + 1
+
+        impl = [
+            "\t// Split wide Q_srl storage to stay within Vivado variable-size limits.",
+            "\twire [%d-1:0] fifo_i_r;" % len(chunks),
+            "\twire [%d-1:0] fifo_o_v;" % len(chunks),
+            "\tassign in0_V_TREADY = fifo_i_r[0];",
+            "\tassign out0_V_TVALID = fifo_o_v[0];",
+        ]
+        for idx, (lo, hi, chunk_width) in enumerate(chunks):
+            impl += [
+                "\twire %s count_%d;" % (count_range, idx),
+                "\twire %s maxcount_%d;" % (count_range, idx),
+                "\tQ_srl #(.depth(%d), .width(%d)) fifo_chunk_%d (" % (depth, chunk_width, idx),
+                "\t\t.clock(ap_clk), .reset(!ap_rst_n),",
+                "\t\t.i_d(in0_V_TDATA[%d:%d]), .i_v(in0_V_TVALID), .i_r(fifo_i_r[%d]),"
+                % (hi, lo, idx),
+                "\t\t.o_d(out0_V_TDATA[%d:%d]), .o_v(fifo_o_v[%d]), .o_r(out0_V_TREADY),"
+                % (hi, lo, idx),
+                "\t\t.count(count_%d), .maxcount(maxcount_%d)" % (idx, idx),
+                "\t);",
+            ]
+        impl += [
+            "\tassign count = count_0;",
+            "\tassign maxcount = maxcount_0;",
+        ]
+        return "\n".join(impl)
 
     def get_nodeattr_types(self):
         my_attrs = {
@@ -96,6 +145,9 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
         code_gen_dict["$OUT_RANGE$"] = "[{}:0]".format(in_width - 1)
         code_gen_dict["$WIDTH$"] = str(in_width)
         code_gen_dict["$DEPTH$"] = str(depth)
+        code_gen_dict["$FIFO_IMPL$"] = self._generate_qsrl_fifo_impl(
+            in_width, depth, code_gen_dict["$COUNT_RANGE$"]
+        )
         code_gen_dict["$DATA_LOGFILE$"] = self.get_nodeattr("debug_log_path")
         # apply code generation to templates
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")

@@ -99,7 +99,7 @@ computer, and you should be able to launch the various .tcl scripts or .xpr proj
 Docker container as well.
 
 Linting
-=======
+========
 
 We use a pre-commit hook to auto-format Python code and check for issues.
 See https://pre-commit.com/ for installation. Once you have pre-commit, you can install

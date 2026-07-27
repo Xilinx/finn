@@ -32,7 +32,6 @@ import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
@@ -56,7 +55,7 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.basic import pynq_part_map
+from finn.util.basic import getHWCustomOp, pynq_part_map
 
 test_pynq_board = "Pynq-Z1"
 test_fpga_part = pynq_part_map[test_pynq_board]
@@ -173,10 +172,10 @@ def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding,
 
     for n in model.graph.node:
         if n.op_type.startswith("ConvolutionInputGenerator"):
-            convinputgen_node = getCustomOp(n)
+            convinputgen_node = getHWCustomOp(n)
             convinputgen_node.set_nodeattr("SIMD", simd)
         elif n.op_type.startswith("MVAU"):
-            mvau_node = getCustomOp(n)
+            mvau_node = getHWCustomOp(n)
             mvau_node.set_nodeattr("PE", pe)
             mvau_node.set_nodeattr("SIMD", simd)
 
@@ -202,7 +201,7 @@ def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding,
 
     if exec_mode == "rtlsim":
         node = model.get_nodes_by_op_type("FMPadding_Pixel_hls")[0]
-        inst = getCustomOp(node)
+        inst = getHWCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)
         exp_cycles = exp_cycles_dict[node.name]

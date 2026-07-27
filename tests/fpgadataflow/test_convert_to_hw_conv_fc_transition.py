@@ -35,7 +35,6 @@ from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames, RemoveUnusedTensors
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
@@ -53,6 +52,7 @@ from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MoveScalarLinearPastInvariants
+from finn.util.basic import getHWCustomOp
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
@@ -202,7 +202,7 @@ def test_convert_to_hw_conv_fc_transition(conv_config, depthwise, use_reshape):
     new_model = new_model.transform(absorb.AbsorbConsecutiveTransposes())
     for node in new_model.graph.node:
         if is_fpgadataflow_node(node):
-            inst = getCustomOp(node)
+            inst = getHWCustomOp(node)
             inst.set_nodeattr("preferred_impl_style", "hls")
     new_model = new_model.transform(SpecializeLayers("xc7z020clg400-1"))
     new_model = new_model.transform(GiveUniqueNodeNames())

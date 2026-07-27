@@ -32,7 +32,6 @@ import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.util.basic import qonnx_make_model
 
@@ -41,6 +40,7 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
 from finn.transformation.fpgadataflow.set_folding import SetFolding
+from finn.util.basic import getHWCustomOp
 from finn.util.test import load_test_checkpoint_or_skip
 
 
@@ -117,7 +117,7 @@ def test_set_folding(target_fps, platform):
     model = model.transform(GiveUniqueNodeNames())
     parent_model = model.transform(CreateDataflowPartition())
     sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
-    sdp_node = getCustomOp(sdp_node)
+    sdp_node = getHWCustomOp(sdp_node)
     dataflow_model_filename = sdp_node.get_nodeattr("model")
     dataflow_model = load_test_checkpoint_or_skip(dataflow_model_filename)
 

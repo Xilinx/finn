@@ -65,6 +65,8 @@ class ExtractNormScaleBias(Transformation):
                     scale_node = oh.make_node(
                         "Mul", [scale_act_in_name, scale_tensor], [final_output]
                     )
+                    if hasattr(ln_node, "metadata_props"):
+                        scale_node.metadata_props.extend(ln_node.metadata_props)
                     graph.node.append(scale_node)
                     # important: when tracking a pointer to newly added nodes,
                     # ensure the item from the container is used, and not the
@@ -86,6 +88,8 @@ class ExtractNormScaleBias(Transformation):
                     graph.value_info.append(bias_act_in)
                     bias_node = oh.make_node("Add", [bias_act_in_name, bias_tensor], [final_output])
                     last_node.output[0] = bias_act_in_name
+                    if hasattr(ln_node, "metadata_props"):
+                        bias_node.metadata_props.extend(ln_node.metadata_props)
                     graph.node.append(bias_node)
                     # remove bias from LayerNorm node
                     new_bias_name = model.make_new_valueinfo_name()

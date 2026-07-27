@@ -35,7 +35,6 @@ from qonnx.util.basic import roundup_to_integer_multiple
 
 import finn.custom_op.fpgadataflow.elementwise_binary as elementwise_binary
 from finn.custom_op.fpgadataflow.elementwise_binary import ElementwiseBinaryOperation
-from finn.custom_op.fpgadataflow.hls import register_custom_op
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.transformation.fpgadataflow.loop_rolling import LoopBodyInputType
 from finn.util.basic import get_vivado_version, is_versal
@@ -80,7 +79,6 @@ class ElementwiseBinaryOperation_hls(
     def adapt_for_loop_body(self, input_types):
         """
         Adapt elementwise binary operator for loop body execution.
-
         When an elementwise operator is placed inside a loop, parameters that
         are indexed per iteration (PARAMETER type) need to be received as
         streaming inputs rather than embedded constants. This method changes
@@ -91,7 +89,6 @@ class ElementwiseBinaryOperation_hls(
         if len(input_types) > 1 and input_types[1] == LoopBodyInputType.PARAMETER:
             if self.rhs_style == "const":
                 self.set_nodeattr("rhs_style", "input")
-
         # Similarly for lhs if needed
         if len(input_types) > 0 and input_types[0] == LoopBodyInputType.PARAMETER:
             if self.lhs_style == "const":
@@ -900,13 +897,11 @@ class ElementwiseBinaryOperation_hls(
 
 
 # Derive a specialization to implement elementwise addition of two inputs
-@register_custom_op
 class ElementwiseAdd_hls(ElementwiseBinaryOperation_hls, elementwise_binary.ElementwiseAdd):
     pass
 
 
 # Derive a specialization to implement elementwise subtraction of two inputs
-@register_custom_op
 class ElementwiseSub_hls(
     # CapWords convention
     ElementwiseBinaryOperation_hls,
@@ -916,7 +911,6 @@ class ElementwiseSub_hls(
 
 
 # Derive a specialization to implement elementwise absolute difference of two inputs
-@register_custom_op
 class ElementwiseAbsDiff_hls(
     # CapWords convention
     ElementwiseBinaryOperation_hls,
@@ -926,7 +920,6 @@ class ElementwiseAbsDiff_hls(
 
 
 # Derive a specialization to implement elementwise multiplication of two inputs
-@register_custom_op
 class ElementwiseMul_hls(
     # CapWords convention
     ElementwiseBinaryOperation_hls,
@@ -936,7 +929,6 @@ class ElementwiseMul_hls(
 
 
 # Derive a specialization to implement elementwise division of two inputs
-@register_custom_op
 class ElementwiseDiv_hls(
     # CapWords convention
     ElementwiseBinaryOperation_hls,
@@ -945,11 +937,7 @@ class ElementwiseDiv_hls(
     pass
 
 
-# TODO: ElementwiseMod_hls - Requires extra attribute selecting the function
-
-
 # Derive a specialization to implement elementwise logical and of two inputs
-@register_custom_op
 class ElementwiseAnd_hls(
     # CapWords convention
     ElementwiseBinaryOperation_hls,
@@ -959,7 +947,6 @@ class ElementwiseAnd_hls(
 
 
 # Derive a specialization to implement elementwise logical or of two inputs
-@register_custom_op
 class ElementwiseOr_hls(
     # CapWords convention
     ElementwiseBinaryOperation_hls,
@@ -969,7 +956,6 @@ class ElementwiseOr_hls(
 
 
 # Derive a specialization to implement elementwise logical xor of two inputs
-@register_custom_op
 class ElementwiseXor_hls(
     # CapWords convention
     ElementwiseBinaryOperation_hls,
@@ -979,7 +965,6 @@ class ElementwiseXor_hls(
 
 
 # Derive a specialization to implement elementwise equal of two inputs
-@register_custom_op
 class ElementwiseEqual_hls(
     # CapWords convention
     ElementwiseBinaryOperation_hls,
@@ -989,7 +974,6 @@ class ElementwiseEqual_hls(
 
 
 # Derive a specialization to implement elementwise less of two inputs
-@register_custom_op
 class ElementwiseLess_hls(
     # CapWords convention
     ElementwiseBinaryOperation_hls,
@@ -999,7 +983,6 @@ class ElementwiseLess_hls(
 
 
 # Derive a specialization to implement elementwise less or equal of two inputs
-@register_custom_op
 class ElementwiseLessOrEqual_hls(
     # CapWords convention
     ElementwiseBinaryOperation_hls,
@@ -1009,7 +992,6 @@ class ElementwiseLessOrEqual_hls(
 
 
 # Derive a specialization to implement elementwise greater of two inputs
-@register_custom_op
 class ElementwiseGreater_hls(
     # CapWords convention
     ElementwiseBinaryOperation_hls,
@@ -1020,7 +1002,6 @@ class ElementwiseGreater_hls(
 
 # Derive a specialization to implement elementwise greater or equal of two
 # inputs
-@register_custom_op
 class ElementwiseGreaterOrEqual_hls(
     # CapWords convention
     ElementwiseBinaryOperation_hls,
@@ -1030,7 +1011,6 @@ class ElementwiseGreaterOrEqual_hls(
 
 
 # Derive a specialization to implement elementwise bitwise and of two inputs
-@register_custom_op
 class ElementwiseBitwiseAnd_hls(
     # CapWords convention
     ElementwiseBinaryOperation_hls,
@@ -1040,7 +1020,6 @@ class ElementwiseBitwiseAnd_hls(
 
 
 # Derive a specialization to implement elementwise bitwise or of two inputs
-@register_custom_op
 class ElementwiseBitwiseOr_hls(
     # CapWords convention
     ElementwiseBinaryOperation_hls,
@@ -1050,7 +1029,6 @@ class ElementwiseBitwiseOr_hls(
 
 
 # Derive a specialization to implement elementwise bitwise xor of two inputs
-@register_custom_op
 class ElementwiseBitwiseXor_hls(
     # CapWords convention
     ElementwiseBinaryOperation_hls,
@@ -1060,7 +1038,6 @@ class ElementwiseBitwiseXor_hls(
 
 
 # ElementwiseBitShift_hls - Requires extra attribute selecting the direction
-@register_custom_op
 class ElementwiseBitShift_hls(
     # CapWords convention
     ElementwiseBinaryOperation_hls,
@@ -1080,7 +1057,6 @@ class ElementwiseBitShift_hls(
 # # Derive a specialization to implement elementwise power of two inputs
 # TODO: std::pow does not work for HLS types and hls::pow fails to link for some
 #  reason
-# @register_custom_op
 # class ElementwisePow_hls(
 #     # CapWords convention
 #     ElementwiseBinaryOperation_hls, elementwise_binary.ElementwisePow
@@ -1089,7 +1065,6 @@ class ElementwiseBitShift_hls(
 
 
 # Derive a specialization to implement elementwise maximum of two inputs
-@register_custom_op
 class ElementwiseMax_hls(
     # CapWords convention
     ElementwiseBinaryOperation_hls,

@@ -27,8 +27,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from qonnx.custom_op.registry import getCustomOp
-
+from finn.util.basic import getHWCustomOp
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
@@ -55,7 +54,7 @@ def dataflow_performance(model):
 
     for node in model.graph.node:
         if is_hls_node(node) or is_rtl_node(node) or node.op_type == "Shuffle":
-            inst = getCustomOp(node)
+            inst = getHWCustomOp(node, model)
             node_cycles = int(inst.get_nodeattr("cycles_estimate"))
             if node_cycles > max_cycles:
                 max_cycles = node_cycles

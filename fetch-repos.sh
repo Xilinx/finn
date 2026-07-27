@@ -68,6 +68,10 @@ SCRIPT=$(readlink -f "$0")
 # absolute path this script is in, thus /home/user/bin
 SCRIPTPATH=$(dirname "$SCRIPT")
 
+# Allow dependency checkouts outside the repository, while retaining the
+# historical repository-local default.
+: "${FINN_DEPS_DIR:=$SCRIPTPATH/deps}"
+
 # Retry a command with exponential back-off (github 5xx, DNS blips, rate-limit).
 retry() {
     local n=0
@@ -97,10 +101,10 @@ fetch_repo() {
     local REPO_URL=$1
     # commit hash for repo
     local REPO_COMMIT=$2
-    # directory to clone to under deps/
+    # directory to clone to under FINN_DEPS_DIR
     local REPO_DIR=$3
     # absolute path for the repo local copy
-    local CLONE_TO=$SCRIPTPATH/deps/$REPO_DIR
+    local CLONE_TO=$FINN_DEPS_DIR/$REPO_DIR
 
     # (re-)clone when the dir is missing or has no resolvable HEAD (what an
     # interrupted clone leaves behind, and what the checkout below needs)
@@ -126,18 +130,18 @@ fetch_repo() {
 
 fetch_board_files() {
     echo "Downloading and extracting board files..."
-    mkdir -p "$SCRIPTPATH/deps/board_files"
+    mkdir -p "$FINN_DEPS_DIR/board_files"
     OLD_PWD=$(pwd)
-    cd "$SCRIPTPATH/deps/board_files"
+    cd "$FINN_DEPS_DIR/board_files"
     retry wget -qO pynq-z1.zip https://github.com/cathalmccabe/pynq-z1_board_files/raw/master/pynq-z1.zip
     retry wget -qO pynq-z2.zip https://dpoauwgwqsy2x.cloudfront.net/Download/pynq-z2.zip
     unzip -q pynq-z1.zip
     unzip -q pynq-z2.zip
-    cp -r $SCRIPTPATH/deps/$AVNET_BDF_DIR/* $SCRIPTPATH/deps/board_files/
-    cp -r $SCRIPTPATH/deps/$XIL_BDF_DIR/boards/Xilinx/rfsoc2x2 $SCRIPTPATH/deps/board_files/;
-    cp -r $SCRIPTPATH/deps/$RFSOC4x2_BDF_DIR/board_files/rfsoc4x2 $SCRIPTPATH/deps/board_files/;
-    cp -r $SCRIPTPATH/deps/$KV260_SOM_BDF_DIR/boards/Xilinx/kv260_som $SCRIPTPATH/deps/board_files/;
-    cp -r $SCRIPTPATH/deps/$AUPZU3_BDF_DIR/board-files/aup-zu3-8gb $SCRIPTPATH/deps/board_files/;
+    cp -r $FINN_DEPS_DIR/$AVNET_BDF_DIR/* $FINN_DEPS_DIR/board_files/
+    cp -r $FINN_DEPS_DIR/$XIL_BDF_DIR/boards/Xilinx/rfsoc2x2 $FINN_DEPS_DIR/board_files/;
+    cp -r $FINN_DEPS_DIR/$RFSOC4x2_BDF_DIR/board_files/rfsoc4x2 $FINN_DEPS_DIR/board_files/;
+    cp -r $FINN_DEPS_DIR/$KV260_SOM_BDF_DIR/boards/Xilinx/kv260_som $FINN_DEPS_DIR/board_files/;
+    cp -r $FINN_DEPS_DIR/$AUPZU3_BDF_DIR/board-files/aup-zu3-8gb $FINN_DEPS_DIR/board_files/;
     cd $OLD_PWD
 }
 

@@ -27,9 +27,9 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import qonnx.custom_op.registry as registry
 from qonnx.transformation.base import Transformation
 
+from finn.util.basic import getHWCustomOp
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
@@ -50,7 +50,7 @@ class SetExecMode(Transformation):
             if is_hls_node(node) or is_rtl_node(node):
                 try:
                     # lookup op_type in registry of CustomOps
-                    inst = registry.getCustomOp(node)
+                    inst = getHWCustomOp(node, model)
                     # set sim_mode accordingly to argument mode
                     inst.set_nodeattr("exec_mode", self.mode)
                     # ensure that sim_mode is now set

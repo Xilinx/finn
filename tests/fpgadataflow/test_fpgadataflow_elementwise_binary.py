@@ -33,7 +33,6 @@ from onnx import TensorProto
 from onnx import helper as oh
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
@@ -58,7 +57,7 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.basic import get_vivado_version
+from finn.util.basic import get_vivado_version, getHWCustomOp
 
 # Mapping of ElementwiseBinaryOperation specializations to numpy reference
 # implementation functions
@@ -212,7 +211,7 @@ def test_elementwise_binary_operation(
     assert len(model.graph.node) == 1
     assert model.graph.node[0].op_type == f"{op_type}_hls"
 
-    getCustomOp(model.graph.node[0]).set_nodeattr("PE", pe)
+    getHWCustomOp(model.graph.node[0]).set_nodeattr("PE", pe)
 
     # Try to minimize the bit-widths of all data types involved
     model = model.transform(MinimizeWeightBitWidth())
@@ -330,9 +329,10 @@ def test_elementwise_binary_operation_stitched_ip(
     assert len(model.graph.node) == 1
     assert model.graph.node[0].op_type == f"{op_type}"
 
-    getCustomOp(model.graph.node[0]).set_nodeattr("PE", pe)
-    getCustomOp(model.graph.node[0]).set_nodeattr("mem_mode", mem_mode)
-    getCustomOp(model.graph.node[0]).set_nodeattr("ram_style", ram_style)
+    op_inst = getHWCustomOp(model.graph.node[0], model)
+    op_inst.set_nodeattr("PE", pe)
+    op_inst.set_nodeattr("mem_mode", mem_mode)
+    op_inst.set_nodeattr("ram_style", ram_style)
 
     # Test running shape and data type inference on the model graph
     model = model.transform(InferDataTypes())
@@ -441,7 +441,7 @@ def test_elementwise_binary_cppsim_broadcast_last_axis(op_type, lhs_shape, rhs_s
     model = model.transform(InferShapes())
     model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
 
-    getCustomOp(model.graph.node[0]).set_nodeattr("PE", pe)
+    getHWCustomOp(model.graph.node[0]).set_nodeattr("PE", pe)
 
     model = model.transform(MinimizeWeightBitWidth())
     model = model.transform(MinimizeAccumulatorWidth())
@@ -482,7 +482,7 @@ def test_elementwise_binary_cppsim_broadcast_const(mem_mode, pe):
     model = model.transform(InferShapes())
     model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
 
-    op = getCustomOp(model.graph.node[0])
+    op = getHWCustomOp(model.graph.node[0])
     op.set_nodeattr("PE", pe)
     op.set_nodeattr("mem_mode", mem_mode)
 

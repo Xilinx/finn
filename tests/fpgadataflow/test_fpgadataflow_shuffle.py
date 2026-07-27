@@ -16,6 +16,7 @@ import tempfile
 import torch
 import torch.onnx
 from brevitas.export import export_qonnx
+from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -23,7 +24,7 @@ from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 from torch import nn
 
@@ -576,6 +577,7 @@ def test_stitched_ip_shuffle_layer(shuffle_sip_param, datatype, simd):
     assert np.allclose(y_ref, y_hw), "Model output does not match expected output"
 
 
+@pytest.mark.fpgadataflow
 def test_shuffle_config_consolidation():
     dt = DataType["INT8"]
     model = construct_onnx_model(
@@ -622,3 +624,42 @@ def test_shuffle_config_consolidation():
     for decomposed_name in decomposed_nodes:
         assert decomposed_name not in consolidated_config
     robust_rmtree(test_dir)
+
+
+@pytest.mark.fpgadataflow
+def test_inner_shuffle_rtl_wrapper_axis_widths_are_byte_padded(tmp_path):
+    node = helper.make_node(
+        "InnerShuffle_rtl",
+        ["inp"],
+        ["outp"],
+        domain="finn.custom_op.fpgadataflow.rtl",
+        backend="fpgadataflow",
+        name="InnerShuffle_rtl_0",
+        data_type="INT10",
+        in_shape=[4, 4],
+        SIMD=2,
+    )
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [4, 4])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [4, 4])
+    graph = helper.make_graph([node], "inner-shuffle-axis-widths", [inp], [outp])
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="inner-shuffle-axis-widths"))
+    model.set_tensor_datatype("inp", DataType["INT10"])
+    model.set_tensor_datatype("outp", DataType["INT10"])
+
+    node_inst = getCustomOp(model.graph.node[0])
+    assert node_inst.get_instream_width(0) == 20
+    assert node_inst.get_instream_width_padded(0) == 24
+    assert node_inst.get_outstream_width(0) == 20
+    assert node_inst.get_outstream_width_padded(0) == 24
+
+    node_inst.set_nodeattr("code_gen_dir_ipgen", str(tmp_path))
+    node_inst.generate_hdl(model, test_fpga_part, test_synth_clk_period_ns)
+
+    wrapper_text = (tmp_path / "InnerShuffle_rtl_0.v").read_text()
+    assert "input\t[24-1:0] in0_V_TDATA" in wrapper_text
+    assert "output\t[24-1:0] out0_V_TDATA" in wrapper_text
+    assert "wire [20-1:0] in0_core_TDATA" in wrapper_text
+    assert "wire [20-1:0] out0_core_TDATA" in wrapper_text
+    assert "assign out0_V_TDATA[20-1:0] = out0_core_TDATA" in wrapper_text
+    assert ".idat(in0_core_TDATA)" in wrapper_text
+    assert ".odat(out0_core_TDATA)" in wrapper_text

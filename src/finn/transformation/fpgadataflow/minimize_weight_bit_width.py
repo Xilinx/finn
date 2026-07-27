@@ -26,9 +26,9 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 
+from finn.util.basic import getHWCustomOp
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
@@ -43,7 +43,7 @@ class MinimizeWeightBitWidth(Transformation):
     def apply(self, model):
         for node in model.graph.node:
             if is_fpgadataflow_node(node):
-                inst = getCustomOp(node)
+                inst = getHWCustomOp(node, model)
                 if hasattr(inst, "minimize_weight_bit_width"):
                     inst.minimize_weight_bit_width(model)
         return (model, False)

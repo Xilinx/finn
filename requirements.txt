@@ -9,6 +9,7 @@ onnx==1.17.0
 onnxoptimizer
 onnxruntime==1.18.1
 onnxscript==0.6.2
+onnxsim==0.4.36
 pre-commit==3.3.2
 protobuf==5.29.6
 psutil==5.9.4
@@ -20,5 +21,6 @@ sigtools==4.0.1
 sphinx==5.0.2
 sphinx_rtd_theme==2.0.0
 toposort==1.7.0
+transformers==4.46.3
 vcdvcd==1.0.5
 wget==3.2

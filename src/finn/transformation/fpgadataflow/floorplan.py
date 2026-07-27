@@ -28,13 +28,12 @@
 
 import json
 import warnings
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.util.basic import get_by_name
 
 from finn.analysis.fpgadataflow.floorplan_params import floorplan_params
 from finn.transformation.general import ApplyConfig
-from finn.util.basic import make_build_dir
+from finn.util.basic import getHWCustomOp, make_build_dir
 
 
 class Floorplan(Transformation):
@@ -76,7 +75,7 @@ class Floorplan(Transformation):
         # perform DWC and FIFO specific adjustments
         unassigned_nodes = 0
         for node in model.graph.node:
-            node_inst = getCustomOp(node)
+            node_inst = getHWCustomOp(node, model)
             node_slr = node_inst.get_nodeattr("slr")
             if node_slr == -1:
                 unassigned_nodes += 1
@@ -93,14 +92,14 @@ class Floorplan(Transformation):
                     narrow_neighbour = model.find_consumer(node.output[0])
                 else:
                     narrow_neighbour = model.find_producer(node.input[0])
-                node_slr = getCustomOp(narrow_neighbour).get_nodeattr("slr")
+                node_slr = getHWCustomOp(narrow_neighbour, model).get_nodeattr("slr")
                 node_inst.set_nodeattr("slr", node_slr)
             if node.op_type.startswith("StreamingFIFO"):
                 # if we have SLR assignment already. use that
                 if node_slr != -1:
                     continue
                 srcnode = model.find_producer(node.input[0])
-                node_slr = getCustomOp(srcnode).get_nodeattr("slr")
+                node_slr = getHWCustomOp(srcnode, model).get_nodeattr("slr")
                 node_inst.set_nodeattr("slr", node_slr)
 
         if unassigned_nodes > 0:
@@ -124,25 +123,25 @@ class Floorplan(Transformation):
         dyn_tlastmarker_nodes = list(
             filter(
                 lambda x: x.op_type == "TLastMarker_hls"
-                and getCustomOp(x).get_nodeattr("DynIters") == "true",
+                and getHWCustomOp(x, model).get_nodeattr("DynIters") == "true",
                 non_dma_nodes,
             )
         )
         non_dma_nodes = list(filter(lambda x: x not in dyn_tlastmarker_nodes, non_dma_nodes))
 
         for node in dma_nodes:
-            node_inst = getCustomOp(node)
+            node_inst = getHWCustomOp(node, model)
             node_inst.set_nodeattr("partition_id", partition_cnt)
             partition_cnt += 1
 
         for node in dyn_tlastmarker_nodes:
-            node_inst = getCustomOp(node)
+            node_inst = getHWCustomOp(node, model)
             node_inst.set_nodeattr("partition_id", partition_cnt)
             partition_cnt += 1
 
         for node in non_dma_nodes:
             pre_node = model.find_producer(node.input[0])
-            node_inst = getCustomOp(node)
+            node_inst = getHWCustomOp(node, model)
             if pre_node not in non_dma_nodes:
                 # input node
                 node_inst.set_nodeattr("partition_id", partition_cnt)
@@ -160,7 +159,7 @@ class Floorplan(Transformation):
 
             node_slr = node_inst.get_nodeattr("slr")
             for pre_node in pre_nodes:
-                pre_inst = getCustomOp(pre_node)
+                pre_inst = getHWCustomOp(pre_node, model)
                 pre_slr = pre_inst.get_nodeattr("slr")
                 if node_slr == pre_slr:
                     axilite_intf_name = pre_inst.get_verilog_top_module_intf_names()["axilite"]

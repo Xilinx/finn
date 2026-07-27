@@ -31,11 +31,12 @@ import math
 import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import get_by_name
+
+from finn.util.basic import getHWCustomOp
 
 
 def _get_signed_from_upstream(model, trunc_node):
@@ -73,7 +74,7 @@ def _get_signed_from_upstream(model, trunc_node):
                 break
             # Special cases where the node has an internal or intrinsic datatype.
             if next_node.op_type == "MultiThreshold":
-                mt_inst = getCustomOp(next_node, onnx_opset_version=9)
+                mt_inst = getHWCustomOp(next_node, model, onnx_opset_version=9)
                 out_dt = DataType[mt_inst.get_nodeattr("out_dtype")]
                 if out_dt is not None and out_dt != DataType["FLOAT32"]:
                     signed = out_dt.signed()
@@ -82,7 +83,7 @@ def _get_signed_from_upstream(model, trunc_node):
                 signed = True
                 break
             if next_node.op_type == "Quant":
-                q_inst = getCustomOp(next_node, onnx_opset_version=9)
+                q_inst = getHWCustomOp(next_node, model, onnx_opset_version=9)
                 out_dt = q_inst.get_integer_datatype(model)
                 if out_dt is not None and out_dt != DataType["FLOAT32"]:
                     signed = out_dt.signed()

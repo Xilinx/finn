@@ -33,7 +33,6 @@ import functools
 import inspect
 import numpy as np
 import warnings
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveUniqueNodeNames
 
@@ -42,6 +41,7 @@ from qonnx.transformation.general import GiveUniqueNodeNames
 import finn.custom_op.fpgadataflow.hls.elementwise_binary_hls as elementwise_binary_hls
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
+from finn.util.basic import getHWCustomOp
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
@@ -66,6 +66,11 @@ ELEMENTWISE_BINARY_OPS = [
     op_type
     for op_type, cls in inspect.getmembers(elementwise_binary_hls, inspect.isclass)
     if issubclass(cls, elementwise_binary_hls.ElementwiseBinaryOperation_hls)
+]
+ELEMENTWISE_BINARY_RTL_OPS = [
+    "ElementwiseAdd_rtl",
+    "ElementwiseSub_rtl",
+    "ElementwiseMul_rtl",
 ]
 
 
@@ -113,9 +118,12 @@ class SetFolding(Transformation):
         self.two_pass_relaxation = two_pass_relaxation
 
     def optimize_attribute_val(self, node_inst, max_val, attr_name):
+        self.optimize_attribute_vals(node_inst, divisors(max_val), attr_name)
+
+    def optimize_attribute_vals(self, node_inst, vals, attr_name):
         node_inst.set_nodeattr(attr_name, 1)
-        for val in divisors(max_val):
-            node_inst.set_nodeattr(attr_name, val)
+        for val in vals:
+            node_inst.set_nodeattr(attr_name, int(val))
             cyc = node_inst.get_exp_cycles()
             if cyc < self.target_cycles_per_frame:
                 # finish if target met
@@ -127,9 +135,11 @@ class SetFolding(Transformation):
         pe_ops = [
             "DuplicateStreams_hls",
             "GlobalAccPool_hls",
+            "PWPolyF_rtl",
             "Thresholding_hls",
             "Thresholding_rtl",
             *ELEMENTWISE_BINARY_OPS,
+            *ELEMENTWISE_BINARY_RTL_OPS,
         ]
         # these ops use SIMD parallelism, up to a max value of NumChannels
         # ConvolutionInputGenerator has a special case when depthwise=1
@@ -139,10 +149,21 @@ class SetFolding(Transformation):
             "FMPadding_rtl",
             "FMPadding_Pixel_hls",
             "ConvolutionInputGenerator_rtl",
+            "QuantSoftmax_hls",
+            "Shuffle_hls",
+            "LayerNorm_hls",
             "StreamingSplit_hls",
             "StreamingConcat_hls",
             "LayerNorm_rtl",
             "Shuffle",
+            "Pad1D_rtl",
+            "HWSoftmax_hls",
+            "HWSoftmax_rtl",
+            "InnerShuffle",
+            "InnerShuffle_rtl",
+            "OuterShuffle",
+            "OuterShuffle_hls",
+            "SelectToken_rtl",
         ]
         # these ops are preceded by depthwise SWG and have special behavior,
         # as explained in the SetFolding docstring
@@ -151,7 +172,7 @@ class SetFolding(Transformation):
             if not (is_hls_node(node) or is_rtl_node(node)):
                 continue
             op_type = node.op_type
-            node_inst = getCustomOp(node)
+            node_inst = getHWCustomOp(node, model)
             if op_type in ["MVAU_hls", "MVAU_rtl"]:
                 max_simd = node_inst.get_nodeattr("MW")
                 max_pe = node_inst.get_nodeattr("MH")
@@ -211,7 +232,7 @@ class SetFolding(Transformation):
                 # which must be identical to this node
                 swu_node = model.find_producer(node.input[0])
                 if swu_node.op_type.startswith("ConvolutionInputGenerator"):
-                    swu_node_inst = getCustomOp(swu_node)
+                    swu_node_inst = getHWCustomOp(swu_node, model)
                     swu_node_inst.set_nodeattr("SIMD", pe)
                     # enable parallel_window mode of RTL SWG if needed
                     if swu_node.op_type == "ConvolutionInputGenerator_rtl":
@@ -268,8 +289,23 @@ class SetFolding(Transformation):
                                 break
                         else:
                             break
+                elif op_type in ["HWSoftmax_hls", "HWSoftmax_rtl"]:
+                    max_simd = int(node_inst.get_normal_input_shape()[-1])
+                    self.optimize_attribute_val(node_inst, max_simd, "SIMD")
+                elif op_type in ["InnerShuffle", "InnerShuffle_rtl"]:
+                    max_simd = int(node_inst.get_normal_output_shape()[-1])
+                    self.optimize_attribute_val(node_inst, max_simd, "SIMD")
+                elif op_type in ["OuterShuffle", "OuterShuffle_hls"]:
+                    dims = [
+                        int(node_inst.get_normal_input_shape()[-1]),
+                        int(node_inst.get_normal_output_shape()[-1]),
+                    ]
+                    self.optimize_attribute_vals(node_inst, common_divisors(dims), "SIMD")
                 else:
-                    max_simd = node_inst.get_nodeattr("NumChannels")
+                    try:
+                        max_simd = node_inst.get_nodeattr("NumChannels")
+                    except AttributeError:
+                        max_simd = int(node_inst.get_normal_input_shape()[-1])
                     self.optimize_attribute_val(node_inst, max_simd, "SIMD")
             else:
                 warnings.warn("SetFolding doesn't know how to handle op_type " + op_type)

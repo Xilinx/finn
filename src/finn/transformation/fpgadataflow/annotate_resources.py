@@ -26,15 +26,14 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-import qonnx.custom_op.registry as registry
 from functools import partial
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.analysis.fpgadataflow.post_synth_res import post_synth_res
 from finn.analysis.fpgadataflow.res_estimation import res_estimation
+from finn.util.basic import getHWCustomOp
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
@@ -71,12 +70,12 @@ class AnnotateResources(Transformation):
         # annotate node resources
         for node in graph.node:
             if is_fpgadataflow_node(node) and node.name in self.res_dict.keys():
-                op_inst = registry.getCustomOp(node)
+                op_inst = getHWCustomOp(node, model)
                 op_inst.set_nodeattr("res_" + self.mode, str(self.res_dict[node.name]))
                 children_dict[node.name] = self.res_dict[node.name]
             elif node.op_type == "StreamingDataflowPartition":
                 # recurse into model to manually annotate per-layer resources
-                sdp_model_filename = getCustomOp(node).get_nodeattr("model")
+                sdp_model_filename = getHWCustomOp(node, model).get_nodeattr("model")
                 sdp_model = ModelWrapper(sdp_model_filename)
                 sdp_model = sdp_model.transform(
                     AnnotateResources(self.mode, self.fpgapart, self.res_dict)
@@ -86,7 +85,7 @@ class AnnotateResources(Transformation):
                 # save transformed model
                 sdp_model.save(sdp_model_filename)
                 # set res attribute for sdp node
-                getCustomOp(node).set_nodeattr("res_" + self.mode, str(sdp_dict))
+                getHWCustomOp(node, model).set_nodeattr("res_" + self.mode, str(sdp_dict))
                 children_dict[node.name] = sdp_dict
         self.res_dict.update(children_dict)
         total_dict = {}

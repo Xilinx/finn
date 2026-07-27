@@ -59,12 +59,7 @@ output  $OUT_RANGE$ out0_V_TDATA
 		.count(count), .maxcount(maxcount)
 	);
 `else
-	Q_srl #(.depth($DEPTH$), .width($WIDTH$)) fifo (
-		.clock(ap_clk), .reset(!ap_rst_n),
-		.i_d(in0_V_TDATA), .i_v(in0_V_TVALID), .i_r(in0_V_TREADY),
-		.o_d(out0_V_TDATA), .o_v(out0_V_TVALID), .o_r(out0_V_TREADY),
-		.count(count), .maxcount(maxcount)
-	);
+$FIFO_IMPL$
 `endif
 
 endmodule

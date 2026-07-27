@@ -35,13 +35,14 @@ from onnx import TensorProto
 from onnx import helper as oh
 from qonnx.core.datatype import DataType
 from qonnx.core.onnx_exec import execute_node
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import SortGraph
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import get_by_name
+
+from finn.util.basic import getHWCustomOp
 
 
 class MoveAddPastMul(Transformation):
@@ -152,6 +153,9 @@ class MoveScalarMulPastMatMul(Transformation):
                             [end_name],
                             name=n.name,
                         )
+                        if hasattr(consumer, "metadata_props"):
+                            new_matmul.metadata_props.extend(consumer.metadata_props)
+                            new_mul.metadata_props.extend(n.metadata_props)
                         graph.node.insert(node_ind, new_matmul)
                         graph.node.insert(node_ind + 1, new_mul)
                         model.set_tensor_shape(middle_name, mm_out_shape)
@@ -657,7 +661,7 @@ class MakeMaxPoolNHWC(Transformation):
                         n.output[0] = end_name
                         model.set_tensor_shape(mid_name, (b, hi, wi, c))
                         model.set_tensor_shape(end_name, (b, ho, wo, c))
-                        getCustomOp(n).set_nodeattr("ceil_mode", ceil_mode)
+                        getHWCustomOp(n, model).set_nodeattr("ceil_mode", ceil_mode)
                         graph.node.remove(consumer)
                         graph.node.insert(node_ind - 1, consumer)
                         graph_modified = True
@@ -688,7 +692,7 @@ class MakeMaxPoolNHWC(Transformation):
                         n.output[0] = mid_name
                         model.set_tensor_shape(mid_name, (b, ho, wo, c))
                         model.set_tensor_shape(end_name, (b, c, ho, wo))
-                        getCustomOp(n).set_nodeattr("ceil_mode", ceil_mode)
+                        getHWCustomOp(n, model).set_nodeattr("ceil_mode", ceil_mode)
                         graph.node.remove(producer)
                         graph.node.insert(node_ind, producer)
                         graph_modified = True
@@ -1008,7 +1012,7 @@ class MoveMaxPoolPastMultiThreshold(Transformation):
                     assert (
                         T == T_sorted
                     ).all(), "MultiThreshold must have non-decreasing thresholds"
-                    mt_inst = getCustomOp(consumer)
+                    mt_inst = getHWCustomOp(consumer, model)
                     if mt_inst.get_nodeattr("out_scale") < 0:
                         warnings.warn("Skipping MultiThreshold with negative out_scale")
                         continue

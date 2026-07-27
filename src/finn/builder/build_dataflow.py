@@ -161,7 +161,7 @@ def _run_build_steps(model, cfg, build_dataflow_steps, log):
             step_name = transform_step.__name__
             print("Running step: %s [%d/%d]" % (step_name, step_num, len(build_dataflow_steps)))
             # redirect output to logfile
-            if not cfg.verbose:
+            if not cfg.verbose and not cfg.no_stdout_redirect:
                 sys.stdout = stdout_logger
                 sys.stderr = stderr_logger
                 # also log current step name to logfile

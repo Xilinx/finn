@@ -326,7 +326,7 @@ def is_fpgadataflow_onnxir_node(node):
         if is_custom_op(node.domain):
             if "backend" in node.attributes:
                 backend_value = node.attributes["backend"].as_string()
-                if backend_value == "fpgadataflow":
+                if backend_value in ["fpgadataflow", "hls", "rtl"]:
                     is_node = True
 
     return is_node
