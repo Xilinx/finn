@@ -39,11 +39,11 @@ from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 from finn.core.onnx_exec import execute_onnx
+from finn.transformation.fpgadataflow import create_stitched_ip
 from finn.transformation.fpgadataflow.alveo_build import PrepareForLinking, VitisLink
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
-from finn.transformation.fpgadataflow import create_stitched_ip
 from finn.transformation.fpgadataflow.create_stitched_ip import (
     CreateStitchedIP,
     append_missing_finnloop_rtlsim_sources,
@@ -56,7 +56,9 @@ from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.util.basic import (
     getHWCustomOp,
+    make_build_dir,
     pynq_part_map,
+    robust_rmtree,
     vitis_default_platform,
     vitis_part_map,
 )
@@ -415,6 +417,7 @@ def test_fpgadataflow_ipstitch_iodma_floorplan():
 def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
     if "VITIS_PATH" not in os.environ:
         pytest.skip("VITIS_PATH not set")
+    test_dir = make_build_dir("test_fpgadataflow_ipstitch_vitis_")
     platform = vitis_default_platform[board]
     fpga_part = vitis_part_map[board]
     model = create_two_fc_model("external" if extw else "internal_decoupled")
@@ -428,10 +431,11 @@ def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareForLinking(fpga_part, period_ns, "vitis-xrt"))
     model = model.transform(VitisLink(platform, period_ns))
-    model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_vitis.onnx")
+    model.save(os.path.join(test_dir, "test_fpgadataflow_ipstitch_vitis.onnx"))
     assert model.get_metadata_prop("platform") == "vitis-xrt"
     assert os.path.isdir(model.get_metadata_prop("vitis_link_proj"))
     assert os.path.isfile(model.get_metadata_prop("bitfile"))
+    robust_rmtree(test_dir)
 
 
 # board

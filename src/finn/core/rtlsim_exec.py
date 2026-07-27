@@ -134,17 +134,22 @@ def rtlsim_exec_cppxsi(
     behav=True,
 ):
     """Use XSI C++ rtl simulation to execute given model with stitched IP.
+
     The dummy_data_mode flag controls whether the simulation is driven by
     dummy data or real data. The execution_context parameter must be formatted
     according to whether dummy or real data is used.
     If behav=True (default), FINN_SIMULATION is defined and fifo_gauge is used.
     If behav=False, Q_srl is used instead (no debug logging).
-    Example with dummy_data = True:
+
+    Example with dummy_data = True::
+
         execution_context = {
             "inputs" : {"<name_of_input_stream>" : <number_of_transactions>},
             "outputs" : {"<name_of_output_stream>" : <number_of_transactions>},
         }
-    Example with dummy_data = False:
+
+    Example with dummy_data = False::
+
         execution_context = {
             "<tensor_name>" : <np.ndarray>
         }

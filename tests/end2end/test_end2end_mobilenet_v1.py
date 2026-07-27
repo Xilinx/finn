@@ -479,14 +479,15 @@ def test_end2end_mobilenet_stitched_ip():
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.end2end
-def test_end2end_mobilenet_stitched_ip_rtlsim():
+def test_end2end_mobilenet_stitched_ip_rtlsim(monkeypatch):
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_stitched_ip.onnx")
     # use critical path estimate to set rtlsim liveness threshold
     # (very conservative)
     model = model.transform(AnnotateCycles())
     estimate_network_performance = model.analysis(dataflow_performance)
-    os.environ["LIVENESS_THRESHOLD"] = str(
-        int(estimate_network_performance["critical_path_cycles"])
+    monkeypatch.setenv(
+        "LIVENESS_THRESHOLD",
+        str(int(estimate_network_performance["critical_path_cycles"])),
     )
     # Prepare input
     x = np.load(build_dir + "/end2end_mobilenet_input.npy")

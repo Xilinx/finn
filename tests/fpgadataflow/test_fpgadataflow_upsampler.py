@@ -30,8 +30,6 @@
 import pytest
 
 import numpy as np
-import os
-import shutil
 import torch
 from brevitas.export import export_qonnx
 from qonnx.core.datatype import DataType
@@ -56,9 +54,7 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
-from finn.util.basic import getHWCustomOp, make_build_dir
-
-tmpdir = os.environ["FINN_BUILD_DIR"]
+from finn.util.basic import getHWCustomOp, make_build_dir, robust_rmtree
 
 
 class ForceDataTypeForTensors(Transformation):
@@ -201,4 +197,4 @@ def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode, SIMD)
         assert output_matches, "Cppsim output doesn't match ONNX/PyTorch."
     elif exec_mode == "rtlsim":
         assert output_matches, "Rtlsim output doesn't match ONNX/PyTorch."
-    shutil.rmtree(tmpdir, ignore_errors=True)
+    robust_rmtree(tmpdir)

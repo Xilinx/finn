@@ -29,7 +29,6 @@
 import pytest
 
 import numpy as np
-import os
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -46,6 +45,7 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import getHWCustomOp
+from finn.util.test import make_runtime_weight_stream
 
 finnxsi = xsi if xsi.is_available() else None
 
@@ -172,13 +172,7 @@ def test_runtime_thresholds_read(impl_style, idt_act_cfg, cfg, narrow, per_tenso
         op_inst.set_nodeattr("mem_mode", hls_mem_mode)
     op_inst.set_nodeattr("runtime_writeable_weights", 1)
 
-    dat_fname = f"old_weights_{cfg}.dat"
-    op_inst.make_weight_file(T, "decoupled_runtime", dat_fname)
-    with open(dat_fname, "r") as f:
-        old_weight_stream = f.read().strip()
-    os.remove(dat_fname)
-    old_weight_stream = map(lambda x: int(x, 16), old_weight_stream.split("\n"))
-    old_weight_stream = list(old_weight_stream)
+    old_weight_stream = make_runtime_weight_stream(op_inst, T)
     # need to create stitched IP for runtime weight testing
     model = model.transform(InsertFIFO(True))
     model = model.transform(SpecializeLayers(test_fpga_part))
@@ -289,14 +283,7 @@ def test_runtime_thresholds_write(impl_style, idt_act_cfg, cfg, narrow, per_tens
     # provide non-decreasing/ascending thresholds
     T_write = sort_thresholds_increasing(T_write)
 
-    dat_fname = f"T_write_{cfg}.dat"  # distinguish fname per paramter for distributed testing
-    op_inst.make_weight_file(T_write, "decoupled_runtime", dat_fname)
-    with open(dat_fname, "r") as f:
-        T_write_stream = f.read().strip()
-    os.remove(dat_fname)
-
-    T_write_stream = map(lambda x: int(x, 16), T_write_stream.split("\n"))
-    T_write_stream = list(T_write_stream)
+    T_write_stream = make_runtime_weight_stream(op_inst, T_write)
 
     # need to create stitched IP for runtime weight testing
     model = model.transform(InsertFIFO(True))
