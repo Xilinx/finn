@@ -304,37 +304,56 @@ class HWCustomOp(CustomOp):
         out_width = self.get_outstream_width(ind=ind)
         return roundup_to_integer_multiple(out_width, 8)
 
-    def generate_hdl_memstream(self, fpgapart, pumped_memory=0):
+    def generate_hdl_memstream(
+        self,
+        fpgapart,
+        pumped_memory=0,
+        name=None,
+        depth=None,
+        width=None,
+        init_file=None,
+        ram_style=None,
+    ):
         """Helper function to generate verilog code for memstream component.
-        Currently utilized by MVAU, VVAU and HLS Thresholding layer."""
-        ops = ["MVAU_hls", "MVAU_rtl", "VVAU_hls", "VVAU_rtl", "Thresholding_hls"]
+        Currently utilized by MVAU, VVAU, HLS Thresholding and RTL Requant layer.
+
+        By default a single memstream wrapper named after the node is emitted,
+        with depth/width/init_file/ram_style derived from the node. Callers that
+        need more than one memstreamer (e.g. RTL Requant streams scale and bias
+        separately) can pass explicit ``name``, ``depth``, ``width``,
+        ``init_file`` and ``ram_style`` to emit a named streamer without relying
+        on the op-specific defaults."""
+        ops = ["MVAU_hls", "MVAU_rtl", "VVAU_hls", "VVAU_rtl", "Thresholding_hls", "Requant_rtl"]
         if self.onnx_node.op_type in ops or self.onnx_node.op_type.startswith("Elementwise"):
             template_path = (
                 os.environ["FINN_ROOT"] + "/finn-rtllib/memstream/hdl/memstream_wrapper_template.v"
             )
-            mname = self.onnx_node.name
+            mname = name if name is not None else self.onnx_node.name
             sets = 1
             mlo_max_iter = self.get_nodeattr("mlo_max_iter")
             if mlo_max_iter:
                 sets = mlo_max_iter
-            if self.onnx_node.op_type.startswith("Thresholding"):
-                depth = self.calc_tmem()
-            elif self.onnx_node.op_type.startswith("MVAU"):
-                depth = self.calc_wmem() * self.get_nodeattr("TH")
-            else:
-                depth = self.calc_wmem()
-            padded_width = self.get_instream_width_padded(1)
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-
-            ram_style = self.get_nodeattr("ram_style")
-            init_file = code_gen_dir + "/memblock.dat"
+            if depth is None:
+                if self.onnx_node.op_type.startswith("Thresholding"):
+                    depth = self.calc_tmem()
+                elif self.onnx_node.op_type.startswith("MVAU"):
+                    depth = self.calc_wmem() * self.get_nodeattr("TH")
+                else:
+                    depth = self.calc_wmem()
+            if width is None:
+                width = self.get_instream_width_padded(1)
+            if ram_style is None:
+                ram_style = self.get_nodeattr("ram_style")
+            if init_file is None:
+                init_file = code_gen_dir + "/memblock.dat"
             if ram_style == "ultra" and not is_versal(fpgapart):
                 init_file = ""
             code_gen_dict = {
                 "$MODULE_NAME$": [mname],
                 "$SETS$": [str(sets)],
                 "$DEPTH$": [str(depth)],
-                "$WIDTH$": [str(padded_width)],
+                "$WIDTH$": [str(width)],
                 "$INIT_FILE$": [init_file],
                 "$RAM_STYLE$": [ram_style],
                 "$PUMPED_MEMORY$": [str(pumped_memory)],

@@ -52,6 +52,10 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.transformation.fpgadataflow.transpose_decomposition import (
+    InferInnerOuterShuffles,
+    ShuffleDecomposition,
+)
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.qonnx.quant_act_to_multithreshold import (
     default_filter_function_generator,
@@ -115,11 +119,14 @@ def create_requant_model(abits, max_val, ishape, per_channel):
     "part", ["xcvc1902-vsva2197-2MP-e-S", "xczu7ev-ffvc1156-2-e", "xc7z020clg400-1"]
 )
 @pytest.mark.parametrize("pe", [1, 16])
-@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+@pytest.mark.parametrize("sim_style", ["cppsim", "node_by_node", "stitched_ip"])
+@pytest.mark.parametrize(
+    "mem_mode", ["internal_decoupled"]
+)  # "internal_embedded", "internal_decoupled"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_requant_rtl(abits, ishape, per_channel, part, pe, exec_mode):
+def test_requant_rtl(abits, ishape, per_channel, part, pe, sim_style, mem_mode):
     """Test Requant RTL backend with different devices (DSP variants).
 
     Tests integer input which uses the RTL backend.
@@ -169,29 +176,51 @@ def test_requant_rtl(abits, ishape, per_channel, part, pe, exec_mode):
     requant_rtl_nodes = model.get_nodes_by_op_type("Requant_rtl")
     assert len(requant_rtl_nodes) == 1, "Expected Requant_rtl for INT8 input"
     getCustomOp(requant_rtl_nodes[0]).set_nodeattr("PE", pe)
+    getCustomOp(requant_rtl_nodes[0]).set_nodeattr("mem_mode", mem_mode)
 
     # Prepare and run simulation
-    model = model.transform(SetExecMode(exec_mode))
-
-    if exec_mode == "cppsim":
+    #  - cppsim / node_by_node feed the decomposed scale/bias words directly into
+    #    the core, so they exercise the datapath + param decomposition/packing.
+    #  - stitched_ip instantiates the two memstreams and free-runs them from the
+    #    generated .dat files, which is the only path that exercises the
+    #    memstreamers (and their fold-address cycling when CF > 1).
+    if sim_style == "cppsim":
+        model = model.transform(SetExecMode("cppsim"))
         model = model.transform(PrepareCppSim())
         model = model.transform(CompileCppSim())
-        y_sim = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
-        assert np.allclose(
-            y_golden, y_sim, atol=quant_step
-        ), f"cppsim mismatch: max diff = {np.max(np.abs(y_golden - y_sim))}"
-    else:
-        # Node-by-node rtlsim
+    elif sim_style == "node_by_node":
+        model = model.transform(SetExecMode("rtlsim"))
         model = model.transform(PrepareIP(part, target_clk_ns))
         model = model.transform(HLSSynthIP())
         model = model.transform(PrepareRTLSim())
+    elif sim_style == "stitched_ip":
+        # Convert any remaining Mul nodes to HW for stitched IP
+        model = model.transform(to_hw.InferElementwiseBinaryOperation())
+        # 4D inputs carry a layout Transpose (NCHW<->NHWC) with no HW op yet.
+        # Only when such a Transpose is present, convert it to a HW Shuffle and
+        # decompose it into inner/outer shuffles so the whole graph becomes
+        # fpgadataflow. _filter=lambda *_: True also converts a leading input
+        # transpose (the default filter skips graph.node[0]).
+        if len(model.get_nodes_by_op_type("Transpose")) > 0:
+            model = model.transform(to_hw.InferShuffle(_filter=lambda *_: True))
+            model = model.transform(SpecializeLayers(part))
+            model = model.transform(ShuffleDecomposition())
+            model = model.transform(InferInnerOuterShuffles())
+        model = model.transform(SpecializeLayers(part))
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(InsertAndSetFIFODepths(part, target_clk_ns))
+        model = model.transform(PrepareIP(part, target_clk_ns))
+        model = model.transform(HLSSynthIP())
+        model = model.transform(CreateStitchedIP(part, target_clk_ns))
+        model.set_metadata_prop("exec_mode", "rtlsim")
 
-        y_sim = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
-        assert np.allclose(
-            y_golden, y_sim, atol=quant_step
-        ), f"rtlsim mismatch: max diff = {np.max(np.abs(y_golden - y_sim))}"
+    y_sim = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
+    assert np.allclose(
+        y_golden, y_sim, atol=quant_step
+    ), f"{sim_style} mismatch: max diff = {np.max(np.abs(y_golden - y_sim))}"
 
-        # Verify cycle estimation
+    # Verify cycle estimation (node-by-node rtlsim only)
+    if sim_style == "node_by_node":
         node = model.get_nodes_by_op_type("Requant_rtl")[0]
         inst = getCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
@@ -199,29 +228,6 @@ def test_requant_rtl(abits, ishape, per_channel, part, pe, exec_mode):
         exp_cycles = exp_cycles_dict[node.name]
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
         assert exp_cycles != 0
-
-        # Stitched IP rtlsim - only for one specific config to save time
-        if (
-            abits == 8
-            and ishape == (1, 16)
-            and not per_channel
-            and pe == 16
-            and part == "xczu7ev-ffvc1156-2-e"
-        ):
-            # Convert any remaining Mul nodes to HW for stitched IP
-            model = model.transform(to_hw.InferElementwiseBinaryOperation())
-            model = model.transform(SpecializeLayers(part))
-            model = model.transform(GiveUniqueNodeNames())
-            model = model.transform(InsertAndSetFIFODepths(part, target_clk_ns))
-            model = model.transform(PrepareIP(part, target_clk_ns))
-            model = model.transform(HLSSynthIP())
-            model = model.transform(CreateStitchedIP(part, target_clk_ns))
-
-            model.set_metadata_prop("exec_mode", "rtlsim")
-            y_stitched = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
-            assert np.allclose(
-                y_golden, y_stitched, atol=quant_step
-            ), f"stitched rtlsim mismatch: max diff = {np.max(np.abs(y_golden - y_stitched))}"
 
 
 # =============================================================================
