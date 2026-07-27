@@ -249,7 +249,13 @@ def flow_use_analytic_fifo_sizing(cfg):
     cfg.auto_fifo_depths = True
     cfg.auto_fifo_strategy = build_cfg.AutoFIFOSizingMethod.ANALYTIC
     cfg.tav_generation_strategy = build_cfg.TAVGenerationMethod.TREE_MODEL
-    cfg.tav_utilization_strategy = build_cfg.TAVUtilizationMethod.CONSERVATIVE_RELAXATION
+    # chain-composed sizing when the tree has it (rtlsim-verified: parity with
+    # the largefifo method on cnv/tfc at smaller sizes); older trees fall back
+    # to the conservative relaxation
+    if hasattr(build_cfg.TAVUtilizationMethod, "CHAIN_COMPOSED"):
+        cfg.tav_utilization_strategy = build_cfg.TAVUtilizationMethod.CHAIN_COMPOSED
+    else:
+        cfg.tav_utilization_strategy = build_cfg.TAVUtilizationMethod.CONSERVATIVE_RELAXATION
 
 
 def flow_use_folding_optimizer(cfg, target_fps, with_padding=True, fifo_heuristic=False):
