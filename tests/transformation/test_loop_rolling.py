@@ -135,9 +135,6 @@ def test_loop_extraction_default_paths_are_unique():
 @pytest.mark.transform
 def test_finn_loop(input_size, num_layers):
     out_dir = Path(make_build_dir(prefix="test_finn_loop_"))
-    # fixed seed so the deep quantised configs stay within tolerance run to run
-    torch.manual_seed(0)
-    np.random.seed(0)
     hidden_size = input_size
 
     onnx_path, model = export_model_to_qonnx(out_dir, input_size, hidden_size, num_layers)
