@@ -40,6 +40,8 @@ def load_results(results_dir):
     for path in sorted(glob.glob(os.path.join(results_dir, "*__*.json"))):
         with open(path) as f:
             r = json.load(f)
+        if "model" not in r or "flow" not in r:
+            continue  # experiment dumps and other non-flow JSONs
         by_model.setdefault(r["model"], {})[r["flow"]] = r
     return by_model
 
