@@ -240,9 +240,10 @@ def step_siglip_streamlining(model: ModelWrapper, cfg: DataflowBuildConfig) -> M
     MatMul and absorb the resulting scale/shift into the neighbouring thresholds
     so the MatMul inputs become integer again.
     """
+    p = cfg.preserve_thresh_shape
     model = model.transform(AbsorbSignBiasIntoMultiThreshold())
-    model = model.transform(AbsorbAddIntoMultiThreshold())
-    model = model.transform(AbsorbMulIntoMultiThreshold())
+    model = model.transform(AbsorbAddIntoMultiThreshold(preserve_thresh_shape=p))
+    model = model.transform(AbsorbMulIntoMultiThreshold(preserve_thresh_shape=p))
     model = model.transform(RoundAndClipThresholds())
 
     # Push the scalar Mul across the q/k/v fork so each branch owns a copy.
@@ -250,8 +251,8 @@ def step_siglip_streamlining(model: ModelWrapper, cfg: DataflowBuildConfig) -> M
 
     model = model.transform(MoveScalarMulPastMatMul())
     model = model.transform(MoveScalarLinearPastInvariants())
-    model = model.transform(AbsorbAddIntoMultiThreshold())
-    model = model.transform(AbsorbMulIntoMultiThreshold())
+    model = model.transform(AbsorbAddIntoMultiThreshold(preserve_thresh_shape=p))
+    model = model.transform(AbsorbMulIntoMultiThreshold(preserve_thresh_shape=p))
     model = model.transform(RoundAndClipThresholds())
 
     model = model.transform(CollapseRepeatedOp("Mul", lambda x, y: y * x))

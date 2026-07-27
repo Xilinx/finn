@@ -174,6 +174,7 @@ def make_cfg(start_step=None, stop_step=None, folding=None) -> build_cfg.Dataflo
         # folding: prebuilt config (target_fps=None) or target-throughput autofolding
         target_fps=target_fps,
         # thresholds / fifos
+        preserve_thresh_shape=True,
         standalone_thresholds=True,
         split_large_fifos=True,
         # Static outside-loop FIFO sizing: skip the multi-day characterization
