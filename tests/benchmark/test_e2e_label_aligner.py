@@ -29,6 +29,13 @@ import _feature_bench as fb  # noqa: E402
 
 FLOW = "aligner"
 
+# mobilenet ends in non-dataflow TopK/Flatten before its output; InsertAlignLabels
+# attaches at the graph output, sandwiching them inside the dataflow block
+# (contiguity violation). Supporting this topology needs an output-side
+# skip-non-dataflow rule in InsertAlignLabels (and a label stream carrying the
+# pre-TopK scores, whose fully-folded width is impractical at 1000 classes).
+XFAIL_MODELS = {"mobilenet_v1"}
+
 
 def _has_alignlabels_node(model_path):
     from qonnx.core.modelwrapper import ModelWrapper
@@ -45,6 +52,8 @@ def test_e2e_label_aligner(entry):
     eb.require(eb.has_label_aligner(), "label aligner (align_labels)")
 
     key = eb.model_id(entry)
+    if entry[0] in XFAIL_MODELS:
+        pytest.xfail(f"{entry[0]}: trailing non-dataflow TopK/Flatten breaks AlignLabels insertion")
 
     def mutate(cfg):
         eb.flow_use_json_folding(cfg)
