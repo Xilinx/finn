@@ -165,7 +165,7 @@ def make_single_matmul_modelwrapper(ifm, ofm, idt, wdt, W):
     return model
 
 
-def test_fetch_weights_forwards_ram_style(tmp_path):
+def test_fetch_weights_forwards_buffer_configuration(tmp_path):
     node = helper.make_node(
         "MVAU_rtl",
         ["inp", "weights"],
@@ -183,13 +183,15 @@ def test_fetch_weights_forwards_ram_style(tmp_path):
         noActivation=1,
         mem_mode="external_mem",
         ram_style="ultra",
+        weight_buffer_count=1,
         code_gen_dir_ipgen=str(tmp_path),
     )
     MVAU_rtl(node).generate_hdl_fetch_weights()
 
     wrapper = (tmp_path / "MVAU_rtl_0_fetch_weights_wrapper.v").read_text()
     assert 'parameter  RAM_STYLE = "ultra"' in wrapper
-    assert ".WEIGHT_WIDTH(WEIGHT_WIDTH), .RAM_STYLE(RAM_STYLE)" in wrapper
+    assert "parameter  N_BUFFERS = 1" in wrapper
+    assert ".RAM_STYLE(RAM_STYLE), .N_BUFFERS(N_BUFFERS)" in wrapper
 
 
 def make_dynamic_matmul_modelwrapper(ifm, wfm, ofm, idt, wdt):

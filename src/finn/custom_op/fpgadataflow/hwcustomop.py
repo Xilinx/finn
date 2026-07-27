@@ -98,6 +98,9 @@ class HWCustomOp(CustomOp):
             "io_chrc_pads_in": ("ints", False, []),
             "io_chrc_pads_out": ("ints", False, []),
             "mlo_max_iter": ("i", False, 0),
+            # Number of local buffers used by the external-memory weight
+            # fetcher. One saves memory; two overlap loading and consumption.
+            "weight_buffer_count": ("i", False, 2, {1, 2}),
             "address_offset": ("i", False, 0),
         }
 
@@ -396,6 +399,7 @@ class HWCustomOp(CustomOp):
                 "$N_REPS$": [str(n_reps)],
                 "$WEIGHT_WIDTH$": [str(wdt.bitwidth())],
                 "$RAM_STYLE$": [self.get_nodeattr("ram_style")],
+                "$N_BUFFERS$": [str(self.get_nodeattr("weight_buffer_count"))],
                 "$N_LAYERS$": [str(n_max_layers)],
                 "$TH$": [str(theight)],
                 "$EN_MLO$": [en_mlo],
