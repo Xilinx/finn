@@ -805,5 +805,7 @@ def test_tinydeit_vck190_folding_configs():
     for config_path in config_paths:
         config = json.loads(config_path.read_text())
         assert config["Defaults"] == {}
+        assert config["Pad1D_rtl_0"] == {"SIMD": 1}
+        assert "AddCLSToken_rtl_0" not in config
         assert len(config) > 1
         assert all(isinstance(node_config, dict) for node_config in config.values())

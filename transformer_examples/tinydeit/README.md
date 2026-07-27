@@ -10,7 +10,8 @@ TinyDeiT contains 12 transformer encoder blocks with the same structure. Buildin
 all 12 blocks independently would duplicate most of the hardware, so the
 preparation flow extracts one block as a `FINNLoop` body and reuses it for all
 12 iterations. Per-block parameters are supplied to the loop body for the
-corresponding iteration.
+corresponding iteration. The checkpoint's class-token `Concat` is converted to
+`Pad1D`, with the constant class token embedded as left-padding data.
 
 The flow has two stages:
 

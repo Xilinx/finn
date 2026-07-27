@@ -156,7 +156,7 @@ class SetFolding(Transformation):
             "StreamingConcat_hls",
             "LayerNorm_rtl",
             "Shuffle",
-            "AddCLSToken_rtl",
+            "Pad1D_rtl",
             "HWSoftmax_hls",
             "HWSoftmax_rtl",
             "InnerShuffle",
@@ -300,9 +300,7 @@ class SetFolding(Transformation):
                         int(node_inst.get_normal_input_shape()[-1]),
                         int(node_inst.get_normal_output_shape()[-1]),
                     ]
-                    self.optimize_attribute_vals(
-                        node_inst, common_divisors(dims), "SIMD"
-                    )
+                    self.optimize_attribute_vals(node_inst, common_divisors(dims), "SIMD")
                 else:
                     try:
                         max_simd = node_inst.get_nodeattr("NumChannels")

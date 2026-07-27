@@ -333,9 +333,7 @@ class InferPWPolyFLayer(Transformation):
                 return None
             second_mul = first_mul_consumers[0]
             other_second_mul = self._other_mul_input(second_mul, first_mul.output[0])
-            if other_second_mul is None or not self._is_const_scalar(
-                model, other_second_mul, 0.5
-            ):
+            if other_second_mul is None or not self._is_const_scalar(model, other_second_mul, 0.5):
                 return None
         else:
             return None

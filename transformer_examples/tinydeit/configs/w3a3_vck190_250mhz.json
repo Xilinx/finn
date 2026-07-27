@@ -36,7 +36,7 @@
   "InnerShuffle_rtl_2": {
     "SIMD": 1
   },
-  "AddCLSToken_rtl_0": {
+  "Pad1D_rtl_0": {
     "SIMD": 1
   },
   "ElementwiseAdd_rtl_1": {
