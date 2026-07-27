@@ -978,11 +978,41 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
             model = model.transform(PrepareRTLSim(behav=True))
             model = model.transform(AnnotateCycles())
             period = model.analysis(dataflow_performance)["max_cycles"] + 10
-            model = model.transform(DeriveCharacteristic(period))
+            characteristic_skip_nodes = set()
+            output_fifo_depth_overrides = {}
+            if is_mlo(model):
+                # A FINNLoop is a blocking, backpressure-capable frame boundary.
+                # Characterizing it in RTL repeats the complete loop solely to
+                # size the two external FIFOs, which can take days for a large
+                # transformer. A shallow boundary FIFO is sufficient; all nodes
+                # on either side are still characterized normally, and final
+                # stitched-IP RTL simulation covers the complete loop.
+                for loop_node in model.get_nodes_by_op_type("FINNLoop"):
+                    characteristic_skip_nodes.add(loop_node.name)
+                    output_fifo_depth_overrides[loop_node.name] = {
+                        i: 2 for i in range(len(loop_node.output))
+                    }
+                    for input_name in loop_node.input:
+                        producer = model.find_producer(input_name)
+                        if producer is not None:
+                            output_index = list(producer.output).index(input_name)
+                            output_fifo_depth_overrides.setdefault(producer.name, {})[
+                                output_index
+                            ] = 2
+            model = model.transform(
+                DeriveCharacteristic(
+                    period,
+                    skip_node_names=characteristic_skip_nodes,
+                )
+            )
             if cfg.fifosim_save_waveform:
                 for node in model.graph.node:
                     getCustomOp(node).set_nodeattr("rtlsim_trace", "")
-            model = model.transform(DeriveFIFOSizes())
+            model = model.transform(
+                DeriveFIFOSizes(
+                    output_fifo_depth_overrides=output_fifo_depth_overrides,
+                )
+            )
             model = model.transform(
                 InsertFIFO(
                     vivado_ram_style=cfg.large_fifo_mem_style,

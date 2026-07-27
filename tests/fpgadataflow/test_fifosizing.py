@@ -45,6 +45,7 @@ from qonnx.util.basic import qonnx_make_model
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 from finn.transformation.fpgadataflow.derive_characteristic import (
+    DeriveCharacteristic,
     DeriveFIFOSizes,
     _find_minimum_phase_shift,
 )
@@ -162,6 +163,26 @@ def test_characterization_phase_shift_binary_search_matches_linear_scan():
         assert _find_minimum_phase_shift(prod_chrc, cons_chrc, period) == expected
 
 
+def test_characterization_can_skip_named_node(monkeypatch):
+    model = make_multi_io_modelwrapper(2, 2, DataType["INT4"])
+    node = model.graph.node[0]
+
+    def fail_if_called(_node):
+        raise AssertionError("skipped node must not be characterized")
+
+    monkeypatch.setattr(
+        "finn.transformation.fpgadataflow.derive_characteristic.registry.getCustomOp",
+        fail_if_called,
+    )
+    returned, changed = DeriveCharacteristic(
+        period=4,
+        skip_node_names={node.name},
+    ).applyNodeLocal(node)
+
+    assert returned is node
+    assert changed is False
+
+
 def test_oversized_vivado_axis_fifo_stays_rtl():
     model = make_multi_io_modelwrapper(300, 300, DataType["INT8"])
     producer = getCustomOp(model.graph.node[0])
@@ -258,6 +279,26 @@ def test_characterization_fifosizing_uses_matching_consumer_input(tmp_path):
 
     fork_inst = getCustomOp(model.get_nodes_by_op_type("DuplicateStreams_rtl")[0])
     assert fork_inst.get_nodeattr("outFIFODepths") == [0, 3]
+
+
+def test_characterization_fifosizing_honors_output_override():
+    model = make_multi_io_modelwrapper(2, 2, DataType["INT4"])
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+    model = model.transform(GiveUniqueNodeNames())
+    producer = model.graph.node[0]
+    producer_inst = getCustomOp(producer)
+
+    transformation = DeriveFIFOSizes(
+        output_fifo_depth_overrides={
+            producer.name: {i: i + 2 for i in range(len(producer.output))}
+        }
+    )
+    transformation.ref_input_model = model
+    returned, changed = transformation.applyNodeLocal(producer)
+
+    assert returned is producer
+    assert changed is False
+    assert producer_inst.get_nodeattr("outFIFODepths") == [2]
 
 
 def make_multi_io_modelwrapper(ch, pe, idt):
