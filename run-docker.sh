@@ -54,12 +54,8 @@ SCRIPT=$(readlink -f "$0")
 # Absolute path this script is in, thus /home/user/bin
 SCRIPTPATH=$(dirname "$SCRIPT")
 
-if [ -z "$FINN_DEPS_DIR" ];then
-  FINN_DEPS_DIR="$SCRIPTPATH/deps"
-fi
-
 # the settings below will be taken from environment variables if available,
-# otherwise the defaults below will be used (only works when variables are unset)
+# otherwise the defaults below will be used
 : ${JUPYTER_PORT=8888}
 : ${JUPYTER_PASSWD_HASH=""}
 : ${NETRON_PORT=8081}
@@ -298,8 +294,6 @@ DOCKER_EXEC+="-v $SCRIPTPATH:$SCRIPTPATH "
 DOCKER_EXEC+="-v $FINN_HOST_BUILD_DIR:$FINN_HOST_BUILD_DIR "
 DOCKER_EXEC+="-e FINN_BUILD_DIR=$FINN_HOST_BUILD_DIR "
 DOCKER_EXEC+="-e FINN_ROOT="$SCRIPTPATH" "
-DOCKER_EXEC+="-v $FINN_DEPS_DIR:$FINN_DEPS_DIR "
-DOCKER_EXEC+="-e FINN_DEPS_DIR=$FINN_DEPS_DIR "
 DOCKER_EXEC+="-e LOCALHOST_URL=$LOCALHOST_URL "
 DOCKER_EXEC+="-e NUM_DEFAULT_WORKERS=$NUM_DEFAULT_WORKERS "
 # Workaround for FlexLM issue, see:
