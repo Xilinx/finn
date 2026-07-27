@@ -181,10 +181,9 @@ def warn_hls_rtl_dsp_conflict(model, verification_type, output_dir=None):
     conflicting DSP primitive initializations.
 
     Args:
-        model: ModelWrapper to check
-        verification_type: String describing the verification type
-        output_dir: Directory where verification outputs would be saved (optional)
-                    If provided, writes warning to a .txt file there
+        model: ModelWrapper to check.
+        verification_type: String describing the verification type.
+        output_dir: Optional directory for verification outputs (writes warning file if provided).
 
     Returns:
         bool: True if conflict was detected (and verification should be skipped)
