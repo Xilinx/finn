@@ -472,8 +472,9 @@ class SlashLink(Transformation):
     ModelProto's metadata_props field with the VBIN's and synthesis report's
     full path as value.
 
-    :parameter build_hardware: If True, SlashLink will build a hardware programming image.
-    Otherwise, it will create an simulation image.
+    Args:
+        build_hardware: If True, SlashLink will build a hardware programming image.
+            Otherwise, it will create a simulation image.
     """
 
     def __init__(self, build_hardware=True):

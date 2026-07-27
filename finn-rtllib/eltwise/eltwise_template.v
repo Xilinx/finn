@@ -34,7 +34,9 @@ eltwise #(
         .PE($PE$),
         .OP($OP$),
         .B_SCALE($B_SCALE$),
-        .FORCE_BEHAVIORAL($FORCE_BEHAVIORAL$),
+`ifdef FINN_SIMULATION
+        .FORCE_BEHAVIORAL(1),
+`endif
         .A_FLOAT($A_FLOAT$),
         .B_FLOAT($B_FLOAT$),
         .A_WIDTH($A_WIDTH$),

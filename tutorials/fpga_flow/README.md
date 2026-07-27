@@ -18,6 +18,7 @@ This demo was created using Vivado 2022.1.
 - `fpga_part` configures the IP for your target device that the stitched IP will be implemented in.  It should be the full string recognized in Vivado: \<device\>-\<package\>-\<temperature_grade\>-\<speed_grade\>
 - `generate_outputs`: for integration purposes, the only output needed is `STITCHED_IP`.  You might also find the `ESTIMATE_REPORTS` interesting.  Other options are documented [here](https://finn.readthedocs.io/en/latest/command_line.html#generated-outputs) and some of them (namely OOC_SYNTH, BITFILE) add substantial runtime and are not needed for this flow.
 - `stitched_ip_gen_dcp` : will generate an IP block with a synthesized design checkpoint (.dcp) which makes the design more portable across different machines, but will add some runtime.
+- `inject_steps_after` / `inject_steps_before`: dicts mapping a phase/step name to a list of custom step functions to run after/before it, without having to redefine the whole `steps` list. This example injects `custom_step_gen_tb_and_io` after `phase_generate_outputs`.
 
 
 ### Running FINN Compiler
@@ -53,16 +54,24 @@ The build should finish in about 10 minutes, and the FINN docker will close on s
 
 ```
    ...
-   Running step: step_create_stitched_ip [12/18]
-   Running step: step_measure_rtlsim_performance [13/18]
-   Running step: step_out_of_context_synthesis [14/18]
-   Running step: step_synthesize_bitfile [15/18]
-   Running step: step_make_driver [16/18]
-   Running step: step_deployment_package [17/18]
-   Running step: custom_step_gen_tb_and_io [18/18]
+   Running step: phase_prepare_model [1/7]
+   Running step: phase_optimize_model [2/7]
+   Running step: phase_convert_to_hardware [3/7]
+   Running step: phase_optimize_hardware [4/7]
+   Running step: phase_build_hardware [5/7]
+   Running step: phase_generate_outputs [6/7]
+   Running step: custom_step_gen_tb_and_io [7/7]
    Completed successfully
    The program finished and will be restarted
 ```
+
+This build uses the default phase-based flow and adds a custom trailing step,
+`custom_step_gen_tb_and_io`, by injecting it after the last phase via
+`inject_steps_after={"phase_generate_outputs": [custom_step_gen_tb_and_io]}` in the
+build config. This way you can add your own steps without having to redefine the whole
+step list. The six phases group the fine-grained build steps (tidy-up, streamlining,
+HW conversion, folding, IP generation and output generation); see the
+[command-line docs](https://finn.readthedocs.io/en/latest/command_line.html#build-phases-and-steps) for details.
 
 
 ### Examine the Stitched IP
