@@ -67,7 +67,7 @@ LOOP_BODY_HIERARCHY = [["", "layers.0"]]
 # holders are enough. Set these to the first encoder layer's [start, end]
 # FINN-HW-layer node names (the names that exist after step_specialize_layers).
 NodeRef = namedtuple("NodeRef", ["name"])
-LOOP_BODY_RANGE = (NodeRef("DuplicateStreams_hls_0"), NodeRef("ElementwiseAdd_rtl_9"))
+LOOP_BODY_RANGE = (NodeRef("DuplicateStreams_hls_0"), NodeRef("ElementwiseAdd_rtl_11"))
 
 
 # Prebuilt loop-body folding configs (see gen_folding_configs.py). Each targets a
