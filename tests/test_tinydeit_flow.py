@@ -623,6 +623,7 @@ def test_tinydeit_build_config_uses_phases_and_injections(tmp_path, mode):
         ],
     }
     assert cfg.fifosim_n_inferences == 1
+    assert cfg.rtlsim_use_vivado_comps is (mode != "full-rtlsim")
     assert cfg.mlo is False
 
 
@@ -865,3 +866,193 @@ def test_tinydeit_vck190_configs_and_signoff_evidence():
         "top5_percent": 12.5,
         "quality_claim": False,
     }
+
+
+@pytest.mark.transform
+def test_tinydeit_folding_evidence():
+    example_dir = Path(__file__).resolve().parents[1] / "transformer_examples" / "tinydeit"
+    evidence = json.loads((example_dir / "results" / "vck190_folding_estimates.json").read_text())
+
+    assert evidence["schema_version"] == 1
+    assert evidence["target"]["board"] == "VCK190"
+    assert evidence["target"]["base_clock_period_ns"] == 8.334
+    assert evidence["interpretation"]["application_latency"] is False
+    assert evidence["interpretation"]["measured_throughput"] is False
+    assert evidence["interpretation"]["routing_required_before_default"] is True
+
+    measurements = {item["name"]: item for item in evidence["measurements"]}
+    assert set(measurements) == {
+        "w3a3_vck190_balanced",
+        "w4a4_vck190_retained",
+    }
+
+    for measurement in measurements.values():
+        assert measurement["compatibility_check"] == "passed"
+        assert measurement["estimate_build"] == "passed"
+        assert measurement["routing"] == "passed"
+        assert len(measurement["prepared_model_sha256"]) == 64
+        implementation = measurement["physical_implementation"]
+        assert implementation["build_return_code"] == 0
+        assert implementation["independent_routed_dcp_reopen"] is True
+        assert implementation["routing"]["routable_nets"] > 0
+        assert (
+            implementation["routing"]["fully_routed_nets"]
+            == implementation["routing"]["routable_nets"]
+        )
+        assert implementation["routing"]["routing_error_nets"] == 0
+        assert implementation["timing"]["constraints_met"] is True
+        assert implementation["timing"]["wns_ns"] > 0
+        assert implementation["timing"]["whs_ns"] > 0
+        assert all(len(digest) == 64 for digest in implementation["artifact_sha256"].values())
+
+    w3 = measurements["w3a3_vck190_balanced"]
+    assert w3["candidate_worst_body_stage"]["cycles"] == 15732
+    w3_baseline_path = example_dir / w3["baseline_configuration"]
+    w3_candidate_path = example_dir / w3["candidate_configuration"]
+    assert (
+        hashlib.sha256(w3_baseline_path.read_bytes()).hexdigest()
+        == w3["baseline_configuration_sha256"]
+    )
+    assert (
+        hashlib.sha256(w3_candidate_path.read_bytes()).hexdigest()
+        == w3["candidate_configuration_sha256"]
+    )
+    w3_baseline = json.loads(w3_baseline_path.read_text())
+    w3_candidate = json.loads(w3_candidate_path.read_text())
+    w3_changed = {key for key, value in w3_candidate.items() if value != w3_baseline.get(key)}
+    assert w3_changed == {
+        "FINNLoop_0_body_FINNLoop_0_InnerShuffle_rtl_0",
+        "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_3",
+        "FINNLoop_0_body_FINNLoop_0_HWSoftmax_rtl_0",
+        "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_4",
+        "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_5",
+        "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_4",
+        "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_6",
+    }
+    assert w3["physical_implementation"]["resources"] == {
+        "LUT": 558252,
+        "FF": 727375,
+        "DSP": 1680,
+        "RAMB36E5": 579,
+        "RAMB18E5": 29,
+        "URAM": 74,
+        "SRL": 55423,
+    }
+
+    w4 = measurements["w4a4_vck190_retained"]
+    w4_config_path = example_dir / w4["configuration"]
+    assert hashlib.sha256(w4_config_path.read_bytes()).hexdigest() == w4["configuration_sha256"]
+    w4_config = json.loads(w4_config_path.read_text())
+    w4_final_mvau = w4_config["FINNLoop_0_body_FINNLoop_0_MVAU_rtl_7"]
+    assert w4_final_mvau["PE"] == 2
+    assert w4_final_mvau["SIMD"] == 768
+    assert w4["worst_body_stage"]["cycles"] == 18912
+    assert w4["rejected_candidate"] == {
+        "change": "FINNLoop_0_MVAU_hls_3 PE 2 to PE 3 with SIMD 768",
+        "estimate_build": "passed",
+        "estimated_worst_body_stage_cycles": 15732,
+        "hardware_generation": "failed",
+        "packed_weight_bits": 9216,
+        "vitis_hls_ap_int_max_bits": 8191,
+        "reason": "Vitis HLS 2024.2 rejects ap_uint<9216>",
+        "next_divisor_compatible_parallelism_product": 2048,
+        "next_divisor_compatible_packed_weight_bits": 8192,
+        "decision": "rejected; retain PE 2 and SIMD 768",
+    }
+
+
+def test_tinydeit_lower_resource_folding_targets():
+    example_dir = Path(__file__).resolve().parents[1] / "transformer_examples" / "tinydeit"
+    evidence = json.loads((example_dir / "results" / "vck190_folding_targets.json").read_text())
+
+    assert evidence["schema_version"] == 1
+    assert evidence["target"]["board"] == "VCK190"
+    assert evidence["target"]["base_clock_period_ns"] == 8.334
+    assert evidence["interpretation"]["configuration_fps_is_application_throughput"] is False
+    assert evidence["interpretation"]["application_throughput_measured"] is False
+    assert evidence["interpretation"]["fifo_sizing_rtlsim_is_application_performance"] is False
+    assert evidence["interpretation"]["loop_iterations_per_image"] == 12
+
+    measurements = {item["name"]: item for item in evidence["measurements"]}
+    assert set(measurements) == {
+        "w3a3_vck190_1k_folding_target",
+        "w4a4_vck190_500_folding_target",
+    }
+    expected = {
+        "w3a3_vck190_1k_folding_target": {
+            "target_fps": 1000,
+            "target_cycles": 119990,
+            "finnloop_fps_at_250mhz": 11.015403,
+            "routable_nets": 453514,
+            "wns_250mhz": 0.588,
+            "wns_300mhz": -0.078,
+            "estimated_fmax_mhz": 293.2,
+        },
+        "w4a4_vck190_500_folding_target": {
+            "target_fps": 500,
+            "target_cycles": 239980,
+            "finnloop_fps_at_250mhz": 6.710442,
+            "routable_nets": 484676,
+            "wns_250mhz": 0.325,
+            "wns_300mhz": -0.34,
+            "estimated_fmax_mhz": 272.257011,
+        },
+    }
+    for name, measurement in measurements.items():
+        expected_measurement = expected[name]
+        config_path = example_dir / measurement["configuration"]
+        assert (
+            hashlib.sha256(config_path.read_bytes()).hexdigest()
+            == measurement["configuration_sha256"]
+        )
+        assert measurement["folding_target_fps"] == expected_measurement["target_fps"]
+        assert measurement["folding_target_cycles"] == expected_measurement["target_cycles"]
+        assert measurement["slowest_layer"]["cycles"] <= expected_measurement["target_cycles"]
+        assert measurement["folding_target_satisfied"] is True
+        assert measurement["application_target_satisfied"] is False
+        assert (
+            measurement["finnloop_only_estimated_fps_at_250mhz"]
+            == expected_measurement["finnloop_fps_at_250mhz"]
+        )
+        assert measurement["compatibility_check"] == "passed"
+        assert measurement["estimate_build"] == "passed"
+        assert measurement["hardware_generation"] == "passed"
+        assert measurement["fifo_sizing_rtlsim"]["completed_output_frames"] == 1
+        assert measurement["fifo_sizing_rtlsim"]["TIMEOUT"] == 0
+        assert measurement["fifo_sizing_rtlsim"]["UNFINISHED_INS"] == 0
+        assert measurement["fifo_sizing_rtlsim"]["UNFINISHED_OUTS"] == 0
+        assert all(len(digest) == 64 for digest in measurement["artifact_sha256"].values())
+        assert measurement["routing"] == "passed"
+
+        implementation = measurement["physical_implementation"]
+        assert implementation["vivado_version"] == "2024.2"
+        assert implementation["single_clock"] is True
+        assert implementation["verified_clock_mhz"] == 250.0
+        assert implementation["independent_routed_dcp_reopen"] is True
+        assert implementation["routing"] == {
+            "routable_nets": expected_measurement["routable_nets"],
+            "fully_routed_nets": expected_measurement["routable_nets"],
+            "routing_error_nets": 0,
+        }
+        assert implementation["timing_250mhz"]["constraints_met"] is True
+        assert implementation["timing_250mhz"]["wns_ns"] == expected_measurement["wns_250mhz"]
+        assert implementation["timing_250mhz"]["setup_failing_endpoints"] == 0
+        assert implementation["timing_250mhz"]["hold_failing_endpoints"] == 0
+        assert implementation["timing_300mhz"]["constraints_met"] is False
+        assert implementation["timing_300mhz"]["wns_ns"] == expected_measurement["wns_300mhz"]
+        assert implementation["timing_300mhz"]["setup_failing_endpoints"] > 0
+        assert implementation["timing_300mhz"]["hold_failing_endpoints"] == 0
+        assert implementation["estimated_fmax_mhz"] == expected_measurement["estimated_fmax_mhz"]
+        assert all(len(digest) == 64 for digest in implementation["artifact_sha256"].values())
+
+    bounds = {
+        item["model_profile"]: item for item in evidence["unconstrained_full_unfold_estimates"]
+    }
+    assert bounds["w3a3_qvs"]["finnloop_only_estimated_fps"] < 1000
+    assert bounds["w3a3_qvs"]["application_target_satisfied"] is False
+    assert bounds["w4a4_qat_smoke"]["finnloop_only_estimated_fps"] > 500
+    assert bounds["w4a4_qat_smoke"]["fits_vck190"] is False
+    assert (
+        bounds["w4a4_qat_smoke"]["estimated_body_resources"]["DSP"]
+        > evidence["target"]["device_resources"]["DSP"]
+    )

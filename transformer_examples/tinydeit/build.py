@@ -400,6 +400,7 @@ def build_config(args: argparse.Namespace, output_dir: Path) -> DataflowBuildCon
         auto_fifo_depths=False,
         fifosim_n_inferences=args.fifosim_n_inferences,
         rtlsim_batch_size=args.rtlsim_batch_size,
+        rtlsim_use_vivado_comps=args.mode != "full-rtlsim",
         stitched_rtlsim_liveness_threshold=args.stitched_rtlsim_liveness_threshold,
         stitched_ip_gen_dcp=args.mode == "dcp" or args.stitched_ip_dcp,
         no_stdout_redirect=True,

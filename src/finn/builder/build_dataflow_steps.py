@@ -307,18 +307,21 @@ def verify_step(
     print("Verification for %s : %s" % (step_name, res_to_str[all_res]))
 
 
+def _replace_vivado_fifos_with_rtl(model):
+    need_regen = False
+    for fifo_layer in model.get_nodes_by_op_type("StreamingFIFO_rtl"):
+        inst = getHWCustomOp(fifo_layer, model)
+        if inst.get_nodeattr("impl_style") != "rtl":
+            inst.set_nodeattr("impl_style", "rtl")
+            inst.set_nodeattr("code_gen_dir_ipgen", "")
+            inst.set_nodeattr("ipgen_path", "")
+            need_regen = True
+    return need_regen
+
+
 def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
     if not cfg.rtlsim_use_vivado_comps:
-        need_restitch = False
-        # switch impl_style=vivado components to rtl
-        # StreamingFIFO must have impl_style=rtl
-        for fifo_layer in verify_model.get_nodes_by_op_type("StreamingFIFO_rtl"):
-            inst = getHWCustomOp(fifo_layer, verify_model)
-            if inst.get_nodeattr("impl_style") != "rtl":
-                inst.set_nodeattr("impl_style", "rtl")
-                inst.set_nodeattr("code_gen_dir_ipgen", "")
-                inst.set_nodeattr("ipgen_path", "")
-                need_restitch = True
+        need_restitch = _replace_vivado_fifos_with_rtl(verify_model)
         # if we've made alterations to the model, need to do some re-prep
         if need_restitch:
             print("Need to regen/re-stitch some IP for STITCHED_IP_RTLSIM")
@@ -1566,6 +1569,12 @@ def step_loop_body_ipgen_and_stitch(model: ModelWrapper, cfg: DataflowBuildConfi
     Returns:
         Loop body ModelWrapper with synthesized IP and stitched IP created
     """
+    # Vivado FIFO simulation components inside a FINNLoop are not visible to
+    # prepare_for_stitched_ip_rtlsim at the parent graph. Replace them before
+    # the loop body is stitched when accurate RTL simulation is requested.
+    if not cfg.rtlsim_use_vivado_comps and _replace_vivado_fifos_with_rtl(model):
+        model = model.transform(PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()))
+
     # HLS synthesis for this loop body
     model = model.transform(HLSSynthIP(cfg._resolve_hls_clk_period()))
 

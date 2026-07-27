@@ -20,6 +20,35 @@ class _FakeMLOModel:
         return [object()]
 
 
+class _FakeFIFOModel:
+    def __init__(self):
+        self.fifo = object()
+        self.transforms = []
+
+    def get_nodes_by_op_type(self, op_type):
+        assert op_type == "StreamingFIFO_rtl"
+        return [self.fifo]
+
+    def transform(self, transformation):
+        self.transforms.append(type(transformation).__name__)
+        return self
+
+
+class _FakeFIFOInstance:
+    def __init__(self):
+        self.attrs = {
+            "impl_style": "vivado",
+            "code_gen_dir_ipgen": "old_codegen",
+            "ipgen_path": "old_ip",
+        }
+
+    def get_nodeattr(self, name):
+        return self.attrs[name]
+
+    def set_nodeattr(self, name, value):
+        self.attrs[name] = value
+
+
 def test_mlo_performance_step_uses_two_frames_and_ideal_memory(tmp_path, monkeypatch):
     model = _FakeMLOModel()
     prehook = object()
@@ -79,3 +108,26 @@ def test_mlo_performance_step_uses_two_frames_and_ideal_memory(tmp_path, monkeyp
     assert report["performance_interpretation"] == "ideal_memory_upper_bound"
     assert report["io_bandwidth_scope"] == "top_level_axi_stream_only"
     assert report["N"] == 2
+
+
+def test_mlo_loop_body_replaces_vivado_fifos_for_rtlsim(tmp_path, monkeypatch):
+    model = _FakeFIFOModel()
+    fifo_instance = _FakeFIFOInstance()
+    monkeypatch.setattr(steps, "getHWCustomOp", lambda _node, _model: fifo_instance)
+    cfg = DataflowBuildConfig(
+        output_dir=str(tmp_path),
+        synth_clk_period_ns=5.0,
+        board="VCK190",
+        rtlsim_use_vivado_comps=False,
+        generate_outputs=[],
+    )
+
+    returned = steps.step_loop_body_ipgen_and_stitch(model, cfg)
+
+    assert returned is model
+    assert fifo_instance.attrs == {
+        "impl_style": "rtl",
+        "code_gen_dir_ipgen": "",
+        "ipgen_path": "",
+    }
+    assert model.transforms == ["PrepareIP", "HLSSynthIP", "CreateStitchedIP"]

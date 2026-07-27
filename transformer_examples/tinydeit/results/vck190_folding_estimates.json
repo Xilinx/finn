@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "source_commit": "ce07a3e72",
+  "target": {
+    "board": "VCK190",
+    "base_clock_period_ns": 8.334,
+    "base_clock_mhz": 119.990401,
+    "pumped_compute_clock_mhz": 239.980802
+  },
+  "interpretation": {
+    "estimate_scope": "one rolled FINNLoop body",
+    "estimate_cycle_values": "FINN per-layer estimates",
+    "estimate_resource_values": "FINN per-layer estimates",
+    "physical_implementation_scope": "full stitched out-of-context design",
+    "application_latency": false,
+    "measured_throughput": false,
+    "routing_required_before_default": true
+  },
+  "measurements": [
+    {
+      "name": "w3a3_vck190_balanced",
+      "model_profile": "w3a3_qvs",
+      "prepared_model_sha256": "29f040ff7eafbc2e6ade16060a337f18968a4ae9c5b92fd30be86b6b24259653",
+      "baseline_configuration": "configs/w3a3_vck190_300mhz_10k.json",
+      "baseline_configuration_sha256": "5c351dda2687b41c73f89501d472d4f51f3c891291d98c58e35d541793efa7a8",
+      "candidate_configuration": "configs/w3a3_vck190_balanced.json",
+      "candidate_configuration_sha256": "547bf03927bec8abd23c6ad7d7672e961e7002feb7cad9f42db700bb644c7700",
+      "compatibility_check": "passed",
+      "estimate_build": "passed",
+      "routing": "passed",
+      "baseline_worst_body_stage": {
+        "node": "FINNLoop_0_HWSoftmax_rtl_0",
+        "cycles": 116674
+      },
+      "candidate_worst_body_stage": {
+        "nodes": [
+          "FINNLoop_0_OuterShuffle_hls_0",
+          "FINNLoop_0_OuterShuffle_hls_1",
+          "FINNLoop_0_OuterShuffle_hls_2",
+          "FINNLoop_0_OuterShuffle_hls_3"
+        ],
+        "cycles": 15732
+      },
+      "attention_stage_cycles": {
+        "inner_shuffle": 448,
+        "qk_mvau": 9456,
+        "softmax": 642,
+        "av_mvau": 9456,
+        "av_threshold": 9456
+      },
+      "baseline_body_resources": {
+        "LUT": 114583,
+        "DSP": 1072,
+        "BRAM_18K": 235,
+        "URAM": 12
+      },
+      "candidate_body_resources": {
+        "LUT": 114613,
+        "DSP": 1642,
+        "BRAM_18K": 346,
+        "URAM": 66
+      },
+      "physical_implementation": {
+        "vivado_version": "2024.2",
+        "build_return_code": 0,
+        "independent_validation_return_code": 0,
+        "independent_routed_dcp_reopen": true,
+        "routing": {
+          "routable_nets": 1187024,
+          "fully_routed_nets": 1187024,
+          "routing_error_nets": 0
+        },
+        "timing": {
+          "wns_ns": 0.043,
+          "tns_ns": 0.0,
+          "whs_ns": 0.01,
+          "ths_ns": 0.0,
+          "no_clock_pins": 0,
+          "unconstrained_internal_max_delay_pins": 0,
+          "constraints_met": true
+        },
+        "resources": {
+          "LUT": 558252,
+          "FF": 727375,
+          "DSP": 1680,
+          "RAMB36E5": 579,
+          "RAMB18E5": 29,
+          "URAM": 74,
+          "SRL": 55423
+        },
+        "artifact_sha256": {
+          "synth_dcp": "631c8b5e730e70ba7b8f8078d04c04bb1e58d20900cb458b3ed325350a9c4a60",
+          "routed_dcp": "ae1b8c34b1ed48616365df1e7ff76a5136c603b7b1a1204b98fa4d4dee4ba5d7",
+          "timing_report": "b03e8390dbaa1bd736ceddfe553d5d8b46e2ea1c78503df94e3e598d5e747600",
+          "utilization_report": "644431b3e5820c3e2389e0b38f236399ea2f464d040748091e72a1293e2f7421",
+          "independent_route_status_report": "53b3fbcbb15e3d17ffea787672e9d501d509af6513ebbe478b9471e62ea058d8",
+          "independent_timing_report": "e7ce78923339270d9183d9f8aaefc5d790ae87c0eea9a53a566bdad38fa8ef5b",
+          "independent_utilization_report": "07cf8b2ac7867f4f19838a451a102819b96f9d48ac4ba2aea8a50f945d940a39",
+          "independent_check_timing_report": "c1150263cb3c32677ac2867a7f9e2bc3f8c55c60793b1e1ee686a1f03ee19cd6"
+        }
+      }
+    },
+    {
+      "name": "w4a4_vck190_retained",
+      "model_profile": "w4a4_qat_smoke",
+      "prepared_model_sha256": "724329032dae8a239d21d065d3b0137d76d280e38eabab58f78ecfd6ee3158fe",
+      "configuration": "configs/w4a4_vck190_200mhz_7k.json",
+      "configuration_sha256": "b119ae8977967e8038703f30f5e2956f062430a90bb3bc94e2199a9a0cb8ab2c",
+      "compatibility_check": "passed",
+      "estimate_build": "passed",
+      "routing": "passed",
+      "worst_body_stage": {
+        "node": "FINNLoop_0_MVAU_hls_3",
+        "cycles": 18912
+      },
+      "attention_stage_cycles": {
+        "inner_shuffle": 448,
+        "qk_mvau": 9456,
+        "softmax": 642,
+        "av_mvau": 9456,
+        "av_threshold": 9456
+      },
+      "estimated_body_resources": {
+        "LUT": 183243,
+        "DSP": 1642,
+        "BRAM_18K": 483,
+        "URAM": 88
+      },
+      "rejected_candidate": {
+        "change": "FINNLoop_0_MVAU_hls_3 PE 2 to PE 3 with SIMD 768",
+        "estimate_build": "passed",
+        "estimated_worst_body_stage_cycles": 15732,
+        "hardware_generation": "failed",
+        "packed_weight_bits": 9216,
+        "vitis_hls_ap_int_max_bits": 8191,
+        "reason": "Vitis HLS 2024.2 rejects ap_uint<9216>",
+        "next_divisor_compatible_parallelism_product": 2048,
+        "next_divisor_compatible_packed_weight_bits": 8192,
+        "decision": "rejected; retain PE 2 and SIMD 768"
+      },
+      "physical_implementation": {
+        "build_source_commit": "31f0248060f03c0226bab95fb37686af7f281c53",
+        "vivado_version": "2024.2",
+        "build_return_code": 0,
+        "independent_routed_dcp_reopen": true,
+        "routing": {
+          "routable_nets": 1460651,
+          "fully_routed_nets": 1460651,
+          "routing_error_nets": 0
+        },
+        "timing": {
+          "wns_ns": 0.086,
+          "tns_ns": 0.0,
+          "whs_ns": 0.01,
+          "ths_ns": 0.0,
+          "no_clock_endpoints": 0,
+          "unconstrained_internal_endpoints": 0,
+          "constraints_met": true
+        },
+        "resources": {
+          "LUT": 719334,
+          "FF": 832893,
+          "DSP": 1760,
+          "RAMB36E5": 735,
+          "RAMB18E5": 17,
+          "URAM": 76
+        },
+        "artifact_sha256": {
+          "synth_dcp": "d2958bcbf2b721a8d97ebf9b5fa37a9d299508d45ddb52f6e5c09032bd40ed29",
+          "routed_dcp": "0627680d8b8ead611480c92ca697994c49c8c09a62ed9ec7c950ca55b8c3a4a3",
+          "timing_report": "b152306ed7ab529971590e1d2b24c297c8c4eaf3bf4bc51a9474b60325d05fba",
+          "independent_route_status_report": "5a9adca034fca8005052d8355727d0cd40a49a8a3bbfd8ad4f361ba5bc78c939",
+          "independent_timing_report": "1e8214ea48ec337e752cd857c5cf74e726aca2107aba16009bce0938b33f20ba",
+          "independent_utilization_report": "8771ae4cc06b56869f815c21f85d990acdeab5bb09f79e07eea058507ecc8aee",
+          "independent_check_timing_report": "77af073457d522807de6ceec55dfab0898e51f81b6c1d80df69b6d9dfe287096"
+        }
+      }
+    }
+  ]
+}
