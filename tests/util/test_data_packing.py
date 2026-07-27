@@ -30,12 +30,11 @@ import pytest
 
 import numpy as np
 import os
-import shutil
 import subprocess
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import gen_finn_dt_tensor
 
-from finn.util.basic import make_build_dir
+from finn.util.basic import make_build_dir, robust_rmtree
 from finn.util.data_packing import (
     finnpy_to_packed_bytearray,
     npy_to_rtlsim_input,
@@ -61,8 +60,7 @@ def test_npy2apintstream(test_shape, dtype):
     ndarray = gen_finn_dt_tensor(dtype, test_shape)
     test_dir = make_build_dir(prefix="test_npy2apintstream_")
     shape = ndarray.shape
-    elem_bits = dtype.bitwidth()
-    packed_bits = shape[-1] * elem_bits
+    packed_bits = shape[-1] * dtype.bitwidth()
     packed_hls_type = "ap_uint<%d>" % packed_bits
     elem_hls_type = dtype.get_hls_datatype_str()
     npy_in = test_dir + "/in.npy"
@@ -91,39 +89,34 @@ def test_npy2apintstream(test_shape, dtype):
     test_app_string += ["int main(int argc, char *argv[]) {"]
     test_app_string += ["hls::stream<%s> teststream;" % packed_hls_type]
     test_app_string += [
-        'npy2apintstream<%s, %s, %d, %s>("%s", teststream);'
-        % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+        'npy2apintstream<%s, %s, %s>("%s", teststream);'
+        % (packed_hls_type, elem_hls_type, npy_type, npy_in)
     ]
     test_app_string += [
-        'apintstream2npy<%s, %s, %d, %s>(teststream, %s, "%s");'
-        % (packed_hls_type, elem_hls_type, elem_bits, npy_type, shape_cpp_str, npy_out)
+        'apintstream2npy<%s, %s, %s>(teststream, %s, "%s");'
+        % (packed_hls_type, elem_hls_type, npy_type, shape_cpp_str, npy_out)
     ]
     test_app_string += ["return 0;"]
     test_app_string += ["}"]
     with open(test_dir + "/test.cpp", "w") as f:
         f.write("\n".join(test_app_string))
     cmd_compile = """
-g++ -o test_npy2apintstream test.cpp $FINN_ROOT/deps/cnpy/cnpy.cpp \
--I$FINN_ROOT/deps/cnpy/ -I{}/include -I{}/include -I$FINN_ROOT/src/finn/qnn-data/cpp \
---std=c++11 -lz""".format(
+g++ -o test_npy2apintstream test.cpp $FINN_ROOT/src/finn/qnn-data/cpp/cnpy.cpp \
+-I{}/include -I{}/include -I$FINN_ROOT/src/finn/qnn-data/cpp \
+-I$FINN_ROOT/deps/finn-hlslib \
+--std=c++17 -lz""".format(
         os.environ["HLS_PATH"], os.environ["VITIS_PATH"]
     )
     with open(test_dir + "/compile.sh", "w") as f:
         f.write(cmd_compile)
-    compile = subprocess.Popen(["sh", "compile.sh"], stdout=subprocess.PIPE, cwd=test_dir)
-    (stdout, stderr) = compile.communicate()
+    subprocess.check_call(["sh", "compile.sh"], cwd=test_dir)
     # make copy before saving the array
     ndarray = ndarray.copy()
     np.save(npy_in, ndarray)
-    execute = subprocess.Popen("./test_npy2apintstream", stdout=subprocess.PIPE, cwd=test_dir)
-    (stdout, stderr) = execute.communicate()
+    subprocess.check_call(["./test_npy2apintstream"], cwd=test_dir)
     produced = np.load(npy_out)
-    success = (produced == ndarray).all()
-    # only delete generated code if test has passed
-    # useful for debug otherwise
-    if success:
-        shutil.rmtree(test_dir)
-    assert success
+    assert (produced == ndarray).all()
+    robust_rmtree(test_dir)
 
 
 @pytest.mark.util
@@ -217,10 +210,9 @@ def test_npy_to_rtlsim_input(dtype):
 def test_driver_pack_unpack(dtype, reverse_inner, reverse_endian, simd):
     folded_shape = (10, 8 // simd, simd)  # N H W FOLD SIMD
     input = gen_finn_dt_tensor(dtype, folded_shape)
-    input_packed = finnpy_to_packed_bytearray(input, dtype, reverse_inner, reverse_endian, True)
-
+    input_packed = finnpy_to_packed_bytearray(input, dtype, reverse_inner, reverse_endian)
     input_unpacked = packed_bytearray_to_finnpy(
-        input_packed, dtype, folded_shape, reverse_inner, reverse_endian
+        np.ascontiguousarray(input_packed), dtype, folded_shape, reverse_inner, reverse_endian
     )
 
     assert input_unpacked.dtype == np.float32

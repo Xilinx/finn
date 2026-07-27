@@ -31,7 +31,6 @@ import pytest
 
 import importlib_resources as importlib
 import numpy as np
-import os
 import torch
 from brevitas.export import export_qonnx
 from qonnx.core.modelwrapper import ModelWrapper
@@ -66,9 +65,8 @@ from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
+from finn.util.basic import make_build_dir, robust_rmtree
 from finn.util.test import get_test_model_trained
-
-export_onnx_path_cnv = "test_convert_to_hw_layers_cnv.onnx"
 
 
 @pytest.mark.fpgadataflow
@@ -76,6 +74,15 @@ export_onnx_path_cnv = "test_convert_to_hw_layers_cnv.onnx"
 # Standalone or fused thresholding-based activation
 @pytest.mark.parametrize("fused_activation", [True, False])
 def test_convert_to_hw_layers_cnv_w1a1(fused_activation):
+    build_dir = make_build_dir(prefix="test_convert_to_hw_layers_cnv_")
+    try:
+        _test_convert_to_hw_layers_cnv_w1a1(fused_activation, build_dir)
+    finally:
+        robust_rmtree(build_dir)
+
+
+def _test_convert_to_hw_layers_cnv_w1a1(fused_activation, build_dir):
+    export_onnx_path_cnv = f"{build_dir}/test_convert_to_hw_layers_cnv.onnx"
     cnv = get_test_model_trained("CNV", 1, 1)
     export_qonnx(cnv, torch.randn(1, 3, 32, 32), export_onnx_path_cnv)
     qonnx_cleanup(export_onnx_path_cnv, out_file=export_onnx_path_cnv)
@@ -167,4 +174,3 @@ def test_convert_to_hw_layers_cnv_w1a1(fused_activation):
     produced = produced_ctx[model.get_first_global_out()]
     assert np.isclose(expected, produced, atol=1e-3).all()
     assert np.argmax(produced) == 3
-    os.remove(export_onnx_path_cnv)

@@ -64,6 +64,7 @@ class StreamingFIFO(HWCustomOp):
                 # the FIFO does not need its own FIFOs
                 "inFIFODepths": ("ints", False, [0]),
                 "outFIFODepths": ("ints", False, [0]),
+                "debug_log_path": ("s", False, ""),
             }
         )
 
@@ -146,7 +147,7 @@ class StreamingFIFO(HWCustomOp):
     def bram_estimation(self):
         """Calculates resource estimation for BRAM"""
         try:
-            impl = self.get_nodeattr("impl_style") == "rtl"
+            impl = self.get_nodeattr("impl_style")
         except AttributeError:
             raise Exception(
                 self.onnx_node.name
@@ -182,7 +183,7 @@ class StreamingFIFO(HWCustomOp):
         """Calculates resource estimation for URAM"""
 
         try:
-            impl = self.get_nodeattr("impl_style") == "rtl"
+            impl = self.get_nodeattr("impl_style")
         except AttributeError:
             raise Exception(
                 self.onnx_node.name
@@ -215,10 +216,26 @@ class StreamingFIFO(HWCustomOp):
         bram16_est_capacity = bram16_est * 36 * 512
         return wbits / bram16_est_capacity
 
+    def uram_efficiency_estimation(self):
+        # TODO: Versal URAM supports flexible bit widths (9/18/36/72) unlike
+        # UltraScale+ which only supports 72-bit. This could improve efficiency
+        # for narrow data types on Versal devices.
+        try:
+            depth = self.get_adjusted_depth()
+        except AttributeError:
+            depth = self.get_nodeattr("depth")
+        W = self.get_instream_width()
+        uram_est = self.uram_estimation()
+        if uram_est == 0:
+            return 1
+        wbits = W * depth
+        uram_est_capacity = uram_est * 72 * 4096
+        return wbits / uram_est_capacity
+
     def lut_estimation(self):
         """Calculates resource estimations for LUTs"""
         try:
-            impl = self.get_nodeattr("impl_style") == "rtl"
+            impl = self.get_nodeattr("impl_style")
         except AttributeError:
             raise Exception(
                 self.onnx_node.name

@@ -19,6 +19,7 @@ from qonnx.custom_op.registry import getCustomOp
 from typing import Any, Dict
 
 from finn.transformation.general import ApplyConfig
+from finn.util.basic import make_build_dir, robust_rmtree
 from finn.util.config import extract_model_config, extract_model_config_to_json
 
 # this is a pretend opset so that we can create
@@ -160,7 +161,8 @@ def test_roundtrip_export_import():
         model, subgraph_hier=None, attr_names_to_extract=attrs_to_extract
     )
     # Save in json
-    config_json_file = os.environ["FINN_BUILD_DIR"] + "/original_config.json"
+    test_dir = make_build_dir("test_config_roundtrip_")
+    config_json_file = os.path.join(test_dir, "original_config.json")
     extract_model_config_to_json(model, config_json_file, attrs_to_extract)
 
     # Modify all Im2Col nodes to different values (recursively through subgraphs)
@@ -191,5 +193,35 @@ def test_roundtrip_export_import():
     )
     assert restored_config == original_config, "Config not properly restored after roundtrip"
 
-    if os.path.exists(config_json_file):
-        os.remove(config_json_file)
+    robust_rmtree(test_dir)
+
+
+@pytest.mark.util
+def test_apply_config_reports_invalid_custom_op_attr():
+    """Test invalid custom-op configs fail instead of being silently ignored."""
+
+    model, _ = make_im2col_test_model()
+    im2col_node = model.graph.node[0]
+
+    with pytest.raises(Exception):
+        model.transform(ApplyConfig({im2col_node.name: {"not_an_im2col_attr": 1}}))
+
+
+@pytest.mark.util
+def test_apply_config_warns_for_non_custom_op_config():
+    """Test explicit configs for standard ONNX nodes are reported."""
+
+    model, _ = make_im2col_test_model()
+    if_node = model.graph.node[1]
+    config = {if_node.name: {"kernel_size": [1, 1]}}
+
+    def node_filter(node):
+        return node.name == if_node.name
+
+    with pytest.warns(UserWarning) as warn_records:
+        model.transform(ApplyConfig(config, node_filter=node_filter))
+
+    warning_messages = [str(record.message) for record in warn_records]
+    assert any("Configs can only be applied to custom ops" in msg for msg in warning_messages)
+    assert any("{} ({})".format(if_node.name, if_node.op_type) in msg for msg in warning_messages)
+    assert not any("Unused HW configurations" in msg for msg in warning_messages)

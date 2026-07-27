@@ -55,6 +55,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
+from finn.util.basic import get_vivado_version, is_versal, make_build_dir
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -361,7 +362,7 @@ def test_fpgadataflow_thresholding(
     ],
 )
 @pytest.mark.parametrize("fold", [-1, 1, 2])
-@pytest.mark.parametrize("ram_style", ["distributed", "block"])
+@pytest.mark.parametrize("ram_style", ["distributed", "block", "ultra"])
 @pytest.mark.parametrize("part", ["xcvc1902-vsva2197-2MP-e-S", "xczu7ev-ffvc1156-2-e"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
@@ -369,6 +370,9 @@ def test_fpgadataflow_thresholding(
 def test_fpgadataflow_thresholding_stitched_ip(
     num_input_channels, num_input_vecs, activation, idt_tdt_cfg, fold, ram_style, part
 ):
+    if ram_style == "ultra" and not is_versal(part):
+        pytest.skip("URAM threshold memstream initialization requires a Versal target")
+
     input_data_type, threshold_data_type = idt_tdt_cfg
     num_steps = activation.get_num_possible_values() - 1
 
@@ -437,3 +441,173 @@ def test_fpgadataflow_thresholding_stitched_ip(
     assert (
         y_expected == y_produced
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
+
+
+@pytest.mark.parametrize("num_input_channels", [6, 16])
+@pytest.mark.parametrize("activation", [DataType["UINT4"], DataType["INT4"]])
+@pytest.mark.parametrize(
+    "idt_tdt_cfg",
+    [
+        (DataType["INT8"], DataType["INT8"]),
+        (DataType["UINT8"], DataType["UINT8"]),
+    ],
+)
+@pytest.mark.parametrize("fold", [-1, 2])
+@pytest.mark.parametrize(
+    "ram_style, part",
+    [
+        ("distributed", "xczu3eg-sbva484-1-e"),
+        ("block", "xczu3eg-sbva484-1-e"),
+        ("ultra", "xcvc1902-vsva2197-2MP-e-S"),  # URAM requires Versal
+    ],
+)
+@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_fpgadataflow_thresholding_hls_internal_embedded_ram_style(
+    num_input_channels,
+    activation,
+    idt_tdt_cfg,
+    fold,
+    ram_style,
+    part,
+    exec_mode,
+):
+    """Test HLS Thresholding with internal_embedded mode and different ram_style options."""
+    # Skip URAM on old Vitis HLS versions
+    if ram_style == "ultra":
+        vivado_version = get_vivado_version()
+        if vivado_version is not None and vivado_version < (2024, 2):
+            pytest.skip("URAM with internal_embedded requires Vitis HLS 2024.2+")
+
+    num_input_vecs = [1]
+    input_data_type, threshold_data_type = idt_tdt_cfg
+    num_steps = activation.get_num_possible_values() - 1
+
+    if fold == -1:
+        fold = num_input_channels
+    pe = num_input_channels // fold
+    if num_input_channels % pe != 0:
+        pytest.skip("Invalid folding configuration. Skipping test.")
+
+    output_data_type = activation
+    activation_bias = activation.min()
+
+    # Generate thresholds with edge cases and sort in ascending order
+    thresholds = generate_edge_threshold_values(
+        threshold_data_type, num_input_channels, num_steps, False, False
+    )
+    thresholds = sort_thresholds_increasing(thresholds)
+
+    model = make_single_multithresholding_modelwrapper(
+        thresholds,
+        input_data_type,
+        threshold_data_type,
+        output_data_type,
+        activation_bias,
+        num_input_vecs,
+        num_input_channels,
+    )
+
+    # Calculate reference output
+    x = generate_edge_input_tensor(input_data_type, tuple(num_input_vecs + [num_input_channels]))
+    input_dict = {model.get_first_global_in(): x}
+    y_expected = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
+
+    model = model.transform(InferThresholdingLayer())
+
+    # Transform to HLS implementation
+    node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("preferred_impl_style", "hls")
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(InferShapes())
+    assert model.graph.node[0].op_type == "Thresholding_hls"
+
+    node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("PE", pe)
+    inst.set_nodeattr("mem_mode", "internal_embedded")
+    inst.set_nodeattr("ram_style", ram_style)
+
+    model = model.transform(RoundAndClipThresholds())
+    model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(GiveUniqueNodeNames())
+
+    if exec_mode == "cppsim":
+        model = model.transform(PrepareCppSim())
+        model = model.transform(CompileCppSim())
+        model = model.transform(SetExecMode("cppsim"))
+    elif exec_mode == "rtlsim":
+        model = model.transform(PrepareIP(part, target_clk_ns))
+        model = model.transform(SetExecMode("rtlsim"))
+        model = model.transform(HLSSynthIP())
+        model = model.transform(PrepareRTLSim())
+
+    y_produced = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
+    assert (y_produced.astype(np.float32) == y_expected.astype(np.float32)).all()
+
+    if exec_mode == "rtlsim":
+        hls_synt_res_est = model.analysis(hls_synth_res_estimation)
+        assert model.graph.node[0].name in hls_synt_res_est
+        node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
+        inst = getCustomOp(node)
+        cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
+        exp_cycles_dict = model.analysis(exp_cycles_per_layer)
+        exp_cycles = exp_cycles_dict[node.name]
+        assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
+        assert exp_cycles != 0
+
+
+@pytest.mark.fpgadataflow
+def test_rtl_thresholding_unsorted_assertion():
+    """Test that RTL thresholding raises an assertion error for unsorted thresholds.
+
+    RTL thresholding uses binary search, which requires thresholds to be sorted
+    in ascending order. This test verifies that an AssertionError is raised
+    when attempting to generate parameters with unsorted thresholds.
+    """
+    num_input_channels = 4
+    num_steps = 3
+    input_data_type = DataType["INT8"]
+    threshold_data_type = DataType["INT8"]
+    output_data_type = DataType["UINT2"]
+    activation_bias = 0
+    num_input_vecs = [1, 4, 4]
+    pe = 2
+
+    # Generate thresholds but do NOT sort them - intentionally unsorted
+    thresholds = gen_finn_dt_tensor(threshold_data_type, (num_input_channels, num_steps))
+    # Reverse to ensure they're definitely not sorted
+    thresholds = thresholds[:, ::-1].copy()
+
+    model = make_single_multithresholding_modelwrapper(
+        thresholds,
+        input_data_type,
+        threshold_data_type,
+        output_data_type,
+        activation_bias,
+        num_input_vecs,
+        num_input_channels,
+    )
+
+    model = model.transform(InferThresholdingLayer())
+
+    # Set preferred_impl_style to RTL
+    node = model.graph.node[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("preferred_impl_style", "rtl")
+
+    # Specialize to RTL variant
+    model = model.transform(SpecializeLayers("xcvc1902-vsva2197-2MP-e-S"))
+    assert model.graph.node[0].op_type == "Thresholding_rtl"
+
+    node = model.graph.node[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("PE", pe)
+
+    # Try to generate params - should raise AssertionError due to unsorted thresholds
+    build_dir = make_build_dir("test_unsorted_thresh_")
+    with pytest.raises(AssertionError, match="sorted in ascending order"):
+        inst.generate_params(model, build_dir)

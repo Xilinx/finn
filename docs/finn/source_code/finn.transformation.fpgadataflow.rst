@@ -270,14 +270,6 @@ finn.transformation.fpgadataflow.specialize\_layers
   :undoc-members:
   :show-inheritance:
 
-finn.transformation.fpgadataflow.synth\_ooc
----------------------------------------------
-
-.. automodule:: finn.transformation.fpgadataflow.synth_ooc
-  :members:
-  :undoc-members:
-  :show-inheritance:
-
 finn.transformation.fpgadataflow.template\_driver
 ---------------------------------------------------
 
@@ -294,10 +286,10 @@ finn.transformation.fpgadataflow.templates
   :undoc-members:
   :show-inheritance:
 
-finn.transformation.fpgadataflow.vitis\_build
+finn.transformation.fpgadataflow.alveo\_build
 -------------------------------------------------
 
-.. automodule:: finn.transformation.fpgadataflow.vitis_build
+.. automodule:: finn.transformation.fpgadataflow.alveo_build
    :members:
    :undoc-members:
    :show-inheritance:

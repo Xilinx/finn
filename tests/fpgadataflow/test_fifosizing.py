@@ -30,7 +30,6 @@
 import pytest
 
 import json
-import shutil
 import torch
 from brevitas.export import export_qonnx
 from onnx import TensorProto, helper
@@ -46,7 +45,7 @@ import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.basic import make_build_dir
+from finn.util.basic import make_build_dir, robust_rmtree
 from finn.util.test import get_trained_network_and_ishape
 
 
@@ -84,6 +83,18 @@ def test_fifosizing_linear(method, topology):
         est_data = json.load(f)
     with open(tmp_output_dir + "/report/rtlsim_performance.json") as f:
         sim_data = json.load(f)
+    assert sim_data["completed_output_frames"] == cfg.rtlsim_batch_size
+    assert sim_data["interval_valid"] == 1
+    assert sim_data["interval_is_steady_state"] is True
+    assert sim_data["steady_state_frames"] == cfg.rtlsim_batch_size - 1
+    assert sim_data["steady_state_cycles"] > 0
+    assert sim_data["stable_throughput_valid"] is True
+    expected_stable_throughput = (
+        sim_data["steady_state_frames"]
+        * 1.0e9
+        / (cfg.synth_clk_period_ns * sim_data["steady_state_cycles"])
+    )
+    assert sim_data["stable_throughput[images/s]"] == pytest.approx(expected_stable_throughput)
     assert (
         float(sim_data["stable_throughput[images/s]"]) / float(est_data["estimated_throughput_fps"])
         > 0.9
@@ -111,8 +122,8 @@ def test_fifosizing_linear(method, topology):
             node1_inst = getCustomOp(node1)
             assert node0_inst.get_nodeattr("depth") == node1_inst.get_nodeattr("depth")
 
-    shutil.rmtree(tmp_output_dir)
-    shutil.rmtree(tmp_output_dir_cmp)
+    robust_rmtree(tmp_output_dir)
+    robust_rmtree(tmp_output_dir_cmp)
 
 
 @pytest.mark.slow

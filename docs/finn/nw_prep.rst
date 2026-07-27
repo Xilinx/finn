@@ -10,7 +10,7 @@ Network Preparation
 
 The main principle of FINN are analysis and transformation passes. For more information about these, see :ref:`analysis_pass` and :ref:`transformation_pass` in the :ref:`concepts` documentation, or the tutorial notebooks in :ref:`tutorials`.
 
-This page describes the network preparation flow step that comes after :ref:`brevitas_export`. The main idea is to optimize the network and convert nodes to hardware layers that correspond to `finn-hlslib <https://github.com/Xilinx/finn-hlslib>`_ or `finn-rtllib <https://github.com/Xilinx/finn-rtllib>`_ implementations. This prepares the network for hardware generation with Vitis HLS and Vivado. Network preparation applies several transformations to the ONNX model, which is wrapped in a :ref:`modelwrapper`.
+This page describes the network preparation flow step that comes after :ref:`brevitas_export`. The main idea is to optimize the network and convert nodes to hardware layers that correspond to `finn-hlslib <https://github.com/Xilinx/finn-hlslib>`_ or `finn-rtllib <https://github.com/Xilinx/finn-rtllib>`_ implementations. This prepares the network for hardware generation with Vitis HLS and RTL code generation. Network preparation applies several transformations to the ONNX model, which is wrapped in a :ref:`modelwrapper`.
 
 Various transformations are involved in the network preparation. The following is a short overview of these.
 

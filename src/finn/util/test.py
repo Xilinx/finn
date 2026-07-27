@@ -1,4 +1,5 @@
 # Copyright (c) 2020, Xilinx
+# Copyright (C) 2026, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -41,9 +42,15 @@ from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 
 from finn.core.onnx_exec import execute_onnx
+from finn.transformation.fpgadataflow.alveo_build import VitisLink, VitisOptStrategy
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
-from finn.transformation.fpgadataflow.vitis_build import VitisBuild, VitisOptStrategy
-from finn.util.basic import alveo_default_platform, alveo_part_map, pynq_part_map
+from finn.util.basic import (
+    make_build_dir,
+    pynq_part_map,
+    robust_rmtree,
+    vitis_default_platform,
+    vitis_part_map,
+)
 
 # map of (wbits,abits) -> model
 example_map = {
@@ -105,23 +112,32 @@ def load_test_checkpoint_or_skip(filename):
         pytest.skip(filename + " not found from previous test step, skipping")
 
 
+def make_runtime_weight_stream(op_inst, weights):
+    """Write runtime weights in FINN's standard format and return the parsed stream."""
+    weight_dir = make_build_dir("test_runtime_weights_")
+    weight_path = os.path.join(weight_dir, "weights.dat")
+    op_inst.make_weight_file(weights, "decoupled_runtime", weight_path)
+    with open(weight_path, "r") as f:
+        weight_stream = [int(x, 16) for x in f.read().strip().split("\n")]
+    robust_rmtree(weight_dir)
+    return weight_stream
+
+
 def get_build_env(board, target_clk_ns):
-    """Get board-related build environment for testing.
-    - board = any from pynq_part_map or alveo_part_map
+    """Get board-related build environment for testing. Only relevant for bnn_pynq tests
+    - board = any from pynq_part_map, vitis_part_map
     """
     ret = {}
     if board in pynq_part_map:
-        ret["kind"] = "zynq"
+        ret["toolchain"] = "pynq"
         ret["part"] = pynq_part_map[board]
         ret["build_fxn"] = ZynqBuild(board, target_clk_ns)
-    elif board in alveo_part_map:
-        ret["kind"] = "alveo"
-        ret["part"] = alveo_part_map[board]
-        ret["build_fxn"] = VitisBuild(
-            ret["part"],
-            target_clk_ns,
-            alveo_default_platform[board],
-            strategy=VitisOptStrategy.BUILD_SPEED,
+    elif board in vitis_part_map:
+        ret["toolchain"] = "vitis-xrt"
+        ret["part"] = vitis_part_map[board]
+        ret["vitis_platform"] = vitis_default_platform[board]
+        ret["build_fxn"] = VitisLink(
+            vitis_default_platform[board], target_clk_ns, strategy=VitisOptStrategy.BUILD_SPEED
         )
     else:
         raise Exception("Unknown board specified")

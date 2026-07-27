@@ -31,7 +31,6 @@ import pytest
 import copy
 import numpy as np
 import onnx.parser as oprs
-import os
 from bitstring import BitArray
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
@@ -64,7 +63,6 @@ from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.basic import get_liveness_threshold_cycles
 
 finnxsi = xsi if xsi.is_available() else None
 
@@ -222,7 +220,7 @@ cfg2 = {
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.fpgadataflow
-def test_fpgadataflow_conv_dynamic(cfg):
+def test_fpgadataflow_conv_dynamic(cfg, monkeypatch):
     do_synth = cfg["do_synth"]
     pad_mode = cfg["pad_mode"]
     depthwise = cfg["depthwise"]
@@ -301,7 +299,7 @@ def test_fpgadataflow_conv_dynamic(cfg):
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))
     model = model.transform(HLSSynthIP())
-    model = model.transform(CreateStitchedIP("xc7z020clg400-1", 5, vitis=do_synth))
+    model = model.transform(CreateStitchedIP("xc7z020clg400-1", 5, run_synth=do_synth))
     model.set_metadata_prop("exec_mode", "rtlsim")
 
     # loop through experiment configurations
@@ -362,10 +360,8 @@ def test_fpgadataflow_conv_dynamic(cfg):
         update_tensor_dim(model, last_node.onnx_node.output[0], (odim_h, odim_w))
         last_node.set_nodeattr("folded_shape", last_node_shp)
         ctx = {"global_in": inp.transpose(0, 2, 3, 1)}
-        liveness_prev = get_liveness_threshold_cycles()
-        os.environ["LIVENESS_THRESHOLD"] = "100000"
+        monkeypatch.setenv("LIVENESS_THRESHOLD", "100000")
         rtlsim_exec(model, ctx, pre_hook=config_hook(configs))
-        os.environ["LIVENESS_THRESHOLD"] = str(liveness_prev)
         ret = ctx["global_out"].transpose(0, 3, 1, 2)
         assert np.isclose(golden, ret).all()
 
