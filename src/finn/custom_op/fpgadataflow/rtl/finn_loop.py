@@ -91,6 +91,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
             # Path to save per-iteration execution context (cppsim only).
             # If non-empty, each iteration's full context is saved to this path.
             "iteration_context_path": ("s", False, ""),
+            # Toggled by mlo_sim to trigger the lightweight "stream tap + body build"
+            "parallel_sim_ipgen": ("i", False, 0),
         }
         my_attrs.update(HWCustomOp.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
@@ -610,51 +612,57 @@ class FINNLoop(HWCustomOp, RTLBackend):
                     f.write(template_wrapper)
 
     def ipgen_singlenode_code(self, fpgapart=None):
-        prjname = "MakeLoopIP"
-        block_name = self.onnx_node.name
+        parallel = self.get_nodeattr("parallel_sim_ipgen") == 1
+        prjname = "MakeParallelIP" if parallel else "MakeLoopIP"
+        block_name = self.onnx_node.name + ("_parallel" if parallel else "")
         vivado_stitch_proj_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        if parallel:
+            vivado_stitch_proj_dir = vivado_stitch_proj_dir + "/parallel"
+            os.makedirs(vivado_stitch_proj_dir, exist_ok=True)
 
         cmd = []
 
-        # Create Vivado axis_dwidth_converter IPs for intermediate_frames DWCs
-        olen_bits = self.get_outstream_width(0)
-        ilen_bits = self.get_instream_width(0)
-        data_bits = 256
-        # Intermediate frames pad each element to a whole number of bytes, so the
-        # DWCs must be sized on the byte-aligned widths (OLEN_BITS_BA/ILEN_BITS_BA
-        # in intermediate_frames.sv), matching the per-element FM_SIZE layout.
-        elem_bits = self.get_input_datatype(0).bitwidth()
-        elem_bytes = (elem_bits + 7) // 8
-        oelem = olen_bits // elem_bits
-        ielem = ilen_bits // elem_bits
-        # DWC write path: byte-aligned body output width -> DMA width (256)
-        dwc_sink_s_bytes = oelem * elem_bytes
-        dwc_sink_m_bytes = data_bits // 8
-        cmd += [
-            "create_ip -name axis_dwidth_converter -vendor xilinx.com "
-            "-library ip -version 1.1 -module_name if_dwc_sink",
-            "set_property -dict [list "
-            "CONFIG.S_TDATA_NUM_BYTES {%d} "
-            "CONFIG.M_TDATA_NUM_BYTES {%d} "
-            "CONFIG.HAS_TLAST {1} "
-            "CONFIG.HAS_TKEEP {1} "
-            "] [get_ips if_dwc_sink]" % (dwc_sink_s_bytes, dwc_sink_m_bytes),
-            "generate_target all [get_ips if_dwc_sink]",
-        ]
-        # DWC read path: DMA width (256) -> byte-aligned body input width
-        dwc_source_s_bytes = data_bits // 8
-        dwc_source_m_bytes = ielem * elem_bytes
-        cmd += [
-            "create_ip -name axis_dwidth_converter -vendor xilinx.com "
-            "-library ip -version 1.1 -module_name if_dwc_source",
-            "set_property -dict [list "
-            "CONFIG.S_TDATA_NUM_BYTES {%d} "
-            "CONFIG.M_TDATA_NUM_BYTES {%d} "
-            "CONFIG.HAS_TLAST {1} "
-            "CONFIG.HAS_TKEEP {1} "
-            "] [get_ips if_dwc_source]" % (dwc_source_s_bytes, dwc_source_m_bytes),
-            "generate_target all [get_ips if_dwc_source]",
-        ]
+        if not parallel:
+            # Create Vivado axis_dwidth_converter IPs for intermediate_frames DWCs.
+            olen_bits = self.get_outstream_width(0)
+            ilen_bits = self.get_instream_width(0)
+            data_bits = 256
+            # Intermediate frames pad each element to a whole number of bytes, so
+            # the DWCs must be sized on the byte-aligned widths (OLEN_BITS_BA/
+            # ILEN_BITS_BA in intermediate_frames.sv), matching the per-element
+            # FM_SIZE layout.
+            elem_bits = self.get_input_datatype(0).bitwidth()
+            elem_bytes = (elem_bits + 7) // 8
+            oelem = olen_bits // elem_bits
+            ielem = ilen_bits // elem_bits
+            # DWC write path: byte-aligned body output width -> DMA width (256)
+            dwc_sink_s_bytes = oelem * elem_bytes
+            dwc_sink_m_bytes = data_bits // 8
+            cmd += [
+                "create_ip -name axis_dwidth_converter -vendor xilinx.com "
+                "-library ip -version 1.1 -module_name if_dwc_sink",
+                "set_property -dict [list "
+                "CONFIG.S_TDATA_NUM_BYTES {%d} "
+                "CONFIG.M_TDATA_NUM_BYTES {%d} "
+                "CONFIG.HAS_TLAST {1} "
+                "CONFIG.HAS_TKEEP {1} "
+                "] [get_ips if_dwc_sink]" % (dwc_sink_s_bytes, dwc_sink_m_bytes),
+                "generate_target all [get_ips if_dwc_sink]",
+            ]
+            # DWC read path: DMA width (256) -> byte-aligned body input width
+            dwc_source_s_bytes = data_bits // 8
+            dwc_source_m_bytes = ielem * elem_bytes
+            cmd += [
+                "create_ip -name axis_dwidth_converter -vendor xilinx.com "
+                "-library ip -version 1.1 -module_name if_dwc_source",
+                "set_property -dict [list "
+                "CONFIG.S_TDATA_NUM_BYTES {%d} "
+                "CONFIG.M_TDATA_NUM_BYTES {%d} "
+                "CONFIG.HAS_TLAST {1} "
+                "CONFIG.HAS_TKEEP {1} "
+                "] [get_ips if_dwc_source]" % (dwc_source_s_bytes, dwc_source_m_bytes),
+                "generate_target all [get_ips if_dwc_source]",
+            ]
 
         # add all the generated IP dirs to ip_repo_paths
         ip_dirs = ["list"]
@@ -671,80 +679,104 @@ class FINNLoop(HWCustomOp, RTLBackend):
         cmd.append("update_ip_catalog")
 
         # create and instantiate FINNLoop node overarching block design
-        cmd.append("create_bd_design %s_bd_design" % (self.onnx_node.name))
-        cmd.append("create_bd_cell -type hier %s" % (self.onnx_node.name))
+        cmd.append("create_bd_design %s_bd_design" % block_name)
+        cmd.append("create_bd_cell -type hier %s" % block_name)
         clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
         rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
         # clock and reset
-        cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (self.onnx_node.name, clk_name))
-        cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (self.onnx_node.name, rst_name))
+        cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (block_name, clk_name))
+        cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (block_name, rst_name))
         # interfaces
-        node_intf = self.get_verilog_top_module_intf_names()
-        m_axis_intfs = node_intf["m_axis"]
-        s_axis_intfs = node_intf["s_axis"]
-        control_intfs = node_intf["ap_none"]
-        mm_intfs = node_intf["aximm"]
-        for intf in m_axis_intfs:
-            cmd.append(
-                "create_bd_intf_pin -mode Master "
-                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (self.onnx_node.name, intf[0])
+        if parallel:
+            # standalone stream-tap + body IP: a single activation in/out, an
+            # iteration-index in (idx_V, replayed by the taps) and the forwarded
+            # index out (fw_idx_V), plus the body weight AXI-MM interfaces.
+            loop_body_intf_names = eval(
+                self.get_nodeattr("body").get_metadata_prop("vivado_stitch_ifnames")
             )
-        for intf in s_axis_intfs:
-            cmd.append(
-                "create_bd_intf_pin -mode Slave "
-                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (self.onnx_node.name, intf[0])
-            )
-        for intf in mm_intfs:
-            cmd.append(
-                "create_bd_intf_pin -mode Master "
-                "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s" % (self.onnx_node.name, intf[0])
-            )
-        for intf in control_intfs:
-            if intf == "done_if":
+            for pin_name, pin_mode in [
+                ("in0_V", "Slave"),
+                ("idx_V", "Slave"),
+                ("fw_idx_V", "Master"),
+                ("out0_V", "Master"),
+            ]:
                 cmd.append(
-                    "create_bd_pin -from 1 -to 0 -dir O -type data /%s/%s"
-                    % (self.onnx_node.name, intf)
+                    "create_bd_intf_pin -mode %s "
+                    "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s"
+                    % (pin_mode, block_name, pin_name)
                 )
+            for intf in loop_body_intf_names["aximm"]:
+                cmd.append(
+                    "create_bd_intf_pin -mode Master "
+                    "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s" % (block_name, intf[0])
+                )
+        else:
+            node_intf = self.get_verilog_top_module_intf_names()
+            m_axis_intfs = node_intf["m_axis"]
+            s_axis_intfs = node_intf["s_axis"]
+            control_intfs = node_intf["ap_none"]
+            mm_intfs = node_intf["aximm"]
+            for intf in m_axis_intfs:
+                cmd.append(
+                    "create_bd_intf_pin -mode Master "
+                    "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (block_name, intf[0])
+                )
+            for intf in s_axis_intfs:
+                cmd.append(
+                    "create_bd_intf_pin -mode Slave "
+                    "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (block_name, intf[0])
+                )
+            for intf in mm_intfs:
+                cmd.append(
+                    "create_bd_intf_pin -mode Master "
+                    "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s" % (block_name, intf[0])
+                )
+            for intf in control_intfs:
+                if intf == "done_if":
+                    cmd.append(
+                        "create_bd_pin -from 1 -to 0 -dir O -type data /%s/%s" % (block_name, intf)
+                    )
 
-        # instantiate loop shell
-        loop_shell_name = f"{self.onnx_node.name}/{self.onnx_node.name}_loop_cont_wrapper"
-        cmd.append(
-            f"""create_bd_cell -type module -reference \
-            {self.onnx_node.name}_loop_cont_wrapper {loop_shell_name}"""
-        )
-        # connect loop shell to clk and reset
-        cmd.append(
-            "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
-            % (self.onnx_node.name, rst_name, loop_shell_name, rst_name)
-        )
-        cmd.append(
-            "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
-            % (self.onnx_node.name, clk_name, loop_shell_name, clk_name)
-        )
-        # "externalize" some of the loop shell signals
-        ext_intf_signals = ["in0_V", "out0_V", "m_axi_intermediate_frame"]
-        ext_signals = ["done_if"]
-        for sig in ext_intf_signals:
+        if not parallel:
+            # instantiate loop shell
+            loop_shell_name = f"{self.onnx_node.name}/{self.onnx_node.name}_loop_cont_wrapper"
             cmd.append(
-                "connect_bd_intf_net [get_bd_intf_pins %s/%s] [get_bd_intf_pins %s/%s]"
-                % (self.onnx_node.name, sig, loop_shell_name, sig)
+                f"""create_bd_cell -type module -reference \
+                {self.onnx_node.name}_loop_cont_wrapper {loop_shell_name}"""
             )
-        for sig in ext_signals:
+            # connect loop shell to clk and reset
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
-                % (self.onnx_node.name, sig, loop_shell_name, sig)
+                % (block_name, rst_name, loop_shell_name, rst_name)
             )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
+                % (block_name, clk_name, loop_shell_name, clk_name)
+            )
+            # "externalize" some of the loop shell signals
+            ext_intf_signals = ["in0_V", "out0_V", "m_axi_intermediate_frame"]
+            ext_signals = ["done_if"]
+            for sig in ext_intf_signals:
+                cmd.append(
+                    "connect_bd_intf_net [get_bd_intf_pins %s/%s] [get_bd_intf_pins %s/%s]"
+                    % (block_name, sig, loop_shell_name, sig)
+                )
+            for sig in ext_signals:
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
+                    % (block_name, sig, loop_shell_name, sig)
+                )
 
         # stream tap graph generation
         loop_body = self.get_nodeattr("body")
-        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
+        source_target = "./ip/verilog/rtl_ops/%s" % block_name
         cmd.append("file mkdir %s" % source_target)
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         # create a hierarchy for this layer, with the same port names
         stg_intf = {}
         stg_intf["clk"] = self.get_verilog_top_module_intf_names()["clk"]
         stg_intf["rst"] = self.get_verilog_top_module_intf_names()["rst"]
-        bd_name = f"{self.onnx_node.name}/stream_tap_graph"
+        bd_name = f"{block_name}/stream_tap_graph"
         cmd.append("create_bd_cell -type hier %s" % bd_name)
         # clock and reset
         cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (bd_name, clk_name))
@@ -754,10 +786,12 @@ class FINNLoop(HWCustomOp, RTLBackend):
             "create_bd_intf_pin -mode Master "
             "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/m_axis_0" % bd_name
         )
-        cmd.append(
-            "connect_bd_intf_net [get_bd_intf_pins %s/m_axis_0] "
-            "[get_bd_intf_pins %s/s_axis_core_out_fw_idx]" % (bd_name, loop_shell_name)
-        )
+        if not parallel:
+            # forwarded-index master goes to the loop shell
+            cmd.append(
+                "connect_bd_intf_net [get_bd_intf_pins %s/m_axis_0] "
+                "[get_bd_intf_pins %s/s_axis_core_out_fw_idx]" % (bd_name, loop_shell_name)
+            )
 
         cmd.append(
             "create_bd_intf_pin -mode Slave "
@@ -1019,11 +1053,11 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # connect stream tap graph to clk and reset
         cmd.append(
             "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
-            % (self.onnx_node.name, rst_name, bd_name, rst_name)
+            % (block_name, rst_name, bd_name, rst_name)
         )
         cmd.append(
             "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
-            % (self.onnx_node.name, clk_name, bd_name, clk_name)
+            % (block_name, clk_name, bd_name, clk_name)
         )
 
         loop_body_ipstitch_path = loop_body.get_metadata_prop("vivado_stitch_proj")
@@ -1038,16 +1072,16 @@ class FINNLoop(HWCustomOp, RTLBackend):
             "[current_project]" % ip_dirs_str
         )
         cmd.append("update_ip_catalog -rebuild -scan_changes")
-        finn_ip_name = f"{self.onnx_node.name}/finn_design_mlo"
+        finn_ip_name = f"{block_name}/finn_design_mlo"
         cmd.append("create_bd_cell -type ip -vlnv %s %s" % (loop_body_vlnv, finn_ip_name))
         # connect finn ip to clk and reset
         cmd.append(
             "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
-            % (self.onnx_node.name, rst_name, finn_ip_name, rst_name)
+            % (block_name, rst_name, finn_ip_name, rst_name)
         )
         cmd.append(
             "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
-            % (self.onnx_node.name, clk_name, finn_ip_name, clk_name)
+            % (block_name, clk_name, finn_ip_name, clk_name)
         )
         # Expose the loop body's sim_finish control to the top of the FINNLoop IP.
         # The body's stitched IP carries a sim_ctrl (inserted by CreateStitchedIP)
@@ -1055,13 +1089,13 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # the SystemVerilog final blocks that flush and close the fifo_gauge log
         # files; without this the gauge logs are left unflushed/empty during
         # characterization-based FIFO sizing.
-        cmd.append("create_bd_pin -dir I /%s/sim_finish" % self.onnx_node.name)
+        cmd.append("create_bd_pin -dir I /%s/sim_finish" % block_name)
         cmd.append(
             "connect_bd_net [get_bd_pins %s/sim_finish] [get_bd_pins %s/sim_finish]"
-            % (self.onnx_node.name, finn_ip_name)
+            % (block_name, finn_ip_name)
         )
 
-        if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
+        if not parallel and get_by_name(self.onnx_node.attribute, "address_offset") is not None:
             ac_module_name = self.onnx_node.name + "_address_config_wrapper"
             ac_inst_name = f"{self.onnx_node.name}/address_config"
             cmd.append("add_files -norecurse %s/%s.v" % (code_gen_dir, ac_module_name))
@@ -1098,7 +1132,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         for sig in ext_signals:
             cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/%s] [get_bd_intf_pins %s/%s]"
-                % (self.onnx_node.name, sig[0], finn_ip_name, sig[0])
+                % (block_name, sig[0], finn_ip_name, sig[0])
             )
         # connect components with each other
         # stream tap with finn ip
@@ -1109,37 +1143,64 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 "[get_bd_intf_pins %s/m_axis_%d] [get_bd_intf_pins %s/s_axis_%d]"
                 % (bd_name, id + 1, finn_ip_name, id + 1)
             )
-        # connect stream tap with loop wrapper
-        cmd.append(
-            "connect_bd_intf_net "
-            "[get_bd_intf_pins %s/s_axis_0] [get_bd_intf_pins %s/m_axis_core_in_fw_idx]"
-            % (bd_name, loop_shell_name)
-        )
-        # connect loop wrapper with finn ip
-        cmd.append(
-            "connect_bd_intf_net "
-            "[get_bd_intf_pins %s/m_axis_core_in] [get_bd_intf_pins %s/s_axis_0]"
-            % (loop_shell_name, finn_ip_name)
-        )
-        cmd.append(
-            "connect_bd_intf_net "
-            "[get_bd_intf_pins %s/m_axis_0] [get_bd_intf_pins %s/s_axis_core_out]"
-            % (finn_ip_name, loop_shell_name)
-        )
+        if not parallel:
+            # connect stream tap with loop wrapper
+            cmd.append(
+                "connect_bd_intf_net "
+                "[get_bd_intf_pins %s/s_axis_0] [get_bd_intf_pins %s/m_axis_core_in_fw_idx]"
+                % (bd_name, loop_shell_name)
+            )
+            # connect loop wrapper with finn ip
+            cmd.append(
+                "connect_bd_intf_net "
+                "[get_bd_intf_pins %s/m_axis_core_in] [get_bd_intf_pins %s/s_axis_0]"
+                % (loop_shell_name, finn_ip_name)
+            )
+            cmd.append(
+                "connect_bd_intf_net "
+                "[get_bd_intf_pins %s/m_axis_0] [get_bd_intf_pins %s/s_axis_core_out]"
+                % (finn_ip_name, loop_shell_name)
+            )
+        else:
+            # standalone wiring: feed the idx stream into the tap graph, expose the
+            # forwarded index, and drive the body directly with the activation in/out
+            cmd.append(
+                "connect_bd_intf_net "
+                "[get_bd_intf_pins %s/idx_V] [get_bd_intf_pins %s/s_axis_0]" % (block_name, bd_name)
+            )
+            cmd.append(
+                "connect_bd_intf_net "
+                "[get_bd_intf_pins %s/m_axis_0] [get_bd_intf_pins %s/fw_idx_V]"
+                % (bd_name, block_name)
+            )
+            cmd.append(
+                "connect_bd_intf_net "
+                "[get_bd_intf_pins %s/in0_V] [get_bd_intf_pins %s/s_axis_0]"
+                % (block_name, finn_ip_name)
+            )
+            cmd.append(
+                "connect_bd_intf_net "
+                "[get_bd_intf_pins %s/m_axis_0] [get_bd_intf_pins %s/out0_V]"
+                % (finn_ip_name, block_name)
+            )
         cmd.append("make_bd_pins_external  [get_bd_cells %s]" % block_name)
         cmd.append("make_bd_intf_pins_external  [get_bd_cells %s]" % block_name)
         cmd.append("set_property name in0_V [get_bd_intf_ports in0_V_0]")
         cmd.append("set_property name ap_clk [get_bd_ports ap_clk_0]")
         cmd.append("set_property name ap_rst_n [get_bd_ports ap_rst_n_0]")
         cmd.append("set_property name out0_V [get_bd_intf_ports out0_V_0]")
-        cmd.append(
-            "set_property name m_axi_intermediate_frame "
-            "[get_bd_intf_ports m_axi_intermediate_frame_0]"
-        )
-        cmd.append("set_property name done_if [get_bd_ports done_if_0]")
         cmd.append("set_property name sim_finish [get_bd_ports sim_finish_0]")
-        if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
-            cmd.append("set_property name s_axilite [get_bd_intf_ports s_axilite_0]")
+        if parallel:
+            cmd.append("set_property name idx_V [get_bd_intf_ports idx_V_0]")
+            cmd.append("set_property name fw_idx_V [get_bd_intf_ports fw_idx_V_0]")
+        else:
+            cmd.append(
+                "set_property name m_axi_intermediate_frame "
+                "[get_bd_intf_ports m_axi_intermediate_frame_0]"
+            )
+            cmd.append("set_property name done_if [get_bd_ports done_if_0]")
+            if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
+                cmd.append("set_property name s_axilite [get_bd_intf_ports s_axilite_0]")
         # set property name for aximm interfaces
         ext_signals = loop_body_intf_names["aximm"]
         for sig in ext_signals:
@@ -1181,7 +1242,9 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # preventing address assignment of the DDR_LOW and/or DDR_HIGH segments
         # the following is a hotfix to remove this aperture during IODMA packaging
         # Also used for MLO in the context of Zynq
-        loop_aximm_names = ["m_axi_intermediate_frame"] + [sig[0] for sig in ext_signals]
+        loop_aximm_names = [sig[0] for sig in ext_signals]
+        if not parallel:
+            loop_aximm_names = ["m_axi_intermediate_frame"] + loop_aximm_names
         for aximm_name in loop_aximm_names:
             cmd.append(
                 "ipx::remove_segment -quiet %s:APERTURE_0 "
@@ -1227,6 +1290,9 @@ class FINNLoop(HWCustomOp, RTLBackend):
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
         process_compile.communicate()
         assert os.path.isfile(wrapper_filename), "IPGen failed: %s not found" % (wrapper_filename)
+        if parallel:
+            # mlo_sim consumes the wrapper path directly for rtlsim.
+            return wrapper_filename
         self.set_nodeattr("ipgen_path", wrapper_filename)
         self.set_nodeattr("ip_path", vivado_stitch_proj_dir + "/ip")
         self.set_nodeattr("gen_top_module", "%s_bd_design_wrapper" % block_name)

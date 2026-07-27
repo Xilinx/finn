@@ -775,6 +775,176 @@ def test_finnloop_end2end_mlo(
         ), f"Check vivado.log in {tmp_output_dir}/stitched_ip"
 
 
+@pytest.mark.parametrize("mvau_cfg", [(16, 2, 2, 1, 2)])
+@pytest.mark.parametrize("iteration", [3])
+@pytest.mark.parametrize("elemwise_optype", ["ElementwiseAdd_hls"])
+@pytest.mark.parametrize("rhs_shape", [[1]])
+@pytest.mark.parametrize("eltw_param_dtype", ["INT8"])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_finnloop_end2end_mlo_parallel(
+    mvau_cfg, iteration, elemwise_optype, rhs_shape, eltw_param_dtype
+):
+    dim, mvau_pe, mvau_simd, mvau_th, helper_pe = mvau_cfg
+    # Check vivado version
+    vivado_path = os.environ.get("XILINX_VIVADO")
+    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
+    year, minor = int(match.group(1)), int(match.group(2))
+    if (year, minor) < (2024, 2):
+        pytest.skip("""At least Vivado version 2024.2 needed for MLO.""")
+    loop_body_models = create_chained_loop_bodies(
+        dim,
+        dim,
+        iteration,
+        elemwise_optype,
+        rhs_shape,
+        eltw_param_dtype,
+        mvau_pe=mvau_pe,
+        mvau_simd=mvau_simd,
+        mvau_th=mvau_th,
+        helper_pe=helper_pe,
+    )
+    nodes_per_body = len(loop_body_models[0].graph.node)
+    model = loop_body_models[0]
+    for m in loop_body_models[1:]:
+        model = model.transform(MergeONNXModels(m))
+
+    loop_in_name = model.graph.input[0].name
+    pre_in = create_tensor_info("pre_in", [1, 3, 3, dim])
+    pre_add = create_node(
+        "ElementwiseAdd_hls",
+        [pre_in.name, "pre_add_param"],
+        [loop_in_name],
+        "Add_pre",
+        {
+            "lhs_shape": [1, 3, 3, dim],
+            "rhs_shape": [1],
+            "out_shape": [1, 3, 3, dim],
+            "lhs_dtype": "INT7",
+            "rhs_dtype": "INT7",
+            "out_dtype": "INT8",
+        },
+    )
+    model.graph.value_info.append(model.graph.input[0])
+    model.graph.input.pop(0)
+    model.graph.node.insert(0, pre_add)
+    model.graph.input.append(pre_in)
+    model.set_tensor_datatype("pre_in", DataType["INT7"])
+    model.set_initializer("pre_add_param", gen_finn_dt_tensor(DataType["INT7"], [1]))
+    model.set_tensor_datatype("pre_add_param", DataType["INT7"])
+
+    tail_mid = create_tensor_info("tail_mid", [1, 3, 3, dim])
+    tail_outp = create_tensor_info("tail_outp", [1, 3, 3, dim])
+    tail_add0 = create_node(
+        "ElementwiseAdd_hls",
+        [model.graph.output[0].name, "tail_add0_param"],
+        ["tail_mid"],
+        "Add_tail0",
+        {
+            "lhs_shape": [1, 3, 3, dim],
+            "rhs_shape": [1],
+            "out_shape": [1, 3, 3, dim],
+            "lhs_dtype": "INT8",
+            "rhs_dtype": "INT8",
+            "out_dtype": "INT9",
+        },
+    )
+    tail_add1 = create_node(
+        "ElementwiseAdd_hls",
+        ["tail_mid", "tail_add1_param"],
+        ["tail_outp"],
+        "Add_tail1",
+        {
+            "lhs_shape": [1, 3, 3, dim],
+            "rhs_shape": [1],
+            "out_shape": [1, 3, 3, dim],
+            "lhs_dtype": "INT9",
+            "rhs_dtype": "INT8",
+            "out_dtype": "INT10",
+        },
+    )
+    model.graph.value_info.append(model.graph.output[0])
+    model.graph.output.pop(0)
+    model.graph.node.append(tail_add0)
+    model.graph.node.append(tail_add1)
+    model.graph.value_info.append(tail_mid)
+    model.graph.output.append(tail_outp)
+    model.set_initializer("tail_add0_param", gen_finn_dt_tensor(DataType["INT8"], [1]))
+    model.set_initializer("tail_add1_param", gen_finn_dt_tensor(DataType["INT8"], [1]))
+    model.set_tensor_datatype("tail_add0_param", DataType["INT8"])
+    model.set_tensor_datatype("tail_add1_param", DataType["INT8"])
+
+    model = model.transform(RemoveUnusedTensors())
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+
+    input_dtype = DataType["INT7"]
+    x = gen_finn_dt_tensor(input_dtype, (1, 3, 3, dim))
+    model_ref = model.transform(PrepareCppSim())
+    model_ref = model_ref.transform(CompileCppSim())
+    model_ref = model_ref.transform(SetExecMode("cppsim"))
+    io_dict = {model_ref.graph.input[0].name: x}
+    y_dict = oxe.execute_onnx(model_ref, io_dict)
+    y_ref = y_dict[model_ref.graph.output[0].name]
+
+    tmp_output_dir = make_build_dir("build_mlo_parallel")
+    np.save(tmp_output_dir + "/input.npy", x)
+    np.save(tmp_output_dir + "/expected_output.npy", y_ref)
+    model.save(tmp_output_dir + "/mlo_model.onnx")
+
+    steps = [
+        "step_create_dataflow_partition",
+        "step_loop_rolling",
+        "step_apply_folding_config",
+        "step_minimize_bit_width",
+        "step_generate_estimate_reports",
+        "step_hw_codegen",
+        "step_hw_ipgen",
+        "step_set_fifo_depths",
+        "step_create_stitched_ip",
+    ]
+
+    cfg = build_cfg.DataflowBuildConfig(
+        output_dir=tmp_output_dir,
+        steps=steps,
+        synth_clk_period_ns=10.0,
+        board="V80",
+        standalone_thresholds=True,
+        mlo=True,
+        mlo_parallel_rtlsim=True,
+        loop_body_hierarchy=[["", "layers.0"]],
+        # body nodes occupy indices 1..nodes_per_body (index 0 is the pre-loop
+        # boundary Add_pre node prepended above).
+        loop_body_range=(model.graph.node[1], model.graph.node[nodes_per_body]),
+        # "stitched_ip_rtlsim" routes into the parallel MLO path, which does its
+        # own golden per-iteration + boundary comparison (run_parallel_mlo_rtlsim).
+        verify_steps=["stitched_ip_rtlsim"],
+        verify_input_npy=tmp_output_dir + "/input.npy",
+        verify_expected_output_npy=tmp_output_dir + "/expected_output.npy",
+        # save the xsim waveform (.wdb) for each parallel iteration
+        verify_save_rtlsim_waveforms=True,
+        generate_outputs=[
+            build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
+            build_cfg.DataflowOutputType.STITCHED_IP,
+        ],
+    )
+    build.build_dataflow_cfg(tmp_output_dir + "/mlo_model.onnx", cfg)
+
+    # the parallel path writes one SUCCESS/FAIL file per iteration; assert every
+    # iteration matched its golden frame (no FAIL files, one SUCCESS file each).
+    verif_dir = tmp_output_dir + "/verification_output"
+    verify_fails = glob.glob(verif_dir + "/*FAIL*")
+    assert not verify_fails, "parallel rtlsim mismatch: %s" % ", ".join(
+        sorted(os.path.basename(p) for p in verify_fails)
+    )
+    # each iteration's SUCCESS file is named verify_parallel_<loop>_<i>_SUCCESS.npy,
+    # where <loop> is a filename-safe form of the FINNLoop node name, so glob for it.
+    for i in range(iteration):
+        matches = glob.glob(verif_dir + "/verify_parallel_*_%d_SUCCESS.npy" % i)
+        assert matches, f"parallel rtlsim iteration {i} did not succeed!"
+
+
 def _run_build_in_child(model_filename, cfg):
     sys.exit(build.build_dataflow_cfg(model_filename, cfg))
 
