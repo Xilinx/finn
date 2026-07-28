@@ -595,9 +595,7 @@ class SlashLink(Transformation):
 
         # Construct the linker invocation
         vbin_path = link_dir / "finn.vbin"
-        command = _slash_link_argv(
-            config_path, vbin_path, component_xml_paths, self.build_hardware
-        )
+        command = _slash_link_argv(config_path, vbin_path, component_xml_paths, self.build_hardware)
 
         # Run the linker
         log_path = link_dir / "slash.log"
