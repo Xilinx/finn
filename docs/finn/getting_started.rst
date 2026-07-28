@@ -11,9 +11,9 @@ Quickstart
 2. Set up ``FINN_XILINX_PATH`` and ``FINN_XILINX_VERSION`` environment variables pointing respectively to the Xilinx tools installation directory and version (e.g. ``FINN_XILINX_PATH=/opt/Xilinx`` and ``FINN_XILINX_VERSION=2022.2``)
 3. Clone the FINN compiler from the repo: ``git clone https://github.com/Xilinx/finn/`` and go into the directory where it is cloned
 4. Execute ``./run-docker.sh quicktest verify`` to verify your installation. It is normal to see warnings during the tests - FINN uses warnings to inform users about certain conditions. As long as all tests pass, your installation is successful.
-5. Optionally, follow the instructions on :ref:`PYNQ board first-time setup`, :ref:`Vitis-based Alveo first-time setup`, or :ref:`Slash-based Alveo first-time setup` for board setup.
+5. Optionally, follow the instructions on :ref:`getting_started:PYNQ board first-time setup`, :ref:`getting_started:Vitis-based Alveo first-time setup`, or :ref:`getting_started:Slash-based Alveo first-time setup` for board setup.
 6. Optionally, set up a `Vivado/Vitis license`_.
-7. All done! See :ref:`Running FINN in Docker` for the various options on how to run the FINN compiler.
+7. All done! See :ref:`getting_started:Running FINN in Docker` for the various options on how to run the FINN compiler.
 
 
 How do I use FINN?
@@ -48,7 +48,7 @@ by using the "advanced mode" described in the :ref:`command_line` section.
 Running FINN in Docker
 ======================
 FINN runs inside a Docker container, it comes with a script to easily build and launch the container. If you are not familiar with Docker, there are many excellent `online resources <https://docker-curriculum.com/>`_ to get started.
-You may want to review the :ref:`General FINN Docker tips` and :ref:`Environment variables` as well.
+You may want to review the :ref:`getting_started:General FINN Docker tips` and :ref:`getting_started:Environment variables` as well.
 
 The above mentioned script to build and launch the FINN docker container is called `run-docker.sh <https://github.com/Xilinx/finn/blob/main/run-docker.sh>`_ . It can be launched in the following modes:
 
@@ -102,6 +102,7 @@ The most relevant are summarized below:
 * (required for Vitis) ``XRT_DEB_VERSION`` specifies the .deb to be installed for XRT inside the container (see default value in ``run-docker.sh``).
 * (required for Slash) ``V80PP_DEB_PACKAGE`` specifies the .deb to be installed for Slash's v80++ linker.
 * (optional) ``NUM_DEFAULT_WORKERS`` (default 4) specifies the degree of parallelization for the transformations that can be run in parallel, potentially reducing build time
+* (optional) ``FINN_XELAB_MT`` overrides the number of threads used by ``xelab`` when building XSI simulations. Defaults to ``NUM_DEFAULT_WORKERS`` or 8 if unset. Set to 1 to disable xelab multithreading.
 * (optional) ``FINN_HOST_BUILD_DIR`` specifies which directory on the host will be used as the build directory. Defaults to ``/tmp/finn_dev_<username>``
 * (optional) ``JUPYTER_PORT`` (default 8888) changes the port for Jupyter inside Docker
 * (optional) ``JUPYTER_PASSWD_HASH`` (default "") Set the Jupyter notebook password hash. If set to empty string, token authentication will be used (token printed in terminal on launch).

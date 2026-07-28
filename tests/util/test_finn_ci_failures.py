@@ -5,12 +5,10 @@
 
 import pytest
 
-import os
-import subprocess
-import sys
+from finn_ci import __main__ as cli
+from finn_ci import failures
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-SCRIPT = os.path.join(REPO_ROOT, "ci", "scripts", "print_pytest_failures.py")
+pytestmark = pytest.mark.util
 
 
 JUNIT_WITH_FAILURES = """\
@@ -32,23 +30,14 @@ trace line 2</error>
 """
 
 
-def _run(xml_path, stash, lines_per, max_fails):
-    return subprocess.run(
-        [sys.executable, SCRIPT, str(xml_path), stash, str(lines_per), str(max_fails)],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-
-
-@pytest.mark.util
-def test_print_pytest_failures_emits_per_failure_blocks(tmp_path):
+def test_print_failures_emits_per_failure_blocks(tmp_path, capsys):
     xml = tmp_path / "stage.xml"
     xml.write_text(JUNIT_WITH_FAILURES)
 
-    result = _run(xml, "stage", lines_per=10, max_fails=10)
+    rc = failures.print_failures(str(xml), "stage", 10, 10)
 
-    out = result.stdout
+    out = capsys.readouterr().out
+    assert rc == 0
     assert "[pytest-failures stage] 2 test failure(s)" in out
     assert "FAILURE: pkg.mod::test_fails" in out
     assert "assert 1 == 2" in out
@@ -57,8 +46,7 @@ def test_print_pytest_failures_emits_per_failure_blocks(tmp_path):
     assert "trace line 2" in out
 
 
-@pytest.mark.util
-def test_print_pytest_failures_truncates_long_bodies(tmp_path):
+def test_print_failures_truncates_long_bodies(tmp_path, capsys):
     body_lines = "\n".join("line %02d" % i for i in range(50))
     xml = tmp_path / "stage.xml"
     xml.write_text(
@@ -69,15 +57,15 @@ def test_print_pytest_failures_truncates_long_bodies(tmp_path):
         "</testcase></testsuite></testsuites>\n" % body_lines
     )
 
-    result = _run(xml, "stage", lines_per=5, max_fails=10)
+    failures.print_failures(str(xml), "stage", 5, 10)
 
-    assert "earlier lines elided" in result.stdout
-    assert "line 49" in result.stdout
-    assert "line 04" not in result.stdout
+    out = capsys.readouterr().out
+    assert "earlier lines elided" in out
+    assert "line 49" in out
+    assert "line 04" not in out
 
 
-@pytest.mark.util
-def test_print_pytest_failures_caps_to_max_failures(tmp_path):
+def test_print_failures_caps_to_max_failures(tmp_path, capsys):
     cases = "\n".join(
         "<testcase classname='c' name='t%d'><failure message='m'>x</failure></testcase>" % i
         for i in range(5)
@@ -89,14 +77,14 @@ def test_print_pytest_failures_caps_to_max_failures(tmp_path):
         "%s\n</testsuite></testsuites>\n" % cases
     )
 
-    result = _run(xml, "stage", lines_per=10, max_fails=2)
+    failures.print_failures(str(xml), "stage", 10, 2)
 
-    assert "5 test failure(s)" in result.stdout
-    assert "and 3 more failure(s) elided" in result.stdout
+    out = capsys.readouterr().out
+    assert "5 test failure(s)" in out
+    assert "and 3 more failure(s) elided" in out
 
 
-@pytest.mark.util
-def test_print_pytest_failures_handles_no_failures(tmp_path):
+def test_print_failures_handles_no_failures(tmp_path, capsys):
     xml = tmp_path / "stage.xml"
     xml.write_text(
         "<?xml version='1.0'?>\n"
@@ -104,16 +92,24 @@ def test_print_pytest_failures_handles_no_failures(tmp_path):
         "<testcase classname='c' name='t'/></testsuite></testsuites>\n"
     )
 
-    result = _run(xml, "stage", lines_per=10, max_fails=10)
+    failures.print_failures(str(xml), "stage", 10, 10)
 
-    assert "no test failures recorded" in result.stdout
+    assert "no test failures recorded" in capsys.readouterr().out
 
 
-@pytest.mark.util
-def test_print_pytest_failures_handles_unparseable_xml(tmp_path):
+def test_print_failures_handles_unparseable_xml(tmp_path, capsys):
     xml = tmp_path / "stage.xml"
     xml.write_text("not actually xml")
 
-    result = _run(xml, "stage", lines_per=10, max_fails=10)
+    failures.print_failures(str(xml), "stage", 10, 10)
 
-    assert "failed to parse" in result.stdout
+    assert "failed to parse" in capsys.readouterr().out
+
+
+def test_print_failures_cli_smoke(tmp_path, capsys):
+    # exercise the print-failures subcommand wiring in finn_ci.__main__.
+    xml = tmp_path / "stage.xml"
+    xml.write_text(JUNIT_WITH_FAILURES)
+    rc = cli.main(["print-failures", str(xml), "stage", "10", "10"])
+    assert rc == 0
+    assert "[pytest-failures stage] 2 test failure(s)" in capsys.readouterr().out

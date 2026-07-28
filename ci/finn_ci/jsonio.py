@@ -3,10 +3,12 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""JSON read helper shared across the finn_ci package."""
+"""JSON read/write helpers shared across the finn_ci package."""
 
 import json
+import os
 import sys
+import tempfile
 
 
 def read_json(path, default=None):
@@ -25,3 +27,22 @@ def read_json(path, default=None):
             file=sys.stderr,
         )
         return default
+
+
+def write_json_atomic(path, data):
+    parent = os.path.dirname(os.path.abspath(path))
+    # exist_ok=True so two concurrent first-time callers on a shared NFS root
+    # cannot race on mkdir.
+    os.makedirs(parent, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".tmp-", suffix=".json", dir=parent)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2, sort_keys=True)
+            f.write("\n")
+        os.rename(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise

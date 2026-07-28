@@ -306,6 +306,12 @@ compilation transformations?
         process_execute = subprocess.Popen(executable_path, stdout=subprocess.PIPE)
         process_execute.communicate()
 
+    def fold_input_for_npy(self, inp_val, ind):
+        """Lay an input tensor out into the folded shape written to the npy that
+        feeds cppsim/rtlsim. Overridable seam for ops whose npy layout differs
+        from the folded shape."""
+        return inp_val.reshape(self.get_folded_input_shape(ind))
+
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         node = self.onnx_node
@@ -324,7 +330,6 @@ compilation transformations?
         inputs = {}
         for i, inp in enumerate(node.input):
             exp_ishape = tuple(self.get_normal_input_shape(i))
-            folded_ishape = self.get_folded_input_shape(i)
             inp_val = context[inp]
             # Make sure the input has the right container datatype
             if inp_val.dtype not in [np.float32, np.float16]:
@@ -344,7 +349,7 @@ compilation transformations?
                 inp_val = (inp_val + 1) / 2
                 export_idt = DataType["BINARY"]
 
-            reshaped_input = inp_val.reshape(folded_ishape)
+            reshaped_input = self.fold_input_for_npy(inp_val, i)
             reshaped_input = reshaped_input.copy()
             np.save(os.path.join(code_gen_dir, "input_%s.npy" % i), reshaped_input)
             nbits = self.get_instream_width(i)

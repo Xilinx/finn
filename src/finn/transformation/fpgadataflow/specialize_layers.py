@@ -87,6 +87,11 @@ def _determine_impl_style(node, fpgapart, model):
                     return "rtl"
                 else:
                     _raise_pwpolyf_unsupported(node, fpgapart)
+            elif optype == "HWSoftmax":
+                if _softmax_rtl_possible(node, fpgapart):
+                    return "rtl"
+                else:
+                    return "hls"
             elif optype == "Requant":
                 if _requant_rtl_possible(node, fpgapart):
                     return "rtl"
@@ -177,6 +182,17 @@ def _determine_impl_style(node, fpgapart, model):
                 warn_str = """There is no RTL variant for %s. The node will automatically be
                         set to HLS variant. The RTL Layernorm layer currently only supports
                         float32 inputs and uses DSP58, so only versal devices supported.""" % (
+                    node.name,
+                )
+                warnings.warn(warn_str)
+                return "hls"
+        elif optype == "HWSoftmax":
+            if _softmax_rtl_possible(node, fpgapart):
+                return "rtl"
+            else:
+                warn_str = """There is no RTL variant for %s. The node will automatically be
+                        set to HLS variant. The RTL SoftMax layer uses DSPFP32, so only
+                        versal devices are supported.""" % (
                     node.name,
                 )
                 warnings.warn(warn_str)
@@ -384,6 +400,12 @@ def _raise_pwpolyf_unsupported(n, fpgapart):
         on Versal devices."""
         % (n.name, fpgapart)
     )
+
+
+def _softmax_rtl_possible(n, fpgapart):
+    # Checks whether RTL-based SoftMax is supported.
+    # The RTL softmax core uses DSPFP32, so only Versal devices are supported.
+    return is_versal(fpgapart)
 
 
 def _requant_rtl_possible(n, fpgapart):

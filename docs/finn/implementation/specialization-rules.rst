@@ -1,8 +1,8 @@
 .. _specialization_rules:
 
-*************************************
+******************************************
 SpecializeLayers: HLS vs RTL Selection
-*************************************
+******************************************
 
 The ``SpecializeLayers`` transformation converts backend-agnostic base layers into specific HLS or RTL variants based on constraints and preferences.
 
