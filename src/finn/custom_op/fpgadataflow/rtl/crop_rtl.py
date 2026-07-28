@@ -1,12 +1,7 @@
-############################################################################
-# Copyright (C) 2026, Advanced Micro Devices, Inc.
-# All rights reserved.
-#
+# Copyright Advanced Micro Devices, Inc.
 # SPDX-License-Identifier: BSD-3-Clause
-############################################################################
 
 import os
-import shutil
 
 from finn.custom_op.fpgadataflow.crop import Crop
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
@@ -56,26 +51,26 @@ class Crop_rtl(Crop, RTLBackend):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         with open(os.path.join(code_gen_dir, topname + ".v"), "w") as f:
             f.write(template)
-        shutil.copy(os.path.join(rtlsrc, "crop.sv"), code_gen_dir)
         self.set_nodeattr("ipgen_path", code_gen_dir)
         self.set_nodeattr("ip_path", code_gen_dir)
 
     def get_rtl_file_list(self, abspath=False):
         if abspath:
-            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-            rtlsrc = _rtlsrc_dir()
-        else:
-            code_gen_dir = ""
-            rtlsrc = ""
-        return [
-            os.path.join(rtlsrc, "crop.sv"),
-            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + ".v"),
-        ]
+            return [
+                os.path.join(_rtlsrc_dir(), "crop.sv"),
+                os.path.join(
+                    self.get_nodeattr("code_gen_dir_ipgen"),
+                    self.get_nodeattr("gen_top_module") + ".v",
+                ),
+            ]
+        return ["crop.sv", self.get_nodeattr("gen_top_module") + ".v"]
 
     def code_generation_ipi(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        sourcefiles = ["crop.sv", self.get_nodeattr("gen_top_module") + ".v"]
-        cmd = ["add_files -norecurse %s" % os.path.join(code_gen_dir, f) for f in sourcefiles]
+        sourcefiles = self.get_rtl_file_list(abspath=True)
+        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
+        cmd = ["file mkdir %s" % source_target]
+        for f in sourcefiles:
+            cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
         cmd += [
             "create_bd_cell -type module -reference %s %s"
             % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)

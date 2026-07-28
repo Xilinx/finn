@@ -1,9 +1,5 @@
-############################################################################
-# Copyright (C) 2026, Advanced Micro Devices, Inc.
-# All rights reserved.
-#
+# Copyright Advanced Micro Devices, Inc.
 # SPDX-License-Identifier: BSD-3-Clause
-############################################################################
 
 import numpy as np
 import warnings
@@ -85,9 +81,6 @@ class SelectToken(HWCustomOp):
 
     def get_outstream_width(self, ind=0):
         return self.get_output_datatype().bitwidth() * self.get_nodeattr("SIMD")
-
-    def get_number_output_values(self):
-        return int(np.prod(self.get_folded_output_shape()[:-1]))
 
     def get_exp_cycles(self):
         return int(np.prod(self.get_folded_input_shape()[:-1]))

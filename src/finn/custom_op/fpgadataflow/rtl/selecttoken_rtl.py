@@ -1,9 +1,5 @@
-############################################################################
-# Copyright (C) 2026, Advanced Micro Devices, Inc.
-# All rights reserved.
-#
+# Copyright Advanced Micro Devices, Inc.
 # SPDX-License-Identifier: BSD-3-Clause
-############################################################################
 
 from finn.custom_op.fpgadataflow.rtl.crop_rtl import Crop_rtl
 from finn.custom_op.fpgadataflow.selecttoken import SelectToken
