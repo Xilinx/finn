@@ -4,7 +4,6 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import hashlib
-
 from finn_ci import sharding
 
 
