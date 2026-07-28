@@ -28,7 +28,6 @@
 
 import pytest
 
-import csv
 import numpy as np
 import qonnx.custom_op.general.xnorpopcount as xp
 from onnx import TensorProto, helper

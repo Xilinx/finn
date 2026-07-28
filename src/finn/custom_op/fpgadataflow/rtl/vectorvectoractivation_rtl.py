@@ -28,9 +28,9 @@
 
 import numpy as np
 import os
+import subprocess
 from qonnx.core.datatype import DataType
 
-import subprocess
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.custom_op.fpgadataflow.vectorvectoractivation import VVAU
 from finn.util.basic import is_versal
@@ -158,7 +158,9 @@ class VVAU_rtl(VVAU, RTLBackend):
         return (
             [
                 os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"),
-                os.path.join(code_gen_dir, "mvu_vvu_axi.sv"),  # local copy w/ substituted placeholder
+                os.path.join(
+                    code_gen_dir, "mvu_vvu_axi.sv"
+                ),  # local copy w/ substituted placeholder
                 os.path.join(code_gen_dir, "add_multi.sv"),  # FINN wrapper over add_multi_sv
             ]
             + [rtllib_dir + _ for _ in rtllib_files]

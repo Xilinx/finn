@@ -154,6 +154,7 @@ module $MVU_CORE_NAME$ #(
 	localparam bit           SCHED_ACC        = 1'b1;
 	localparam bit           SCHED_EN         = 1'b1;
 	localparam int unsigned  SCHED_TERMINAL_KIND = 0;   // quaternary (accumulating path)
+	localparam int           SCHED_ACC_KIND      = 0;   // 0 = fused loop adder, 1 = split "2-row"
 	localparam int           SCHED_BUDGET     = USE_COMPRESSOR? CYCLE_BUDGET : 0;
 	localparam bit           SCHED_FORCE_BOOTH  = 1'b0;
 	localparam bit           SCHED_FORCE_RADIX2 = 1'b0;
