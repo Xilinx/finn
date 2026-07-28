@@ -44,7 +44,7 @@ from finn.builder.build_dataflow_steps import (
     step_tidy_up,
     step_transpose_decomposition,
 )
-from finn.util.mlo_sim import is_mlo
+from finn.util.fpgadataflow import is_mlo
 
 
 def _save_intermediate_model(model: ModelWrapper, step_name: str, cfg: DataflowBuildConfig):
@@ -189,6 +189,7 @@ def phase_optimize_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     Whether FIFO sizing runs here is an orchestration decision owned by the phase
     (the step itself just sizes FIFOs):
+
     - For MLO models it is deferred to phase_build_hardware, because the
       characterize strategy requires FINNLoop nodes to have stitched IP, which
       depends on loop body FIFO sizing and IP generation happening first.
