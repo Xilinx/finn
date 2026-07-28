@@ -256,7 +256,7 @@ class _FakeSession:
 def _drive_sessionfinish(tmp_path, exitstatus):
     # exercise the per-shard trust guard via a stub session, without spinning up
     # a full pytest run just to reach pytest_sessionfinish.
-    instance = plugin._FinnCiShardingPlugin()
+    instance = plugin._FinnCiPlugin()
     instance.timings = {
         "per_test_seconds": {"tests/foo.py::test_a": 1.0},
         "nodeid_to_group": {},

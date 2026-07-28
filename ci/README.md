@@ -40,7 +40,7 @@ Decorate it with the existing markers. For example, `@pytest.mark.fpgadataflow`.
 
 ### Clean up scratch in a test
 
-Use FINN's `make_build_dir()` and tear it down with the `robust_rmtree()` helper.
+Do not write scratch into the current working directory. Use FINN's `make_build_dir()` and tear it down with the `robust_rmtree()` helper. Successful tests should remove disposable scratch, while failed tests can keep it for diagnosis.
 
 ### Add a new BNN parameter value
 
