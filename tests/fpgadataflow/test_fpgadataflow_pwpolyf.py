@@ -24,7 +24,11 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.torch_hw_modules import PWPolyFActivation
+from finn.util.torch_hw_modules import (
+    PWPOLYF_ONNX_DOMAIN,
+    PWPOLYF_ONNX_OPSET,
+    PWPolyFActivation,
+)
 
 test_fpga_part = "xcvc1902-vsva2197-2MP-e-S"
 non_versal_fpga_part = "xczu3eg-sbva484-1-e"
@@ -136,10 +140,14 @@ def test_pwpolyf_onnx_export(func):
     pwp_nodes = [n for n in onnx_model.graph.node if n.op_type == "PWPolyF"]
     assert len(pwp_nodes) == 1
     node = pwp_nodes[0]
+    assert node.domain == PWPOLYF_ONNX_DOMAIN
+    assert len(node.input) == 1
     func_attr = {a.name: a for a in node.attribute}
     assert func_attr["func"].s.decode("utf-8") == func
     assert func_attr["K"].i == K
     assert func_attr["degree"].i == degree
+    opsets = {opset.domain: opset.version for opset in onnx_model.opset_import}
+    assert opsets[PWPOLYF_ONNX_DOMAIN] == PWPOLYF_ONNX_OPSET
 
 
 @pytest.mark.parametrize("func", ["gelu", "sigmoid"])
@@ -170,7 +178,7 @@ def test_pwpolyf_infer_transform(func):
 
     node = model.graph.node[0]
     assert node.op_type == "PWPolyF"
-    assert node.domain != "finn.custom_op.fpgadataflow"
+    assert node.domain == PWPOLYF_ONNX_DOMAIN
 
     model = model.transform(InferPWPolyFLayer())
 

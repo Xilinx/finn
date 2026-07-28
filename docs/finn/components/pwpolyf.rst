@@ -34,12 +34,12 @@ Two export paths are supported:
 
 .. code-block:: text
 
-   Path A: PWPolyFActivation             Path B: nn.GELU / nn.SiLU / etc.
-       |  torch.onnx.export                   |  torch.onnx.export
-       |  (dynamo=False)                      |  (dynamo=True or False)
-       v                                      v
-   PWPolyF custom ONNX node           Standard ONNX ops (Gelu, Sigmoid,
-       |                               Tanh, Sigmoid+Mul for SiLU,
+   Path A: Brevitas PWPolyFGELU /       Path B: nn.GELU / nn.SiLU / etc.
+           PWPolyFSiLU / etc.               |  torch.onnx.export
+       |  export_finn_onnx                  |  (dynamo=True or False)
+       |  (dynamo=True or False)            v
+       v                               Standard ONNX ops (Gelu, Sigmoid,
+   finn.pwpolyf::PWPolyF node          Tanh, Sigmoid+Mul for SiLU,
        |                               Div+Erf+Add+Mul+Mul for GELU)
        |                                      |
        +------------- both paths -------------+
@@ -141,9 +141,10 @@ ONNX Export
 
 Two export paths are supported:
 
-* ``PWPolyFActivation`` exports as a single ``PWPolyF`` custom op via
-  ``torch.autograd.Function.symbolic()``. It requires ``dynamo=False`` and
-  preserves the ``K`` attribute on the ONNX node.
+* Brevitas ``PWPolyFGELU``, ``PWPolyFSiLU``, ``PWPolyFSigmoid``, and
+  ``PWPolyFTanh`` export with ``export_finn_onnx`` as a single
+  ``finn.pwpolyf::PWPolyF`` custom op at custom opset version 1. Both the
+  legacy and Dynamo exporters preserve ``func``, ``K``, and ``degree``.
 * Standard PyTorch modules (``nn.GELU``, ``nn.SiLU``, ``nn.Sigmoid``,
   ``nn.Tanh``) export with ``dynamo=True`` or ``dynamo=False`` and produce
   standard ONNX ops that ``InferPWPolyFLayer`` converts to PWPolyF with
@@ -153,6 +154,7 @@ Attributes on the explicit PWPolyF ONNX node are:
 
 * ``func``: one of ``gelu``, ``silu``, ``sigmoid``, ``tanh``
 * ``K``: mantissa subdivision bits, default 3
+* ``degree``: polynomial degree, default 2
 
 Node Attributes
 ---------------
@@ -224,7 +226,7 @@ Python files:
    * - File
      - Purpose
    * - ``util/torch_hw_modules.py``
-     - PyTorch activation module, ONNX export, software simulation
+     - Internal PyTorch reference model, compatibility export, software simulation
    * - ``custom_op/fpgadataflow/pwpolyf.py``
      - Base HW op for shape, folding, resource estimates, cppsim
    * - ``custom_op/fpgadataflow/rtl/pwpolyf_rtl.py``
@@ -262,7 +264,7 @@ Tests
 
 * cppsim for all supported functions, channel counts, spatial shapes, and
   foldings
-* ONNX export for the explicit ``PWPolyFActivation`` path
+* ONNX export against the Brevitas ``finn.pwpolyf`` opset-1 contract
 * ``InferPWPolyFLayer`` conversion and execution
 * standard op inference for Gelu, Sigmoid, Tanh, SiLU, and Erf-based GELU
 * execution correctness against ``PWPolyFActivation``

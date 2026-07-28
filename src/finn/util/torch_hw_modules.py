@@ -20,6 +20,8 @@ EXP_BASE = 125
 EXP_CLAMP = 130
 
 SUPPORTED_FUNCS = ("gelu", "silu", "sigmoid", "tanh")
+PWPOLYF_ONNX_DOMAIN = "finn.pwpolyf"
+PWPOLYF_ONNX_OPSET = 1
 
 REFERENCE_FUNCS = {
     "gelu": lambda x: F.gelu(x),
@@ -145,7 +147,15 @@ class PWPolyFFunction(torch.autograd.Function):
 
     @staticmethod
     def symbolic(g, x, coeffs, neg_clamp_val, pos_clamp_val, func, K, degree):
-        return g.op("PWPolyF", x, func_s=func, K_i=K, degree_i=degree)
+        ret = g.op(
+            "%s::PWPolyF" % PWPOLYF_ONNX_DOMAIN,
+            x,
+            func_s=func,
+            K_i=K,
+            degree_i=degree,
+        )
+        ret.setType(x.type())
+        return ret
 
 
 class PWPolyFActivation(nn.Module):
