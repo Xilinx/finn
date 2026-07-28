@@ -178,9 +178,6 @@ class Pad1D(HWCustomOp):
     def get_outstream_width(self, ind=0):
         return self.get_output_datatype().bitwidth() * self.get_nodeattr("SIMD")
 
-    def get_number_output_values(self):
-        return int(np.prod(self.get_folded_output_shape()[:-1]))
-
     def get_exp_cycles(self):
         return int(np.prod(self.get_folded_output_shape()[:-1]))
 

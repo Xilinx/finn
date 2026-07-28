@@ -1341,16 +1341,6 @@ class InferPad1DLayer(Transformation):
     as well as constant left/right 1D padding around one streamed tensor.
     """
 
-    def _get_tensor_shape(self, model, tensor_name):
-        shape = model.get_tensor_shape(tensor_name)
-        if shape is not None:
-            return list(shape)
-
-        init = model.get_initializer(tensor_name)
-        if init is not None:
-            return list(init.shape)
-        return None
-
     def _make_pad_initializer(self, model, graph, values, idt):
         values = np.asarray(values, dtype=np.float32)
         pad_name = model.make_new_valueinfo_name()
@@ -1384,7 +1374,7 @@ class InferPad1DLayer(Transformation):
             stream_ind = stream_inds[0]
             stream_name = node.input[stream_ind]
 
-            stream_shape = self._get_tensor_shape(model, stream_name)
+            stream_shape = model.get_tensor_shape(stream_name)
             if stream_shape is None:
                 continue
             if any(x is None for x in stream_shape):
@@ -1405,10 +1395,7 @@ class InferPad1DLayer(Transformation):
                     const_values.append(None)
                     continue
 
-                const_shape = self._get_tensor_shape(model, inp)
-                if const_shape is None or any(x is None for x in const_shape):
-                    valid_const_inputs = False
-                    break
+                const_shape = list(init.shape)
                 if (
                     len(const_shape) != 3
                     or const_shape[0] != 1
