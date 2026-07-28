@@ -238,6 +238,20 @@ def test_unsigned_quant_conversion_supports_per_channel_zero_point():
 
 
 @pytest.mark.transform
+def test_unsigned_narrow_quant_streamline_preserves_ternary_datatype():
+    x = np.array([[-0.5, -0.25, 0.0, 0.25, 0.5]], dtype=np.float32)
+    model = _make_single_quant_model(x, [0.25], [1.0], [2.0], 0, 1, "ROUND")
+    streamlined = model.transform(ConvertQONNXtoFINN()).transform(Streamline())
+
+    expected = oxe.execute_onnx(model, {"global_in": x})["global_out"]
+    actual = oxe.execute_onnx(streamlined, {"global_in": x})["global_out"]
+    threshold = streamlined.get_nodes_by_op_type("MultiThreshold")[0]
+
+    assert streamlined.get_tensor_datatype(threshold.output[0]).name == "TERNARY"
+    assert np.array_equal(actual, expected)
+
+
+@pytest.mark.transform
 def test_QONNX_to_FINN_threshold_precision():
     """Regression test for a float32 accumulation error in MultiThreshold
     threshold derivation (QuantActBaseHandler._calculate_thresholds).
