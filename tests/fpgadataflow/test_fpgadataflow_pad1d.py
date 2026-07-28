@@ -31,11 +31,10 @@ from finn.util.vivado import parse_ooc_synth_results
 FPGA_PART = "xc7z020clg400-1"
 CLK_NS = 10
 PATCHES = np.arange(12, dtype=np.float32).reshape(1, 3, 4)
-LEFT_PAD_TOKEN = np.asarray([[[1, -2, 3, -4]]], dtype=np.float32)
-RIGHT_PAD_TOKEN = np.asarray([[[5, 6, -7, 8]]], dtype=np.float32)
 
 
-def make_pad1d_modelwrapper(pad_left, pad_right):
+def make_pad1d_modelwrapper(pad_left, pad_right, pad_tokens, finn_dtype):
+    left_pad_token, right_pad_token = pad_tokens
     patch_shape = [1, 3, 4]
     patches = helper.make_tensor_value_info("patches", TensorProto.FLOAT, patch_shape)
     output_shape = [1, patch_shape[1] + pad_left + pad_right, patch_shape[2]]
@@ -44,13 +43,13 @@ def make_pad1d_modelwrapper(pad_left, pad_right):
     concat_inputs = []
     initializers = []
     if pad_left > 0:
-        left_values = np.repeat(LEFT_PAD_TOKEN, pad_left, axis=1)
+        left_values = np.repeat(left_pad_token, pad_left, axis=1)
         left_init = numpy_helper.from_array(left_values, name="left_pad")
         concat_inputs.append("left_pad")
         initializers.append(left_init)
     concat_inputs.append("patches")
     if pad_right > 0:
-        right_values = np.repeat(RIGHT_PAD_TOKEN, pad_right, axis=1)
+        right_values = np.repeat(right_pad_token, pad_right, axis=1)
         right_init = numpy_helper.from_array(right_values, name="right_pad")
         concat_inputs.append("right_pad")
         initializers.append(right_init)
@@ -64,10 +63,10 @@ def make_pad1d_modelwrapper(pad_left, pad_right):
             opset_imports=[helper.make_opsetid("", 11)],
         )
     )
-    model.set_tensor_datatype("patches", DataType["INT8"])
-    model.set_tensor_datatype("out", DataType["INT8"])
+    model.set_tensor_datatype("patches", finn_dtype)
+    model.set_tensor_datatype("out", finn_dtype)
     for init in initializers:
-        model.set_tensor_datatype(init.name, DataType["INT8"])
+        model.set_tensor_datatype(init.name, finn_dtype)
     return model
 
 
@@ -75,9 +74,10 @@ def prepare_inputs(input_tensor):
     return {"patches": input_tensor}
 
 
-def prepare_expected(pad_left, pad_right):
-    values = [np.repeat(LEFT_PAD_TOKEN, pad_left, axis=1), PATCHES]
-    values.append(np.repeat(RIGHT_PAD_TOKEN, pad_right, axis=1))
+def prepare_expected(pad_left, pad_right, pad_tokens):
+    left_pad_token, right_pad_token = pad_tokens
+    values = [np.repeat(left_pad_token, pad_left, axis=1), PATCHES]
+    values.append(np.repeat(right_pad_token, pad_right, axis=1))
     return np.concatenate(values, axis=1)
 
 
@@ -109,7 +109,6 @@ def expected_resources(pad_left, pad_right):
     }
 
 
-# Keep these settings coupled to preserve the original slow Vivado matrix.
 # SIMD and padding configuration
 @pytest.mark.parametrize(
     "config",
@@ -118,16 +117,48 @@ def expected_resources(pad_left, pad_right):
         pytest.param((2, 2, 1), id="simd2-left2-right1"),
     ],
 )
+# datatype and pad token values (combined so values fit in dtype range)
+@pytest.mark.parametrize(
+    "dtype_and_tokens",
+    [
+        pytest.param(
+            (
+                DataType["INT8"],
+                np.asarray([[[1, -2, 3, -4]]], dtype=np.float32),
+                np.asarray([[[-5, 6, -7, 8]]], dtype=np.float32),
+            ),
+            id="INT8-mixed",
+        ),
+        pytest.param(
+            (
+                DataType["UINT4"],
+                np.asarray([[[1, 2, 3, 4]]], dtype=np.float32),
+                np.asarray([[[5, 6, 7, 8]]], dtype=np.float32),
+            ),
+            id="UINT4-positive",
+        ),
+        pytest.param(
+            (
+                DataType["INT6"],
+                np.asarray([[[-1, -2, -3, -4]]], dtype=np.float32),
+                np.asarray([[[5, 6, 7, 8]]], dtype=np.float32),
+            ),
+            id="INT6-negative-left",
+        ),
+    ],
+)
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["rtlsim", "stitched_rtlsim"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_fpgadataflow_pad1d(config, exec_mode):
+def test_fpgadataflow_pad1d(config, dtype_and_tokens, exec_mode):
     simd, pad_left, pad_right = config
-    model = make_pad1d_modelwrapper(pad_left, pad_right)
+    finn_dtype, left_pad_token, right_pad_token = dtype_and_tokens
+    pad_tokens = (left_pad_token, right_pad_token)
+    model = make_pad1d_modelwrapper(pad_left, pad_right, pad_tokens, finn_dtype)
     input_dict = prepare_inputs(PATCHES)
-    y_expected = prepare_expected(pad_left, pad_right)
+    y_expected = prepare_expected(pad_left, pad_right, pad_tokens)
 
     # Golden reference from the original Concat graph.
     y_produced = oxe.execute_onnx(model, input_dict)["out"]
@@ -168,9 +199,14 @@ def test_fpgadataflow_pad1d(config, exec_mode):
 @pytest.mark.slow
 def test_pad1d_stitched_ip_synth_ooc():
     simd, pad_left, pad_right = 2, 1, 1
-    model = make_pad1d_modelwrapper(pad_left, pad_right)
+    finn_dtype = DataType["INT8"]
+    pad_tokens = (
+        np.asarray([[[1, -2, 3, -4]]], dtype=np.float32),
+        np.asarray([[[5, 6, -7, 8]]], dtype=np.float32),
+    )
+    model = make_pad1d_modelwrapper(pad_left, pad_right, pad_tokens, finn_dtype)
     input_dict = prepare_inputs(PATCHES)
-    y_expected = prepare_expected(pad_left, pad_right)
+    y_expected = prepare_expected(pad_left, pad_right, pad_tokens)
 
     # Golden reference from the original Concat graph.
     y_produced = oxe.execute_onnx(model, input_dict)["out"]
