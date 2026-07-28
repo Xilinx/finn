@@ -7,12 +7,12 @@ import numpy as np
 import os
 import tempfile
 import torch
-from onnx import TensorProto, helper
+from onnx import TensorProto, helper, load
+from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
-from qonnx.transformation.infer_datatypes import InferDataTypes
-from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
@@ -30,12 +30,20 @@ from finn.util.torch_hw_modules import (
     PWPolyFActivation,
 )
 
-test_fpga_part = "xcvc1902-vsva2197-2MP-e-S"
-non_versal_fpga_part = "xczu3eg-sbva484-1-e"
-target_clk_ns = 5
+TEST_FPGA_PART = "xcvc1902-vsva2197-2MP-e-S"
+NON_VERSAL_FPGA_PART = "xczu3eg-sbva484-1-e"
+TARGET_CLK_NS = 5
+
+ACTIVATION_PATTERNS = {
+    "Gelu": (["Gelu"], "gelu"),
+    "Sigmoid": (["Sigmoid"], "sigmoid"),
+    "Tanh": (["Tanh"], "tanh"),
+    "silu": (["Sigmoid", "Mul"], "silu"),
+    "erf_gelu": (["Div", "Erf", "Add", "Mul", "Mul"], "gelu"),
+}
 
 
-def make_pwpolyf_modelwrapper(func, K, num_channels, num_input_vecs):
+def make_pwpolyf_modelwrapper(func, k, num_channels, num_input_vecs):
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, num_input_vecs + [num_channels])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, num_input_vecs + [num_channels])
 
@@ -46,7 +54,7 @@ def make_pwpolyf_modelwrapper(func, K, num_channels, num_input_vecs):
         domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
         func=func,
-        K=K,
+        K=k,
         NumChannels=num_channels,
         PE=1,
         inputDataType="FLOAT32",
@@ -61,293 +69,58 @@ def make_pwpolyf_modelwrapper(func, K, num_channels, num_input_vecs):
         inputs=[inp],
         outputs=[outp],
     )
-    model = helper.make_model(graph, producer_name="pwpolyf-test")
-    model = ModelWrapper(model)
-    model = model.transform(InferShapes())
-    model = model.transform(InferDataTypes())
-    model = model.transform(GiveUniqueNodeNames())
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="pwpolyf-test"))
+    model.set_tensor_datatype("inp", DataType["FLOAT32"])
+    model.set_tensor_datatype("outp", DataType["FLOAT32"])
     return model
 
 
-def make_pwpolyf_rtl_inst(K=3, degree=2):
-    model = make_pwpolyf_modelwrapper("gelu", K, 4, [1])
-    model = model.transform(SpecializeLayers(test_fpga_part))
-    inst = getCustomOp(model.graph.node[0])
-    inst.set_nodeattr("degree", degree)
-    return inst
-
-
-@pytest.mark.parametrize("func", ["gelu", "silu", "sigmoid", "tanh"])
-@pytest.mark.parametrize("num_channels", [4, 16])
-@pytest.mark.parametrize("num_input_vecs", [[1], [1, 2, 2]])
-@pytest.mark.parametrize("fold", [-1, 1, 2])
-@pytest.mark.fpgadataflow
-def test_pwpolyf_cppsim(func, num_channels, num_input_vecs, fold):
-    K = 3
-    if fold == -1:
-        fold = num_channels
-    pe = num_channels // fold
-    if num_channels % pe != 0:
-        pytest.skip("Invalid folding configuration.")
-
-    model = make_pwpolyf_modelwrapper(func, K, num_channels, num_input_vecs)
-    node = model.graph.node[0]
-    inst = getCustomOp(node)
-    inst.set_nodeattr("PE", pe)
-
-    input_shape = tuple(num_input_vecs + [num_channels])
-    x = np.random.uniform(-10, 10, input_shape).astype(np.float32)
-
-    ref_mod = PWPolyFActivation(func, K=K)
-    with torch.no_grad():
-        y_expected = ref_mod(torch.from_numpy(x)).numpy()
-
-    input_dict = {"inp": x}
-    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
-
-    assert y_produced.shape == y_expected.shape
-    assert np.allclose(y_produced, y_expected, atol=1e-6)
-
-
-@pytest.mark.parametrize("func", ["gelu", "silu", "sigmoid", "tanh"])
-@pytest.mark.fpgadataflow
-def test_pwpolyf_onnx_export(func):
-    K = 3
-    degree = 3
-    num_channels = 32
-    mod = PWPolyFActivation(func, K=K, degree=degree)
-    mod.eval()
-    dummy = torch.randn(1, num_channels)
-
-    with tempfile.NamedTemporaryFile(suffix=".onnx", delete=False) as f:
-        tmpf = f.name
-    try:
-        torch.onnx.export(
-            mod,
-            dummy,
-            tmpf,
-            input_names=["input"],
-            output_names=["output"],
-            opset_version=13,
-            dynamo=False,
-        )
-        import onnx  # noqa: PLC0415
-
-        onnx_model = onnx.load(tmpf)
-    finally:
-        os.unlink(tmpf)
-
-    pwp_nodes = [n for n in onnx_model.graph.node if n.op_type == "PWPolyF"]
-    assert len(pwp_nodes) == 1
-    node = pwp_nodes[0]
-    assert node.domain == PWPOLYF_ONNX_DOMAIN
-    assert len(node.input) == 1
-    func_attr = {a.name: a for a in node.attribute}
-    assert func_attr["func"].s.decode("utf-8") == func
-    assert func_attr["K"].i == K
-    assert func_attr["degree"].i == degree
-    opsets = {opset.domain: opset.version for opset in onnx_model.opset_import}
-    assert opsets[PWPOLYF_ONNX_DOMAIN] == PWPOLYF_ONNX_OPSET
-
-
-@pytest.mark.parametrize("func", ["gelu", "sigmoid"])
-@pytest.mark.fpgadataflow
-def test_pwpolyf_infer_transform(func):
-    K = 3
-    degree = 3
-    num_channels = 16
-    mod = PWPolyFActivation(func, K=K, degree=degree)
-    mod.eval()
-    dummy = torch.randn(1, num_channels)
-
-    with tempfile.NamedTemporaryFile(suffix=".onnx", delete=False) as f:
-        tmpf = f.name
-    try:
-        torch.onnx.export(
-            mod,
-            dummy,
-            tmpf,
-            input_names=["inp"],
-            output_names=["outp"],
-            opset_version=13,
-            dynamo=False,
-        )
-        model = ModelWrapper(tmpf)
-    finally:
-        os.unlink(tmpf)
-
-    node = model.graph.node[0]
-    assert node.op_type == "PWPolyF"
-    assert node.domain == PWPOLYF_ONNX_DOMAIN
-
-    model = model.transform(InferPWPolyFLayer())
-
-    node = model.graph.node[0]
-    assert node.op_type == "PWPolyF"
-    assert node.domain == "finn.custom_op.fpgadataflow"
-
-    inst = getCustomOp(node)
-    assert inst.get_nodeattr("func") == func
-    assert inst.get_nodeattr("K") == K
-    assert inst.get_nodeattr("degree") == degree
-    assert inst.get_nodeattr("NumChannels") == num_channels
-    assert inst.get_nodeattr("PE") == 1
-    assert inst.get_nodeattr("inputDataType") == "FLOAT32"
-
-    x = np.random.uniform(-5, 5, (1, num_channels)).astype(np.float32)
-    input_dict = {"inp": x}
-    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
-
-    ref_mod = PWPolyFActivation(func, K=K, degree=degree)
-    with torch.no_grad():
-        y_expected = ref_mod(torch.from_numpy(x)).numpy()
-    assert np.allclose(y_produced, y_expected, atol=1e-6)
-
-
-@pytest.mark.parametrize("func", ["gelu", "silu", "sigmoid", "tanh"])
-@pytest.mark.fpgadataflow
-def test_pwpolyf_specialize_rtl(func):
-    K = 3
-    num_channels = 8
-    model = make_pwpolyf_modelwrapper(func, K, num_channels, [1])
-    model = model.transform(SpecializeLayers(test_fpga_part))
-
-    node = model.graph.node[0]
-    assert node.op_type == "PWPolyF_rtl"
-    assert node.domain == "finn.custom_op.fpgadataflow.rtl"
-
-    inst = getCustomOp(node)
-    assert inst.get_nodeattr("func") == func
-    assert inst.get_nodeattr("K") == K
-
-
-@pytest.mark.fpgadataflow
-def test_pwpolyf_specialize_rejects_non_versal():
-    model = make_pwpolyf_modelwrapper("gelu", 3, 8, [1])
-
-    with pytest.raises(Exception, match="Versal"):
-        model.transform(SpecializeLayers(non_versal_fpga_part))
-
-
-@pytest.mark.parametrize("func", ["gelu", "tanh"])
-@pytest.mark.parametrize("pe", [1, 2, 4])
-@pytest.mark.parametrize("degree", [1, 2, 3])
-@pytest.mark.parametrize("K, bram18_per_coeff_rom", [(3, 1), (6, 2)])
-@pytest.mark.fpgadataflow
-def test_pwpolyf_resource_estimates(func, pe, degree, K, bram18_per_coeff_rom):
-    num_channels = 8
-    model = make_pwpolyf_modelwrapper(func, K, num_channels, [1])
-    node = model.graph.node[0]
-    inst = getCustomOp(node)
-    inst.set_nodeattr("PE", pe)
-    inst.set_nodeattr("degree", degree)
-
-    assert inst.dsp_estimation() == degree * pe
-    assert inst.lut_estimation() == 100 * degree * pe
-    assert inst.bram_estimation() == max(degree - 1, 0) * pe * bram18_per_coeff_rom
-    assert inst.uram_estimation() == 0
-
-
-@pytest.mark.parametrize("func", ["gelu", "sigmoid"])
-@pytest.mark.fpgadataflow
-def test_pwpolyf_folded_shape(func):
-    K = 3
-    num_channels = 12
-    num_input_vecs = [1, 3, 3]
-    model = make_pwpolyf_modelwrapper(func, K, num_channels, num_input_vecs)
-    node = model.graph.node[0]
-    inst = getCustomOp(node)
-
-    # PE=1
-    assert inst.get_normal_input_shape() == (1, 3, 3, 12)
-    assert inst.get_normal_output_shape() == (1, 3, 3, 12)
-    assert inst.get_folded_input_shape() == (1, 3, 3, 12, 1)
-    assert inst.get_folded_output_shape() == (1, 3, 3, 12, 1)
-
-    # PE=4
-    inst.set_nodeattr("PE", 4)
-    assert inst.get_folded_input_shape() == (1, 3, 3, 3, 4)
-    assert inst.get_folded_output_shape() == (1, 3, 3, 3, 4)
-    assert inst.get_instream_width() == 4 * 32
-    assert inst.get_outstream_width() == 4 * 32
-
-
-@pytest.mark.parametrize("func", ["gelu", "silu"])
-@pytest.mark.fpgadataflow
-def test_pwpolyf_exp_cycles(func):
-    """Verify expected cycle count estimation."""
-    K = 3
-    num_channels = 8
-    pe = 2
-    num_input_vecs = [1, 4, 4]
-    model = make_pwpolyf_modelwrapper(func, K, num_channels, num_input_vecs)
-    node = model.graph.node[0]
-    inst = getCustomOp(node)
-    inst.set_nodeattr("PE", pe)
-
-    # folded shape = (1, 4, 4, 4, 2), exp_cycles = prod of all but last = 1*4*4*4 = 64
-    exp = inst.get_exp_cycles()
-    assert exp == 1 * 4 * 4 * (num_channels // pe)
-
-    # exp_cycles_per_layer analysis only runs on specialized (rtl/hls) nodes
-    model = model.transform(SpecializeLayers(test_fpga_part))
-    node = model.graph.node[0]
-    inst = getCustomOp(node)
-    inst.set_nodeattr("PE", pe)
-    exp_dict = model.analysis(exp_cycles_per_layer)
-    assert node.name in exp_dict
-    assert exp_dict[node.name] == exp
-
-
-# ---------- helpers for standard ONNX op inference tests ----------
-
-
-def make_standard_activation_model(op_type, num_channels, num_input_vecs):
-    """Build an ONNX model with a single standard activation op."""
+def make_standard_activation_modelwrapper(op_type, num_channels, num_input_vecs):
     shape = num_input_vecs + [num_channels]
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape)
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, shape)
 
     act_node = helper.make_node(op_type, ["inp"], ["outp"], name=op_type + "_0")
     graph = helper.make_graph([act_node], "test_graph", [inp], [outp])
-    model = helper.make_model(graph, producer_name="test")
+    model = qonnx_make_model(graph, producer_name="pwpolyf-test")
     model.opset_import[0].version = 20
     model = ModelWrapper(model)
-    model = model.transform(InferShapes())
-    model = model.transform(InferDataTypes())
+    model.set_tensor_datatype("inp", DataType["FLOAT32"])
+    model.set_tensor_datatype("outp", DataType["FLOAT32"])
     return model
 
 
-def make_silu_pattern_model(num_channels, num_input_vecs):
-    """Build ONNX model with Sigmoid + Mul pattern (SiLU)."""
+def make_silu_pattern_modelwrapper(
+    num_channels, num_input_vecs, reverse_mul_inputs=False, extra_consumer=False
+):
     shape = num_input_vecs + [num_channels]
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape)
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, shape)
     sig_out = helper.make_tensor_value_info("sig_out", TensorProto.FLOAT, shape)
 
     sigmoid_node = helper.make_node("Sigmoid", ["inp"], ["sig_out"], name="Sigmoid_0")
-    mul_node = helper.make_node("Mul", ["inp", "sig_out"], ["outp"], name="Mul_0")
+    mul_inputs = ["sig_out", "inp"] if reverse_mul_inputs else ["inp", "sig_out"]
+    mul_node = helper.make_node("Mul", mul_inputs, ["outp"], name="Mul_0")
+    nodes = [sigmoid_node, mul_node]
+    outputs = [outp]
+    if extra_consumer:
+        outp2 = helper.make_tensor_value_info("outp2", TensorProto.FLOAT, shape)
+        identity_node = helper.make_node("Identity", ["sig_out"], ["outp2"], name="Id_0")
+        nodes.append(identity_node)
+        outputs.append(outp2)
 
-    graph = helper.make_graph(
-        [sigmoid_node, mul_node],
-        "silu_graph",
-        [inp],
-        [outp],
-    )
-    model = helper.make_model(graph, producer_name="test")
-    model = ModelWrapper(model)
+    graph = helper.make_graph(nodes, "silu_graph", [inp], outputs)
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="pwpolyf-test"))
     model.graph.value_info.append(sig_out)
-    model = model.transform(InferShapes())
-    model = model.transform(InferDataTypes())
+    model.set_tensor_datatype("inp", DataType["FLOAT32"])
+    model.set_tensor_datatype("outp", DataType["FLOAT32"])
+    model.set_tensor_datatype("sig_out", DataType["FLOAT32"])
+    if extra_consumer:
+        model.set_tensor_datatype("outp2", DataType["FLOAT32"])
     return model
 
 
-def make_erf_gelu_model(num_channels, num_input_vecs):
-    """Build ONNX model with the Erf-based GELU decomposition.
-
-    Pattern: x * 0.5 * (1 + erf(x / sqrt(2)))
-    Nodes: Div(x, sqrt(2)) -> Erf -> Add(_, 1) -> Mul(0.5, _) -> Mul(x, _)
-    """
+def make_erf_gelu_modelwrapper(num_channels, num_input_vecs):
     shape = num_input_vecs + [num_channels]
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape)
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, shape)
@@ -369,31 +142,265 @@ def make_erf_gelu_model(num_channels, num_input_vecs):
         [outp],
         initializer=[sqrt2, one, half],
     )
-    model = helper.make_model(graph, producer_name="test")
-    model = ModelWrapper(model)
-    model = model.transform(InferShapes())
-    model = model.transform(InferDataTypes())
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="pwpolyf-test"))
+    model.set_tensor_datatype("inp", DataType["FLOAT32"])
+    model.set_tensor_datatype("outp", DataType["FLOAT32"])
     return model
 
 
-# ---------- standard ONNX op inference tests ----------
+def make_activation_modelwrapper(pattern, num_channels, num_input_vecs):
+    if pattern in ["Gelu", "Sigmoid", "Tanh"]:
+        return make_standard_activation_modelwrapper(pattern, num_channels, num_input_vecs)
+    if pattern == "silu":
+        return make_silu_pattern_modelwrapper(num_channels, num_input_vecs)
+    if pattern == "erf_gelu":
+        return make_erf_gelu_modelwrapper(num_channels, num_input_vecs)
+    raise ValueError("Unknown activation pattern %s" % pattern)
 
 
-@pytest.mark.parametrize(
-    "op_type,expected_func",
-    [
-        ("Gelu", "gelu"),
-        ("Sigmoid", "sigmoid"),
-        ("Tanh", "tanh"),
-    ],
-)
+def prepare_inputs(input_tensor):
+    return {"inp": input_tensor}
+
+
+def execute_pwpolyf_reference(func, input_tensor, k=3, degree=2):
+    ref_mod = PWPolyFActivation(func, K=k, degree=degree)
+    with torch.no_grad():
+        return ref_mod(torch.from_numpy(input_tensor)).numpy()
+
+
+def export_pwpolyf_model(func, k, degree, num_channels):
+    mod = PWPolyFActivation(func, K=k, degree=degree).eval()
+    dummy = torch.randn(1, num_channels)
+    with tempfile.NamedTemporaryFile(suffix=".onnx", delete=False) as f:
+        export_path = f.name
+    try:
+        torch.onnx.export(
+            mod,
+            dummy,
+            export_path,
+            input_names=["inp"],
+            output_names=["outp"],
+            opset_version=13,
+            dynamo=False,
+        )
+        return load(export_path)
+    finally:
+        os.unlink(export_path)
+
+
+def make_pwpolyf_rtl_inst(k=3, degree=2):
+    model = make_pwpolyf_modelwrapper("gelu", k, 4, [1])
+    model = model.transform(SpecializeLayers(TEST_FPGA_PART))
+    inst = getCustomOp(model.graph.node[0])
+    inst.set_nodeattr("degree", degree)
+    return inst
+
+
+# activation function
+@pytest.mark.parametrize("func", ["gelu", "silu", "sigmoid", "tanh"])
+# channels
 @pytest.mark.parametrize("num_channels", [4, 16])
+# input vector shape
+@pytest.mark.parametrize("num_input_vecs", [[1], [1, 2, 2]])
+# folding
+@pytest.mark.parametrize("fold", [-1, 1, 2])
+@pytest.mark.fpgadataflow
+def test_fpgadataflow_pwpolyf_cppsim(func, num_channels, num_input_vecs, fold):
+    k = 3
+    if fold == -1:
+        pe = 1
+    else:
+        pe = max(1, num_channels // fold)
+    assert num_channels % pe == 0
+
+    model = make_pwpolyf_modelwrapper(func, k, num_channels, num_input_vecs)
+    node = model.graph.node[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("PE", pe)
+
+    input_shape = tuple(num_input_vecs + [num_channels])
+    x = np.random.uniform(-10, 10, input_shape).astype(np.float32)
+    input_dict = prepare_inputs(x)
+    y_expected = execute_pwpolyf_reference(func, x, k=k)
+
+    # golden reference before specializing
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+    assert y_produced.shape == y_expected.shape
+    assert np.allclose(y_produced, y_expected, atol=1e-6)
+
+    model = model.transform(SpecializeLayers(TEST_FPGA_PART))
+    # PWPolyF_rtl cppsim delegates to the Python base op, so no C++ compilation is needed.
+    model = model.transform(SetExecMode("cppsim"))
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+    assert np.allclose(y_produced, y_expected, atol=1e-6), "cppsim failed"
+
+
+# activation function
+@pytest.mark.parametrize("func", ["gelu", "silu", "sigmoid", "tanh"])
+@pytest.mark.fpgadataflow
+def test_pwpolyf_onnx_export(func):
+    k = 3
+    degree = 3
+    num_channels = 32
+    onnx_model = export_pwpolyf_model(func, k, degree, num_channels)
+
+    pwp_nodes = [n for n in onnx_model.graph.node if n.op_type == "PWPolyF"]
+    assert len(pwp_nodes) == 1
+    node = pwp_nodes[0]
+    assert node.domain == PWPOLYF_ONNX_DOMAIN
+    assert len(node.input) == 1
+    func_attr = {a.name: a for a in node.attribute}
+    assert func_attr["func"].s.decode("utf-8") == func
+    assert func_attr["K"].i == k
+    assert func_attr["degree"].i == degree
+    opsets = {opset.domain: opset.version for opset in onnx_model.opset_import}
+    assert opsets[PWPOLYF_ONNX_DOMAIN] == PWPOLYF_ONNX_OPSET
+
+
+# activation function
+@pytest.mark.parametrize("func", ["gelu", "sigmoid"])
+@pytest.mark.fpgadataflow
+def test_pwpolyf_infer_transform(func):
+    k = 3
+    degree = 3
+    num_channels = 16
+    model = ModelWrapper(export_pwpolyf_model(func, k, degree, num_channels))
+
+    node = model.graph.node[0]
+    assert node.op_type == "PWPolyF"
+    assert node.domain == PWPOLYF_ONNX_DOMAIN
+
+    model = model.transform(InferPWPolyFLayer())
+
+    node = model.graph.node[0]
+    assert node.op_type == "PWPolyF"
+    assert node.domain == "finn.custom_op.fpgadataflow"
+
+    inst = getCustomOp(node)
+    assert inst.get_nodeattr("func") == func
+    assert inst.get_nodeattr("K") == k
+    assert inst.get_nodeattr("degree") == degree
+    assert inst.get_nodeattr("NumChannels") == num_channels
+    assert inst.get_nodeattr("PE") == 1
+    assert inst.get_nodeattr("inputDataType") == "FLOAT32"
+
+    x = np.random.uniform(-5, 5, (1, num_channels)).astype(np.float32)
+    input_dict = prepare_inputs(x)
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+    y_expected = execute_pwpolyf_reference(func, x, k=k, degree=degree)
+    assert np.allclose(y_produced, y_expected, atol=1e-6)
+
+
+# activation function
+@pytest.mark.parametrize("func", ["gelu", "silu", "sigmoid", "tanh"])
+@pytest.mark.fpgadataflow
+def test_pwpolyf_specialize_rtl(func):
+    k = 3
+    num_channels = 8
+    model = make_pwpolyf_modelwrapper(func, k, num_channels, [1])
+    model = model.transform(SpecializeLayers(TEST_FPGA_PART))
+
+    node = model.graph.node[0]
+    assert node.op_type == "PWPolyF_rtl"
+    assert node.domain == "finn.custom_op.fpgadataflow.rtl"
+
+    inst = getCustomOp(node)
+    assert inst.get_nodeattr("func") == func
+    assert inst.get_nodeattr("K") == k
+
+
+@pytest.mark.fpgadataflow
+def test_pwpolyf_specialize_rejects_non_versal():
+    model = make_pwpolyf_modelwrapper("gelu", 3, 8, [1])
+
+    with pytest.raises(Exception, match="Versal"):
+        model.transform(SpecializeLayers(NON_VERSAL_FPGA_PART))
+
+
+# activation function
+@pytest.mark.parametrize("func", ["gelu", "tanh"])
+# processing elements
+@pytest.mark.parametrize("pe", [1, 2, 4])
+# polynomial degree
+@pytest.mark.parametrize("degree", [1, 2, 3])
+# mantissa subdivision bits
+@pytest.mark.parametrize("k", [3, 6])
+@pytest.mark.fpgadataflow
+def test_pwpolyf_resource_estimates(func, pe, degree, k):
+    num_channels = 8
+    model = make_pwpolyf_modelwrapper(func, k, num_channels, [1])
+    node = model.graph.node[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("PE", pe)
+    inst.set_nodeattr("degree", degree)
+    bram18_per_coeff_rom = 1 if k == 3 else 2
+
+    assert inst.dsp_estimation() == degree * pe
+    assert inst.lut_estimation() == 100 * degree * pe
+    assert inst.bram_estimation() == max(degree - 1, 0) * pe * bram18_per_coeff_rom
+    assert inst.uram_estimation() == 0
+
+
+# activation function
+@pytest.mark.parametrize("func", ["gelu", "sigmoid"])
+# processing elements
+@pytest.mark.parametrize("pe", [1, 4])
+@pytest.mark.fpgadataflow
+def test_pwpolyf_folded_shape(func, pe):
+    k = 3
+    num_channels = 12
+    num_input_vecs = [1, 3, 3]
+    model = make_pwpolyf_modelwrapper(func, k, num_channels, num_input_vecs)
+    node = model.graph.node[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("PE", pe)
+
+    assert inst.get_normal_input_shape() == (1, 3, 3, 12)
+    assert inst.get_normal_output_shape() == (1, 3, 3, 12)
+    expected_folded_shape = (1, 3, 3, num_channels // pe, pe)
+    assert inst.get_folded_input_shape() == expected_folded_shape
+    assert inst.get_folded_output_shape() == expected_folded_shape
+    assert inst.get_instream_width() == pe * 32
+    assert inst.get_outstream_width() == pe * 32
+
+
+# activation function
+@pytest.mark.parametrize("func", ["gelu", "silu"])
+@pytest.mark.fpgadataflow
+def test_pwpolyf_exp_cycles(func):
+    k = 3
+    num_channels = 8
+    pe = 2
+    num_input_vecs = [1, 4, 4]
+    model = make_pwpolyf_modelwrapper(func, k, num_channels, num_input_vecs)
+    node = model.graph.node[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("PE", pe)
+
+    exp = inst.get_exp_cycles()
+    assert exp == 1 * 4 * 4 * (num_channels // pe)
+
+    model = model.transform(SpecializeLayers(TEST_FPGA_PART))
+    node = model.graph.node[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("PE", pe)
+    exp_dict = model.analysis(exp_cycles_per_layer)
+    assert node.name in exp_dict
+    assert exp_dict[node.name] == exp
+
+
+# activation pattern
+@pytest.mark.parametrize("pattern", list(ACTIVATION_PATTERNS))
+# channels
+@pytest.mark.parametrize("num_channels", [4, 16])
+# input vector shape
 @pytest.mark.parametrize("num_input_vecs", [[1], [1, 2, 2]])
 @pytest.mark.fpgadataflow
-def test_pwpolyf_infer_standard_op(op_type, expected_func, num_channels, num_input_vecs):
-    model = make_standard_activation_model(op_type, num_channels, num_input_vecs)
+def test_pwpolyf_infer_activation_pattern(pattern, num_channels, num_input_vecs):
+    expected_nodes, expected_func = ACTIVATION_PATTERNS[pattern]
+    model = make_activation_modelwrapper(pattern, num_channels, num_input_vecs)
 
-    assert model.graph.node[0].op_type == op_type
+    assert [node.op_type for node in model.graph.node] == expected_nodes
 
     model = model.transform(InferPWPolyFLayer())
 
@@ -410,48 +417,10 @@ def test_pwpolyf_infer_standard_op(op_type, expected_func, num_channels, num_inp
     assert inst.get_nodeattr("inputDataType") == "FLOAT32"
 
 
-@pytest.mark.parametrize("num_channels", [4, 16])
-@pytest.mark.parametrize("num_input_vecs", [[1], [1, 2, 2]])
-@pytest.mark.fpgadataflow
-def test_pwpolyf_infer_silu_pattern(num_channels, num_input_vecs):
-    model = make_silu_pattern_model(num_channels, num_input_vecs)
-
-    assert len(model.graph.node) == 2
-    assert model.graph.node[0].op_type == "Sigmoid"
-    assert model.graph.node[1].op_type == "Mul"
-
-    model = model.transform(InferPWPolyFLayer())
-
-    assert len(model.graph.node) == 1
-    node = model.graph.node[0]
-    assert node.op_type == "PWPolyF"
-    assert node.domain == "finn.custom_op.fpgadataflow"
-
-    inst = getCustomOp(node)
-    assert inst.get_nodeattr("func") == "silu"
-    assert inst.get_nodeattr("K") == 3
-    assert inst.get_nodeattr("NumChannels") == num_channels
-
-
 @pytest.mark.fpgadataflow
 def test_pwpolyf_infer_silu_reversed_mul_inputs():
-    """SiLU detection works regardless of Mul input order."""
     num_channels = 8
-    shape = [1, num_channels]
-    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape)
-    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, shape)
-    sig_out = helper.make_tensor_value_info("sig_out", TensorProto.FLOAT, shape)
-
-    sigmoid_node = helper.make_node("Sigmoid", ["inp"], ["sig_out"], name="Sigmoid_0")
-    mul_node = helper.make_node("Mul", ["sig_out", "inp"], ["outp"], name="Mul_0")
-
-    graph = helper.make_graph([sigmoid_node, mul_node], "silu_graph", [inp], [outp])
-    model = helper.make_model(graph, producer_name="test")
-    model = ModelWrapper(model)
-    model.graph.value_info.append(sig_out)
-    model = model.transform(InferShapes())
-    model = model.transform(InferDataTypes())
-
+    model = make_silu_pattern_modelwrapper(num_channels, [1], reverse_mul_inputs=True)
     model = model.transform(InferPWPolyFLayer())
 
     assert len(model.graph.node) == 1
@@ -461,186 +430,88 @@ def test_pwpolyf_infer_silu_reversed_mul_inputs():
 
 @pytest.mark.fpgadataflow
 def test_pwpolyf_sigmoid_multi_consumer_no_silu():
-    """Sigmoid with multiple consumers becomes standalone sigmoid, not silu."""
     num_channels = 8
-    shape = [1, num_channels]
-    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape)
-    outp1 = helper.make_tensor_value_info("outp1", TensorProto.FLOAT, shape)
-    outp2 = helper.make_tensor_value_info("outp2", TensorProto.FLOAT, shape)
-    sig_out = helper.make_tensor_value_info("sig_out", TensorProto.FLOAT, shape)
-
-    sigmoid_node = helper.make_node("Sigmoid", ["inp"], ["sig_out"], name="Sigmoid_0")
-    mul_node = helper.make_node("Mul", ["inp", "sig_out"], ["outp1"], name="Mul_0")
-    identity_node = helper.make_node("Identity", ["sig_out"], ["outp2"], name="Id_0")
-
-    graph = helper.make_graph(
-        [sigmoid_node, mul_node, identity_node],
-        "test_graph",
-        [inp],
-        [outp1, outp2],
-    )
-    model = helper.make_model(graph, producer_name="test")
-    model = ModelWrapper(model)
-    model.graph.value_info.append(sig_out)
-    model = model.transform(InferShapes())
-    model = model.transform(InferDataTypes())
-
+    model = make_silu_pattern_modelwrapper(num_channels, [1], extra_consumer=True)
     model = model.transform(InferPWPolyFLayer())
 
     pwp_nodes = [n for n in model.graph.node if n.op_type == "PWPolyF"]
     assert len(pwp_nodes) == 1
     inst = getCustomOp(pwp_nodes[0])
     assert inst.get_nodeattr("func") == "sigmoid"
-    # Mul and Identity should remain
     assert any(n.op_type == "Mul" for n in model.graph.node)
     assert any(n.op_type == "Identity" for n in model.graph.node)
 
 
-@pytest.mark.parametrize(
-    "op_type,expected_func",
-    [
-        ("Gelu", "gelu"),
-        ("Sigmoid", "sigmoid"),
-        ("Tanh", "tanh"),
-    ],
-)
+# activation pattern
+@pytest.mark.parametrize("pattern", list(ACTIVATION_PATTERNS))
 @pytest.mark.fpgadataflow
-def test_pwpolyf_standard_op_execution(op_type, expected_func):
+def test_pwpolyf_activation_pattern_execution(pattern):
     num_channels = 16
-    model = make_standard_activation_model(op_type, num_channels, [1])
+    expected_func = ACTIVATION_PATTERNS[pattern][1]
+    model = make_activation_modelwrapper(pattern, num_channels, [1])
     model = model.transform(InferPWPolyFLayer())
 
     x = np.random.uniform(-5, 5, (1, num_channels)).astype(np.float32)
-    y_produced = oxe.execute_onnx(model, {"inp": x})["outp"]
-
-    ref_mod = PWPolyFActivation(expected_func, K=3)
-    with torch.no_grad():
-        y_expected = ref_mod(torch.from_numpy(x)).numpy()
+    y_produced = oxe.execute_onnx(model, prepare_inputs(x))["outp"]
+    y_expected = execute_pwpolyf_reference(expected_func, x)
     assert np.allclose(y_produced, y_expected, atol=1e-6)
 
 
+# mantissa subdivision bits
+@pytest.mark.parametrize("k", [2, 3, 4])
 @pytest.mark.fpgadataflow
-def test_pwpolyf_silu_pattern_execution():
-    num_channels = 16
-    model = make_silu_pattern_model(num_channels, [1])
-    model = model.transform(InferPWPolyFLayer())
-
-    x = np.random.uniform(-5, 5, (1, num_channels)).astype(np.float32)
-    y_produced = oxe.execute_onnx(model, {"inp": x})["outp"]
-
-    ref_mod = PWPolyFActivation("silu", K=3)
-    with torch.no_grad():
-        y_expected = ref_mod(torch.from_numpy(x)).numpy()
-    assert np.allclose(y_produced, y_expected, atol=1e-6)
-
-
-# ---------- Erf-based GELU inference tests ----------
-
-
-@pytest.mark.parametrize("num_channels", [4, 16])
-@pytest.mark.parametrize("num_input_vecs", [[1], [1, 2, 2]])
-@pytest.mark.fpgadataflow
-def test_pwpolyf_infer_erf_gelu_pattern(num_channels, num_input_vecs):
-    """Erf-based GELU decomposition (opset < 20) is converted to PWPolyF."""
-    model = make_erf_gelu_model(num_channels, num_input_vecs)
-
-    assert len(model.graph.node) == 5
-    assert model.graph.node[1].op_type == "Erf"
-
-    model = model.transform(InferPWPolyFLayer())
-
-    assert len(model.graph.node) == 1
-    node = model.graph.node[0]
-    assert node.op_type == "PWPolyF"
-    assert node.domain == "finn.custom_op.fpgadataflow"
-
-    inst = getCustomOp(node)
-    assert inst.get_nodeattr("func") == "gelu"
-    assert inst.get_nodeattr("K") == 3
-    assert inst.get_nodeattr("NumChannels") == num_channels
-    assert inst.get_nodeattr("PE") == 1
-    assert inst.get_nodeattr("inputDataType") == "FLOAT32"
-
-
-@pytest.mark.fpgadataflow
-def test_pwpolyf_erf_gelu_execution():
-    """Erf-based GELU produces same output as PWPolyFActivation."""
-    num_channels = 16
-    model = make_erf_gelu_model(num_channels, [1])
-    model = model.transform(InferPWPolyFLayer())
-
-    x = np.random.uniform(-5, 5, (1, num_channels)).astype(np.float32)
-    y_produced = oxe.execute_onnx(model, {"inp": x})["outp"]
-
-    ref_mod = PWPolyFActivation("gelu", K=3)
-    with torch.no_grad():
-        y_expected = ref_mod(torch.from_numpy(x)).numpy()
-    assert np.allclose(y_produced, y_expected, atol=1e-6)
-
-
-# ---------- coefficient package smoketests ----------
-
-
-@pytest.mark.parametrize("K", [2, 3, 4])
-@pytest.mark.fpgadataflow
-def test_pwpolyf_generate_coeffs_pkg(K):
-    """Verify PWPolyF_rtl coefficient generation produces valid SystemVerilog."""
-    pkg = make_pwpolyf_rtl_inst(K=K)._generate_coeffs_pkg()
+def test_pwpolyf_generate_coeffs_pkg(k):
+    pkg = make_pwpolyf_rtl_inst(k=k)._generate_coeffs_pkg()
 
     assert "package pwpolyf_pkg" in pkg
     assert "endpackage" in pkg
-    # localparam lines use padded alignment in the generated SV
     assert "DEGREE      = 2;" in pkg
-    assert "K           = %d;" % K in pkg
+    assert "K           = %d;" % k in pkg
 
-    num_segs = 1 + 2 * 5 * (1 << K)
+    num_segs = 1 + 2 * 5 * (1 << k)
     assert "NUM_SEGS    = %d;" % num_segs in pkg
-
-    for func_label in ["GELU", "SILU", "SIGMOID", "TANH"]:
-        assert func_label + " = '{" in pkg
+    assert all(label + " = '{" in pkg for label in ["GELU", "SILU", "SIGMOID", "TANH"])
 
     seg_lines = [line for line in pkg.split("\n") if "// seg" in line]
-    # Each function has num_segs segments, 4 functions total
     assert len(seg_lines) == 4 * num_segs
 
 
+# polynomial degree
 @pytest.mark.parametrize("degree", [1, 2, 3])
 @pytest.mark.fpgadataflow
 def test_pwpolyf_generate_coeffs_pkg_degree(degree):
-    """Verify PWPolyF_rtl coefficient generation respects degree parameter."""
-    K = 3
-    pkg = make_pwpolyf_rtl_inst(K=K, degree=degree)._generate_coeffs_pkg()
+    k = 3
+    pkg = make_pwpolyf_rtl_inst(k=k, degree=degree)._generate_coeffs_pkg()
 
     assert "DEGREE      = %d;" % degree in pkg
-    # Each segment line should have degree+1 coefficient values
     seg_lines = [line for line in pkg.split("\n") if "// seg 0" in line]
-    for line in seg_lines:
-        hex_vals = [s for s in line.split() if s.startswith("32'h")]
-        assert len(hex_vals) == degree + 1
+    coeff_counts = [
+        len([value for value in line.split() if value.startswith("32'h")]) for line in seg_lines
+    ]
+    assert all(count == degree + 1 for count in coeff_counts)
 
 
-# ---------- generate_hdl smoketests ----------
-
-
+# activation function
 @pytest.mark.parametrize("func", ["gelu", "tanh"])
-@pytest.mark.parametrize("pe", [1, 2])
+# folding
+@pytest.mark.parametrize("fold", [-1, 2])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_pwpolyf_generate_hdl(func, pe):
-    """Verify generate_hdl produces expected RTL files."""
+def test_pwpolyf_generate_hdl(func, fold):
     num_channels = 4
+    pe = 1 if fold == -1 else max(1, num_channels // fold)
+    assert num_channels % pe == 0
+
     model = make_pwpolyf_modelwrapper(func, 3, num_channels, [1])
-    model = model.transform(SpecializeLayers(test_fpga_part))
+    inst = getCustomOp(model.graph.node[0])
+    inst.set_nodeattr("PE", pe)
+    model = model.transform(SpecializeLayers(TEST_FPGA_PART))
     model = model.transform(GiveUniqueNodeNames())
 
     node = model.graph.node[0]
     assert node.op_type == "PWPolyF_rtl"
-    inst = getCustomOp(node)
-    inst.set_nodeattr("PE", pe)
+    model = model.transform(PrepareIP(TEST_FPGA_PART, TARGET_CLK_NS))
 
-    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
-
-    # Re-fetch node after transform (PrepareIP returns a new model)
     node = model.graph.node[0]
     inst = getCustomOp(node)
 
@@ -653,7 +524,6 @@ def test_pwpolyf_generate_hdl(func, pe):
     topname = inst.get_nodeattr("gen_top_module")
     assert os.path.isfile(os.path.join(code_gen_dir, topname + ".v"))
 
-    # Verify package content
     with open(os.path.join(code_gen_dir, "pwpolyf_pkg.sv"), "r") as f:
         pkg_content = f.read()
     assert "DEGREE      = 2;" in pkg_content
@@ -661,46 +531,41 @@ def test_pwpolyf_generate_hdl(func, pe):
     assert func.upper() + " = '{" in pkg_content
 
 
-# ---------- RTL simulation tests ----------
-
-
+# The RTL matrix is intentionally smaller than the cppsim matrix to limit Vivado builds.
+# activation function
 @pytest.mark.parametrize("func", ["gelu", "sigmoid"])
+# channels
 @pytest.mark.parametrize("num_channels", [4, 8])
-@pytest.mark.parametrize("pe", [1, 2, 4])
+# folding
+@pytest.mark.parametrize("fold", [-1, 1, 2, 4])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_pwpolyf_rtlsim(func, num_channels, pe):
-    """Node-by-node RTL simulation of PWPolyF_rtl."""
-    if num_channels % pe != 0:
-        pytest.skip("PE does not divide NumChannels")
+def test_fpgadataflow_pwpolyf_rtlsim(func, num_channels, fold):
+    pe = 1 if fold == -1 else max(1, num_channels // fold)
+    assert num_channels % pe == 0
 
-    K = 3
-    model = make_pwpolyf_modelwrapper(func, K, num_channels, [1])
+    k = 3
+    model = make_pwpolyf_modelwrapper(func, k, num_channels, [1])
 
-    # Get cppsim reference output
     x = np.random.uniform(-5, 5, (1, num_channels)).astype(np.float32)
-    input_dict = {"inp": x}
+    input_dict = prepare_inputs(x)
     y_ref = oxe.execute_onnx(model, input_dict)["outp"]
 
-    # Specialize to RTL and set PE
-    model = model.transform(SpecializeLayers(test_fpga_part))
-    model = model.transform(GiveUniqueNodeNames())
-    node = model.graph.node[0]
-    assert node.op_type == "PWPolyF_rtl"
-    inst = getCustomOp(node)
+    inst = getCustomOp(model.graph.node[0])
     inst.set_nodeattr("PE", pe)
+    model = model.transform(SpecializeLayers(TEST_FPGA_PART))
+    model = model.transform(GiveUniqueNodeNames())
+    assert model.graph.node[0].op_type == "PWPolyF_rtl"
 
-    # RTL simulation pipeline
     model = model.transform(SetExecMode("rtlsim"))
-    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+    model = model.transform(PrepareIP(TEST_FPGA_PART, TARGET_CLK_NS))
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim())
 
     y_rtl = oxe.execute_onnx(model, input_dict)["outp"]
     assert np.allclose(y_ref, y_rtl, atol=1e-4), "RTL output does not match cppsim reference"
 
-    # Verify cycle count (re-fetch node after transforms)
     node = model.graph.node[0]
     inst = getCustomOp(node)
     cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
@@ -710,37 +575,36 @@ def test_pwpolyf_rtlsim(func, num_channels, pe):
     assert exp_cycles != 0
 
 
+# activation function
 @pytest.mark.parametrize("func", ["gelu", "sigmoid"])
-@pytest.mark.parametrize("pe", [1, 2])
+# folding
+@pytest.mark.parametrize("fold", [-1, 2])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_pwpolyf_rtlsim_stitched_ip(func, pe):
-    """Stitched IP RTL simulation of PWPolyF_rtl."""
-    K = 3
+def test_pwpolyf_rtlsim_stitched_ip(func, fold):
+    k = 3
     num_channels = 4
-    model = make_pwpolyf_modelwrapper(func, K, num_channels, [1])
+    pe = 1 if fold == -1 else max(1, num_channels // fold)
+    assert num_channels % pe == 0
 
-    # Get cppsim reference output
+    model = make_pwpolyf_modelwrapper(func, k, num_channels, [1])
+
     x = np.random.uniform(-5, 5, (1, num_channels)).astype(np.float32)
-    input_dict = {model.graph.input[0].name: x}
+    input_dict = prepare_inputs(x)
     y_ref = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
 
-    # Specialize to RTL and set PE
-    model = model.transform(SpecializeLayers(test_fpga_part))
-    model = model.transform(GiveUniqueNodeNames())
-    node = model.graph.node[0]
-    inst = getCustomOp(node)
+    inst = getCustomOp(model.graph.node[0])
     inst.set_nodeattr("PE", pe)
+    model = model.transform(SpecializeLayers(TEST_FPGA_PART))
+    model = model.transform(GiveUniqueNodeNames())
 
-    # Stitched IP pipeline
-    model = model.transform(InsertAndSetFIFODepths(test_fpga_part, target_clk_ns))
-    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+    model = model.transform(InsertAndSetFIFODepths(TEST_FPGA_PART, TARGET_CLK_NS))
+    model = model.transform(PrepareIP(TEST_FPGA_PART, TARGET_CLK_NS))
     model = model.transform(HLSSynthIP())
-    model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
+    model = model.transform(CreateStitchedIP(TEST_FPGA_PART, TARGET_CLK_NS))
     model.set_metadata_prop("exec_mode", "rtlsim")
 
-    input_dict = {model.graph.input[0].name: x}
     y_rtl = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
     assert np.allclose(
         y_ref, y_rtl, atol=1e-4
