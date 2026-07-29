@@ -1506,14 +1506,29 @@ def step_loop_body_ipgen_and_stitch(model: ModelWrapper, cfg: DataflowBuildConfi
 
 
 def step_assign_ddr_weight_offsets(model: ModelWrapper, cfg: DataflowBuildConfig):
-    """MLO & DDR only: assign DDR address offsets for streamed weights.
+    """MLO only: assign DDR address offsets for streamed weights.
 
     Must run before step_hw_codegen, because PrepareIP bakes the assigned
     address_offset into the generated RTL, and after folding/bit-width
     minimization, because the offsets depend on the final weight layout.
-    No-op unless cfg.mlo_weight_mem == "DDR".
+    No-op unless MLO is enabled. AssignMemoryOffset itself skips any FINNLoop
+    node whose mem_type attribute is not "DDR".
+
+    Any FINNLoop whose mem_type is still unset is resolved here
     """
-    if cfg.mlo_weight_mem == "DDR":
+    if cfg.mlo:
+        resolved_mem_type = cfg._resolve_mem_type()
+        for node in model.get_nodes_by_op_type("FINNLoop"):
+            node_inst = getCustomOp(node)
+            if node_inst.get_nodeattr("mem_type") == "":
+                node_inst.set_nodeattr("mem_type", resolved_mem_type)
+                if resolved_mem_type == "HBM":
+                    print(
+                        "NOTE: selecting HBM mem_type for FINNLoop '%s' on board %s, "
+                        "but HBM weight deployment is not yet supported (only rtlsim "
+                        "works). Set mem_type in the folding config to override."
+                        % (node.name, cfg.board)
+                    )
         model = model.transform(AssignMemoryOffset())
     return model
 

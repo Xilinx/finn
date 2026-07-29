@@ -16,6 +16,8 @@ class AssignMemoryOffset(Transformation):
         for node in model.graph.node:
             if node.op_type == "FINNLoop":
                 loop_inst = getCustomOp(node)
+                if loop_inst.get_nodeattr("mem_type") != "DDR":
+                    continue
                 body_model = loop_inst.get_nodeattr("body")
                 self._walk(body_model)
                 loop_inst.set_nodeattr("body", body_model.graph)

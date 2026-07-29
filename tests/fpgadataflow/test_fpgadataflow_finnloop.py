@@ -896,7 +896,6 @@ def test_finnloop_end2end_mlo_ddr(
         rtlsim_batch_size=100,
         standalone_thresholds=True,
         mlo=True,
-        mlo_weight_mem="DDR",
         fifosim_save_waveform=True,
         loop_body_hierarchy=[["", "layers.0"]],
         loop_body_range=(model.graph.node[0], model.graph.node[nodes_per_body - 1]),

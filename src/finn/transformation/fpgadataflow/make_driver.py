@@ -47,7 +47,7 @@ from typing import Dict, Tuple
 import finn.util
 from finn.util.basic import get_driver_shapes, make_build_dir
 from finn.util.data_packing import to_external_tensor
-from finn.util.mlo_sim import dat_file_to_numpy_array
+from finn.util.rtlsim import dat_file_to_numpy_array
 
 from . import template_driver
 

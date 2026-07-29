@@ -303,7 +303,7 @@ def phase_build_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     Returns:
         ModelWrapper with generated and synthesized IP blocks
     """
-    # Step 1: MLO/DDR weight offset assignment (no-op unless mlo_weight_mem == "DDR")
+    # Step 1: MLO/DDR weight offset assignment (no-op unless mem_type DDR)
     # Must happen before step_hw_codegen so PrepareIP bakes the offsets into the RTL
     model = _execute_step(step_assign_ddr_weight_offsets, model, cfg)
 

@@ -91,6 +91,10 @@ class FINNLoop(HWCustomOp, RTLBackend):
             # Path to save per-iteration execution context (cppsim only).
             # If non-empty, each iteration's full context is saved to this path.
             "iteration_context_path": ("s", False, ""),
+            # Memory type used to stream this loop's weights when running MLO.
+            # "DDR" enables DDR address offset assignment, any other value skips it.
+            # Empty means it is resolved from the target board at build
+            "mem_type": ("s", False, ""),
         }
         my_attrs.update(HWCustomOp.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
