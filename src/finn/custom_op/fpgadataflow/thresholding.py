@@ -36,6 +36,7 @@ from qonnx.util.basic import (
 )
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import Characteristic_Node
 
 
 class Thresholding(HWCustomOp):
@@ -289,7 +290,63 @@ class Thresholding(HWCustomOp):
         pe = self.get_nodeattr("PE")
         return num_channels // pe
 
+    def get_tree_model(self):
+        """Return tree model for analytical FIFO sizing."""
+        reps = list(self.get_nodeattr("numInputVectors"))[0]
+
+        NumChannels = self.get_nodeattr("NumChannels")
+        PE = self.get_nodeattr("PE")
+        ImgDim = np.prod(list(self.get_nodeattr("numInputVectors"))) // reps
+
+        act = DataType[self.get_nodeattr("outputDataType")]
+        IMPL_STYLE = "rtl" if "_rtl" in (self.__class__.__name__) else "hls"
+        assert IMPL_STYLE in ["rtl", "hls"], "Implementation style must be 'rtl' or 'hls'"
+
+        NF = NumChannels // PE
+        total_iterations = ImgDim * NF
+
+        if IMPL_STYLE == "hls":
+            output_delay = 0  # 4 if 2023.1 vivado
+        else:
+            if act == DataType["BIPOLAR"]:
+                output_delay = 0  # 4 if 2023.1 vivado
+            else:
+                output_delay = 0
+
+        # Recorded, and deliberately NOT modelled: the rtlsim references report
+        # a period a few cycles longer than the folded word count (about the
+        # depth of the pipelined search over the threshold table). Reproducing
+        # it was tried and reverted -- those references are saturated, carrying
+        # more tokens per period than the node physically has, so matching the
+        # period cost accuracy on the values. The shape below is exact on values
+        # and token count, which is what the occupancy sum uses.
+        if total_iterations > output_delay:
+            read = Characteristic_Node("read", [(output_delay, [1, 0])], True)
+
+            read_write = Characteristic_Node(
+                "Compute", [(total_iterations - output_delay, [1, 1])], True
+            )
+
+            write = Characteristic_Node("write", [(output_delay, [0, 1])], True)
+
+            threshold_top = Characteristic_Node(
+                "Thresholding Top", [(1, read), (1, read_write), (1, write)], False
+            )
+
+        else:
+            read = Characteristic_Node("Rush-in", [(total_iterations, [1, 0])], True)
+            idle = Characteristic_Node("Idle", [(output_delay - total_iterations, [0, 0])], True)
+
+            write = Characteristic_Node("Compute", [(total_iterations, [0, 1])], True)
+
+            threshold_top = Characteristic_Node(
+                "Thresholding Top", [(1, read), (1, idle), (1, write)], False
+            )
+
+        return threshold_top  # top level phase of this node
+
     def get_verilog_top_module_intf_names(self):
+        """Return dict of names of input and output interfaces for MLO support."""
         intf_names = {}
         intf_names["clk"] = ["ap_clk"]
         intf_names["rst"] = ["ap_rst_n"]

@@ -35,6 +35,7 @@ from qonnx.core.datatype import DataType
 from qonnx.util.basic import qonnx_make_model
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import passthrough_characteristic
 
 
 class Lookup(HWCustomOp):
@@ -253,3 +254,25 @@ class Lookup(HWCustomOp):
             intf_names["aximm"] = [("m_axi_gmem", self.get_nodeattr("ext_mem_width"))]
             intf_names["ap_none"] = ["oob_irq"]
         return intf_names
+
+    def get_tree_model(self):
+        """An embedding lookup with the embedding dimension unfolded is a wire.
+
+        The brief's hypothesis was "one index in, ``EmbeddingDim`` words out".
+        The measurement says otherwise: with the embedding unfolded onto one
+        output word, ``size-tr-language/Lookup_hls_0`` (EmbeddingDim 64,
+        NumEmbeddings 2048, InputShape [1, 256], ``internal_embedded``) moves
+        one token per cycle on *both* streams -- 514 in and 514 out over a
+        514-cycle window -- so one index produces exactly one folded output
+        word and the node is a plain pass-through.
+
+        Guarded to ``internal_embedded``: ``external`` performs the lookup over
+        AXI-MM and no reference exists for it, so it falls back to rtlsim.
+        """
+        if self.get_nodeattr("mem_mode") != "internal_embedded":
+            return None
+        n_in = int(np.prod(self.get_folded_input_shape()[:-1]))
+        n_out = int(np.prod(self.get_folded_output_shape()[:-1]))
+        if n_in < 1 or n_in != n_out:
+            return None
+        return passthrough_characteristic(n_in, "Lookup_hls")

@@ -44,7 +44,7 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.test import soft_verify_topk
+from finn.util.test import soft_verify_topk, tree_model_test
 
 
 def make_labelselect_modelwrapper(labels, pe, k, idt, impl_style):
@@ -136,3 +136,40 @@ def test_fpgadataflow_labelselect(idt, labels, fold, k, exec_mode, impl_style):
     y = oxe.execute_onnx(model, input_dict)["outp"]
 
     assert soft_verify_topk(x, y, k), exec_mode + " failed"
+
+
+# which port to test
+@pytest.mark.parametrize("idt", [DataType["UINT8"]])
+# labels
+@pytest.mark.parametrize("labels", [10, 100])
+# folding
+@pytest.mark.parametrize("fold", [1, 10])
+# number of top labels to select
+@pytest.mark.parametrize("k", [1, 5])
+# impl style
+@pytest.mark.parametrize("impl_style", ["hls"])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_labelselect(idt, labels, fold, k, impl_style):
+    np.random.seed(0)
+    if fold == -1:
+        pe = 1
+    else:
+        pe = labels // fold
+    assert labels % pe == 0
+
+    if k == -1:
+        k = labels
+
+    model = make_labelselect_modelwrapper(labels, pe, k, idt, impl_style)
+    node_details = ("LabelSelect", idt, labels, fold, k, impl_style)
+    part = "xc7z020clg400-1"
+    target_clk_ns = 4
+    max_allowed_volume_delta = 10
+    max_allowed_length_delta = 398  # RTLSIM is inconsistent
+
+    assert tree_model_test(
+        model, node_details, part, target_clk_ns, max_allowed_volume_delta, max_allowed_length_delta
+    ), "characterized TAV does not match RTLsim'd one!"

@@ -33,6 +33,7 @@ from qonnx.core.datatype import DataType
 from qonnx.util.basic import roundup_to_integer_multiple
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import flat_characteristic_leaf
 
 
 class StreamingSplit(HWCustomOp):
@@ -154,3 +155,53 @@ class StreamingSplit(HWCustomOp):
     def get_instream_width_padded(self, ind=0):
         in_width = self.get_instream_width()
         return roundup_to_integer_multiple(in_width, 8)
+
+    def get_tree_model(self):
+        """The measured schedule of the freerunning HLS splitter.
+
+        Not a passthrough and not II=1, which is what the shape was assumed to
+        be before anyone read the reports. ``csynth.rpt`` for the generated top
+        level says Latency 4, **Interval 5**, ``Pipelined: no``,
+        ``hls_style: freerunning``; the inner ``StreamingSplit`` in
+        finn-hlslib/split.hpp is ``#pragma HLS pipeline II=1``, so it is the
+        freerunning wrapper around it that admits one word every five cycles.
+
+        Round-robin over the destinations in ``ChannelsPerStream`` order, so
+        destination *i* receives one contiguous burst of ``C[i]`` words per
+        input vector rather than a share of every word. The measured phases:
+
+            input word k        at cycle 1 + 5k
+            output i, word j    at cycle 7 + 5*(offset_i + j)
+
+        where ``offset_i = sum(C[:i])``. Both hold on all 13 harvested
+        references (radioml, vision and language; numInputVectors 64 and 256).
+
+        Evidence boundary, stated because the model does not restrict itself to
+        it: every reference has **four equal streams and SIMD 1**, so the
+        initiation interval of 5 is measured only for that shape. It is a
+        property of the freerunning wrapper rather than of the stream count as
+        far as the HLS source shows, but that is an inference. A new
+        configuration will be caught rather than silently trusted -- the
+        reference suite fails on any configuration that has a tree model and no
+        recorded error budget.
+        """
+        simd = self.get_nodeattr("SIMD")
+        chans = list(self.get_nodeattr("ChannelsPerStream"))
+        n_vec = int(np.prod(list(self.get_nodeattr("numInputVectors"))))
+        if simd < 1 or not chans or any(c % simd for c in chans) or n_vec < 1:
+            return None
+        folds = [c // simd for c in chans]
+        total = int(sum(folds))
+        if total < 1:
+            return None
+        ii = 5
+        span = ii * total  # cycles per input vector
+        period = n_vec * span
+        rd = np.zeros(period, dtype=np.int8)
+        wr = np.zeros(period, dtype=np.int8)
+        rd[(1 + ii * np.arange(n_vec * total)) % period] = 1
+        # row 0 is the schedule the FIFO sizer reads, and that is out0
+        starts = span * np.arange(n_vec)
+        first = (7 + ii * np.arange(folds[0]))[None, :] + starts[:, None]
+        wr[first.ravel() % period] = 1
+        return flat_characteristic_leaf(rd, wr, "StreamingSplit_hls schedule")

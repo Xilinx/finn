@@ -26,7 +26,11 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import base64
 import errno
+import gzip
+import json
+import numpy as np
 import os
 import re
 import shutil
@@ -397,6 +401,290 @@ def get_dsp_block(fpgapart):
         return "DSP48E2"
 
 
+def stretch(a, new_length):
+    n = len(a)
+    x_old = np.arange(n)
+    x_new = np.linspace(0, n - 1, new_length)
+    stretched = np.interp(x_new, x_old, a).round().astype(a.dtype)
+    return stretched
+
+
+class Characteristic_Node:
+    def __init__(self, name, sub_phases, leaf):
+        self.name = name
+        self.sub_phases = sub_phases
+        self.cycles_eval = None
+        self.cycles_inputs = None
+        self.cycles_outputs = None
+        self.leaf = leaf
+        self.debug = False
+        self._deltas = None
+
+    def deltas(self):
+        """One period's per-cycle (input, output) token deltas, as an (n, 2) array.
+
+        The vectorised equivalent of ``traverse_phase_tree``, which walks one
+        Python loop iteration per cycle. That costs about a second per node on
+        mobilenetv1, whose periods run to 400k cycles, and the whole point of a
+        tree model is that it is cheap; ``np.repeat`` over the run lengths and a
+        single ``cumsum`` give a bit-identical answer in milliseconds.
+
+        Memoised per node, and shared by every repetition of a sub-tree, so a
+        tree that repeats one phase ``numVectors`` times builds it once.
+        """
+        if self._deltas is not None:
+            return self._deltas
+        if self.leaf:
+            lens = np.array([int(p[0]) for p in self.sub_phases], dtype=np.int64)
+            vals = np.array([[int(p[1][0]), int(p[1][1])] for p in self.sub_phases], dtype=np.int64)
+            out = np.repeat(vals, lens, axis=0) if lens.size else np.zeros((0, 2), dtype=np.int64)
+        else:
+            parts = []
+            for count, sub in self.sub_phases:
+                count = int(count)
+                if count <= 0:
+                    continue
+                d = sub.deltas()
+                if d.shape[0] == 0:
+                    continue
+                parts.append(np.tile(d, (count, 1)) if count > 1 else d)
+            out = np.concatenate(parts) if parts else np.zeros((0, 2), dtype=np.int64)
+        self._deltas = out
+        return out
+
+    def cumulative(self, periods=2):
+        """Cumulative token counts over ``periods`` back-to-back periods."""
+        d = self.deltas()
+        if d.shape[0] == 0:
+            return np.zeros((0, 2), dtype=np.int64)
+        one = np.cumsum(d, axis=0)
+        if periods == 1:
+            return one
+        total = one[-1]
+        return np.concatenate([one + i * total for i in range(periods)])
+
+    def sum(self, op):
+        if self.leaf:
+            if op == 2:
+                return sum([x[0] for x in self.sub_phases])
+            else:
+                return sum([x[0] * x[1][op] for x in self.sub_phases])
+        else:
+            return sum([x[0] * x[1].sum(op) for x in self.sub_phases])
+
+    def traverse_phase_tree(self, op, counter, cycles, ch_fnc):
+        """
+        The tree traversal function to get the token access vector.
+        We call it multiple times to get input, output and cycle count vectors.
+
+
+        op: 0 input, 1 output, 2 cycle count
+        counter: current count of op
+        cycles: current cycle count
+        ch_fnc: list of counter values at each cycle (the token access vector)
+        """
+
+        if (
+            self.leaf
+        ):  # immediate write out of the counter state to the array due to being a leaf node
+            for phase in self.sub_phases:
+                for _ in range(phase[0]):
+                    if op == 2:
+                        counter += 1
+                    else:
+                        counter += phase[1][op]
+                    cycles += 1
+                    ch_fnc.append(counter)
+            return counter, cycles, ch_fnc
+        else:  # recursive call to the next sub-node
+            for phase in self.sub_phases:
+                for _ in range(phase[0]):
+                    counter, cycles, ch_fnc = phase[1].traverse_phase_tree(
+                        op, counter, cycles, ch_fnc
+                    )
+            return counter, cycles, ch_fnc
+
+
+def _rle_encode(d):
+    """Run-length encode a 1D array. Returns (values, lengths) as int64 arrays
+    with sum(lengths) == len(d)."""
+    if d.size == 0:
+        return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64)
+    change = np.flatnonzero(d[1:] != d[:-1]) + 1
+    starts = np.concatenate(([0], change))
+    ends = np.concatenate((change, [d.size]))
+    return d[starts].astype(np.int64), (ends - starts).astype(np.int64)
+
+
+def compress_numpy_to_string(arr):
+    """Serialize a Token Access Vector (TAV) array to a compact string.
+
+    TAVs are cumulative, monotonically non-decreasing per-cycle token counts.
+    Rather than storing the full per-cycle state (how many tokens have
+    accumulated at every clock cycle), we store the TAV in its *gaps* form: a
+    run-length encoding of the per-cycle deltas (np.diff along the time axis).
+    A run of value 0 is exactly the number of cycles spent without a token
+    being read/written, i.e. the gap between two tokens.
+
+    This encoding is lossless: decompress_string_to_numpy() unrolls it back to
+    the exact original array, so downstream FIFO sizing is unchanged. The last
+    axis is treated as the time axis; any leading axes (e.g. multiple streams)
+    are handled row by row."""
+    arr = np.asarray(arr)
+    # gaps encoding only well-defined for arrays that have a time axis
+    if arr.ndim >= 1 and arr.shape[-1] >= 1:
+        n = arr.shape[-1]
+        rows = arr.reshape(-1, n)
+        starts = rows[:, 0]
+        run_values = []
+        run_lengths = []
+        n_runs = []
+        for row in rows:
+            vals, lens = _rle_encode(np.diff(row))
+            run_values.append(vals)
+            run_lengths.append(lens)
+            n_runs.append(int(vals.size))
+        run_values = np.concatenate(run_values) if run_values else np.empty(0, dtype=np.int64)
+        run_lengths = np.concatenate(run_lengths) if run_lengths else np.empty(0, dtype=np.int64)
+        metadata = {
+            "fmt": "gaps1",  # marks the gaps format for decompress auto-detection
+            "dtype": str(arr.dtype),
+            "shape": list(arr.shape),
+            "n_runs": n_runs,  # runs per row, to split the flat run arrays
+        }
+        payload = starts.astype(arr.dtype).tobytes() + run_values.tobytes() + run_lengths.tobytes()
+    else:
+        # fallback: legacy raw storage for degenerate (0D / empty time axis) shapes
+        metadata = {"dtype": str(arr.dtype), "shape": list(arr.shape)}
+        payload = arr.tobytes()
+
+    metadata_bytes = json.dumps(metadata).encode("utf-8")
+    combined_data = metadata_bytes + b"||" + gzip.compress(payload)
+    return base64.b64encode(combined_data).decode("utf-8")
+
+
+def _save_gaps_npy(arr, path):
+    """Save a Token Access Vector array to ``path`` as a gzip-compressed .npy file
+    holding the run-length encoding of its per-cycle deltas (the gaps form). One
+    flat int64 array is written with layout::
+
+        [k, n, n_runs(k), starts(k), run_values(sum n_runs), run_lengths(sum n_runs)]
+
+    where a run of value 0 in the deltas is the number of cycles spent without a
+    token. The array is gzip-compressed on disk (same scheme as the inline string
+    encoding). This is lossless; load_tav_npy() reconstructs the exact array."""
+    arr = np.asarray(arr)
+    if arr.ndim == 1:
+        arr = arr.reshape(1, -1)
+    k, n = arr.shape[0], arr.shape[-1]
+    n_runs = []
+    run_values = []
+    run_lengths = []
+    for row in arr:
+        vals, lens = _rle_encode(np.diff(row))
+        run_values.append(vals)
+        run_lengths.append(lens)
+        n_runs.append(vals.size)
+    flat = np.concatenate(
+        [
+            np.array([k, n], dtype=np.int64),
+            np.array(n_runs, dtype=np.int64),
+            arr[:, 0].astype(np.int64) if n >= 1 else np.empty(0, dtype=np.int64),
+            np.concatenate(run_values) if run_values else np.empty(0, dtype=np.int64),
+            np.concatenate(run_lengths) if run_lengths else np.empty(0, dtype=np.int64),
+        ]
+    ).astype(np.int64)
+    with gzip.open(path, "wb") as f:
+        np.save(f, flat)
+
+
+def load_tav_npy(path):
+    """Load and unroll a Token Access Vector stored by _save_gaps_npy(), returning
+    the full per-cycle cumulative array of shape (k, n), dtype int32. Handles both
+    gzip-compressed and plain .npy sidecars (autodetected by the gzip magic)."""
+    with open(path, "rb") as fh:
+        is_gzip = fh.read(2) == b"\x1f\x8b"
+    opener = gzip.open if is_gzip else open
+    with opener(path, "rb") as f:
+        flat = np.load(f)
+    k, n = int(flat[0]), int(flat[1])
+    off = 2
+    n_runs = flat[off : off + k].astype(np.int64)
+    off += k
+    starts = flat[off : off + k]
+    off += k
+    total_runs = int(n_runs.sum())
+    run_values = flat[off : off + total_runs]
+    off += total_runs
+    run_lengths = flat[off : off + total_runs]
+
+    rows = np.empty((k, n), dtype=np.int32)
+    pos = 0
+    for r in range(k):
+        c = int(n_runs[r])
+        deltas = np.repeat(run_values[pos : pos + c], run_lengths[pos : pos + c])
+        pos += c
+        rows[r, :] = (int(starts[r]) + np.concatenate(([0], np.cumsum(deltas)))).astype(np.int32)
+    return rows
+
+
+def save_tav_npy(inst, attr_name, arr):
+    """Persist a Token Access Vector as an .npy sidecar inside the node's generated
+    build folder and return the file path (to be stored in the ``attr_name`` node
+    attribute instead of the inline array). Falls back to a fresh build dir if the
+    node has no code generation directory yet."""
+    tav_dir = inst.get_nodeattr("code_gen_dir_ipgen")
+    if not tav_dir or not os.path.isdir(tav_dir):
+        tav_dir = make_build_dir(prefix="tav_")
+    safe_name = re.sub(r"[^0-9A-Za-z_.-]", "_", inst.onnx_node.name)
+    path = os.path.join(tav_dir, "tav_%s_%s.npy" % (safe_name, attr_name))
+    _save_gaps_npy(arr, path)
+    return path
+
+
+def decompress_string_to_numpy(s):
+    """Inverse of compress_numpy_to_string(). Auto-detects the storage format:
+    a path to an .npy sidecar (written by save_tav_npy) is loaded and unrolled;
+    the inline gaps format ("fmt": "gaps1") is unrolled back to the full per-cycle
+    TAV; legacy raw-array strings (no "fmt" key) are decoded as before."""
+    if isinstance(s, str) and s.endswith(".npy") and os.path.exists(s):
+        return load_tav_npy(s)
+    combined_data = base64.b64decode(s.encode("utf-8"))  # Decode from base64
+    metadata_bytes, compressed_data = combined_data.split(b"||", 1)  # Split metadata & data
+
+    metadata = json.loads(metadata_bytes.decode("utf-8"))  # Decode metadata
+    dtype = np.dtype(metadata["dtype"])  # Convert dtype back
+    shape = tuple(metadata["shape"])  # Convert shape back
+    payload = gzip.decompress(compressed_data)
+
+    if metadata.get("fmt") != "gaps1":
+        # legacy raw format: full per-cycle array stored directly
+        return np.frombuffer(payload, dtype=dtype).reshape(shape)
+
+    # gaps format: unroll run-length-encoded deltas back to the cumulative TAV
+    n = shape[-1]
+    n_runs = metadata["n_runs"]
+    m = len(n_runs)
+    itemsize = dtype.itemsize
+    starts = np.frombuffer(payload[: m * itemsize], dtype=dtype)
+    rest = payload[m * itemsize :]
+    total_runs = int(sum(n_runs))
+    int64_size = np.dtype(np.int64).itemsize
+    run_values = np.frombuffer(rest[: total_runs * int64_size], dtype=np.int64)
+    run_lengths = np.frombuffer(
+        rest[total_runs * int64_size : 2 * total_runs * int64_size], dtype=np.int64
+    )
+
+    rows = np.empty((m, n), dtype=dtype)
+    pos = 0
+    for r in range(m):
+        k = n_runs[r]
+        deltas = np.repeat(run_values[pos : pos + k], run_lengths[pos : pos + k])
+        pos += k
+        rows[r, :] = (int(starts[r]) + np.concatenate(([0], np.cumsum(deltas)))).astype(dtype)
+    return rows.reshape(shape)
+
+
 def get_driver_shapes(model: ModelWrapper) -> Dict:
     idt = []
     idma_names = []
@@ -487,3 +775,42 @@ def get_driver_shapes(model: ModelWrapper) -> Dict:
         "oshape_folded": oshape_folded,
         "oshape_packed": oshape_packed,
     }
+
+
+def flat_characteristic_leaf(rd, wr, label):
+    """One run-length encoded leaf from two per-cycle 0/1 schedules.
+
+    A nested tree is the natural way to write a schedule down when its phases
+    nest, and several measured schedules do not: the MVAU's reads are aligned to
+    the feature map and its writes are not, and both are shifted by a wind-up
+    that belongs to neither. Building the two arrays and run-length encoding
+    them once is simpler to read, and cheaper to traverse, than a tree that has
+    to express the interleaving structurally.
+
+    ``rd`` and ``wr`` are equal-length 0/1 arrays covering exactly one period.
+    """
+    pattern = np.stack([np.asarray(rd), np.asarray(wr)], axis=1)
+    change = np.flatnonzero(np.any(pattern[1:] != pattern[:-1], axis=1)) + 1
+    starts = np.concatenate(([0], change))
+    lengths = np.diff(np.concatenate((starts, [pattern.shape[0]])))
+    phases = [(int(n), [int(pattern[s, 0]), int(pattern[s, 1])]) for s, n in zip(starts, lengths)]
+    return Characteristic_Node(label, phases, True)
+
+
+def passthrough_characteristic(num_words, label):
+    """The characteristic tree of a node that moves one word per cycle, forever.
+
+    Several operators reduce to exactly one loop over the folded word count,
+    pipelined at II=1, reading one word and writing one word per iteration --
+    Vitis reports these with ``rewind``, so consecutive frames run back to back
+    with no wind-up and no gap. Their schedule has no free parameters at all:
+    it is a solid run of ``num_words`` read-and-write cycles.
+
+    This is a constructor for that fixed shape, not a base-class method: an
+    operator calls it because its loop has been read and found to have this
+    structure, and an operator later measured to differ simply stops calling it.
+    Nothing is inherited, so a correction to one operator's schedule cannot
+    reach another's.
+    """
+    step = Characteristic_Node(label, [(int(num_words), [1, 1])], True)
+    return Characteristic_Node(label + " frame", [(1, step)], False)

@@ -41,6 +41,7 @@ from qonnx.util.basic import (
 )
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import Characteristic_Node, flat_characteristic_leaf
 from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
 
 
@@ -763,21 +764,6 @@ class VVAU(HWCustomOp):
             ret_dict[thres_param_type] = thres_count
         return ret_dict
 
-    def derive_characteristic_fxns(self, period):
-        n_inps = np.prod(self.get_folded_input_shape()[:-1])
-        io_dict = {
-            "inputs": {
-                "in0": [0 for i in range(n_inps)],
-            },
-            "outputs": {"out0": []},
-        }
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode in ["internal_decoupled", "external"]:
-            n_weight_inps = self.calc_wmem()
-            num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
-            io_dict["inputs"]["in1"] = [0 for i in range(num_w_reps * n_weight_inps)]
-        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
-
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         mem_mode = self.get_nodeattr("mem_mode")
@@ -897,3 +883,80 @@ class VVAU(HWCustomOp):
         else:
             raise Exception("Unrecognized mem_mode for VectorVectorActivation")
         return cmd
+
+    def get_tree_model(self):
+        # key parameters
+        IMPL_STYLE = "rtl" if "_rtl" in (self.__class__.__name__) else "hls"
+        assert IMPL_STYLE in ["rtl", "hls"], "Implementation style must be 'rtl' or 'hls'"
+
+        SIMD = self.get_nodeattr("SIMD")
+        PE = self.get_nodeattr("PE")
+        Channels = self.get_nodeattr("Channels")
+        Kernel_2 = np.prod(self.get_nodeattr("Kernel"))
+        NF = int(Channels / PE)
+        numReps = np.prod(self.get_nodeattr("Dim"))
+        dim_h, dim_w = self.get_nodeattr("Dim")
+
+        SF = Kernel_2 // SIMD
+
+        if IMPL_STYLE == "hls":
+            # The HLS VVAU reads one folded word per cycle back to back and
+            # emits one every SF, with a fixed five-cycle wind-up in front of
+            # both. A flat leaf rather than a branch in the nested tree below,
+            # because the wind-up sits outside the SF loop and expressing it
+            # structurally would mean special-casing the first and last SF.
+            n_in = int(numReps) * NF * SF
+            n_out = int(numReps) * NF
+            if SF >= 1 and n_out >= 1 and n_in > 8:
+                # n_in + 5, not the n_in + 4 the reference reports: the recorded
+                # period rounds down, and +5 is what places every read and write
+                # on the reference's cycle with no wrap-around. Nodes with
+                # PE <= 2 record a saturated window and keep a small error; too
+                # few points to fit a rule for them.
+                period = n_in + 5
+                rd = np.zeros(period, dtype=np.int8)
+                wr = np.zeros(period, dtype=np.int8)
+                rd[5:] = 1
+                wr[(SF + 4) + SF * np.arange(n_out)] = 1
+                return flat_characteristic_leaf(rd, wr, "VVAU_hls schedule")
+
+        write_out = Characteristic_Node("write out simd (1 for hls)", [(1, [1, 1])], True)
+
+        compute_one_sf = Characteristic_Node("read one SF input", [(1, [1, 0])], True)
+
+        compute_sf = Characteristic_Node(
+            "process SF-1 inputs", [(SF - 1, compute_one_sf), (1, write_out)], False
+        )
+
+        compute_transaction = Characteristic_Node(
+            "Compute VVAU one transaction",
+            [
+                (NF, compute_sf),
+            ],
+            False,
+        )
+
+        vvau_top = Characteristic_Node(
+            "Compute VVAU input set", [(numReps, compute_transaction)], False
+        )
+
+        return vvau_top  # top level phase of this node
+
+    def derive_token_access_vectors(
+        self, model, period, strategy, fpga_part, clk_period, op_type, override_dict=None
+    ):
+        n_inps = np.prod(self.get_folded_input_shape()[:-1])
+        io_dict = {
+            "inputs": {
+                "in0": [i for i in range(n_inps)],
+            },
+            "outputs": {"out0": []},
+        }
+
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode in ["internal_decoupled", "external"]:
+            io_dict["inputs"]["in1"] = [0 for i in range(1 * n_inps)]
+
+        super().derive_token_access_vectors(
+            model, period, strategy, fpga_part, clk_period, op_type, override_dict=io_dict
+        )

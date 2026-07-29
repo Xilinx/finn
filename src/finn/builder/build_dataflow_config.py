@@ -40,9 +40,37 @@ from finn.util.basic import part_map, vitis_default_platform
 
 class AutoFIFOSizingMethod(str, Enum):
     "Select the type of automatic FIFO sizing strategy."
-
-    CHARACTERIZE = "characterize"
+    ANALYTIC = "analytical"
     LARGEFIFO_RTLSIM = "largefifo_rtlsim"
+
+
+class TAVGenerationMethod(str, Enum):
+    "Select the strategy for constructing token access vectors of an operator."
+    RTLSIM = "rtlsim"
+    TREE_MODEL = "tree_model"
+
+
+class TAVUtilizationMethod(str, Enum):
+    """Select the strategy for utilizing token access vectors of an operator
+    for buffer sizing."""
+
+    # worst-case ratio of data rates between a consumer and producer
+    CONSERVATIVE_RELAXATION = "conservative_relaxation"
+
+    # average-case ratio of data rates between a consumer and producer
+    AGGRESSIVE_RELAXATION = "aggressive_relaxation"
+
+    # compose isolated TAVs along the chain (input-arrival-constrained
+    # schedules) and size from occupancy between composed schedules; no
+    # stretch/relaxation heuristics
+    CHAIN_COMPOSED = "chain_composed"
+
+    # no relaxation, use the token access vectors as-is
+    NO_RELAXATION = "no_relaxation"
+
+    # propagate token arrival times across the whole graph, instead of comparing
+    # a producer's trace against its consumer's in isolation
+    CHAINED_TAV = "chained_tav"
 
 
 class ShellFlowType(str, Enum):
@@ -271,6 +299,27 @@ class DataflowBuildConfig:
     #: When `auto_fifo_depths = True`, select which method will be used for
     #: setting the FIFO sizes.
     auto_fifo_strategy: Optional[AutoFIFOSizingMethod] = AutoFIFOSizingMethod.LARGEFIFO_RTLSIM
+
+    #: Which strategy will be used for token access vector generation for FIFO sizing.
+    #: RTLSIM will result in performing RTLSIM for each node
+    #: to deduce the token access vectors empirically
+    #: TREE_MODEL will use the tree mode of an operator if available, avoiding the generation
+    #: of IP cores.
+    tav_generation_strategy: Optional[TAVGenerationMethod] = TAVGenerationMethod.RTLSIM
+
+    #: Which strategy will be used to turn token access vectors into FIFO depths.
+    #: See :class:`TAVUtilizationMethod` for the individual strategies; they differ
+    #: in how much slack is assumed between a producer and its consumer, and in
+    #: whether arrival times are propagated across the whole graph or compared
+    #: pairwise in isolation.
+    #: CHAINED_TAV is the default: propagating arrival times across the graph
+    #: matches the rtlsim-sized interval where the pairwise strategies do not.
+    tav_utilization_strategy: Optional[TAVUtilizationMethod] = TAVUtilizationMethod.CHAINED_TAV
+
+    #: When True, skips the resynthesis steps after fifo sizing. This makes it
+    #: possible to run the step for rapid fifo size analysis during
+    #: automatic folding optimizations or as a first approximation.
+    skip_resynth_during_fifo_sizing: Optional[bool] = False
 
     #: Memory resource type for large FIFOs
     #: Only relevant when `auto_fifo_depths = True`

@@ -293,9 +293,29 @@ class FINNLoop(HWCustomOp, RTLBackend):
         sim_base, sim_rel = rtlsim_so
         self.set_nodeattr("rtlsim_so", sim_base + "/" + sim_rel)
 
-    def derive_characteristic_fxns(self, period):
+    def derive_token_access_vectors(
+        self,
+        model,
+        period,
+        strategy,
+        fpga_part,
+        clk_period,
+        op_type,
+        override_dict=None,
+        pre_hook=None,
+    ):
+        # FINNLoop always uses rtlsim strategy with MLO prehook
         mlo_prehook = mlo_prehook_func_factory(self.onnx_node)
-        super().derive_characteristic_fxns(period, pre_hook=mlo_prehook)
+        super().derive_token_access_vectors(
+            model,
+            period,
+            "rtlsim",
+            fpga_part,
+            clk_period,
+            op_type,
+            override_dict,
+            pre_hook=mlo_prehook,
+        )
 
     def execute_node(self, context, graph):
         node = self.onnx_node

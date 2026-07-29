@@ -40,7 +40,7 @@ from qonnx.util.basic import (
 )
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
-from finn.util.basic import is_versal
+from finn.util.basic import Characteristic_Node, flat_characteristic_leaf, is_versal
 from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation:
@@ -49,6 +49,45 @@ from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_
 # (optional) input 2 is the thresholds tensor, shape (o_size, n_thres)
 # output 0 is the output tensor, shape (.., o_size) = (..., MH)
 # the ... here can be any shape (representing groups of vectors)
+
+
+def _mvau_rtl_tree(SF, NF, n_vec, SIMD):
+    """The RTL MVAU's schedule, or None outside the regime it was fitted on.
+
+    Kept separate from the HLS tree: different pipelines, sharing only SF/NF.
+
+    The node retires one SIMD x PE tile per cycle, so a feature map takes
+    SF*NF cycles: SF input words as one burst, NF output words spaced SF apart.
+    The recorded period carries e extra cycles because the rtlsim harness folds
+    the wind-up into it (period = cycles_rtlsim // periods_to_simulate) and
+    starts its window 2*e late, which is what ``shift`` undoes.
+
+        L = ceil(log2(SIMD))    adder-tree depth; the only attr moving wind-up
+        e = (10 + L) // 5       2 for SIMD <= 16, 3 for SIMD >= 32
+        read burst k at (3 - SF) + k*SF*NF, write j at (8 + L) + j*SF
+
+    ``3 - SF``: reads finish three cycles after the frame boundary, i.e. the
+    node prefetches the next tile while still emitting the current one.
+    """
+    if SF < 1 or NF < 1 or n_vec < 1 or SIMD < 1:
+        return None
+    fm = SF * NF
+    L = int(math.ceil(math.log2(SIMD))) if SIMD > 1 else 0
+    e = (10 + L) // 5
+    period = n_vec * fm + e
+    if period < 4 or n_vec * NF > period:
+        return None
+
+    rd = np.zeros(period, dtype=np.int8)
+    wr = np.zeros(period, dtype=np.int8)
+    shift = 2 * e  # the recorded window starts 2*period into the trace
+    starts = ((3 - SF - shift) + fm * np.arange(n_vec)) % period
+    idx = (starts[:, None] + np.arange(SF)[None, :]) % period
+    rd[idx.ravel()] = 1
+    wr[((8 + L - shift) + SF * np.arange(n_vec * NF)) % period] = 1
+    # modulo, not clipping: keeps the token counts exact (n_vec*SF reads,
+    # n_vec*NF writes), which the occupancy sum depends on more than the phase
+    return flat_characteristic_leaf(rd, wr, "MVAU_rtl burst schedule")
 
 
 class MVAU(HWCustomOp):
@@ -937,21 +976,6 @@ class MVAU(HWCustomOp):
             ret_dict[thres_param_type] = thres_count
         return ret_dict
 
-    def derive_characteristic_fxns(self, period):
-        n_inps = np.prod(self.get_folded_input_shape()[:-1])
-        io_dict = {
-            "inputs": {
-                "in0": [0 for i in range(n_inps)],
-            },
-            "outputs": {"out0": []},
-        }
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode in ["internal_decoupled", "external"]:
-            n_weight_inps = self.calc_wmem()
-            num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
-            io_dict["inputs"]["in1"] = [0 for i in range(num_w_reps * n_weight_inps)]
-        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
-
     def get_verilog_top_module_intf_names(self):
         # intf_names = super().get_verilog_top_module_intf_names()
         intf_names = {}
@@ -1289,3 +1313,96 @@ class MVAU(HWCustomOp):
             raise Exception("Unrecognized mem_mode for MatrixVectorActivation")
 
         return cmd
+
+    def get_tree_model(self):
+        MW = self.get_nodeattr("MW")
+        MH = self.get_nodeattr("MH")
+
+        SIMD = self.get_nodeattr("SIMD")
+        PE = self.get_nodeattr("PE")
+        numVectors = np.prod(self.get_nodeattr("numInputVectors"))
+        SF = int(MW / SIMD)
+        NF = int(MH / PE)
+
+        IMPL_STYLE = "rtl" if "_rtl" in (self.__class__.__name__) else "hls"
+        assert IMPL_STYLE in ["rtl", "hls"], "Implementation style must be 'rtl' or 'hls'"
+
+        def legacy_tree():
+            idle = Characteristic_Node("idle cycles", [(1, [0, 0])], True)
+            read = Characteristic_Node("Read a burst of input", [(1, [1, 0])], True)
+            write = Characteristic_Node("update output", [(1, [0, 1])], True)
+            read_and_write = Characteristic_Node("update output", [(1, [1, 1])], True)
+            write_PE = Characteristic_Node(
+                "iterate MW/SIMD and update an output", [(SF - 1, idle), (1, write)], False
+            )
+            feature_map = Characteristic_Node(
+                "Compute single feature map",
+                [(SF - 1, read), (1, read_and_write), (NF - 1, write_PE)],
+                False,
+            )
+            return Characteristic_Node(
+                "compute set of feature maps", [(1, idle), (numVectors, feature_map)], False
+            )
+
+        if IMPL_STYLE != "hls":
+            # Do not apply the MVAU_hls wind-up below to the RTL node: measured
+            # worse (its first input transaction is a wrap-around phase, not a
+            # small wind-up). ``_mvau_rtl_tree`` returns None outside the
+            # foldings it was fitted on, and then the legacy shape stands.
+            rtl = _mvau_rtl_tree(SF, NF, int(numVectors), SIMD)
+            return rtl if rtl is not None else legacy_tree()
+
+        # MVAU_hls wind-up, measured against rtlsim: the first output is at
+        # SF + 4 (not SF), outputs are spaced SF apart, and the period is
+        # numVectors*NF*SF + 9 - LEAD_IN, where LEAD_IN is the cycle of the
+        # first input transaction. LEAD_IN is 3 only with a threshold stage and
+        # NF >= 8, else 5 -- neither factor moves it alone. NF < 2 is excluded
+        # below: with one output per feature map the wind-up does not appear and
+        # the legacy period is already exact.
+        LEAD_IN = 3 if (self.get_nodeattr("noActivation") == 0 and NF >= 8) else 5
+        FIRST_OUT = SF + 4
+        n_vec = int(numVectors)
+        period = n_vec * NF * SF + 9 - LEAD_IN
+
+        if SF < 1 or NF < 2 or n_vec < 1 or period <= FIRST_OUT + 1:
+            # degenerate folding: a period too short to hold even the first
+            # output. Keep the old shape rather than emit something malformed.
+            return legacy_tree()
+
+        # Reads: one burst of SF per feature map. Writes: a single train of
+        # numVectors*NF spaced SF apart, not aligned to feature-map boundaries.
+        # One flat leaf is simpler and cheaper to traverse than nesting them.
+        rd = np.zeros(period, dtype=np.int8)
+        wr = np.zeros(period, dtype=np.int8)
+        for i in range(n_vec):
+            base = LEAD_IN + i * NF * SF
+            rd[base : base + SF] = 1
+        # Wrap the last output rather than dropping it: it lands at exactly
+        # ``period``, i.e. cycle 0 of the next one, and dropping it would make
+        # the schedule deliver one token per period fewer than the consumer
+        # takes -- a deficit the steady-state occupancy accumulates every frame.
+        out_cycles = (FIRST_OUT + SF * np.arange(n_vec * NF)) % period
+        wr[out_cycles] = 1
+
+        return flat_characteristic_leaf(rd, wr, "MVAU burst schedule")
+
+    def derive_token_access_vectors(
+        self, model, period, strategy, fpga_part, clk_period, op_type, override_dict=None
+    ):
+        n_inps = np.prod(self.get_folded_input_shape()[:-1])
+        io_dict = {
+            "inputs": {
+                "in0": [i for i in range(n_inps)],
+            },
+            "outputs": {"out0": []},
+        }
+
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode in ["internal_decoupled", "external"]:
+            n_weight_inps = self.calc_wmem()
+            num_w_reps = int(np.prod(self.get_nodeattr("numInputVectors")))
+            io_dict["inputs"]["in1"] = [i for i in range(num_w_reps * n_weight_inps)]
+
+        super().derive_token_access_vectors(
+            model, period, strategy, fpga_part, clk_period, op_type, override_dict=io_dict
+        )
