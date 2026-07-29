@@ -28,7 +28,6 @@
 
 import numpy as np
 import os
-import subprocess
 
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
@@ -225,9 +224,9 @@ class MVAU_rtl(MVAU, RTLBackend):
             if not self.get_nodeattr("comp_module_name"):
                 sourcefiles.append(os.path.join(code_gen_dir, "add_multi.sv"))
 
-            # Compressor HDL (incl. the schedule headers, which must be registered too
-            # or stitching fails 56-591); the file set is owned by its filelist.f.
-            sourcefiles += self._read_compressor_filelist(code_gen_dir)
+        # Compressor HDL — both paths (and tiled) need the schedule headers
+        # since add_multi.sv unconditionally includes add_multi_sched.svh.
+        sourcefiles += self._get_compressor_hdl_files()
 
         return sourcefiles
 
@@ -368,14 +367,6 @@ class MVAU_rtl(MVAU, RTLBackend):
             # Unique per-node core name; avoids flat-namespace collision in whole-design sim
             mvu_core_name = "mvu_vvu_axi_" + self.get_verilog_top_module_name()
             code_gen_dict["$MVU_CORE_NAME$"] = [mvu_core_name]
-
-            # Stage the compressor HDL beside the node sources; both paths need it
-            # since mvu_vvu_axi.sv unconditionally includes the schedule.
-            compressor_root = os.environ.get("COMPRESSOR_ROOT")
-            if not compressor_root:
-                raise RuntimeError("COMPRESSOR_ROOT environment variable not set")
-            copy_script = os.path.join(compressor_root, "copy_sources.sh")
-            subprocess.run([copy_script, code_gen_dir], check=True)
 
             # Compressor path selection.
             if self._is_dotp_comp_eligible(fpgapart, ww, aw, pumped_compute):

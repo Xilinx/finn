@@ -28,7 +28,6 @@
 
 import numpy as np
 import os
-import subprocess
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
@@ -164,8 +163,7 @@ class VVAU_rtl(VVAU, RTLBackend):
                 os.path.join(code_gen_dir, "add_multi.sv"),  # FINN wrapper over add_multi_sv
             ]
             + [rtllib_dir + _ for _ in rtllib_files]
-            # Compressor HDL (incl. schedule headers); file set owned by filelist.f.
-            + self._read_compressor_filelist(code_gen_dir)
+            + self._get_compressor_hdl_files()
         )
 
     def instantiate_ip(self, cmd):
@@ -237,13 +235,6 @@ class VVAU_rtl(VVAU, RTLBackend):
         ) as f:
             f.write(template_wrapper)
 
-        # Stage the compressor HDL; mvu_vvu_axi.sv unconditionally includes the
-        # schedule even though the VVU never uses the compressor path.
-        compressor_root = os.environ.get("COMPRESSOR_ROOT")
-        if not compressor_root:
-            raise RuntimeError("COMPRESSOR_ROOT environment variable not set")
-        copy_script = os.path.join(compressor_root, "copy_sources.sh")
-        subprocess.run([copy_script, code_gen_dir], check=True)
         # Substitute the unique core name into the local mvu_vvu_axi.sv copy.
         rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
         with open(os.path.join(rtllib_dir, "mvu_vvu_axi.sv"), "r") as f:
@@ -252,8 +243,7 @@ class VVAU_rtl(VVAU, RTLBackend):
         with open(os.path.join(code_gen_dir, "mvu_vvu_axi.sv"), "w") as f:
             f.write(mvu_vvu_axi_content)
 
-        # Stage add_multi.sv into code_gen_dir so its `include` resolves beside the
-        # copied headers (includes resolve relative to each file's own dir).
+        # Stage add_multi.sv into code_gen_dir (referenced from _collect_rtl_sourcefiles).
         with open(os.path.join(rtllib_dir, "add_multi.sv"), "r") as f:
             add_multi_content = f.read()
         with open(os.path.join(code_gen_dir, "add_multi.sv"), "w") as f:

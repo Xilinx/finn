@@ -78,14 +78,22 @@ class RTLBackend(ABC):
         """Returns list of rtl files. Needs to be filled by each node."""
         pass
 
-    def _read_compressor_filelist(self, code_gen_dir):
-        """Compressor HDL staged by copy_sources.sh, prefixed with ``code_gen_dir``.
-        The file set is owned by the compressor repo and read from the filelist.f
-        it emits, so it is never hardcoded here."""
-        ipgen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        with open(os.path.join(ipgen_dir, "filelist.f")) as f:
-            names = [line.split("#", 1)[0].strip() for line in f]
-        return [os.path.join(code_gen_dir, n) for n in names if n]
+    def _get_compressor_hdl_files(self):
+        """Return absolute paths to compressor HDL from ``$COMPRESSOR_ROOT/hdl/``.
+
+        Scans for ``.sv`` and ``.svh`` files, excluding testbenches (``*_tb.sv``)
+        and subdirectories.  Files are referenced in-place — no per-node copy."""
+        compressor_root = os.environ.get("COMPRESSOR_ROOT")
+        if not compressor_root:
+            raise RuntimeError("COMPRESSOR_ROOT environment variable not set")
+        hdl_dir = os.path.join(compressor_root, "hdl")
+        files = []
+        for f in sorted(os.listdir(hdl_dir)):
+            if f.endswith("_tb.sv"):
+                continue
+            if f.endswith(".sv") or f.endswith(".svh"):
+                files.append(os.path.join(hdl_dir, f))
+        return files
 
     @abstractmethod
     def code_generation_ipi(self):
