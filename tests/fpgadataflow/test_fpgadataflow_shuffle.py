@@ -209,6 +209,114 @@ def test_cppsim_shuffle_layer(cpp_shuffle_param, datatype, simd):
 
 
 @pytest.mark.parametrize(
+    "reshape_transpose_param",
+    [
+        {
+            "in_shape": (1, 768, 14, 14),  # exact SigLIP head dims
+            "transpose_in_shape": (1, 768, 196),
+            "out_shape": (1, 196, 768),
+            "transpose_out_shape": None,
+            "perm": (0, 2, 1),
+        },
+    ],
+    ids=["siglip_1x768x14x14"],
+)
+@pytest.mark.parametrize("datatype", ["INT8"])
+@pytest.mark.parametrize("simd", ["simd1"])
+@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_fused_reshape_inner_transpose(
+    reshape_transpose_param, datatype, simd, exec_mode, monkeypatch
+):
+    """cppsim/rtlsim of a single Reshape+Transpose that fuses into one Shuffle and
+    must decompose to a single InnerShuffle operating on the flattened view.
+
+    Guards against the regression where the InnerShuffle was built from the
+    physical in_shape (dropping the fused reshape) instead of transpose_in_shape.
+    """
+    monkeypatch.setenv("LIVENESS_THRESHOLD", "10000000")
+    dt = DataType[datatype]
+    simd = int(simd[-1])
+    in_shape = reshape_transpose_param["in_shape"]
+    transpose_in_shape = reshape_transpose_param["transpose_in_shape"]
+
+    model = construct_onnx_model(
+        input_shape=in_shape,
+        transpose_perm=reshape_transpose_param["perm"],
+        reshape1_shape=transpose_in_shape,
+        reshape2_shape=reshape_transpose_param["transpose_out_shape"],
+        dt=dt,
+    )
+
+    input = gen_finn_dt_tensor(dt, in_shape)
+    in_name = model.get_first_global_in()
+    out_name = model.get_first_global_out()
+    input_t = {in_name: input}
+
+    # Reference: the plain Reshape+Transpose ONNX
+    y_ref = oxe.execute_onnx(model, input_t)[out_name]
+
+    # Fuse Reshape+Transpose into one Shuffle and confirm the reshape was captured
+    # (physical in_shape differs from the shape the transpose acts on).
+    model = model.transform(InferShuffle(_filter=lambda *_: True))
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    shuffle_nodes = [
+        n
+        for n in model.graph.node
+        if n.op_type == "Shuffle" and "finn.custom_op.fpgadataflow" in n.domain
+    ]
+    assert len(shuffle_nodes) == 1, "expected a single fused Shuffle node"
+    shuffle_inst = getCustomOp(shuffle_nodes[0])
+    assert list(shuffle_inst.get_nodeattr("in_shape")) == list(in_shape)
+    assert list(shuffle_inst.get_nodeattr("transpose_in_shape")) == list(transpose_in_shape)
+    assert list(shuffle_inst.get_nodeattr("in_shape")) != list(
+        transpose_in_shape
+    ), "this test must exercise a FUSED reshape (in_shape != transpose_in_shape)"
+
+    model = model.transform(SetShuffleSIMD(simd))
+    model = model.transform(ShuffleDecomposition())
+    model = model.transform(InferInnerOuterShuffles())
+    model = model.transform(SpecializeLayers(test_fpga_part))
+
+    # A swap-last-two transpose must map to exactly one InnerShuffle (no
+    # OuterShuffle), and that InnerShuffle must operate on the flattened
+    # transpose_in_shape rather than the physical in_shape.
+    inner = [n for n in model.graph.node if n.op_type == "InnerShuffle_rtl"]
+    outer = [n for n in model.graph.node if n.op_type == "OuterShuffle_hls"]
+    assert len(inner) == 1, "fused reshape + swap-last-two must yield one InnerShuffle"
+    assert len(outer) == 0, "no OuterShuffle expected for a pure inner transpose"
+    inner_inst = getCustomOp(inner[0])
+    # in_shape matches the physical input tensor; the flattened view the
+    # transpose acts on is carried separately in transpose_in_shape.
+    assert list(inner_inst.get_nodeattr("in_shape")) == list(
+        in_shape
+    ), "InnerShuffle in_shape must match the physical input tensor"
+    assert list(inner_inst.get_nodeattr("transpose_in_shape")) == list(
+        transpose_in_shape
+    ), "InnerShuffle must carry the flattened transpose_in_shape"
+    assert list(inner_inst.get_normal_output_shape()) == list(reshape_transpose_param["out_shape"])
+
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
+
+    model = model.transform(SetExecMode(exec_mode))
+    if exec_mode == "cppsim":
+        model = model.transform(PrepareCppSim())
+        model = model.transform(CompileCppSim())
+    elif exec_mode == "rtlsim":
+        model = model.transform(PrepareIP(test_fpga_part, test_synth_clk_period_ns))
+        model = model.transform(HLSSynthIP())
+        model = model.transform(PrepareRTLSim())
+    else:
+        raise ValueError(f"unknown exec_mode {exec_mode}")
+
+    y_hw = oxe.execute_onnx(model, input_t)[out_name]
+    assert np.allclose(y_ref, y_hw), "Model output does not match expected output"
+
+
+@pytest.mark.parametrize(
     "shuffle_param",
     [
         {
