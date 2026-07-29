@@ -263,6 +263,6 @@ A site that offloads the heavy Xilinx tools to a compute farm (see "Running tool
 
 | Env var                  | What it sets                                                                                                                                        |
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FINN_TOOL_DIR_OVERRIDE` | Shim directory. `finn.util.basic.resolve_xilinx_tool()` resolves `vivado`/`v++`/`vitis_hls`/`vitis-run`/`xelab` to `<dir>/<tool>` when set.        |
+| `FINN_TOOL_DIR_OVERRIDE` | Shim directory. `finn.util.basic.resolve_xilinx_tool()` resolves `vivado`/`v++`/`vitis_hls`/`vitis-run`/`xelab`/`slashkit` to `<dir>/<tool>` when set.        |
 
 The wrapper's own variables are deployment-specific.

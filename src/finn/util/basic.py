@@ -307,6 +307,7 @@ def resolve_xilinx_tool(tool_name):
     - vitis-run
     - v++
     - xelab
+    - slashkit
 
     With FINN_TOOL_DIR_OVERRIDE set, the command resolves to
     <override>/<tool_name>, otherwise the bare tool_name is used.
