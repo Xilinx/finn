@@ -27,11 +27,10 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-# This module contains helpers for handling the MLO rtlsimulation. It instantiates
-# aximm simulation tasks for handling the aximm interfaces.
+# This module contains helpers for RTL simulation, including MLO prehook setup
+# and performance metrics annotation.
 
 import numpy as np
-from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from typing import Callable
 
@@ -40,12 +39,75 @@ from finn import xsi
 SimEngine = xsi.SimEngine if xsi.is_available() else None
 
 
-def is_mlo(model: ModelWrapper) -> bool:
-    """Returns True if the model is an MLO model, false otherwise"""
-    for node in model.graph.node:
-        if node.op_type == "FINNLoop":
-            return True
-    return False
+def annotate_rtlsim_performance(rtlsim_stats, batch_size, clock_period_ns):
+    """Add latency and throughput metrics to raw XSI simulation statistics.
+
+    Overall throughput includes pipeline fill and is available for any completed
+    run. Steady-state throughput requires at least two completed output frames;
+    one frame provides latency only and cannot define an output-to-output rate.
+
+    Args:
+        rtlsim_stats: Dictionary of raw statistics from XSI simulation
+        batch_size: Number of frames simulated
+        clock_period_ns: Clock period in nanoseconds
+
+    Returns:
+        Updated rtlsim_stats dictionary with computed metrics
+    """
+    batch_size = int(batch_size)
+    clock_period_ns = float(clock_period_ns)
+    cycles = int(rtlsim_stats["cycles"])
+    latency_cycles = int(rtlsim_stats["latency_cycles"])
+    assert batch_size > 0, "rtlsim batch size must be >0"
+    assert cycles > 0, "rtlsim cycle count must be >0"
+    assert clock_period_ns > 0.0, "rtlsim clock period must be >0"
+
+    runtime_s = cycles * clock_period_ns * 1.0e-9
+    rtlsim_stats["runtime[ms]"] = runtime_s * 1000.0
+    rtlsim_stats["throughput[images/s]"] = batch_size / runtime_s
+    rtlsim_stats["fclk[mhz]"] = 1000.0 / clock_period_ns
+
+    timeout = int(rtlsim_stats.get("TIMEOUT", 1))
+    unfinished_inputs = int(rtlsim_stats.get("UNFINISHED_INS", 1))
+    unfinished_outputs = int(rtlsim_stats.get("UNFINISHED_OUTS", 1))
+    run_complete = timeout == 0 and unfinished_inputs == 0 and unfinished_outputs == 0
+    completed_frames = int(
+        rtlsim_stats.get("completed_output_frames", batch_size if run_complete else 0)
+    )
+    run_complete = run_complete and completed_frames >= batch_size
+
+    interval_cycles = int(rtlsim_stats.get("interval_cycles", 0))
+    xsi_interval_valid = bool(
+        int(rtlsim_stats.get("interval_valid", completed_frames >= 2 and interval_cycles > 0))
+    )
+    interval_valid = (
+        run_complete and completed_frames >= 2 and interval_cycles > 0 and xsi_interval_valid
+    )
+    rtlsim_stats["interval_is_steady_state"] = interval_valid
+    rtlsim_stats["fps_from_interval"] = (
+        1.0e9 / (clock_period_ns * interval_cycles) if interval_valid else None
+    )
+
+    # New XSI results report the exact span and frame count between the first
+    # and last completed outputs. Fall back to legacy results by removing the
+    # first (pipeline-fill) frame from both the count and elapsed cycles.
+    steady_state_frames = int(rtlsim_stats.get("steady_state_frames", max(0, batch_size - 1)))
+    steady_state_cycles = int(
+        rtlsim_stats.get("steady_state_cycles", max(0, cycles - latency_cycles))
+    )
+    stable_valid = (
+        run_complete
+        and completed_frames >= 2
+        and steady_state_frames > 0
+        and steady_state_cycles > 0
+    )
+    rtlsim_stats["stable_throughput_valid"] = stable_valid
+    rtlsim_stats["stable_throughput[images/s]"] = (
+        steady_state_frames * 1.0e9 / (clock_period_ns * steady_state_cycles)
+        if stable_valid
+        else None
+    )
+    return rtlsim_stats
 
 
 def dat_file_to_numpy_array(file_path):
