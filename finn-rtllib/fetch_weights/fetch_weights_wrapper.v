@@ -23,7 +23,7 @@
  * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
  * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
  * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION). HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
@@ -34,25 +34,26 @@
 `define $EN_MLO$
 
 module $MODULE_NAME_AXI_WRAPPER$ #(
-	parameter	MW = $MW$,
-	parameter	MH = $MH$,
-	parameter	PE = $PE$,
-	parameter	SIMD = $SIMD$,
-    parameter   TH = $TH$,
-    parameter   N_REPS = $N_REPS$,
-	parameter	WEIGHT_WIDTH = $WEIGHT_WIDTH$,
-    parameter   N_LAYERS = $N_LAYERS$,
+	parameter  MW = $MW$,
+	parameter  MH = $MH$,
+	parameter  PE = $PE$,
+	parameter  SIMD = $SIMD$,
+	parameter  TH = $TH$,
+	parameter  N_REPS = $N_REPS$,
+	parameter  WEIGHT_WIDTH = $WEIGHT_WIDTH$,
+	parameter  N_LAYERS = $N_LAYERS$,
 
-    parameter   ADDR_BITS = 64,
-    parameter   DATA_BITS = 256,
-    parameter   LEN_BITS = 32,
-    parameter   IDX_BITS = 16,
+	parameter  ADDR_BITS = 64,
+	parameter  DATA_BITS = 256,
+	parameter  LEN_BITS = 32,
+	parameter  IDX_BITS = 16,
 
-	// Safely deducible parameters
-    parameter   IWSIMD = $IWSIMD$,
-    parameter   WSIMD = $WSIMD$,
-    parameter   DS_BITS_BA = (IWSIMD*WEIGHT_WIDTH+7)/8 * 8,
-	parameter	WS_BITS_BA = (WSIMD*WEIGHT_WIDTH+7)/8 * 8
+	// Base address offset (added to base_address)
+	parameter [ADDR_BITS-1:0]  ADDRESS_OFFSET = $ADDRESS_OFFSET$,
+
+	// Safely deducible parameters (parameter due to Verilog port-width visibility)
+	parameter  DS_BITS_BA = (((TH > 1)? ((PE*SIMD)/TH) : SIMD)*WEIGHT_WIDTH+7)/8 * 8,
+	parameter  WS_BITS_BA = (((PE*SIMD)/TH)*WEIGHT_WIDTH+7)/8 * 8
 )(
 	// Global Control
 	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF axi_mm:in_idx0_V:out0_V, ASSOCIATED_RESET ap_rst_n" *)
@@ -61,156 +62,165 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
 	input	ap_rst_n,
 
-    // Completion
-    output wire                                out_done,
+	// Completion
+	output	out_done,
 
-    // AXI
-    (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 axi_mm" *)
-    output wire[ADDR_BITS-1:0]                 axi_mm_araddr,
-    output wire[1:0]		                    axi_mm_arburst,
-    output wire[3:0]		                    axi_mm_arcache,
-    output wire[1:0]      		                axi_mm_arid,
-    output wire[7:0]		                    axi_mm_arlen,
-    output wire[0:0]		                    axi_mm_arlock,
-    output wire[2:0]		                    axi_mm_arprot,
-    output wire[2:0]		                    axi_mm_arsize,
-    input  wire			                    axi_mm_arready,
-    output wire			                    axi_mm_arvalid,
-    output wire[ADDR_BITS-1:0] 	            axi_mm_awaddr,
-    output wire[1:0]		                    axi_mm_awburst,
-    output wire[3:0]		                    axi_mm_awcache,
-    output wire[1:0]		                    axi_mm_awid,
-    output wire[7:0]		                    axi_mm_awlen,
-    output wire[0:0]		                    axi_mm_awlock,
-    output wire[2:0]		                    axi_mm_awprot,
-    output wire[2:0]		                    axi_mm_awsize,
-    input  wire			                    axi_mm_awready,
-    output wire			                    axi_mm_awvalid,
-    input  wire[DATA_BITS-1:0] 	            axi_mm_rdata,
-    input  wire[1:0]      		                axi_mm_rid,
-    input  wire			                    axi_mm_rlast,
-    input  wire[1:0]		                    axi_mm_rresp,
-    output wire 			                    axi_mm_rready,
-    input  wire			                    axi_mm_rvalid,
-    output wire[DATA_BITS-1:0] 	            axi_mm_wdata,
-    output wire			                    axi_mm_wlast,
-    output wire[DATA_BITS/8-1:0] 	            axi_mm_wstrb,
-    input  wire			                    axi_mm_wready,
-    output wire			                    axi_mm_wvalid,
-    input  wire[1:0]      		                axi_mm_bid,
-    input  wire[1:0]		                    axi_mm_bresp,
-    output wire			                    axi_mm_bready,
-    input  wire			                    axi_mm_bvalid,
+	// AXI
+	(* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 axi_mm" *)
+	output	[ADDR_BITS-1:0] axi_mm_araddr,
+	output	[1:0] axi_mm_arburst,
+	output	[3:0] axi_mm_arcache,
+	output	[1:0] axi_mm_arid,
+	output	[7:0] axi_mm_arlen,
+	output	[0:0] axi_mm_arlock,
+	output	[2:0] axi_mm_arprot,
+	output	[2:0] axi_mm_arsize,
+	input	axi_mm_arready,
+	output	axi_mm_arvalid,
+	output	[ADDR_BITS-1:0] axi_mm_awaddr,
+	output	[1:0] axi_mm_awburst,
+	output	[3:0] axi_mm_awcache,
+	output	[1:0] axi_mm_awid,
+	output	[7:0] axi_mm_awlen,
+	output	[0:0] axi_mm_awlock,
+	output	[2:0] axi_mm_awprot,
+	output	[2:0] axi_mm_awsize,
+	input	axi_mm_awready,
+	output	axi_mm_awvalid,
+	input	[DATA_BITS-1:0] axi_mm_rdata,
+	input	[1:0] axi_mm_rid,
+	input	axi_mm_rlast,
+	input	[1:0] axi_mm_rresp,
+	output	axi_mm_rready,
+	input	axi_mm_rvalid,
+	output	[DATA_BITS-1:0] axi_mm_wdata,
+	output	axi_mm_wlast,
+	output	[DATA_BITS/8-1:0] axi_mm_wstrb,
+	input	axi_mm_wready,
+	output	axi_mm_wvalid,
+	input	[1:0] axi_mm_bid,
+	input	[1:0] axi_mm_bresp,
+	output	axi_mm_bready,
+	input	axi_mm_bvalid,
 
-`ifdef EN_MLO
-    // Index
-    input  wire                                in_idx0_V_tvalid,
-    output wire                                in_idx0_V_tready,
-    input  wire[IDX_BITS-1:0]                  in_idx0_V_tdata,
+`ifdef HAS_BASE_ADDRESS
+	// Base Address
+	input	[ADDR_BITS-1:0] base_address,
 `endif
 
-    // Stream
-    output wire                                out0_V_tvalid,
-    input  wire                                out0_V_tready,
-    output wire[WS_BITS_BA-1:0]                out0_V_tdata
+`ifdef EN_MLO
+	// Index
+	input	in_idx0_V_tvalid,
+	output	in_idx0_V_tready,
+	input	[IDX_BITS-1:0] in_idx0_V_tdata,
+`endif
+
+	// Stream
+	output	out0_V_tvalid,
+	input	out0_V_tready,
+	output	[WS_BITS_BA-1:0] out0_V_tdata
 );
 
 `ifndef EN_MLO
-    wire in_idx0_V_tvalid;
-    wire in_idx0_V_tready;
-    wire [IDX_BITS-1:0] in_idx0_V_tdata;
+	wire  in_idx0_V_tvalid;
+	wire  in_idx0_V_tready;
+	wire [IDX_BITS-1:0]  in_idx0_V_tdata;
 
-    assign in_idx0_V_tvalid = 1'b1;
-    assign in_idx0_V_tdata = 0;
+	assign  in_idx0_V_tvalid = 1'b1;
+	assign  in_idx0_V_tdata = 0;
 `endif
 
 // DMA <-> DWC internal wires
-wire axis_dma_tvalid;
-wire axis_dma_tready;
-wire [DATA_BITS-1:0] axis_dma_tdata;
-wire [DATA_BITS/8-1:0] axis_dma_tkeep;
-wire axis_dma_tlast;
+wire  axis_dma_tvalid;
+wire  axis_dma_tready;
+wire [DATA_BITS  -1:0]  axis_dma_tdata;
+wire [DATA_BITS/8-1:0]  axis_dma_tkeep;
+wire  axis_dma_tlast;
 
-wire axis_dwc_tvalid;
-wire axis_dwc_tready;
-wire [DS_BITS_BA-1:0] axis_dwc_tdata;
-wire [(DS_BITS_BA)/8-1:0] axis_dwc_tkeep;
-wire axis_dwc_tlast;
+wire  axis_dwc_tvalid;
+wire  axis_dwc_tready;
+wire [DS_BITS_BA    -1:0]  axis_dwc_tdata;
+wire [(DS_BITS_BA)/8-1:0]  axis_dwc_tkeep;
+wire  axis_dwc_tlast;
 
 // Width converter
 $DWC_MODULE_NAME$ inst_dwc (
-    .aclk(ap_clk), .aresetn(ap_rst_n),
-    .s_axis_tvalid(axis_dma_tvalid), .s_axis_tready(axis_dma_tready), .s_axis_tdata(axis_dma_tdata), .s_axis_tkeep(axis_dma_tkeep), .s_axis_tlast(axis_dma_tlast),
-    .m_axis_tvalid(axis_dwc_tvalid), .m_axis_tready(axis_dwc_tready), .m_axis_tdata(axis_dwc_tdata), .m_axis_tkeep(axis_dwc_tkeep), .m_axis_tlast(axis_dwc_tlast)
+	.aclk(ap_clk), .aresetn(ap_rst_n),
+	.s_axis_tvalid(axis_dma_tvalid), .s_axis_tready(axis_dma_tready), .s_axis_tdata(axis_dma_tdata), .s_axis_tkeep(axis_dma_tkeep), .s_axis_tlast(axis_dma_tlast),
+	.m_axis_tvalid(axis_dwc_tvalid), .m_axis_tready(axis_dwc_tready), .m_axis_tdata(axis_dwc_tdata), .m_axis_tkeep(axis_dwc_tkeep), .m_axis_tlast(axis_dwc_tlast)
 );
 
 fetch_weights #(
-    .PE(PE), .SIMD(SIMD), .TH(TH),
-    .MH(MH), .MW(MW), .N_REPS(N_REPS),
-    .WEIGHT_WIDTH(WEIGHT_WIDTH),
-    .IWSIMD(IWSIMD), .OWSIMD(WSIMD),
-    .ADDR_BITS(ADDR_BITS), .DATA_BITS(DATA_BITS), .LEN_BITS(LEN_BITS), .IDX_BITS(IDX_BITS),
-    .N_LAYERS(N_LAYERS)
+	.PE(PE), .SIMD(SIMD), .TH(TH),
+	.MH(MH), .MW(MW), .N_REPS(N_REPS),
+	.WEIGHT_WIDTH(WEIGHT_WIDTH),
+	.ADDR_BITS(ADDR_BITS), .DATA_BITS(DATA_BITS), .LEN_BITS(LEN_BITS), .IDX_BITS(IDX_BITS),
+	.N_LAYERS(N_LAYERS), .ADDRESS_OFFSET(ADDRESS_OFFSET)
 ) inst (
-    .aclk               (ap_clk),
-    .aresetn            (ap_rst_n),
-    .m_done             (out_done),
+	.aclk(ap_clk),
+	.aresetn(ap_rst_n),
+	.m_done(out_done),
 
-    .m_axi_ddr_araddr   (axi_mm_araddr),
-    .m_axi_ddr_arburst  (axi_mm_arburst),
-    .m_axi_ddr_arcache  (axi_mm_arcache),
-    .m_axi_ddr_arid     (axi_mm_arid),
-    .m_axi_ddr_arlen    (axi_mm_arlen),
-    .m_axi_ddr_arlock   (axi_mm_arlock),
-    .m_axi_ddr_arprot   (axi_mm_arprot),
-    .m_axi_ddr_arsize   (axi_mm_arsize),
-    .m_axi_ddr_arready  (axi_mm_arready),
-    .m_axi_ddr_arvalid  (axi_mm_arvalid),
-    .m_axi_ddr_awaddr   (axi_mm_awaddr),
-    .m_axi_ddr_awburst  (axi_mm_awburst),
-    .m_axi_ddr_awcache  (axi_mm_awcache),
-    .m_axi_ddr_awid     (axi_mm_awid),
-    .m_axi_ddr_awlen    (axi_mm_awlen),
-    .m_axi_ddr_awlock   (axi_mm_awlock),
-    .m_axi_ddr_awprot   (axi_mm_awprot),
-    .m_axi_ddr_awsize   (axi_mm_awsize),
-    .m_axi_ddr_awready  (axi_mm_awready),
-    .m_axi_ddr_awvalid  (axi_mm_awvalid),
-    .m_axi_ddr_rdata    (axi_mm_rdata),
-    .m_axi_ddr_rid      (axi_mm_rid),
-    .m_axi_ddr_rlast    (axi_mm_rlast),
-    .m_axi_ddr_rresp    (axi_mm_rresp),
-    .m_axi_ddr_rready   (axi_mm_rready),
-    .m_axi_ddr_rvalid   (axi_mm_rvalid),
-    .m_axi_ddr_wdata    (axi_mm_wdata),
-    .m_axi_ddr_wlast    (axi_mm_wlast),
-    .m_axi_ddr_wstrb    (axi_mm_wstrb),
-    .m_axi_ddr_wready   (axi_mm_wready),
-    .m_axi_ddr_wvalid   (axi_mm_wvalid),
-    .m_axi_ddr_bid      (axi_mm_bid),
-    .m_axi_ddr_bresp    (axi_mm_bresp),
-    .m_axi_ddr_bready   (axi_mm_bready),
-    .m_axi_ddr_bvalid   (axi_mm_bvalid),
+	.m_axi_ddr_araddr(axi_mm_araddr),
+	.m_axi_ddr_arburst(axi_mm_arburst),
+	.m_axi_ddr_arcache(axi_mm_arcache),
+	.m_axi_ddr_arid(axi_mm_arid),
+	.m_axi_ddr_arlen(axi_mm_arlen),
+	.m_axi_ddr_arlock(axi_mm_arlock),
+	.m_axi_ddr_arprot(axi_mm_arprot),
+	.m_axi_ddr_arsize(axi_mm_arsize),
+	.m_axi_ddr_arready(axi_mm_arready),
+	.m_axi_ddr_arvalid(axi_mm_arvalid),
+	.m_axi_ddr_awaddr(axi_mm_awaddr),
+	.m_axi_ddr_awburst(axi_mm_awburst),
+	.m_axi_ddr_awcache(axi_mm_awcache),
+	.m_axi_ddr_awid(axi_mm_awid),
+	.m_axi_ddr_awlen(axi_mm_awlen),
+	.m_axi_ddr_awlock(axi_mm_awlock),
+	.m_axi_ddr_awprot(axi_mm_awprot),
+	.m_axi_ddr_awsize(axi_mm_awsize),
+	.m_axi_ddr_awready(axi_mm_awready),
+	.m_axi_ddr_awvalid(axi_mm_awvalid),
+	.m_axi_ddr_rdata(axi_mm_rdata),
+	.m_axi_ddr_rid(axi_mm_rid),
+	.m_axi_ddr_rlast(axi_mm_rlast),
+	.m_axi_ddr_rresp(axi_mm_rresp),
+	.m_axi_ddr_rready(axi_mm_rready),
+	.m_axi_ddr_rvalid(axi_mm_rvalid),
+	.m_axi_ddr_wdata(axi_mm_wdata),
+	.m_axi_ddr_wlast(axi_mm_wlast),
+	.m_axi_ddr_wstrb(axi_mm_wstrb),
+	.m_axi_ddr_wready(axi_mm_wready),
+	.m_axi_ddr_wvalid(axi_mm_wvalid),
+	.m_axi_ddr_bid(axi_mm_bid),
+	.m_axi_ddr_bresp(axi_mm_bresp),
+	.m_axi_ddr_bready(axi_mm_bready),
+	.m_axi_ddr_bvalid(axi_mm_bvalid),
 
-    .s_idx_tvalid       (in_idx0_V_tvalid),
-    .s_idx_tready       (in_idx0_V_tready),
-    .s_idx_tdata        (in_idx0_V_tdata),
+	.s_idx_tvalid(in_idx0_V_tvalid),
+	.s_idx_tready(in_idx0_V_tready),
+	.s_idx_tdata(in_idx0_V_tdata),
 
-    .axis_dma_tvalid    (axis_dma_tvalid),
-    .axis_dma_tready    (axis_dma_tready),
-    .axis_dma_tdata     (axis_dma_tdata),
-    .axis_dma_tkeep     (axis_dma_tkeep),
-    .axis_dma_tlast     (axis_dma_tlast),
+	.axis_dma_tvalid(axis_dma_tvalid),
+	.axis_dma_tready(axis_dma_tready),
+	.axis_dma_tdata(axis_dma_tdata),
+	.axis_dma_tkeep(axis_dma_tkeep),
+	.axis_dma_tlast(axis_dma_tlast),
 
-    .axis_dwc_tvalid    (axis_dwc_tvalid),
-    .axis_dwc_tready    (axis_dwc_tready),
-    .axis_dwc_tdata     (axis_dwc_tdata),
-    .axis_dwc_tkeep     (axis_dwc_tkeep),
-    .axis_dwc_tlast     (axis_dwc_tlast),
+	.axis_dwc_tvalid(axis_dwc_tvalid),
+	.axis_dwc_tready(axis_dwc_tready),
+	.axis_dwc_tdata(axis_dwc_tdata),
+	.axis_dwc_tkeep(axis_dwc_tkeep),
+	.axis_dwc_tlast(axis_dwc_tlast),
 
-    .m_axis_tvalid      (out0_V_tvalid),
-    .m_axis_tready      (out0_V_tready),
-    .m_axis_tdata       (out0_V_tdata)
+	.m_axis_tvalid(out0_V_tvalid),
+	.m_axis_tready(out0_V_tready),
+	.m_axis_tdata(out0_V_tdata),
+`ifdef HAS_BASE_ADDRESS
+	.base_address(base_address)
+`else
+	.base_address({ADDR_BITS{1'b0}})
+`endif
 );
 
 endmodule // $MODULE_NAME_AXI_WRAPPER$
