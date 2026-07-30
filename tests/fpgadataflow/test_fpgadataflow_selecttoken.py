@@ -29,9 +29,10 @@ NUM_CHANNELS = 4
 
 
 def make_selecttoken_modelwrapper(token_index, idt):
-    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, NUM_TOKENS, NUM_CHANNELS])
-    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, NUM_CHANNELS])
     indices = np.asarray(token_index, dtype=np.int64)
+    output_shape = [1, NUM_CHANNELS] if indices.ndim == 0 else [1, len(indices), NUM_CHANNELS]
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, NUM_TOKENS, NUM_CHANNELS])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, output_shape)
     gather = helper.make_node("Gather", ["inp", "indices"], ["outp"], axis=1)
     graph = helper.make_graph(
         [gather],
@@ -43,16 +44,6 @@ def make_selecttoken_modelwrapper(token_index, idt):
     model = ModelWrapper(qonnx_make_model(graph, producer_name="selecttoken-model"))
     model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("outp", idt)
-    return model
-
-
-def infer_and_specialize_selecttoken(model, simd):
-    model = model.transform(InferSelectTokenLayer())
-    selecttoken_nodes = model.get_nodes_by_op_type("SelectToken")
-    assert len(selecttoken_nodes) == 1
-    getCustomOp(selecttoken_nodes[0]).set_nodeattr("SIMD", simd)
-    model = model.transform(SpecializeLayers(FPGA_PART))
-    assert len(model.get_nodes_by_op_type("SelectToken_rtl")) == 1
     return model
 
 
@@ -98,7 +89,21 @@ def test_fpgadataflow_selecttoken(config, idt, exec_mode):
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     assert (y_produced == y_expected).all(), "Execution of Gather model failed"
 
-    model = infer_and_specialize_selecttoken(model, simd)
+    model = model.transform(InferSelectTokenLayer())
+    selecttoken_nodes = model.get_nodes_by_op_type("SelectToken")
+    assert len(selecttoken_nodes) == 1
+    selecttoken = getCustomOp(selecttoken_nodes[0])
+    assert selecttoken.get_nodeattr("NumTokens") == NUM_TOKENS
+    assert selecttoken.get_nodeattr("NumChannels") == NUM_CHANNELS
+    assert selecttoken.get_nodeattr("TokenIndex") == token_index
+
+    # Check the inferred hardware-independent node before specialization.
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+    assert (y_produced == y_expected).all(), "Execution of inferred SelectToken failed"
+
+    selecttoken.set_nodeattr("SIMD", simd)
+    model = model.transform(SpecializeLayers(FPGA_PART))
+    assert len(model.get_nodes_by_op_type("SelectToken_rtl")) == 1
 
     if exec_mode == "rtlsim":
         model = model.transform(GiveUniqueNodeNames())
@@ -120,3 +125,18 @@ def test_fpgadataflow_selecttoken(config, idt, exec_mode):
         exp_cycles = model.analysis(exp_cycles_per_layer)[node.name]
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
         assert exp_cycles != 0
+
+
+@pytest.mark.transform
+def test_infer_selecttoken_layer_rejects_nonscalar_gather():
+    indices = [1, 2]
+    input_tensor = np.arange(16, dtype=np.float32).reshape(1, NUM_TOKENS, NUM_CHANNELS)
+    input_dict = {"inp": input_tensor}
+    model = make_selecttoken_modelwrapper(indices, DataType["INT8"])
+    y_expected = oxe.execute_onnx(model, input_dict)["outp"]
+
+    model = model.transform(InferSelectTokenLayer())
+    assert model.graph.node[0].op_type == "Gather"
+
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+    assert np.array_equal(y_produced, y_expected)

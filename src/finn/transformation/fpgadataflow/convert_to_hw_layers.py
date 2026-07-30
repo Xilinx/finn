@@ -2503,9 +2503,6 @@ class InferCrop(Transformation):
     and replace them with a Crop layer
     """
 
-    def __init__(self):
-        super().__init__()
-
     def apply(self, model):
         graph = model.graph
         node_ind = 0

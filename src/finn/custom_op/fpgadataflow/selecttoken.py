@@ -11,9 +11,6 @@ from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 class SelectToken(HWCustomOp):
     """Select one token vector from a sequence of token vectors."""
 
-    def __init__(self, onnx_node, **kwargs):
-        super().__init__(onnx_node, **kwargs)
-
     def get_nodeattr_types(self):
         my_attrs = super().get_nodeattr_types()
         my_attrs.update(
@@ -96,9 +93,6 @@ class SelectToken(HWCustomOp):
         context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(
             self.get_normal_output_shape()
         )
-
-    def bram_estimation(self):
-        return 0
 
     def lut_estimation(self):
         return 200

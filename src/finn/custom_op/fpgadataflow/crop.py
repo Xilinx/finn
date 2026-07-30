@@ -20,9 +20,6 @@ from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 class Crop(HWCustomOp):
     """Abstraction layer for Crop layers."""
 
-    def __init__(self, onnx_node, **kwargs):
-        super().__init__(onnx_node, **kwargs)
-
     def get_nodeattr_types(self):
         my_attrs = {
             "DataType": ("s", True, ""),

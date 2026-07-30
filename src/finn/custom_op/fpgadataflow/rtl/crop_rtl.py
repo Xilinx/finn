@@ -14,9 +14,6 @@ def _rtlsrc_dir():
 class Crop_rtl(Crop, RTLBackend):
     """RTL implementation of Crop using the finn-rtllib crop core."""
 
-    def __init__(self, onnx_node, **kwargs):
-        super().__init__(onnx_node, **kwargs)
-
     def get_nodeattr_types(self):
         return Crop.get_nodeattr_types(self) | RTLBackend.get_nodeattr_types(self)
 
