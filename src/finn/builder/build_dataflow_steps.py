@@ -1524,10 +1524,11 @@ def step_assign_ddr_weight_offsets(model: ModelWrapper, cfg: DataflowBuildConfig
                 node_inst.set_nodeattr("mem_type", resolved_mem_type)
                 if resolved_mem_type == "HBM":
                     print(
-                        "NOTE: selecting HBM mem_type for FINNLoop '%s' on board %s, "
-                        "but HBM weight deployment is not yet supported (only rtlsim "
-                        "works). Set mem_type in the folding config to override."
-                        % (node.name, cfg.board)
+                        "NOTE: selecting HBM mem_type for FINNLoop '%s' on board %s. "
+                        "You can create a stitched IP to use with HBM, but there is "
+                        "currently no automatic system integration for HBM as there is "
+                        "for boards with DDR. Set mem_type in the folding config to "
+                        "override." % (node.name, cfg.board)
                     )
         model = model.transform(AssignMemoryOffset())
     return model
