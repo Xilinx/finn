@@ -34,6 +34,7 @@ module mux #(
     int unsigned              IDX_BITS,
     int unsigned              FM_SIZE,
 
+    int unsigned              ELEM_BITS,
     int unsigned              ILEN_BITS,
 
     int unsigned              QDEPTH = 32,
@@ -68,7 +69,9 @@ module mux #(
     output logic [ILEN_BITS-1:0]        m_axis_tdata
 );
 
-localparam int unsigned FM_BEATS = FM_SIZE / (ILEN_BITS/8);
+localparam int unsigned EBYTES = (ELEM_BITS + 7)/8;
+localparam int unsigned IELEM  = ILEN_BITS / ELEM_BITS;
+localparam int unsigned FM_BEATS = FM_SIZE / (IELEM*EBYTES);
 localparam int unsigned FM_BEATS_BITS = (FM_BEATS == 1) ? 1 : $clog2(FM_BEATS);
 
 //
@@ -205,16 +208,7 @@ always_comb begin: DP_CTRL
 
     case (state_ctrl_C)
         ST_CTRL_IDLE: begin
-            if(idx_fs_tvalid) begin
-                idx_fs_tready = 1'b1;
-
-                val_idx_N = 1'b1;
-                val_seq_N = 1'b1;
-
-                idx_N = '0;
-                seq_N = 1'b0;
-            end
-            else if(s_idx_tvalid) begin
+            if(s_idx_tvalid) begin
                 s_idx_tready = 1'b1;
 
                 val_idx_N = 1'b1;
@@ -222,6 +216,15 @@ always_comb begin: DP_CTRL
 
                 idx_N = s_idx_tdata;
                 seq_N = 1'b1;
+            end
+            else if(idx_fs_tvalid) begin
+                idx_fs_tready = 1'b1;
+
+                val_idx_N = 1'b1;
+                val_seq_N = 1'b1;
+
+                idx_N = '0;
+                seq_N = 1'b0;
             end
         end
 
