@@ -196,8 +196,8 @@ assign m_axi_awcache = 4'b0011;
 assign m_axi_awvalid = m_axi_awvalid_reg;
 assign m_axi_bready = m_axi_bready_reg;
 
-logic [AXI_ADDR_WIDTH-1:0] addr_plus_max_burst = addr_reg + AXI_MAX_BURST_SIZE;
-logic [AXI_ADDR_WIDTH-1:0] addr_plus_count = addr_reg + op_word_count_reg;
+uwire [AXI_ADDR_WIDTH-1:0] addr_plus_max_burst = addr_reg + AXI_MAX_BURST_SIZE;
+uwire [AXI_ADDR_WIDTH-1:0] addr_plus_count = addr_reg + op_word_count_reg;
 
 always_comb begin
     shift_axis_tdata = {s_axis_write_data_tdata, save_axis_tdata_reg} >> ((AXIS_KEEP_WIDTH_INT-offset_reg)*AXIS_WORD_SIZE);

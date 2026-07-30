@@ -54,7 +54,7 @@ class FINNExampleOverlay(Overlay):
         fclk_mhz=100.0,
         device=None,
         download=True,
-        runtime_weight_dir="runtime_weights/",
+        weight_dir="weights/",
     ):
         """Initialize the FINN accelerator.
 
@@ -74,11 +74,15 @@ class FINNExampleOverlay(Overlay):
             Which PYNQ device to use, None for default.
         download: bool
             Whether to flash the bitstream.
-        runtime_weight_dir: str
-            Path to runtime weights folder.
+        weight_dir: str
+            Path to the weights folder. Per-class weights live in subfolders
+            underneath it: runtime_weights/ (external + runtime weights) and
+            mlo_weights/. Each is loaded only if its subfolder/config is present.
         """
         super().__init__(bitfile_name, download=download, device=device)
-        self.runtime_weight_dir = runtime_weight_dir
+        self.weight_dir = weight_dir
+        self.runtime_weight_dir = os.path.join(weight_dir, "runtime_weights")
+        self.mlo_weight_dir = os.path.join(weight_dir, "mlo_weights")
         self._io_shape_dict = io_shape_dict
         self.ibuf_packed_device = None
         self.obuf_packed_device = None
@@ -106,9 +110,10 @@ class FINNExampleOverlay(Overlay):
             # set the clock frequency as specified by user during transformations
             if self.fclk_mhz > 0:
                 Clocks.fclk0_mhz = self.fclk_mhz
-        # load any external + runtime weights
+        # load any external + runtime weights + MLO (DDR)
         self.load_external_weights()
         self.load_runtime_weights()
+        self.load_mlo_weights()
 
     def load_external_weights(self):
         """Load any existing external (DRAM) weights from the specified dir into the
@@ -159,6 +164,43 @@ class FINNExampleOverlay(Overlay):
                 + "weight tensors available do not match. \n"
                 + "Is runtime_weight_dir pointing to the correct folder?"
             )
+
+    def load_mlo_weights(self):
+        """Load DDR weights for MLO/FINNLoop accelerators."""
+        self.mlo_weight_buffer = None
+        mlo_cfg = self._io_shape_dict.get("mlo_weight_config")
+        if not mlo_cfg:
+            return
+        total_size = mlo_cfg["total_size_bytes"]
+        # allocate one big contiguous buffer for all MLO weights
+        weight_buf = allocate(shape=(total_size,), dtype=np.uint8)
+        weight_buf[:] = 0
+        for entry in mlo_cfg["weights"]:
+            dat_path = os.path.join(self.mlo_weight_dir, entry["dat_file"])
+            with open(dat_path, "r") as f:
+                dat = f.read()
+            raw = bytearray()
+            for tok in dat.split():
+                if len(tok) % 2:
+                    tok = "0" + tok
+                raw += bytes.fromhex(tok)[::-1]
+            layer_bytes = np.frombuffer(bytes(raw), dtype=np.uint8)
+            offset = entry["address_offset"]
+            assert offset + layer_bytes.shape[0] <= total_size, (
+                "MLO weight %s does not fit in the allocated DDR buffer" % entry["dat_file"]
+            )
+            weight_buf[offset : offset + layer_bytes.shape[0]] = layer_bytes
+        weight_buf.flush()
+        self.mlo_weight_buffer = weight_buf
+
+        # write buffer physical DDR address
+        phys_addr = int(weight_buf.device_address)
+        for ip_name in mlo_cfg.get("address_config_ips", []):
+            if ip_name not in self.ip_dict.keys():
+                continue
+            address_config = getattr(self, ip_name)
+            address_config.write(0x0, phys_addr & 0xFFFFFFFF)
+            address_config.write(0x4, (phys_addr >> 32) & 0xFFFFFFFF)
 
     def load_runtime_weights(self, flush_accel=True, verify=True):
         """Load any existing runtime-writable weights from the specified dir into the

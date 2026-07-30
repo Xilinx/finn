@@ -35,7 +35,7 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
 from finn.transformation.fpgadataflow.alveo_build import VitisOptStrategy
-from finn.util.basic import part_map, vitis_default_platform
+from finn.util.basic import hbm_boards, part_map, vitis_default_platform
 
 
 class AutoFIFOSizingMethod(str, Enum):
@@ -364,8 +364,10 @@ class DataflowBuildConfig:
     #: If not given `max_multithreshold_bit_width` defaults to 16.
     max_multithreshold_bit_width: Optional[int] = 16
 
-    #: Override the number of inputs for rtlsim performance measurement.
-    rtlsim_batch_size: Optional[int] = 1
+    #: Override the number of frames for rtlsim performance measurement.
+    #: At least two are required to report steady-state throughput; a one-frame
+    #: run can measure latency and pipeline-fill throughput only.
+    rtlsim_batch_size: Optional[int] = 2
 
     #: If set to True, FIFOs with impl_style=vivado will be kept during
     #: rtlsim, otherwise they will be replaced by RTL implementations.
@@ -446,6 +448,12 @@ class DataflowBuildConfig:
         else:
             # return as-is when explicitly specified
             return self.fpga_part
+
+    def _resolve_mem_type(self):
+        """Resolve the memory type used to stream weights from the memories
+        available on the target board. When a board exposes more than one memory
+        type, HBM takes precedence over DDR."""
+        return "HBM" if self.board in hbm_boards else "DDR"
 
     def _resolve_cycles_per_frame(self):
         if self.target_fps is None:

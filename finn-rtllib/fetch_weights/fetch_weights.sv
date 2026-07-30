@@ -24,16 +24,17 @@ module fetch_weights #(
 	int unsigned  N_DCPL_STGS = 1,
 	int unsigned  DBG = 0,
 
+	bit [ADDR_BITS-1:0]  ADDRESS_OFFSET = 0,
+
 	// Safely deducible parameters
-	int unsigned  IWSIMD = (TH > 1)? ((PE*SIMD)/TH) : SIMD,
-	int unsigned  OWSIMD = (PE * SIMD) / TH,
-	int unsigned  DS_BITS_BA = (IWSIMD*WEIGHT_WIDTH+7)/8 * 8,
-	int unsigned  WS_BITS_BA = (OWSIMD*WEIGHT_WIDTH+7)/8 * 8,
 	// In external memory (DDR, HBM, ...) weights are stored per IWSIMD group, each
 	// padded to roundup(IWSIMD*WEIGHT_WIDTH, 8) bits (= DS_BITS_BA, the DWC output
 	// width). The per-layer stride must reflect that per-group padding (not tight
 	// bit-packing); reduces to the tight value when IWSIMD*WEIGHT_WIDTH is byte-aligned.
-	logic[ADDR_BITS-1:0]  LAYER_OFFS = ((MH*MW/IWSIMD)*((IWSIMD*WEIGHT_WIDTH+7)/8) + (DATA_BITS/8-1)) & ~(DATA_BITS/8-1) // AXI bus-width aligned
+	localparam int unsigned  IWSIMD = (TH > 1)? ((PE*SIMD)/TH) : SIMD,
+	localparam int unsigned  OWSIMD = (PE * SIMD) / TH,
+	localparam int unsigned  DS_BITS_BA = (IWSIMD*WEIGHT_WIDTH+7)/8 * 8,
+	localparam int unsigned  WS_BITS_BA = (OWSIMD*WEIGHT_WIDTH+7)/8 * 8
 )(
 	input  logic  aclk,
 	input  logic  aresetn,
@@ -99,10 +100,14 @@ module fetch_weights #(
 	// Stream
 	output logic                     m_axis_tvalid,
 	input  logic                     m_axis_tready,
-	output logic[WS_BITS_BA-1:0]     m_axis_tdata
+	output logic[WS_BITS_BA-1:0]     m_axis_tdata,
+
+	// Base Address
+	input logic [ADDR_BITS-1:0]      base_address
 );
 
 	//=== Layer Offsets =====================================================
+	localparam int unsigned  LAYER_OFFS = ((MH*MW/IWSIMD)*((IWSIMD*WEIGHT_WIDTH+7)/8) + (DATA_BITS/8-1)) & ~(DATA_BITS/8-1); // AXI bus-width aligned
 	logic [N_LAYERS-1:0][ADDR_BITS-1:0]  l_offsets;
 	for(genvar i = 0; i < N_LAYERS; i++) begin : genOffs
 		assign	l_offsets[i] = i * LAYER_OFFS;
@@ -142,13 +147,13 @@ module fetch_weights #(
 			.o_d(q_idx_dat), .o_v(q_idx_vld), .o_r(q_idx_rdy)
 		);
 
-		assign	dma_addr = l_offsets[Idx];
+		assign	dma_addr = base_address + ADDRESS_OFFSET + l_offsets[Idx];
 		// External memory (DDR, HBM, ...) stores weights as byte-aligned per-IWSIMD
 		// packets: each group of IWSIMD weights occupies roundup(IWSIMD*WEIGHT_WIDTH, 8)
 		// bits (= DS_BITS_BA). The total fetch length must reflect that per-group
 		// padding (not tight bit-packing), otherwise sub-byte weights under-fetch.
 		// Reduces to the tight value whenever IWSIMD*WEIGHT_WIDTH is already byte-aligned.
-		assign	dma_len  = (((MH*MW/IWSIMD) * ((IWSIMD*WEIGHT_WIDTH+7)/8)) + 7) & ~7;
+		assign dma_len = (MH*MW/IWSIMD) * ((IWSIMD*WEIGHT_WIDTH+7)/8);
 
 		//--- Sequential ----------------------------------------------------
 		always_ff @(posedge aclk) begin
@@ -213,13 +218,13 @@ module fetch_weights #(
 			.o_d(q_idx_dat), .o_v(dma_tvalid), .o_r(dma_tready)
 		);
 
-		assign	dma_addr = l_offsets[q_idx_dat];
+		assign	dma_addr = base_address + ADDRESS_OFFSET + l_offsets[q_idx_dat];
 		// Same byte-aligned per-IWSIMD-group packing as the tiled path (see above):
 		// each of the MH*MW/IWSIMD groups occupies roundup(IWSIMD*WEIGHT_WIDTH, 8)
 		// bits (= DS_BITS_BA) in external memory. Using tight bit-packing here would
 		// under-fetch whenever IWSIMD*WEIGHT_WIDTH is not byte-aligned (e.g. SIMD=1,
 		// sub-byte weights). Reduces to the tight value when it is byte-aligned.
-		assign	dma_len  = (((MH*MW/IWSIMD) * ((IWSIMD*WEIGHT_WIDTH+7)/8)) + 7) & ~7;
+		assign dma_len = (MH*MW/IWSIMD) * ((IWSIMD*WEIGHT_WIDTH+7)/8);
 
 	end : genDirect
 
