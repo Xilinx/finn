@@ -48,7 +48,7 @@ from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.util.basic import make_build_dir, resolve_xilinx_tool
 from finn.util.create import adjacency_list
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
-from finn.util.mlo_sim import dat_file_to_numpy_array, mlo_prehook_func_factory
+from finn.util.rtlsim import dat_file_to_numpy_array, mlo_prehook_func_factory
 
 finnxsi = xsi if xsi.is_available() else None
 
@@ -91,6 +91,10 @@ class FINNLoop(HWCustomOp, RTLBackend):
             # Path to save per-iteration execution context (cppsim only).
             # If non-empty, each iteration's full context is saved to this path.
             "iteration_context_path": ("s", False, ""),
+            # Memory type used to stream this loop's weights when running MLO.
+            # "DDR" enables DDR address offset assignment, any other value skips it.
+            # Empty means it is resolved from the target board at build
+            "mem_type": ("s", False, ""),
             # Toggled by mlo_sim to trigger the lightweight "stream tap + body build"
             "parallel_sim_ipgen": ("i", False, 0),
         }
@@ -592,6 +596,10 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 tap_rep = 1
                 if node.op_type == "Thresholding_rtl":
                     tap_rep = np.prod(node_inst.get_folded_input_shape(0)[:-1])
+                elif node.op_type.startswith("Elementwise") and hasattr(
+                    node_inst, "calc_wmem_reps"
+                ):
+                    tap_rep = node_inst.calc_wmem_reps()
                 stname = "IN_%s" % graph_inputs.index(node.input[1])
                 code_gen_dict = {
                     "$MODULE_NAME$": [stname],

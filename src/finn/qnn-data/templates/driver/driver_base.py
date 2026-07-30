@@ -343,11 +343,7 @@ class FINNExampleOverlay(Overlay):
         """Packs folded input and reverses both SIMD dim and endianness.
         Gets input data in folded shape and returns packed input data."""
         ibuf_packed = finnpy_to_packed_bytearray(
-            ibuf_folded,
-            self.idt(ind),
-            reverse_endian=True,
-            reverse_inner=True,
-            fast_mode=True,
+            ibuf_folded, self.idt(ind), reverse_endian=True, reverse_inner=True
         )
         return ibuf_packed
 

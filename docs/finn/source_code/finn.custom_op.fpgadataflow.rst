@@ -39,18 +39,10 @@ RTLBackend
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.fpgadataflow.addstreams
-----------------------------------------
+finn.custom\_op.fpgadataflow.pad1d
+-----------------------------------
 
-.. automodule:: finn.custom_op.fpgadataflow.addstreams
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-finn.custom\_op.fpgadataflow.channelwise\_op
----------------------------------------------
-
-.. automodule:: finn.custom_op.fpgadataflow.channelwise_op
+.. automodule:: finn.custom_op.fpgadataflow.pad1d
    :members:
    :undoc-members:
    :show-inheritance:
@@ -149,14 +141,6 @@ finn.custom\_op.fpgadataflow.streamingdatawidthconverter
 ---------------------------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.streamingdatawidthconverter
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-finn.custom\_op.fpgadataflow.streamingeltwise
-----------------------------------------------
-
-.. automodule:: finn.custom_op.fpgadataflow.streamingeltwise
    :members:
    :undoc-members:
    :show-inheritance:

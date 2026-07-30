@@ -387,18 +387,6 @@ class HWCustomOp(CustomOp):
             n_max_layers = 64
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
-            # Compute IWSIMD and WSIMD for the fetch_weights wrapper
-            if self.onnx_node.op_type in ops:
-                if theight > 1:
-                    iwsimd = (pe * simd) // theight
-                    wsimd = (pe * simd) // theight
-                else:
-                    iwsimd = simd
-                    wsimd = (pe * simd) // theight
-            else:
-                iwsimd = simd
-                wsimd = (pe * simd) // theight
-
             code_gen_dict = {
                 "$MODULE_NAME_AXI_WRAPPER$": [mname + "_fetch_weights_wrapper"],
                 "$MW$": [str(mw)],
@@ -409,8 +397,6 @@ class HWCustomOp(CustomOp):
                 "$WEIGHT_WIDTH$": [str(wdt.bitwidth())],
                 "$N_LAYERS$": [str(n_max_layers)],
                 "$TH$": [str(theight)],
-                "$IWSIMD$": [str(iwsimd)],
-                "$WSIMD$": [str(wsimd)],
                 "$EN_MLO$": [en_mlo],
                 "$DWC_MODULE_NAME$": [mname + "_dwc"],
                 "$ADDRESS_OFFSET$": [str(self.get_nodeattr("address_offset"))],

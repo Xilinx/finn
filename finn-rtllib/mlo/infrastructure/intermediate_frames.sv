@@ -40,7 +40,7 @@ module intermediate_frames #(
     int unsigned                    LEN_BITS,
     int unsigned                    IDX_BITS,
 
-    logic[LEN_BITS-1:0]             FM_SIZE,
+    int unsigned                    FM_SIZE,
 
     int unsigned                    N_OUTSTANDING_DMAS = 128,
 
@@ -48,7 +48,7 @@ module intermediate_frames #(
     int unsigned                    N_DCPL_STGS = 1,
     int unsigned                    DBG = 0,
 
-    logic[ADDR_BITS-1:0]            ADDRESS_OFFSET = 0
+    bit [ADDR_BITS-1:0]             ADDRESS_OFFSET = 0
 ) (
     input  logic                        aclk,
     input  logic                        aresetn,
@@ -117,16 +117,16 @@ logic [N_OUTSTANDING_DMAS-1:0][ADDR_BITS-1:0] l_offsets;
 for(genvar i = 0; i < N_OUTSTANDING_DMAS; i++) begin
     assign l_offsets[i] = (i * FM_SIZE);
 end
-localparam integer N_OUTSTANDING_DMAS_BITS = $clog2(N_OUTSTANDING_DMAS);
+localparam int unsigned  N_OUTSTANDING_DMAS_BITS = $clog2(N_OUTSTANDING_DMAS);
 
-localparam integer EBYTES       = (ELEM_BITS + 7)/8;
-localparam integer OELEM        = OLEN_BITS / ELEM_BITS;
-localparam integer IELEM        = ILEN_BITS / ELEM_BITS;
-localparam integer OLEN_BITS_BA = OELEM * EBYTES * 8;
-localparam integer ILEN_BITS_BA = IELEM * EBYTES * 8;
+localparam int unsigned  EBYTES       = (ELEM_BITS + 7)/8;
+localparam int unsigned  OELEM        = OLEN_BITS / ELEM_BITS;
+localparam int unsigned  IELEM        = ILEN_BITS / ELEM_BITS;
+localparam int unsigned  OLEN_BITS_BA = OELEM * EBYTES * 8;
+localparam int unsigned  ILEN_BITS_BA = IELEM * EBYTES * 8;
 
-localparam integer FM_BEATS_IN = FM_SIZE/(OLEN_BITS_BA/8);
-localparam integer FM_BEATS_IN_BITS = (FM_BEATS_IN == 1) ? 1 : $clog2(FM_BEATS_IN);
+localparam int unsigned  FM_BEATS_IN      = FM_SIZE/(OLEN_BITS_BA/8);
+localparam int unsigned  FM_BEATS_IN_BITS = (FM_BEATS_IN == 1)? 1 : $clog2(FM_BEATS_IN);
 
 //
 // Write side

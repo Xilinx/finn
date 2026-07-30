@@ -425,7 +425,7 @@ foreach xci_file $xci_files {
     }
 }
 
-set all_v_files [get_files -filter {USED_IN_SYNTHESIS == 1 && (FILE_TYPE == Verilog || FILE_TYPE == SystemVerilog || FILE_TYPE =="Verilog Header" || FILE_TYPE == XCI)}]
+set all_v_files [get_files -filter {USED_IN_SYNTHESIS == 1 && (FILE_TYPE == Verilog || FILE_TYPE == SystemVerilog || FILE_TYPE =="Verilog Header" || FILE_TYPE == VHDL || FILE_TYPE == XCI)}]
 
 set fp [open @PRJFOLDER@/all_verilog_srcs.txt w]
 foreach vf $all_v_files {puts $fp $vf}
