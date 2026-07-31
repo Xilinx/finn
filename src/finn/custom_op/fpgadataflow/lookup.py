@@ -35,6 +35,7 @@ from qonnx.core.datatype import DataType
 from qonnx.util.basic import qonnx_make_model
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import passthrough_characteristic
 
 
 class Lookup(HWCustomOp):
@@ -253,3 +254,23 @@ class Lookup(HWCustomOp):
             intf_names["aximm"] = [("m_axi_gmem", self.get_nodeattr("ext_mem_width"))]
             intf_names["ap_none"] = ["oob_irq"]
         return intf_names
+
+    def get_tree_model(self):
+        """An embedding lookup with the embedding dimension unfolded is a wire.
+
+        With the embedding unfolded onto a single output word, one index in
+        produces exactly one folded word out, and the node moves one token per
+        cycle on both streams with no wind-up and no rate change. So the schedule
+        is a plain pass-through over the folded input count.
+
+        Guarded to ``internal_embedded``. ``external`` performs the lookup over
+        AXI-MM, whose arrival times this shape does not describe, so that mode
+        falls back to rtlsim.
+        """
+        if self.get_nodeattr("mem_mode") != "internal_embedded":
+            return None
+        n_in = int(np.prod(self.get_folded_input_shape()[:-1]))
+        n_out = int(np.prod(self.get_folded_output_shape()[:-1]))
+        if n_in < 1 or n_in != n_out:
+            return None
+        return passthrough_characteristic(n_in, "Lookup_hls")

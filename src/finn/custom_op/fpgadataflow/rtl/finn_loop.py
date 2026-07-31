@@ -297,9 +297,46 @@ class FINNLoop(HWCustomOp, RTLBackend):
         sim_base, sim_rel = rtlsim_so
         self.set_nodeattr("rtlsim_so", sim_base + "/" + sim_rel)
 
-    def derive_characteristic_fxns(self, period):
+    def derive_token_access_vectors(
+        self,
+        model,
+        period,
+        strategy,
+        fpga_part,
+        clk_period,
+        op_type,
+        override_dict=None,
+        pre_hook=None,
+        periods_to_simulate=1,
+    ):
+        """Characterize with rtlsim over a single frame, and with the MLO prehook.
+
+        A streaming layer is driven with five frames and the middle two are
+        stored. The loop buffers its intermediate feature maps in DDR
+        (``intermediate_frames.sv``, 128 outstanding frames), so when simulated
+        in isolation against a testbench that offers input as fast as it is
+        taken, it accepts every queued frame up front, computes, and then
+        drains. That trace has no periodic steady state to sample: the middle
+        two periods contain no input transactions at all, and the first two
+        contain the whole batch.
+
+        One frame instead measures one loop invocation -- absorb the input
+        frame, iterate, emit the output frame -- which is self-consistent and is
+        the schedule the loop presents to its neighbours in a graph that paces
+        it.
+        """
         mlo_prehook = mlo_prehook_func_factory(self.onnx_node)
-        super().derive_characteristic_fxns(period, pre_hook=mlo_prehook)
+        super().derive_token_access_vectors(
+            model,
+            period,
+            "rtlsim",
+            fpga_part,
+            clk_period,
+            op_type,
+            override_dict,
+            pre_hook=mlo_prehook,
+            periods_to_simulate=periods_to_simulate,
+        )
 
     def execute_node(self, context, graph):
         node = self.onnx_node

@@ -9,6 +9,7 @@ from qonnx.core.datatype import DataType
 from qonnx.custom_op.general.quant import max_int, min_int
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import passthrough_characteristic
 
 
 class Requant(HWCustomOp):
@@ -132,6 +133,30 @@ class Requant(HWCustomOp):
     def get_exp_cycles(self):
         """Returns expected number of cycles for execution."""
         return self.get_number_output_values()
+
+    def get_tree_model(self):
+        """One token in and one out per cycle, for as many tokens as a frame has.
+
+        Requantization is a scale, a round and a clamp on the token in hand, so
+        there is nothing to wait for -- the same shape as the elementwise ops,
+        and the same product ``get_exp_cycles`` returns. Both backends behave
+        this way, and both run consecutive frames straight into each other:
+        there is no gap at a frame boundary, so the two rows are one solid run.
+
+        The period is the frame and does not include the pipeline fill, which
+        costs a fixed handful of cycles once -- negligible against a frame of
+        any size, but the length of a frame of only a few words.
+
+        The rate assumes the loop pipelines at II=1, as ``get_exp_cycles`` does.
+        A design that schedules slower stretches every token by that factor and
+        takes proportionally longer.
+
+        Valid for PE 1..16 on both backends.
+        """
+        dim = int(np.prod(self.get_folded_output_shape()[:-1]))
+        if dim < 1:
+            return None
+        return passthrough_characteristic(dim, "requantize a token")
 
     def execute_node(self, context, graph):
         """Execute the requant operation."""

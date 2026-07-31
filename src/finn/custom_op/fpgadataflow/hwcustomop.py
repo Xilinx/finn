@@ -28,13 +28,12 @@
 
 import numpy as np
 import os
-import warnings
 from abc import abstractmethod
 from qonnx.custom_op.base import CustomOp
 from qonnx.util.basic import get_by_name, roundup_to_integer_multiple
 
 from finn import xsi
-from finn.util.basic import get_liveness_threshold_cycles, is_versal
+from finn.util.basic import get_liveness_threshold_cycles, is_versal, save_tav_npy
 
 finnxsi = xsi if xsi.is_available() else None
 
@@ -85,19 +84,32 @@ class HWCustomOp(CustomOp):
             "inFIFODepths": ("ints", False, [2]),
             "outFIFODepths": ("ints", False, [2]),
             "output_hook": ("s", False, ""),
-            # accumulated characteristic function over two periods; the arrays
-            # themselves are offloaded to sidecar .npy files (their shape is
-            # (n_streams, 2*period), which for large periods would blow the
-            # ONNX ModelProto past protobuf's 2GB limit). These attrs hold the
-            # paths to those files; see get_io_chrc_in()/get_io_chrc_out().
-            "io_chrc_in_file": ("s", False, ""),
-            "io_chrc_out_file": ("s", False, ""),
+            # Token access vectors used for analytical FIFO sizing: the
+            # accumulated characteristic function over two periods, of shape
+            # (n_streams, 2*period). The arrays are offloaded to sidecar .npy
+            # files (see save_tav_npy()) because for large periods they would
+            # blow the ONNX ModelProto past protobuf's 2GB limit, so these
+            # attrs hold a path to the sidecar rather than the array itself.
+            "io_chrc_in": ("s", False, ""),
+            "io_chrc_out": ("s", False, ""),
+            "io_chrc_in_stretch": ("s", False, ""),
+            "io_chrc_out_stretch": ("s", False, ""),
+            "io_chrc_in_original": ("s", False, ""),
+            "io_chrc_out_original": ("s", False, ""),
+            # chain-composed event-time schedules (input-arrival-constrained)
+            "io_chrc_in_composed": ("s", False, ""),
+            "io_chrc_out_composed": ("s", False, ""),
             # the period for which the characterization was run
             "io_chrc_period": ("i", False, 0),
             # amount of zero padding inserted during chrc.
             "io_chrc_pads_in": ("ints", False, []),
             "io_chrc_pads_out": ("ints", False, []),
+            # MLO max iterations
             "mlo_max_iter": ("i", False, 0),
+            # extra buffers added to a branch, needed for coupling
+            # token access vectors at the end of
+            # branches during analytical FIFO sizing
+            "extra_branch_fifos": ("ints", False, [0, 0]),
             "address_offset": ("i", False, 0),
         }
 
@@ -223,9 +235,14 @@ class HWCustomOp(CustomOp):
         back to one"""
         finnxsi.reset_rtlsim(sim)
 
-    def rtlsim_multi_io(self, sim, io_dict, sname="_V"):
+    def rtlsim_multi_io(self, sim, io_dict, sname="_V", batch_size=1):
         "Run rtlsim for this node, supports multiple i/o streams."
         num_out_values = self.get_number_output_values()
+        # multi-output nodes report a per-stream dict; single-output an int
+        if isinstance(num_out_values, dict):
+            num_out_values = {k: v * batch_size for k, v in num_out_values.items()}
+        else:
+            num_out_values = num_out_values * batch_size
         # Use the larger of expected cycles or liveness threshold
         exp_cycles = self.get_exp_cycles()
         liveness_threshold = get_liveness_threshold_cycles()
@@ -305,9 +322,82 @@ class HWCustomOp(CustomOp):
         out_width = self.get_outstream_width(ind=ind)
         return roundup_to_integer_multiple(out_width, 8)
 
+    def get_tree_model(self):
+        """Returns the characteristic function of a node, default is None and forces
+        to skip the analytical characterization of the node and fallback to rtlsim.
+        Implemented in each node, potentially overriding between rtl and hls"""
+        return None
+
+    def derive_token_access_vectors(
+        self,
+        model,
+        period,
+        strategy,
+        fpga_part,
+        clk_period,
+        op_type,
+        override_dict=None,
+        pre_hook=None,
+        periods_to_simulate=5,
+    ):
+        if override_dict is None:
+            n_inps = np.prod(self.get_folded_input_shape()[:-1])
+            io_dict = {
+                "inputs": {
+                    "in0": [i for i in range(n_inps)],
+                },
+                "outputs": {"out0": []},
+            }
+        else:
+            io_dict = override_dict
+        if strategy == "tree_model":
+            # check for override function
+            if self.get_tree_model() is not None:
+                self.derive_token_access_vectors_using_tree_model(period, io_dict=io_dict)
+                return
+        # RTL-based flow
+        # there is a 20 clock marging added for when get_exp_cycles()
+        # is underestimating the real operator runtime.
+        period = self.get_exp_cycles() + 20
+        self.derive_token_access_vectors_using_rtlsim(
+            model,
+            period,
+            fpga_part,
+            clk_period,
+            io_dict,
+            pre_hook=pre_hook,
+            periods_to_simulate=periods_to_simulate,
+        )
+
+    def derive_token_access_vectors_using_tree_model(self, period, io_dict):
+        # Analytical flow
+        chr_node = self.get_tree_model()
+
+        # The schedule is run-length encoded, so both periods come from one
+        # np.repeat plus one cumsum rather than a Python loop per cycle -- the
+        # difference between milliseconds and a second on a 400k-cycle period.
+        #
+        # The tree is taken as-is, with no post-hoc shift applied on top of it.
+        # Each tree model expresses its own operator's wind-up, so a correction
+        # here would double-count it: shifting a read to the head and deducting
+        # one from the tail leaves the node delivering one token per period fewer
+        # than it consumes, and the sizer's steady-state occupancy accumulates
+        # that deficit on every frame. A node whose wind-up is wrong is fixed in
+        # its own tree model.
+        cum = chr_node.cumulative(periods=2)
+        period = cum.shape[0] // 2
+        self.set_nodeattr("io_chrc_period", period)
+        for name, col in (("io_chrc_in", 0), ("io_chrc_out", 1)):
+            arr = np.empty((1, cum.shape[0]), dtype=np.int32)
+            arr[0, :] = cum[:, col]
+            path = save_tav_npy(self, name, arr)
+            self.set_nodeattr(name, path)
+            self.set_nodeattr(name + "_original", path)
+        return
+
     def generate_hdl_memstream(self, fpgapart, pumped_memory=0):
         """Helper function to generate verilog code for memstream component.
-        Currently utilized by MVAU, VVAU and HLS Thresholding layer."""
+        Currently utilized by MVAU, VVAU, HLS Thresholding and Elementwise layers."""
         ops = ["MVAU_hls", "MVAU_rtl", "VVAU_hls", "VVAU_rtl", "Thresholding_hls"]
         if self.onnx_node.op_type in ops or self.onnx_node.op_type.startswith("Elementwise"):
             template_path = (
@@ -453,21 +543,48 @@ class HWCustomOp(CustomOp):
         ) as f:
             f.write(template_wrapper)
 
-    def derive_characteristic_fxns(self, period, override_rtlsim_dict=None, pre_hook=None):
-        """Return the unconstrained characteristic functions for this node."""
+    def derive_token_access_vectors_using_rtlsim(
+        self,
+        model,
+        period,
+        fpga_part,
+        clk_period,
+        override_rtlsim_dict=None,
+        pre_hook=None,
+        periods_to_simulate=5,
+    ):
+        """Return the token access vectors for this node using rtlsim.
+        Used by analytical FIFO sizing approach.
+
+        Args:
+            pre_hook: Optional callable that takes sim as argument, called after
+                      reset_rtlsim but before running the simulation. Used by
+                      FINNLoop to initialize MLO state.
+            periods_to_simulate: how many frames to drive. Five by default, of
+                      which the middle two are stored: the first frame carries
+                      the node's wind-up (pipeline fill, weight priming) and the
+                      last its drain, and neither belongs in a schedule the
+                      sizer reads as periodic. One frame stores that frame
+                      repeated instead, for an operator with no periodic steady
+                      state to find -- see ``FINNLoop``.
+        """
         # ensure rtlsim is ready
+
+        periods_to_store = 2
+
+        if self.get_nodeattr("rtlsim_so") == "":
+            self.prepare_rtlsim()
+
         assert self.get_nodeattr("rtlsim_so") != "", "rtlsim not ready for " + self.onnx_node.name
-        if self.get_nodeattr("io_chrc_period") > 0:
-            warnings.warn("Skipping node %s: already has FIFO characteristic" % self.onnx_node.name)
-            return
-        exp_cycles = self.get_exp_cycles()
-        n_inps = np.prod(self.get_folded_input_shape()[:-1])
-        n_outs = np.prod(self.get_folded_output_shape()[:-1])
+
+        exp_cycles = (self.get_exp_cycles() + 20) * periods_to_simulate
+        n_inps = np.prod(self.get_folded_input_shape()[:-1]) * periods_to_simulate
+        n_outs = np.prod(self.get_folded_output_shape()[:-1]) * periods_to_simulate
         if exp_cycles == 0:
             # try to come up with an optimistic estimate
             exp_cycles = min(n_inps, n_outs)
         assert (
-            exp_cycles <= period
+            exp_cycles <= period * periods_to_simulate
         ), "Period %d too short to characterize %s : expects min %d cycles" % (
             period,
             self.onnx_node.name,
@@ -476,6 +593,10 @@ class HWCustomOp(CustomOp):
         sim = self.get_rtlsim()
         if override_rtlsim_dict is not None:
             io_dict = override_rtlsim_dict
+
+            for input_key in io_dict["inputs"]:
+                io_dict["inputs"][input_key] = io_dict["inputs"][input_key] * periods_to_simulate
+
         else:
             io_dict = {
                 "inputs": {
@@ -486,39 +607,30 @@ class HWCustomOp(CustomOp):
 
         # extra dicts to keep track of cycle-by-cycle transaction behavior
         # note that we restrict key names to filter out weight streams etc
-        txns_in = {key: [] for (key, value) in io_dict["inputs"].items() if "in" in key}
-        txns_out = {key: [] for (key, value) in io_dict["outputs"].items() if "out" in key}
+        txns_in = {key: [] for (key, value) in io_dict["inputs"].items() if "in0" in key}
+        txns_out = {key: [] for (key, value) in io_dict["outputs"].items() if "out0" in key}
         # signal name, note no underscore at the end (new finnxsi behavior)
         sname = "_V"
         self.reset_rtlsim(sim)
         if pre_hook is not None:
             pre_hook(sim)
+
         # create stream tracers for all input and output streams
         for k in txns_in.keys():
             txns_in[k] = sim.trace_stream(k + sname)
         for k in txns_out.keys():
             txns_out[k] = sim.trace_stream(k + sname)
-        # For characterization, use period as liveness threshold directly
+
         try:
-            total_cycle_count = finnxsi.rtlsim_multi_io(
-                sim,
-                io_dict,
-                num_out_values=self.get_number_output_values(),
-                sname=sname,
-                liveness_threshold=period,
-            )
+            self.rtlsim_multi_io(sim, io_dict, sname="_V", batch_size=periods_to_simulate)
         finally:
             # Assert sim_finish to trigger $finish so that SystemVerilog final
-            # blocks execute, which flush and close the fifo_gauge log files.
+            # blocks execute, which flush and close the fifo_gauge log files and
+            # the waveform. The stream tracers keep their contents afterwards.
             self.close_rtlsim(sim)
-        self.set_nodeattr("cycles_rtlsim", total_cycle_count)
-        assert (
-            total_cycle_count <= period
-        ), """Total cycle count from rtl simulation is higher than
-            specified period, please set the period higher than {}""".format(
-            total_cycle_count
-        )
-        self.set_nodeattr("io_chrc_period", period)
+
+        total_cycle_count = self.get_nodeattr("cycles_rtlsim")
+
         # call str() on stream tracers to get their outputs, and convert
         # to list of ints
         for k, v in txns_in.items():
@@ -526,77 +638,65 @@ class HWCustomOp(CustomOp):
         for k, v in txns_out.items():
             txns_out[k] = [int(c) for c in str(v)]
 
-        def accumulate_char_fxn(chrc):
-            p = len(chrc)
+        period = total_cycle_count // periods_to_simulate
+        # one period, as in the tree model path -- the stored vectors hold two
+        self.set_nodeattr("io_chrc_period", period)
+        #: the stored window is the last two periods before the drain, i.e. the
+        #: middle two of the default five. With a single simulated frame it is
+        #: period 0, wrapped to fill both stored periods.
+        store_from = max(0, periods_to_simulate - 3) * period
+        span = period * periods_to_store
+        wrap = period * periods_to_simulate
+
+        def accumulate_char_fxn(chrc, start, span, wrap):
+            """Cumulative token count over ``span`` cycles from cycle ``start``.
+
+            Indices wrap at ``wrap`` -- the whole simulated window -- so that one
+            simulated frame is replicated to fill the two stored periods. With
+            the default five frames the window lies inside the trace and nothing
+            wraps.
+            """
             ret = []
-            for t in range(2 * p):
-                if t == 0:
-                    ret.append(chrc[0])
-                else:
-                    ret.append(ret[-1] + chrc[t % p])
+            for i in range(span):
+                v = chrc[(start + i) % wrap]
+                ret.append(v if i == 0 else ret[-1] + v)
             return np.asarray(ret, dtype=np.int32)
 
-        all_txns_in = np.empty((len(txns_in.keys()), 2 * period), dtype=np.int32)
-        all_txns_out = np.empty((len(txns_out.keys()), 2 * period), dtype=np.int32)
+        all_txns_in = np.empty((len(txns_in.keys()), period * periods_to_store), dtype=np.int32)
+        all_txns_out = np.empty((len(txns_out.keys()), period * periods_to_store), dtype=np.int32)
         all_pad_in = []
         all_pad_out = []
+        pad_in = 0
+        pad_out = 0
         for in_idx, in_strm_nm in enumerate(txns_in.keys()):
             txn_in = txns_in[in_strm_nm]
             pad_in = 0
-            if len(txn_in) < period:
-                pad_in = period - len(txn_in)
+            # the trace must cover every simulated period, since the stored
+            # window is indexed modulo that length
+            if len(txn_in) < wrap:
+                pad_in = wrap - len(txn_in)
                 txn_in += [0 for x in range(pad_in)]
-            txn_in = accumulate_char_fxn(txn_in)
+            txn_in = accumulate_char_fxn(txn_in, store_from, span, wrap)
             all_txns_in[in_idx, :] = txn_in
             all_pad_in.append(pad_in)
 
         for out_idx, out_strm_nm in enumerate(txns_out.keys()):
             txn_out = txns_out[out_strm_nm]
             pad_out = 0
-            if len(txn_out) < period:
-                pad_out = period - len(txn_out)
+            if len(txn_out) < wrap:
+                pad_out = wrap - len(txn_out)
                 txn_out += [0 for x in range(pad_out)]
-            txn_out = accumulate_char_fxn(txn_out)
+            txn_out = accumulate_char_fxn(txn_out, store_from, span, wrap)
             all_txns_out[out_idx, :] = txn_out
             all_pad_out.append(pad_out)
 
-        # Offload the (potentially very large) characteristic arrays to sidecar
-        # .npy files rather than storing them as ONNX tensor attributes, which
-        # would otherwise push the ModelProto past protobuf's 2GB message limit
-        # (the arrays are shape (n_streams, 2*period)).
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        assert code_gen_dir != "", (
-            "code_gen_dir_ipgen not set for %s; cannot store io_chrc sidecar files"
-            % self.onnx_node.name
-        )
-        in_file = os.path.join(code_gen_dir, "io_chrc_in.npy")
-        out_file = os.path.join(code_gen_dir, "io_chrc_out.npy")
-        np.save(in_file, all_txns_in)
-        np.save(out_file, all_txns_out)
-        self.set_nodeattr("io_chrc_in_file", in_file)
-        self.set_nodeattr("io_chrc_out_file", out_file)
-        self.set_nodeattr("io_chrc_pads_in", all_pad_in)
-        self.set_nodeattr("io_chrc_pads_out", all_pad_out)
+        tav_path_in = save_tav_npy(self, "io_chrc_in", all_txns_in)
+        self.set_nodeattr("io_chrc_in", tav_path_in)
+        self.set_nodeattr("io_chrc_in_original", tav_path_in)
 
-    def get_io_chrc_in(self):
-        """Load the input characteristic array from its sidecar .npy file.
-
-        Returns an array of shape (n_streams, 2*period), or an empty (0, 0)
-        int32 array if characterization has not been run for this node."""
-        fname = self.get_nodeattr("io_chrc_in_file")
-        if fname == "" or not os.path.isfile(fname):
-            return np.empty((0, 0), dtype=np.int32)
-        return np.load(fname)
-
-    def get_io_chrc_out(self):
-        """Load the output characteristic array from its sidecar .npy file.
-
-        Returns an array of shape (n_streams, 2*period), or an empty (0, 0)
-        int32 array if characterization has not been run for this node."""
-        fname = self.get_nodeattr("io_chrc_out_file")
-        if fname == "" or not os.path.isfile(fname):
-            return np.empty((0, 0), dtype=np.int32)
-        return np.load(fname)
+        tav_path_out = save_tav_npy(self, "io_chrc_out", all_txns_out)
+        self.set_nodeattr("io_chrc_out", tav_path_out)
+        self.set_nodeattr("io_chrc_out_original", tav_path_out)
 
     def adapt_for_loop_body(self, input_types):
         """

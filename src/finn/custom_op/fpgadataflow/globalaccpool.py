@@ -31,6 +31,7 @@ import warnings
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import Characteristic_Node
 
 
 class GlobalAccPool(HWCustomOp):
@@ -137,6 +138,47 @@ class GlobalAccPool(HWCustomOp):
         pe = self.get_nodeattr("PE")
         folds = int(ch / pe)
         return int(np.prod(self.get_folded_input_shape()[:-1]) + folds)
+
+    def get_tree_model(self):
+        """Read a whole frame, pause, then emit the accumulators.
+
+        The HLS pool is two loops that do not overlap. The first reads the
+        frame's ``N`` folded words back to back at one per cycle, accumulating
+        each into the bank entry for its channel tile and writing nothing. The
+        second walks the bank and writes its ``NumChannels / PE`` words, again
+        one per cycle. So a frame is a wind-up, the read run, a gap while the
+        last accumulation settles and the write loop is entered, the write run,
+        and a tail before the next frame's first read.
+
+        The wind-up and the tail are the fitted part, and step with the width of
+        the accumulator word: more than eight accumulators side by side take two
+        more cycles to reach and give one back at the end. The gap does not
+        move.
+
+        ``NumChannels / PE == 1`` is a different schedule -- with one word to
+        emit there is no write loop for HLS to enter and the write lands in the
+        read loop's epilogue -- and is not modelled here.
+
+        The read run assumes the accumulate loop pipelines at II=1, as
+        ``get_exp_cycles`` does. A design that schedules slower stretches every
+        read by that factor and takes proportionally longer.
+
+        Valid for PE 1..64 and NumChannels / PE 2..64.
+        """
+        pe = self.get_nodeattr("PE")
+        n_in = int(np.prod(self.get_folded_input_shape()[:-1]))
+        n_out = int(np.prod(self.get_folded_output_shape()[:-1]))
+        if n_in < 1 or n_out < 2 or pe < 1:
+            return None
+        wind_up = 3 if pe <= 8 else 5
+        tail = 1 if pe <= 8 else 0
+        gap = 5
+        frame = Characteristic_Node(
+            "accumulate then emit",
+            [(wind_up, [0, 0]), (n_in, [1, 0]), (gap, [0, 0]), (n_out, [0, 1]), (tail, [0, 0])],
+            True,
+        )
+        return Characteristic_Node("GlobalAccPool frame", [(1, frame)], False)
 
     def execute_node(self, context, graph):
         # simulate behavior with Python functionality

@@ -41,6 +41,7 @@ from qonnx.util.basic import (
 )
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import Characteristic_Node
 from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
 
 
@@ -763,21 +764,6 @@ class VVAU(HWCustomOp):
             ret_dict[thres_param_type] = thres_count
         return ret_dict
 
-    def derive_characteristic_fxns(self, period):
-        n_inps = np.prod(self.get_folded_input_shape()[:-1])
-        io_dict = {
-            "inputs": {
-                "in0": [0 for i in range(n_inps)],
-            },
-            "outputs": {"out0": []},
-        }
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode in ["internal_decoupled", "external"]:
-            n_weight_inps = self.calc_wmem()
-            num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
-            io_dict["inputs"]["in1"] = [0 for i in range(num_w_reps * n_weight_inps)]
-        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
-
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         mem_mode = self.get_nodeattr("mem_mode")
@@ -897,3 +883,102 @@ class VVAU(HWCustomOp):
         else:
             raise Exception("Unrecognized mem_mode for VectorVectorActivation")
         return cmd
+
+    def get_tree_model(self):
+        """One read per cycle, one write every SF, behind a fixed wind-up.
+
+        The depthwise VVAU accumulates ``SF = prod(Kernel)/SIMD`` folded words per
+        output and produces ``NF = Channels/PE`` outputs per pixel, over
+        ``prod(Dim)`` pixels. Its HLS loop is pipelined at II=1 with the reads
+        driving it, so the frame is a solid read run of ``numReps * NF * SF``
+        cycles with a write on every ``SF``-th -- the same accumulate-and-flush
+        shape as ``Pool``, and unlike ``MVAU`` there is no per-feature-map read
+        burst to place.
+
+        The HLS branch below expresses that as a five-cycle wind-up followed by
+        ``NF * numReps`` copies of an SF-cycle accumulate block. The nested tree
+        after it is for the RTL variant, whose schedule has not been measured.
+        """
+        IMPL_STYLE = "rtl" if "_rtl" in (self.__class__.__name__) else "hls"
+        assert IMPL_STYLE in ["rtl", "hls"], "Implementation style must be 'rtl' or 'hls'"
+
+        SIMD = self.get_nodeattr("SIMD")
+        PE = self.get_nodeattr("PE")
+        Channels = self.get_nodeattr("Channels")
+        Kernel_2 = np.prod(self.get_nodeattr("Kernel"))
+        NF = int(Channels / PE)
+        numReps = np.prod(self.get_nodeattr("Dim"))
+
+        SF = Kernel_2 // SIMD
+
+        if IMPL_STYLE == "hls":
+            # The HLS VVAU reads one folded word per cycle, back to back, and
+            # emits one every SF, with a fixed five-cycle wind-up in front of
+            # both: reads start at cycle 5 and the first write is at SF + 4.
+            #
+            # The write lands at the END of each SF block -- read k at 5 + k,
+            # write j at 4 + SF*(j+1), i.e. offset SF-1 within the j-th block --
+            # so a five-cycle prefix node in front of n_out copies of the block
+            # is the whole schedule, cycle for cycle.
+            n_in = int(numReps) * NF * SF
+            n_out = int(numReps) * NF
+            if SF >= 1 and n_out >= 1 and n_in > 8:
+                # The period is n_in + 5. rtlsim reports n_in + 4 because its
+                # period is cycles_rtlsim // periods_to_simulate and rounds down;
+                # n_in + 5 is the length that puts the wind-up and every read and
+                # write on the cycle the hardware has them, with no wrap-around.
+                #
+                # Validated on VVAU_hls nodes with PE >= 4. Nodes with PE <= 2
+                # record a saturated window instead -- period n_in + 1, no gap --
+                # and keep an error of about 8 cycles; no attribute other than PE
+                # separates them, and PE alone is too little to fit a rule on.
+                wind_up = Characteristic_Node("wind-up", [(5, [0, 0])], True)
+                accumulate = Characteristic_Node(
+                    "accumulate SF inputs, flush on the last",
+                    [(SF - 1, [1, 0]), (1, [1, 1])],
+                    True,
+                )
+                return Characteristic_Node(
+                    "VVAU_hls frame", [(1, wind_up), (n_out, accumulate)], False
+                )
+
+        write_out = Characteristic_Node("write out simd (1 for hls)", [(1, [1, 1])], True)
+
+        compute_one_sf = Characteristic_Node("read one SF input", [(1, [1, 0])], True)
+
+        compute_sf = Characteristic_Node(
+            "process SF-1 inputs", [(SF - 1, compute_one_sf), (1, write_out)], False
+        )
+
+        compute_transaction = Characteristic_Node(
+            "Compute VVAU one transaction",
+            [
+                (NF, compute_sf),
+            ],
+            False,
+        )
+
+        vvau_top = Characteristic_Node(
+            "Compute VVAU input set", [(numReps, compute_transaction)], False
+        )
+
+        return vvau_top  # top level phase of this node
+
+    def derive_token_access_vectors(
+        self, model, period, strategy, fpga_part, clk_period, op_type, override_dict=None
+    ):
+        n_inps = np.prod(self.get_folded_input_shape()[:-1])
+        io_dict = {
+            "inputs": {
+                "in0": [i for i in range(n_inps)],
+            },
+            "outputs": {"out0": []},
+        }
+
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode in ["internal_decoupled", "external"]:
+            io_dict["inputs"]["in1"] = [0 for i in range(1 * n_inps)]
+
+        super().derive_token_access_vectors(
+            model, period, strategy, fpga_part, clk_period, op_type, override_dict=io_dict
+        )

@@ -60,14 +60,30 @@ def fetch_test_model(topology, wbits=2, abits=2):
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.fpgadataflow
-@pytest.mark.parametrize("method", ["largefifo_rtlsim", "characterize"])
-@pytest.mark.parametrize("topology", ["tfc", "cnv"])
+@pytest.mark.parametrize(
+    "method",
+    [
+        "heuristic_analytical",
+        "heuristic_rtlsim",
+        "largefifo_rtlsim",
+    ],
+)
+@pytest.mark.parametrize(
+    "topology",
+    [
+        "tfc",
+        "cnv",
+    ],
+)
 def test_fifosizing_linear(method, topology):
     tmp_output_dir = fetch_test_model(topology)
+    # ``method`` is the auto_fifo_strategy value itself
+    auto_fifo_strategy = method
+
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
         auto_fifo_depths=True,
-        auto_fifo_strategy=method,
+        auto_fifo_strategy=auto_fifo_strategy,
         target_fps=10000 if topology == "tfc" else 1000,
         synth_clk_period_ns=10.0,
         board="Pynq-Z1",
@@ -111,7 +127,6 @@ def test_fifosizing_linear(method, topology):
 
     model0 = ModelWrapper(tmp_output_dir + "/intermediate_models/step_create_stitched_ip.onnx")
     model1 = ModelWrapper(tmp_output_dir_cmp + "/intermediate_models/step_create_stitched_ip.onnx")
-
     assert len(model0.graph.node) == len(model1.graph.node)
     for i in range(len(model0.graph.node)):
         node0 = model0.graph.node[i]

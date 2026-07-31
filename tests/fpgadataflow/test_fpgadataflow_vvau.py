@@ -63,6 +63,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.general import ApplyConfig
+from finn.util.test import tree_model_test
 
 
 def _infer_sparse_weight_tensor(W_conv, k_h, k_w, channels):
@@ -479,3 +480,107 @@ def test_fpgadataflow_vvau_rtl(kernel_size, in_feature_dim, in_chn, idt, wdt, pa
     assert (
         golden_out == output_vvau_stitched
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
+
+
+# One configuration per regime: PE and SIMD folded and unfolded, the 1D kernel
+# and 1D image shapes, with and without an activation, and both memory modes --
+# rather than the cross-product of all of them.
+@pytest.mark.parametrize(
+    "act,pe,simd,dim_w,k_w,mem_mode",
+    [
+        (DataType["BIPOLAR"], 1, 1, 10, 3, "internal_decoupled"),
+        (DataType["BIPOLAR"], 3, 1, 10, 3, "internal_decoupled"),
+        (DataType["BIPOLAR"], 6, 1, 10, 3, "internal_decoupled"),
+        (DataType["BIPOLAR"], 1, 9, 10, 3, "internal_decoupled"),
+        (DataType["BIPOLAR"], 3, 9, 10, 3, "internal_decoupled"),
+        (DataType["BIPOLAR"], 1, 1, 1, 3, "internal_decoupled"),
+        (DataType["BIPOLAR"], 1, 1, 10, 1, "internal_decoupled"),
+        (None, 1, 1, 10, 3, "internal_decoupled"),
+        (None, 3, 9, 10, 3, "internal_decoupled"),
+        (DataType["BIPOLAR"], 1, 1, 10, 3, "internal_embedded"),
+        (DataType["BIPOLAR"], 3, 9, 10, 3, "internal_embedded"),
+        (None, 1, 1, 10, 3, "internal_embedded"),
+    ],
+)
+@pytest.mark.parametrize("idt", [DataType["BIPOLAR"]])
+@pytest.mark.parametrize("wdt", [DataType["BIPOLAR"]])
+@pytest.mark.parametrize("dim_h", [10])
+@pytest.mark.parametrize("k_h", [3])
+@pytest.mark.parametrize("channels", [3])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_vvau(
+    idt, wdt, act, pe, simd, dim_h, dim_w, k_h, k_w, channels, mem_mode
+):
+    if dim_w == 1 and k_w != 1:
+        pytest.skip("1D image requires 1D kernel, skipping.")
+
+    if channels % pe != 0:
+        pytest.skip("Requirement Channels divisable by PE is violated.")
+
+    if (k_h * k_w) % simd != 0:
+        pytest.skip("Requirement kernel (k_h * k_w) divisable by SIMD is violated.")
+
+    # Generate weights in expected shape for ONNX and HLS node
+    W = gen_finn_dt_tensor(wdt, (channels, 1, k_h, k_w))  # shape: [channels, 1, k, k]
+
+    # Generate inputs in expected format for ONNX and HLS node
+    x = gen_finn_dt_tensor(idt, (1, dim_h, dim_w, k_h * k_w * channels))
+    x_vvau = x.reshape(1, dim_h, dim_w, k_h * k_w, channels // pe, pe)
+    x_vvau = x_vvau.transpose(0, 1, 2, 4, 3, 5)
+    x_vvau = x_vvau.reshape(1, dim_h, dim_w, channels * k_h * k_w)
+
+    if act is None:
+        T = None
+        tdt = None
+        if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
+            odt = DataType["UINT32"]
+        else:
+            odt = DataType["INT32"]
+    else:
+        odt = act
+        (min_v, max_v) = _calculate_dot_prod_range(idt, wdt, k_h * k_w)
+        n_steps = act.get_num_possible_values() - 1
+        T = np.random.randint(min_v, max_v - 1, (channels, n_steps)).astype(np.float32)
+        T = np.sort(T, axis=1)
+        if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
+            tdt = DataType["UINT32"]
+            # bias thresholds to be positive
+            T = np.ceil((T + (k_h * k_w)) / 2)
+            assert (T >= 0).all()
+        else:
+            tdt = DataType["INT32"]
+
+    model = _make_single_vvau_modelwrapper(
+        W, pe, simd, k_h, k_w, channels, dim_h, dim_w, wdt, idt, odt, T, tdt, mem_mode
+    )
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
+
+    node_details = ("VVAU", idt, wdt, act, pe, simd, dim_h, dim_w, k_h, k_w, channels, mem_mode)
+    part = "xc7z020clg400-1"
+    target_clk_ns = 4
+
+    # TAV tolerances are fractions -- of the tokens moved and of the frame
+    # length -- with a floor for the fixed part of the error (wind-up, adder
+    # tree depth, the cycle rtlsim's period rounds away). The floors are the
+    # flat budgets this test used before the split, so nothing that passed
+    # then fails now; the fractions are what govern once the frame is long
+    # enough to exceed them.
+    max_allowed_volume_frac = 0.05
+    volume_const = 14
+    max_allowed_length_frac = 0.05
+    length_const = 14
+
+    assert tree_model_test(
+        model,
+        node_details,
+        part,
+        target_clk_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    ), "characterized TAV does not match RTLsim'd one!"

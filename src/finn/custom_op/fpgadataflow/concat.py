@@ -33,6 +33,7 @@ import warnings
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import flat_characteristic_leaf
 
 
 class StreamingConcat(HWCustomOp):
@@ -152,3 +153,45 @@ class StreamingConcat(HWCustomOp):
             inp_values.append(context[inp])
         result = np.concatenate(inp_values, axis=-1)
         context[node.output[0]] = result
+
+    def get_tree_model(self):
+        """The schedule of the freerunning HLS concatenator.
+
+        The mirror image of ``StreamingSplit``: same ``hls_style: freerunning``
+        wrapper, same Interval 5, and the inputs are consumed in **staggered
+        contiguous bursts** in ``ChannelsPerStream`` order, not concurrently.
+        That matters for sizing: an imbalance between the inputs accumulates as a
+        prefix sum along the stream order, not as a max over the streams.
+
+            input i, word j     at cycle 6 + 5*(offset_i + j)
+            output word k       at cycle 2 + 5k
+
+        with ``offset_i = sum(C[:i])``.
+
+        Row 0 -- the only row a tree model can emit, and the only one the sizer
+        reads -- is ``in0``, so the schedule here is the *first* input's. The
+        later inputs are read up to ``5 * offset_i`` cycles after it; that offset
+        is a consequence of the single-row representation in
+        ``derive_token_access_vectors_using_tree_model``, not of this model.
+
+        Validated for four equal streams at SIMD 1, as for the splitter.
+        """
+        simd = self.get_nodeattr("SIMD")
+        chans = list(self.get_nodeattr("ChannelsPerStream"))
+        n_vec = int(np.prod(list(self.get_nodeattr("numInputVectors"))))
+        if simd < 1 or not chans or any(c % simd for c in chans) or n_vec < 1:
+            return None
+        folds = [c // simd for c in chans]
+        total = int(sum(folds))
+        if total < 1:
+            return None
+        ii = 5
+        span = ii * total
+        period = n_vec * span
+        rd = np.zeros(period, dtype=np.int8)
+        wr = np.zeros(period, dtype=np.int8)
+        wr[(2 + ii * np.arange(n_vec * total)) % period] = 1
+        starts = span * np.arange(n_vec)
+        first = (6 + ii * np.arange(folds[0]))[None, :] + starts[:, None]
+        rd[first.ravel() % period] = 1
+        return flat_characteristic_leaf(rd, wr, "StreamingConcat_hls schedule")

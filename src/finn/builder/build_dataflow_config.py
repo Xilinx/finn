@@ -39,10 +39,45 @@ from finn.util.basic import hbm_boards, part_map, vitis_default_platform
 
 
 class AutoFIFOSizingMethod(str, Enum):
-    "Select the type of automatic FIFO sizing strategy."
+    """Select the type of automatic FIFO sizing strategy.
 
-    CHARACTERIZE = "characterize"
+    The two heuristic strategies differ only in where each node's token access
+    vector comes from. ``heuristic_analytical`` builds it from the node's tree
+    model, which needs no IP generation and no simulator; ``heuristic_rtlsim``
+    measures it per node with rtlsim, which is far slower but covers operators
+    that have no tree model. Both then size the FIFOs the same way, chosen by
+    ``heuristic_fifo_sizing_method``.
+    """
+
+    #: token access vectors from the operators' tree models
+    HEURISTIC_ANALYTICAL = "heuristic_analytical"
+    #: token access vectors measured per node with rtlsim
+    HEURISTIC_RTLSIM = "heuristic_rtlsim"
+    #: set every FIFO large, rtlsim the whole graph, then trim to the high-water mark
     LARGEFIFO_RTLSIM = "largefifo_rtlsim"
+
+
+class HeuristicFifoSizingMethod(str, Enum):
+    """Select how the heuristic strategies turn token access vectors into
+    buffer depths."""
+
+    # worst-case ratio of data rates between a consumer and producer
+    CONSERVATIVE_RELAXATION = "conservative_relaxation"
+
+    # average-case ratio of data rates between a consumer and producer
+    AGGRESSIVE_RELAXATION = "aggressive_relaxation"
+
+    # compose isolated TAVs along the chain (input-arrival-constrained
+    # schedules) and size from occupancy between composed schedules; no
+    # stretch/relaxation heuristics
+    CHAIN_COMPOSED = "chain_composed"
+
+    # no relaxation, use the token access vectors as-is
+    NO_RELAXATION = "no_relaxation"
+
+    # propagate token arrival times across the whole graph, instead of comparing
+    # a producer's trace against its consumer's in isolation
+    CHAINED_TAV = "chained_tav"
 
 
 class ShellFlowType(str, Enum):
@@ -269,8 +304,21 @@ class DataflowBuildConfig:
     split_large_fifos: Optional[bool] = False
 
     #: When `auto_fifo_depths = True`, select which method will be used for
-    #: setting the FIFO sizes.
+    #: setting the FIFO sizes. See :class:`AutoFIFOSizingMethod`; the two
+    #: heuristic strategies differ only in whether each node's token access
+    #: vector comes from its tree model or from rtlsim.
     auto_fifo_strategy: Optional[AutoFIFOSizingMethod] = AutoFIFOSizingMethod.LARGEFIFO_RTLSIM
+
+    #: For the heuristic strategies, which method turns token access vectors into
+    #: FIFO depths. See :class:`HeuristicFifoSizingMethod` for the individual
+    #: methods; they differ in how much slack is assumed between a producer and
+    #: its consumer, and in whether arrival times are propagated across the whole
+    #: graph or compared pairwise in isolation.
+    #: CHAINED_TAV is the default: propagating arrival times across the graph
+    #: matches the rtlsim-sized interval where the pairwise methods do not.
+    heuristic_fifo_sizing_method: Optional[
+        HeuristicFifoSizingMethod
+    ] = HeuristicFifoSizingMethod.CHAINED_TAV
 
     #: Memory resource type for large FIFOs
     #: Only relevant when `auto_fifo_depths = True`

@@ -379,7 +379,17 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             "create_bd_cell -type hier -reference %s /%s/%s" % (top_module, node_name, node_name)
         )
 
-    def derive_characteristic_fxns(self, period, override_rtlsim_dict=None, pre_hook=None):
+    def derive_token_access_vectors(
+        self,
+        model,
+        period,
+        strategy,
+        fpga_part,
+        clk_period,
+        op_type,
+        override_dict=None,
+        pre_hook=None,
+    ):
         n_inps = np.prod(self.get_folded_input_shape(0)[:-1])
         io_dict = {
             "inputs": {
@@ -388,7 +398,9 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             },
             "outputs": {"out0": []},
         }
-        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict, pre_hook=pre_hook)
+        super().derive_token_access_vectors(
+            model, period, strategy, fpga_part, clk_period, op_type, io_dict, pre_hook=pre_hook
+        )
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")

@@ -33,6 +33,7 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.test import tree_model_test
 
 test_fpga_part: str = "xczu7ev-ffvc1156-2-e"
 target_clk_ns = 5
@@ -130,3 +131,52 @@ def test_fpgadataflow_gather_crop(ishape_axis_indices, simd, idt, exec_mode):
         exp_cycles = exp_cycles_dict[model.graph.node[0].name]
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
         assert exp_cycles != 0
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        ([1, 8, 16], 1, [0, 1, 2, 3], 1, "INT8"),
+        ([1, 16, 48], 1, [4, 5, 6], 8, "INT8"),
+        ([1, 16, 48, 16], 2, list(range(8, 40)), 16, "INT8"),
+        ([1, 10, 20, 32], 1, [1, 2, 3], 8, "INT8"),
+        ([32, 48], 0, [15], 16, "INT8"),
+        ([1, 16, 48], 1, [4, 5, 6], 1, "FLOAT32"),
+    ],
+)
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_crop(config):
+    ishape, axis, indices, simd, idt = config
+
+    model = make_gather_model(np.array(indices), ishape, axis=axis)
+    model.set_tensor_datatype(model.graph.input[0].name, DataType[idt])
+    model = model.transform(to_hw.InferCrop())
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    getCustomOp(model.graph.node[0]).set_nodeattr("SIMD", simd)
+    model = model.transform(GiveUniqueNodeNames())
+
+    node_details = ("Crop", config)
+
+    # The schedule is exact: the raster is read one word per cycle whatever the
+    # crop keeps, and the write row is the same raster masked and delayed by the
+    # pipeline. Neither row can drift, so the budgets are floors for a synthesis
+    # that places the pipeline a cycle or two differently, not room for the
+    # model to be wrong.
+    max_allowed_volume_frac = 0.0
+    volume_const = 3
+    max_allowed_length_frac = 0.0
+    length_const = 3
+
+    assert tree_model_test(
+        model,
+        node_details,
+        test_fpga_part,
+        target_clk_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    ), "characterized TAV does not match RTLsim'd one!"

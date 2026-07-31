@@ -41,7 +41,7 @@ from qonnx.util.basic import (
 )
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
-from finn.util.basic import is_versal
+from finn.util.basic import Characteristic_Node, flat_characteristic_leaf, is_versal
 from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation:
@@ -938,21 +938,6 @@ class MVAU(HWCustomOp):
             ret_dict[thres_param_type] = thres_count
         return ret_dict
 
-    def derive_characteristic_fxns(self, period):
-        n_inps = np.prod(self.get_folded_input_shape()[:-1])
-        io_dict = {
-            "inputs": {
-                "in0": [0 for i in range(n_inps)],
-            },
-            "outputs": {"out0": []},
-        }
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode in ["internal_decoupled", "external"]:
-            n_weight_inps = self.calc_wmem()
-            num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
-            io_dict["inputs"]["in1"] = [0 for i in range(num_w_reps * n_weight_inps)]
-        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
-
     def get_verilog_top_module_intf_names(self):
         # intf_names = super().get_verilog_top_module_intf_names()
         intf_names = {}
@@ -1304,6 +1289,314 @@ class MVAU(HWCustomOp):
             raise Exception("Unrecognized mem_mode for MatrixVectorActivation")
 
         return cmd
+
+    def mvau_rtl_tree(self, SF, NF, n_vec, SIMD):
+        """The untiled RTL MVAU's schedule, or None outside its validated regime.
+
+        A separate construction from the HLS one: the two are different pipelines
+        and share only the arithmetic that gives ``SF`` and ``NF``.
+
+        The RTL MVAU retires one SIMD x PE tile per cycle, so a feature map occupies
+        ``SF * NF`` cycles. It reads that feature map's ``SF`` input words as one
+        back-to-back burst and emits its ``NF`` output words spaced ``SF`` apart.
+        The read burst begins at ``3 - SF`` relative to the frame boundary: the node
+        prefetches the next tile's inputs while still emitting the current one.
+
+        The stored vectors also carry the wind-up, as ``e`` extra cycles in the
+        period and a rotation of ``2 * e`` (the window starts two periods in), so
+        the schedule reproduces that too::
+
+            L  = ceil(log2(SIMD))                adder-tree depth
+            e  = (10 + L) // 5                   period = n_vec*SF*NF + e
+            read burst k  at (3 - SF) + k*SF*NF  before the window rotation
+            write j       at (8 + L)  + j*SF
+
+        Valid for SF 1..512, NF 1..1000, numInputVectors 1..12321, SIMD 3..96.
+        ``8 + L`` is unconstrained for ``SF == 1``, where the writes are contiguous
+        and carry no phase.
+        """
+        if SF < 1 or NF < 1 or n_vec < 1 or SIMD < 1:
+            return None
+        fm = SF * NF
+        L = int(math.ceil(math.log2(SIMD))) if SIMD > 1 else 0
+        e = (10 + L) // 5
+        period = n_vec * fm + e
+        if period < 4 or n_vec * NF > period:
+            return None
+
+        rd = np.zeros(period, dtype=np.int8)
+        wr = np.zeros(period, dtype=np.int8)
+        shift = 2 * e  # the recorded window starts 2*period into the trace
+        starts = ((3 - SF - shift) + fm * np.arange(n_vec)) % period
+        idx = (starts[:, None] + np.arange(SF)[None, :]) % period
+        rd[idx.ravel()] = 1
+        wr[((8 + L - shift) + SF * np.arange(n_vec * NF)) % period] = 1
+        # Every burst is placed modulo the period so the token counts stay exact at
+        # n_vec*SF reads and n_vec*NF writes. The sizer's occupancy sum integrates
+        # those counts, so a token lost off either end matters more than the phase.
+        return flat_characteristic_leaf(rd, wr, "MVAU_rtl burst schedule")
+
+    def mvau_tiled_params(self, SF, NF, SIMD, TH):
+        """Steady-state timing of ``finn-rtllib/mvu_tiled``.
+
+        ``TH > 1`` does not fold the ordinary RTL MVAU, it selects a *different
+        module*: ``mvu_tiled_axi`` instead of ``mvu_vvu_axi``. Nothing in
+        ``mvau_rtl_tree`` applies to it.
+
+        The activation ``input_gen`` runs the loop nest ``DIMS = {NF, SF, TH}``,
+        ``COEFS = {0, 1, SF}`` over an ``FM_SIZE`` of ``SF * TH``: one *group* of
+        ``TH`` input vectors is read as a single contiguous burst of ``SF * TH``
+        words and then replayed ``NF`` times, once per output fold, with the ``TH``
+        vectors interleaved innermost. Weights are fetched once per group rather
+        than once per vector -- the point of tiling -- and sustain one beat per
+        compute cycle, so they never pace the node.
+
+        ``TH`` therefore does not multiply the cycle count: a group costs
+        ``NF*SF*TH`` cycles and covers ``TH`` vectors, i.e. ``NF*SF`` per vector,
+        the same as the untiled MVAU. (``get_exp_cycles`` still multiplies by
+        ``TH``; it is left alone because the characterization uses it only as a
+        simulation budget, where over-estimating is harmless.)
+
+        The three terms:
+
+        ``stall``
+            A group cannot start replaying until the buffer holds the word the
+            interleaved nest reaches first, ``(TH-1)*SF + 4 - TH`` words in, and it
+            could only prefetch ``BUF_SIZE - SF*TH`` of them while the previous
+            group ran. ``BUF_SIZE`` is the ``input_gen`` circular buffer, which
+            rounds up to a power of two -- which is why the overhead is not smooth
+            in ``SF``. This is what makes the span ``NF*SF*TH + stall``.
+        ``d``
+            The first output of a group, as an offset from that group's first read.
+        ``tree_depth``
+            ``clog2(ceil(SIMD/3))``, the ``add_multi`` depth inside ``acc_stage``,
+            which delays every output by that many cycles.
+
+        Valid for SF 2..64, NF 1..6, TH 2/3/6/9, SIMD 1..16 and numInputVectors 9
+        and 18. The ``10 - TH`` term in ``d`` is the one fitted constant.
+
+        Returns ``(fm, stall, span, d)``.
+        """
+        fm = SF * TH
+        buf = 1 << int(math.ceil(math.log2(fm + 2)))
+        stall = max(0, ((TH - 1) * SF + 4 - TH) - (buf - fm))
+        span = NF * fm + stall
+        chainlen = (SIMD + 2) // 3
+        tree_depth = int(math.ceil(math.log2(chainlen))) if chainlen > 1 else 0
+        return fm, stall, span, stall + fm + (10 - TH) + tree_depth
+
+    def mvau_tiled_tree(self, SF, NF, n_vec, SIMD, TH):
+        """The tiled MVAU_rtl steady-state schedule, or None outside its regime.
+
+        Per group: one contiguous read burst of ``SF*TH``; then ``NF-1`` single
+        outputs spaced ``SF*TH`` apart -- one per output fold, being the ``th = 0``
+        word of that fold -- and finally a run of ``TH*NF - (NF-1)`` outputs, which
+        is every remaining word of the group. That last run is the output reorder
+        buffer draining: ``inst_reorder_out`` transposes the accumulator's
+        ``(nf, th)`` production order into the ``(th, nf)`` order the stream needs,
+        so the word for ``(th=0, nf=NF-1)`` is not available until the group is
+        essentially finished, and once it is, everything queued behind it leaves
+        back to back.
+
+        Token counts are exact by construction: ``G`` groups of ``SF*TH`` reads is
+        ``n_vec*SF``, and ``G`` groups of ``TH*NF`` writes is ``n_vec*NF``.
+
+        The phase is not modelled: the recorded rows carry a wind-up-dependent
+        period excess and rotation that the steady state does not determine, so the
+        schedule here is emitted at its natural phase, with the group's read burst
+        at cycle 0. What that costs is a single rotation of both rows together --
+        a whole-node latency offset, not a distortion. The node reads and writes
+        exactly as measured relative to each other, which is the relationship FIFO
+        sizing integrates. A *relative* phase error between the two rows would not
+        be tolerable; ``compare_chr_funcs_up_to_rotation`` distinguishes the two.
+        """
+        if TH < 2 or SF < 1 or NF < 1 or n_vec < 1 or SIMD < 1:
+            return None
+        if n_vec % TH:
+            # the tiled MVU requires TH | numInputVectors; the RTL backend raises on
+            # this, so a graph that reaches here with it violated is malformed
+            return None
+        fm, stall, span, d = self.mvau_tiled_params(SF, NF, SIMD, TH)
+        G = n_vec // TH
+        period = G * span
+        if period < 1:
+            return None
+        rd = np.zeros(period, dtype=np.int8)
+        wr = np.zeros(period, dtype=np.int8)
+        run = TH * NF - (NF - 1)
+        for g in range(G):
+            base = g * span
+            rd[(base + np.arange(fm)) % period] = 1
+            if NF > 1:
+                wr[(base + d + fm * np.arange(NF - 1)) % period] = 1
+            wr[(base + d + (NF - 1) * fm + np.arange(run)) % period] = 1
+        return flat_characteristic_leaf(rd, wr, "MVAU_rtl tiled burst schedule")
+
+    def get_tree_model(self):
+        """Reads in per-feature-map bursts, writes in one evenly spaced train.
+
+        Both implementations compute ``numVectors`` feature maps of ``NF = MH/PE``
+        output words, each needing ``SF = MW/SIMD`` input words, and both retire
+        one tile per cycle -- so a feature map occupies ``NF * SF`` cycles. What
+        differs between them, and what the branches below encode, is the phase:
+
+        * the reads of a feature map arrive as one back-to-back burst of ``SF`` at
+          the start of that feature map's window;
+        * the writes are *not* aligned to those windows. They form a single train
+          of ``numVectors * NF`` words spaced ``SF`` apart across the whole period,
+          and the last of them lands at exactly ``period``, i.e. cycle 0 of the
+          next one. A nested tree cannot rotate a transaction across the period
+          boundary, so both branches build flat run-length-encoded leaves.
+
+        Three constructions, by implementation and folding:
+
+        * ``TH > 1`` -- a different RTL module; see ``mvau_tiled_tree``.
+        * ``MVAU_rtl`` -- ``mvau_rtl_tree``.
+        * ``MVAU_hls`` -- the wind-up arithmetic below.
+
+        Each returns ``None`` outside the regime it was validated in. For the two
+        untiled ones ``legacy_tree`` then stands: the same nested shape with no
+        wind-up, whose period is short by three to five cycles but whose token
+        counts are right. For the tiled one the node falls back to rtlsim.
+
+        Two configurations are declined outright rather than approximated:
+
+        * ``mem_mode`` in ``{"external_mem", "dynamic"}``. Both change *when*
+          weights arrive -- ``external_mem`` fetches them over AXI-MM,
+          ``dynamic`` streams a fresh set per loop iteration -- so neither can
+          be assumed to keep pace with the compute, and the schedules below all
+          assume it does. ``internal_embedded``, ``internal_decoupled`` and
+          ``external`` present the weights as an always-ready stream, which is
+          the regime the constants here hold in.
+        * a folding whose period cannot hold the schedule at one transaction per
+          cycle, or a single output for the whole node. See the guards below.
+        """
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode in ("external_mem", "dynamic"):
+            return None
+
+        MW = self.get_nodeattr("MW")
+        MH = self.get_nodeattr("MH")
+
+        SIMD = self.get_nodeattr("SIMD")
+        PE = self.get_nodeattr("PE")
+        numVectors = np.prod(self.get_nodeattr("numInputVectors"))
+        SF = int(MW / SIMD)
+        NF = int(MH / PE)
+        TH = self.get_nodeattr("TH")
+
+        IMPL_STYLE = "rtl" if "_rtl" in (self.__class__.__name__) else "hls"
+        assert IMPL_STYLE in ["rtl", "hls"], "Implementation style must be 'rtl' or 'hls'"
+
+        def legacy_tree():
+            idle = Characteristic_Node("idle cycles", [(1, [0, 0])], True)
+            read = Characteristic_Node("Read a burst of input", [(1, [1, 0])], True)
+            write = Characteristic_Node("update output", [(1, [0, 1])], True)
+            read_and_write = Characteristic_Node("update output", [(1, [1, 1])], True)
+            write_PE = Characteristic_Node(
+                "iterate MW/SIMD and update an output", [(SF - 1, idle), (1, write)], False
+            )
+            feature_map = Characteristic_Node(
+                "Compute single feature map",
+                [(SF - 1, read), (1, read_and_write), (NF - 1, write_PE)],
+                False,
+            )
+            return Characteristic_Node(
+                "compute set of feature maps", [(1, idle), (numVectors, feature_map)], False
+            )
+
+        if TH > 1:
+            # Tiling is MVAU_rtl-only -- the HLS backend supports TH = 1 only --
+            # and selects finn-rtllib/mvu_tiled: one read burst per *group* of TH
+            # vectors, and an output reorder buffer that holds a group's outputs
+            # back until its transpose can be satisfied. The untiled shape gets
+            # the period wrong by the whole stall term, so none of the
+            # constants below are used on this path.
+            return self.mvau_tiled_tree(SF, NF, int(numVectors), SIMD, TH)
+
+        if IMPL_STYLE != "hls":
+            # MVAU_rtl is a different pipeline from MVAU_hls: a different period
+            # excess, and a first input transaction that wraps around the period
+            # rather than sitting a few cycles into it. The HLS wind-up below
+            # does not describe it, so it gets its own construction.
+            rtl = self.mvau_rtl_tree(SF, NF, int(numVectors), SIMD)
+            return rtl if rtl is not None else legacy_tree()
+
+        # The MVAU_hls wind-up. Three facts fix the phases below:
+        #
+        #   * the first output transaction is at cycle SF + 4;
+        #   * outputs are then spaced SF cycles apart;
+        #   * the period is numVectors*NF*SF + 9 - LEAD_IN, where LEAD_IN is the
+        #     cycle of the first input transaction.
+        #
+        # LEAD_IN is 3 when the node has an activation (threshold) stage *and*
+        # NF >= 8, and 5 otherwise: the threshold stage costs two cycles of
+        # wind-up, but only once there are enough output folds for the pipeline
+        # to be filled when the first one retires. Neither NF alone nor the
+        # datatype moves it.
+        #
+        # Valid for SF 8..512, NF 1..512 and numInputVectors 1..900.
+        LEAD_IN = 3 if (self.get_nodeattr("noActivation") == 0 and NF >= 8) else 5
+        FIRST_OUT = SF + 4
+        n_vec = int(numVectors)
+        period = n_vec * NF * SF + 9 - LEAD_IN
+
+        if SF < 1 or NF < 1 or n_vec < 1:
+            return legacy_tree()
+        if n_vec * SF > period or n_vec * NF > period:
+            # More tokens than cycles: the schedule cannot be laid out at one
+            # transaction per cycle at all, so the wind-up arithmetic above does
+            # not apply. Keep the shape that has no wind-up.
+            return legacy_tree()
+        if NF < 2 and n_vec < 2:
+            # A single output for the whole node. With one output there is
+            # nowhere in the steady-state window to place it and the wind-up
+            # collapses -- LEAD_IN 0, first output at cycle 1, period SF + 1 --
+            # which is exactly what ``legacy_tree`` produces. NF == 1 with
+            # *several* feature maps is a different case and does obey the rule
+            # above: it is the ordinary burst schedule with a one-output feature
+            # map.
+            return legacy_tree()
+
+        # Reads arrive as one burst of SF per feature map, at the start of that
+        # feature map's NF*SF window; writes are a single train of numVectors*NF
+        # spaced SF apart, which is *not* aligned to the feature-map boundaries.
+        # One flat run-length encoded leaf expresses both.
+        rd = np.zeros(period, dtype=np.int8)
+        wr = np.zeros(period, dtype=np.int8)
+        for i in range(n_vec):
+            base = LEAD_IN + i * NF * SF
+            rd[(base + np.arange(SF)) % period] = 1
+        # Both rows wrap rather than slice. The wind-up can push the last read
+        # burst past the end of the period, and the last output lands at exactly
+        # ``period``, i.e. cycle 0 of the next one. Dropping either loses a token
+        # per period, and the sizer's steady-state occupancy accumulates that
+        # deficit over every frame -- the largest error this schedule can carry.
+        out_cycles = (FIRST_OUT + SF * np.arange(n_vec * NF)) % period
+        wr[out_cycles] = 1
+
+        return flat_characteristic_leaf(rd, wr, "MVAU burst schedule")
+
+    def derive_token_access_vectors(
+        self, model, period, strategy, fpga_part, clk_period, op_type, override_dict=None
+    ):
+        n_inps = np.prod(self.get_folded_input_shape()[:-1])
+        io_dict = {
+            "inputs": {
+                "in0": [i for i in range(n_inps)],
+            },
+            "outputs": {"out0": []},
+        }
+
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode in ["internal_decoupled", "external"]:
+            n_weight_inps = self.calc_wmem()
+            num_w_reps = int(np.prod(self.get_nodeattr("numInputVectors")))
+            io_dict["inputs"]["in1"] = [i for i in range(num_w_reps * n_weight_inps)]
+
+        super().derive_token_access_vectors(
+            model, period, strategy, fpga_part, clk_period, op_type, override_dict=io_dict
+        )
 
     def get_weight_mem_bytes(self):
         """Return (size, offs) in bytes for one layer's weight matrix.
