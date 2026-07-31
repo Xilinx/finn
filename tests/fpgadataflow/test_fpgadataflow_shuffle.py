@@ -28,6 +28,7 @@ from qonnx.util.cleanup import cleanup as qonnx_cleanup
 from torch import nn
 
 import finn.core.onnx_exec as oxe
+from finn import xsi as finnxsi
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferShuffle
@@ -42,8 +43,9 @@ from finn.transformation.fpgadataflow.transpose_decomposition import (
     InferInnerOuterShuffles,
     ShuffleDecomposition,
 )
-from finn.util.basic import make_build_dir, robust_rmtree
+from finn.util.basic import get_liveness_threshold_cycles, make_build_dir, robust_rmtree
 from finn.util.config import extract_model_config_consolidate_shuffles
+from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 test_fpga_part: str = "xcvc1902-vsva2197-2MP-e-S"
 test_synth_clk_period_ns: int = 10
@@ -730,3 +732,83 @@ def test_shuffle_config_consolidation():
     for decomposed_name in decomposed_nodes:
         assert decomposed_name not in consolidated_config
     robust_rmtree(test_dir)
+
+
+@pytest.mark.parametrize("throttle", [(float("inf"), 0), (1, 15)], ids=["backtoback", "bursty"])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+def test_inner_shuffle_rtl_bursty(throttle, monkeypatch):
+    monkeypatch.setenv("LIVENESS_THRESHOLD", "10000000")
+    if not finnxsi.is_available():
+        pytest.skip("finn_xsi (XSI rtlsim) not available")
+
+    SIMD = 4
+    dt = DataType["INT8"]
+    in_shape = (4, 8, 8)  # (N frames, rows, cols); transpose swaps rows/cols
+
+    model = construct_onnx_model(
+        input_shape=in_shape,
+        transpose_perm=(0, 2, 1),
+        reshape1_shape=None,
+        reshape2_shape=None,
+        dt=dt,
+    )
+
+    x = gen_finn_dt_tensor(dt, in_shape)
+    in_name = model.get_first_global_in()
+    out_name = model.get_first_global_out()
+    y_ref = oxe.execute_onnx(model, {in_name: x})[out_name]
+
+    model = model.transform(InferShuffle(_filter=lambda *_: True))
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(SetShuffleSIMD(SIMD))
+    model = model.transform(ShuffleDecomposition())
+    model = model.transform(InferInnerOuterShuffles())
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
+
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareIP(test_fpga_part, test_synth_clk_period_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+
+    inst = getCustomOp(model.get_nodes_by_op_type("InnerShuffle_rtl")[0])
+
+    in_dt, in_w, in_folded = (
+        inst.get_input_datatype(0),
+        inst.get_instream_width(0),
+        inst.get_folded_input_shape(0),
+    )
+    out_dt, out_w, out_folded = (
+        inst.get_output_datatype(0),
+        inst.get_outstream_width(0),
+        inst.get_folded_output_shape(0),
+    )
+    out_normal = tuple(inst.get_normal_output_shape(0))
+    num_out = inst.get_number_output_values()
+
+    packed_in = npy_to_rtlsim_input(np.asarray(x, dtype=np.float32).reshape(in_folded), in_dt, in_w)
+    hex_in = map(lambda v: f"{v:0x}", packed_in)
+
+    sim = inst.get_rtlsim()
+    liveness = max(inst.get_exp_cycles(), get_liveness_threshold_cycles())
+    try:
+        inst.reset_rtlsim(sim)
+        sim.stream_input("in0_V", hex_in, throttle=throttle)
+        out_buf = sim.collect_output(
+            "out0_V", num_out, watchdog=sim.create_watchdog("out0_V timeout", liveness)
+        )
+        assert not sim.run(), "rtlsim watchdog timed out"
+        packed_out = [int(v, base=16) for v in out_buf]
+    finally:
+        inst.close_rtlsim(sim)
+
+    got = rtlsim_output_to_npy(packed_out, None, out_dt, out_folded, out_w, out_dt.bitwidth())
+    got = np.asarray(got, dtype=np.float32).reshape(out_normal)
+
+    assert got.shape == y_ref.shape, "shape %s != ref %s" % (got.shape, y_ref.shape)
+    assert np.allclose(got, y_ref), (
+        "InnerShuffle_rtl output does not match reference transpose (throttle=%s): "
+        "a read overtook its write on the ping-pong page" % (throttle,)
+    )
