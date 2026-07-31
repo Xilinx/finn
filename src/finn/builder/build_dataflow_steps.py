@@ -1001,7 +1001,19 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
             if cfg.fifosim_save_waveform:
                 for node in model.graph.node:
                     getCustomOp(node).set_nodeattr("rtlsim_trace", "")
-            model = model.transform(DeriveFIFOSizes())
+            # Size with the same method as the non-MLO path. Both arguments are
+            # needed: without the method the configured one is ignored, and
+            # without a period the pairwise methods have no global period to
+            # relax against.
+            period = int(
+                model.analysis(partial(dataflow_performance, use_characterized=True))["max_cycles"]
+            )
+            model = model.transform(
+                DeriveFIFOSizes(
+                    period=period,
+                    heuristic_fifo_sizing_method=cfg.heuristic_fifo_sizing_method,
+                )
+            )
             model = model.transform(
                 InsertFIFO(
                     vivado_ram_style=cfg.large_fifo_mem_style,

@@ -1412,6 +1412,48 @@ def derive_chained_tav_depths(
             want = min(want, throttled_cap)
         return want
 
+    def absorbed_frame_floor(model, node, tensor):
+        """Depth for an edge whose consumer's own schedule says it reads nothing.
+
+        A token access vector that ends at a cumulative count of zero says the
+        node performed no read at all in the characterized window. A streaming
+        layer cannot do that. A node that absorbs its whole input frame before
+        it releases anything can, whenever the window that was stored happens to
+        miss the absorb phase -- which is what a ``FINNLoop`` driven with more
+        than one frame does, and why it is now characterized over exactly one.
+        This stays as the guard for any operator that reaches the same state.
+
+        There is therefore no schedule to compare against and no occupancy to
+        measure -- but the requirement does not need a measurement. If the
+        consumer holds its entire frame before releasing anything, and the
+        producer upstream is running at the graph's steady-state rate, then
+        every word of that frame is in flight at once and the edge has to hold
+        all of them. One frame of the consumer's *folded* input words is that
+        number, and it is a floor rather than an estimate: a shallower FIFO
+        back-pressures the producer for the whole absorb phase, which on a loop
+        body is most of the frame.
+
+        Returning it here rather than in ``relaxed`` is deliberate. The
+        relaxation trades depth for producer blocking, and blocking is precisely
+        what this edge cannot tolerate: the consumer is not slow, it is
+        *waiting*, and it will not start until the last word arrives.
+        """
+        cons = registry.getCustomOp(node)
+        try:
+            idx = list(node.input).index(tensor)
+        except ValueError:
+            return 0
+        try:
+            shape = cons.get_folded_input_shape(idx)
+        except Exception:
+            return 0
+        if shape is None or len(shape) < 2:
+            return 0
+        n = 1
+        for d in shape[:-1]:
+            n *= int(d)
+        return int(n)
+
     def _supply_deficit(write_times, read_times, local_reads, hold=0):
         """Tokens the consumer must find already buffered to never wait.
 
@@ -1671,8 +1713,19 @@ def derive_chained_tav_depths(
                 sched = (np.arange(1, int(curve_t[-1]) + 1) * rate).astype(np.int64)
             else:
                 continue  # weights / thresholds: no stream behind them
+            if len(sched) == 0:
+                # No token crosses this edge in the characterized window, so it
+                # constrains nothing and there is no occupancy to measure --
+                # the same state causal_writes() skips on ``n_in == 0``.
+                #
+                # It happens when a token access vector ends at a cumulative
+                # count of zero, which a streaming layer never does but a node
+                # that absorbs its whole input frame before releasing anything
+                # can, if the stored window misses the absorb phase -- see
+                # ``absorbed_frame_floor``.
+                continue
             in_scheds[t] = (sched, curve_t)
-            req = np.maximum(req, _arrival_of(sched, curve_t))
+            req = np.maximum(req, arrival_of(sched, curve_t))
 
         clock = cycles + np.maximum.accumulate(req - cycles)
 
@@ -1685,6 +1738,15 @@ def derive_chained_tav_depths(
         is_join = len(dyn_inputs) > 1
         for t, (sched, curve_t) in in_scheds.items():
             if model.find_producer(t) is None:
+                continue
+            if int(curve_t[-1]) == 0:
+                # The consumer's own token access vector says it read nothing at
+                # all in the characterized window, so there is no demand curve to
+                # compare the arrivals against and the occupancy comes out zero.
+                # Size the edge from the graph instead -- see
+                # ``absorbed_frame_floor``, and note that leaving it at zero is
+                # the one answer this shape cannot tolerate.
+                depths[t] = max(depths.get(t, 0), absorbed_frame_floor(model, node, t))
                 continue
             read_times = _times(curve_t)
             curve = in_curves[t]
@@ -1988,21 +2050,17 @@ class DeriveFIFOSizes(Transformation):
                                 continue
 
                             if (cons.get_nodeattr(chr_pairs[0][1])) == "":
-                                # Consumer isn't characterized (e.g. the terminal
-                                # AlignLabels join). For a DuplicateStreams
-                                # side-channel output still apply the branch buffer
-                                # volume from HandleBranches so the bypass FIFO that
-                                # holds the model input for the whole model latency
-                                # is sized rather than left at the default depth.
+                                # Consumer isn't characterized (e.g. a terminal
+                                # join). For a DuplicateStreams side-channel
+                                # output still apply the branch buffer volume
+                                # from HandleBranches so the bypass FIFO that
+                                # holds the model input for the whole model
+                                # latency is sized rather than left at the
+                                # default depth.
                                 base = 2
                                 if node.op_type == "DuplicateStreams_hls":
                                     base += prod.get_nodeattr("extra_branch_fifos")[indx]
                                 out_fifo_depths.append(base)
-                                # persist here too: the outFIFODepths set below is
-                                # skipped by this continue, which would otherwise
-                                # leave a multi-output node's list short (e.g. the
-                                # DuplicateStreams side-channel output).
-                                prod.set_nodeattr("outFIFODepths", out_fifo_depths)
                                 continue
 
                             for pair in chr_pairs[:1]:
@@ -2282,8 +2340,6 @@ class DeriveFIFOSizes(Transformation):
 
                         out_fifo_depths.append(max(fifo_depth, self.minimum_size))
 
-                        prod.set_nodeattr("outFIFODepths", out_fifo_depths)
-
                         if self.chained_tav_depths is not None:
                             # ... and the matching half on the consumer, so the
                             # max() in InsertFIFO is a no-op rather than a way for
@@ -2294,14 +2350,22 @@ class DeriveFIFOSizes(Transformation):
                                     in_depths[i] = max(fifo_depth, self.minimum_size)
                             cons.set_nodeattr("inFIFODepths", in_depths)
 
-                        in_fifo_depths = prod.get_nodeattr("inFIFODepths")
-                        for i, input_name in enumerate(node.input):
-                            if input_name in [x.name for x in model.graph.input]:
-                                in_fifo_depths[i] = max(self.io_fifo_depth, in_fifo_depths[i])
-                        prod.set_nodeattr("inFIFODepths", in_fifo_depths)
-
-                        if node.op_type == "AddStreams_hls":
+                        if is_stream_join(node):
                             self.slowdown_so_far[0] = max(self.slowdown_so_far)
+
+                    # Outside the per-output loop: several branches above end in
+                    # `continue` after appending their depth, so persisting
+                    # inside the loop would drop those entries -- a terminal
+                    # node's io_fifo_depth among them.
+                    prod.set_nodeattr("outFIFODepths", out_fifo_depths)
+
+                    # finally, check node inputs to ensure FIFOs are added to
+                    # any top-level inputs (at least self.io_fifo_depth deep)
+                    in_fifo_depths = prod.get_nodeattr("inFIFODepths")
+                    for i, input_name in enumerate(node.input):
+                        if input_name in [x.name for x in model.graph.input]:
+                            in_fifo_depths[i] = max(self.io_fifo_depth, in_fifo_depths[i])
+                    prod.set_nodeattr("inFIFODepths", in_fifo_depths)
 
                 except KeyError:
                     raise Exception("Custom op_type %s is currently not supported." % op_type)

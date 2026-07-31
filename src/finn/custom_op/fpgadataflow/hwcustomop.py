@@ -338,6 +338,7 @@ class HWCustomOp(CustomOp):
         op_type,
         override_dict=None,
         pre_hook=None,
+        periods_to_simulate=5,
     ):
         if override_dict is None:
             n_inps = np.prod(self.get_folded_input_shape()[:-1])
@@ -359,7 +360,13 @@ class HWCustomOp(CustomOp):
         # is underestimating the real operator runtime.
         period = self.get_exp_cycles() + 20
         self.derive_token_access_vectors_using_rtlsim(
-            model, period, fpga_part, clk_period, io_dict, pre_hook=pre_hook
+            model,
+            period,
+            fpga_part,
+            clk_period,
+            io_dict,
+            pre_hook=pre_hook,
+            periods_to_simulate=periods_to_simulate,
         )
 
     def derive_token_access_vectors_using_tree_model(self, period, io_dict):
@@ -535,7 +542,14 @@ class HWCustomOp(CustomOp):
             f.write(template_wrapper)
 
     def derive_token_access_vectors_using_rtlsim(
-        self, model, period, fpga_part, clk_period, override_rtlsim_dict=None, pre_hook=None
+        self,
+        model,
+        period,
+        fpga_part,
+        clk_period,
+        override_rtlsim_dict=None,
+        pre_hook=None,
+        periods_to_simulate=5,
     ):
         """Return the token access vectors for this node using rtlsim.
         Used by analytical FIFO sizing approach.
@@ -544,10 +558,16 @@ class HWCustomOp(CustomOp):
             pre_hook: Optional callable that takes sim as argument, called after
                       reset_rtlsim but before running the simulation. Used by
                       FINNLoop to initialize MLO state.
+            periods_to_simulate: how many frames to drive. Five by default, of
+                      which the middle two are stored: the first frame carries
+                      the node's wind-up (pipeline fill, weight priming) and the
+                      last its drain, and neither belongs in a schedule the
+                      sizer reads as periodic. One frame stores that frame
+                      repeated instead, for an operator with no periodic steady
+                      state to find -- see ``FINNLoop``.
         """
         # ensure rtlsim is ready
 
-        periods_to_simulate = 5
         periods_to_store = 2
 
         if self.get_nodeattr("rtlsim_so") == "":
@@ -599,11 +619,16 @@ class HWCustomOp(CustomOp):
         for k in txns_out.keys():
             txns_out[k] = sim.trace_stream(k + sname)
 
-        self.rtlsim_multi_io(sim, io_dict, sname="_V", batch_size=periods_to_simulate)
+        try:
+            self.rtlsim_multi_io(sim, io_dict, sname="_V", batch_size=periods_to_simulate)
+        finally:
+            # Assert sim_finish to trigger $finish so that SystemVerilog final
+            # blocks execute, which flush and close the fifo_gauge log files and
+            # the waveform. The stream tracers keep their contents afterwards.
+            self.close_rtlsim(sim)
 
         total_cycle_count = self.get_nodeattr("cycles_rtlsim")
 
-        self.set_nodeattr("io_chrc_period", total_cycle_count)
         # call str() on stream tracers to get their outputs, and convert
         # to list of ints
         for k, v in txns_in.items():
@@ -612,17 +637,27 @@ class HWCustomOp(CustomOp):
             txns_out[k] = [int(c) for c in str(v)]
 
         period = total_cycle_count // periods_to_simulate
+        # one period, as in the tree model path -- the stored vectors hold two
+        self.set_nodeattr("io_chrc_period", period)
+        #: the stored window is the last two periods before the drain, i.e. the
+        #: middle two of the default five. With a single simulated frame it is
+        #: period 0, wrapped to fill both stored periods.
+        store_from = max(0, periods_to_simulate - 3) * period
+        span = period * periods_to_store
+        wrap = period * periods_to_simulate
 
-        def accumulate_char_fxn(chrc, period_to_simulate, periods_to_store, period):
-            mid_point = period * 2
+        def accumulate_char_fxn(chrc, start, span, wrap):
+            """Cumulative token count over ``span`` cycles from cycle ``start``.
+
+            Indices wrap at ``wrap`` -- the whole simulated window -- so that one
+            simulated frame is replicated to fill the two stored periods. With
+            the default five frames the window lies inside the trace and nothing
+            wraps.
+            """
             ret = []
-            for t in range(
-                mid_point, mid_point + period * 2
-            ):  # *2 when running 1 sim and replicating
-                if t == mid_point:
-                    ret.append(chrc[t])
-                else:
-                    ret.append(ret[-1] + chrc[t])
+            for i in range(span):
+                v = chrc[(start + i) % wrap]
+                ret.append(v if i == 0 else ret[-1] + v)
             return np.asarray(ret, dtype=np.int32)
 
         all_txns_in = np.empty((len(txns_in.keys()), period * periods_to_store), dtype=np.int32)
@@ -634,20 +669,22 @@ class HWCustomOp(CustomOp):
         for in_idx, in_strm_nm in enumerate(txns_in.keys()):
             txn_in = txns_in[in_strm_nm]
             pad_in = 0
-            if len(txn_in) < period:
-                pad_in = period - len(txn_in)
+            # the trace must cover every simulated period, since the stored
+            # window is indexed modulo that length
+            if len(txn_in) < wrap:
+                pad_in = wrap - len(txn_in)
                 txn_in += [0 for x in range(pad_in)]
-            txn_in = accumulate_char_fxn(txn_in, periods_to_simulate, periods_to_store, period)
+            txn_in = accumulate_char_fxn(txn_in, store_from, span, wrap)
             all_txns_in[in_idx, :] = txn_in
             all_pad_in.append(pad_in)
 
         for out_idx, out_strm_nm in enumerate(txns_out.keys()):
             txn_out = txns_out[out_strm_nm]
             pad_out = 0
-            if len(txn_out) < period:
-                pad_out = period - len(txn_out)
+            if len(txn_out) < wrap:
+                pad_out = wrap - len(txn_out)
                 txn_out += [0 for x in range(pad_out)]
-            txn_out = accumulate_char_fxn(txn_out, periods_to_simulate, periods_to_store, period)
+            txn_out = accumulate_char_fxn(txn_out, store_from, span, wrap)
             all_txns_out[out_idx, :] = txn_out
             all_pad_out.append(pad_out)
 
