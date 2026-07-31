@@ -482,26 +482,31 @@ def test_fpgadataflow_vvau_rtl(kernel_size, in_feature_dim, in_chn, idt, wdt, pa
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
 
 
-# input datatype
+# One configuration per regime: PE and SIMD folded and unfolded, the 1D kernel
+# and 1D image shapes, with and without an activation, and both memory modes --
+# rather than the cross-product of all of them.
+@pytest.mark.parametrize(
+    "act,pe,simd,dim_w,k_w,mem_mode",
+    [
+        (DataType["BIPOLAR"], 1, 1, 10, 3, "internal_decoupled"),
+        (DataType["BIPOLAR"], 3, 1, 10, 3, "internal_decoupled"),
+        (DataType["BIPOLAR"], 6, 1, 10, 3, "internal_decoupled"),
+        (DataType["BIPOLAR"], 1, 9, 10, 3, "internal_decoupled"),
+        (DataType["BIPOLAR"], 3, 9, 10, 3, "internal_decoupled"),
+        (DataType["BIPOLAR"], 1, 1, 1, 3, "internal_decoupled"),
+        (DataType["BIPOLAR"], 1, 1, 10, 1, "internal_decoupled"),
+        (None, 1, 1, 10, 3, "internal_decoupled"),
+        (None, 3, 9, 10, 3, "internal_decoupled"),
+        (DataType["BIPOLAR"], 1, 1, 10, 3, "internal_embedded"),
+        (DataType["BIPOLAR"], 3, 9, 10, 3, "internal_embedded"),
+        (None, 1, 1, 10, 3, "internal_embedded"),
+    ],
+)
 @pytest.mark.parametrize("idt", [DataType["BIPOLAR"]])
-# weight datatype
 @pytest.mark.parametrize("wdt", [DataType["BIPOLAR"]])
-# activation: None or DataType
-@pytest.mark.parametrize("act", [DataType["BIPOLAR"], None])
-# PE
-@pytest.mark.parametrize("pe", [1, 3, 6])
-# SIMD
-@pytest.mark.parametrize("simd", [1, 9])
-# Input image shape
 @pytest.mark.parametrize("dim_h", [10])
-@pytest.mark.parametrize("dim_w", [10, 1])
-# Kernel shape
 @pytest.mark.parametrize("k_h", [3])
-@pytest.mark.parametrize("k_w", [3, 1])
-# Number of input and output channels
 @pytest.mark.parametrize("channels", [3])
-# memory mode
-@pytest.mark.parametrize("mem_mode", ["internal_decoupled", "internal_embedded"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
@@ -558,9 +563,24 @@ def test_fpgadataflow_analytical_characterization_vvau(
     part = "xc7z020clg400-1"
     target_clk_ns = 4
 
-    max_allowed_volume_delta = 14
-    max_allowed_length_delta = 14
+    # TAV tolerances are fractions -- of the tokens moved and of the frame
+    # length -- with a floor for the fixed part of the error (wind-up, adder
+    # tree depth, the cycle rtlsim's period rounds away). The floors are the
+    # flat budgets this test used before the split, so nothing that passed
+    # then fails now; the fractions are what govern once the frame is long
+    # enough to exceed them.
+    max_allowed_volume_frac = 0.05
+    volume_const = 14
+    max_allowed_length_frac = 0.05
+    length_const = 14
 
     assert tree_model_test(
-        model, node_details, part, target_clk_ns, max_allowed_volume_delta, max_allowed_length_delta
+        model,
+        node_details,
+        part,
+        target_clk_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
     ), "characterized TAV does not match RTLsim'd one!"

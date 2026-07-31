@@ -258,16 +258,14 @@ class Lookup(HWCustomOp):
     def get_tree_model(self):
         """An embedding lookup with the embedding dimension unfolded is a wire.
 
-        The brief's hypothesis was "one index in, ``EmbeddingDim`` words out".
-        The measurement says otherwise: with the embedding unfolded onto one
-        output word, ``size-tr-language/Lookup_hls_0`` (EmbeddingDim 64,
-        NumEmbeddings 2048, InputShape [1, 256], ``internal_embedded``) moves
-        one token per cycle on *both* streams -- 514 in and 514 out over a
-        514-cycle window -- so one index produces exactly one folded output
-        word and the node is a plain pass-through.
+        With the embedding unfolded onto a single output word, one index in
+        produces exactly one folded word out, and the node moves one token per
+        cycle on both streams with no wind-up and no rate change. So the schedule
+        is a plain pass-through over the folded input count.
 
-        Guarded to ``internal_embedded``: ``external`` performs the lookup over
-        AXI-MM and no reference exists for it, so it falls back to rtlsim.
+        Guarded to ``internal_embedded``. ``external`` performs the lookup over
+        AXI-MM, whose arrival times this shape does not describe, so that mode
+        falls back to rtlsim.
         """
         if self.get_nodeattr("mem_mode") != "internal_embedded":
             return None

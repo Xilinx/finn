@@ -214,8 +214,24 @@ class Pool(HWCustomOp):
         context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)
 
     def get_tree_model(self):
-        # extract node attr
+        """Read every folded word of a pooling window, write one when it closes.
 
+        A pooling window is ``SF = prod(KernelSize)`` folded words per channel
+        tile, ``NF = Channels / PE`` tiles per window, and ``reps`` windows per
+        frame. The node reads back to back for the whole frame and emits one word
+        every ``SF`` reads -- the accumulate-and-flush structure of the HLS loop.
+
+        Two shapes are below. The HLS one places the writes at
+        ``1, 1 + SF, 1 + 2*SF, ...``: the write for a window lands on the *second*
+        cycle of it, not the last. The nested form after it can only put a write
+        at the end of its SF-cycle window, so it is used for the RTL variant and
+        for degenerate foldings, whose schedules have not been measured.
+
+        The modulo on the write positions matters when ``SF == 1``: the last write
+        of a period then lands at cycle 0 of the next one, and dropping it instead
+        of wrapping it costs one token per period, which the sizer's occupancy sum
+        accumulates over every frame.
+        """
         PE = self.get_nodeattr("PE")
         Channels = self.get_nodeattr("Channels")
         KernelSize = self.get_nodeattr("KernelSize")
@@ -238,10 +254,12 @@ class Pool(HWCustomOp):
             SF = np.prod(KernelSize)  # spatial folding per pooling window
             reps = BatchSize * np.prod(OutImgDims)  # number of pooling windows to process
 
-        # The HLS pool reads one folded word every cycle and writes at
-        # 1, 1 + SF, 1 + 2*SF, ... -- the first write is at cycle 1, not SF - 1.
-        # A flat leaf rather than the nested form below, which can only place
-        # the write at the end of its SF-cycle window.
+        # The HLS pool reads one folded word every cycle for the whole frame and
+        # emits one every SF, with the first write at cycle 1 rather than SF - 1:
+        # the writes fall at 1, 1 + SF, 1 + 2*SF, ...
+        #
+        # A flat leaf because the nested form below can only place the write at
+        # the *end* of its SF-cycle window.
         impl_style = "rtl" if "_rtl" in (self.__class__.__name__) else "hls"
         if impl_style == "hls" and SF >= 1 and NF >= 1 and reps >= 1:
             n_in = int(reps) * int(NF) * int(SF)

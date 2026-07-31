@@ -430,9 +430,9 @@ class Characteristic_Node:
         """One period's per-cycle (input, output) token deltas, as an (n, 2) array.
 
         The vectorised equivalent of ``traverse_phase_tree``, which walks one
-        Python loop iteration per cycle. That costs about a second per node on
-        mobilenetv1, whose periods run to 400k cycles, and the whole point of a
-        tree model is that it is cheap; ``np.repeat`` over the run lengths and a
+        Python loop iteration per cycle -- about a second per node once periods
+        reach a few hundred thousand cycles, where the whole point of a tree
+        model is that it is cheap. ``np.repeat`` over the run lengths and a
         single ``cumsum`` give a bit-identical answer in milliseconds.
 
         Memoised per node, and shared by every repetition of a sub-tree, so a
@@ -511,7 +511,7 @@ class Characteristic_Node:
             return counter, cycles, ch_fnc
 
 
-def _rle_encode(d):
+def rle_encode(d):
     """Run-length encode a 1D array. Returns (values, lengths) as int64 arrays
     with sum(lengths) == len(d)."""
     if d.size == 0:
@@ -546,7 +546,7 @@ def compress_numpy_to_string(arr):
         run_lengths = []
         n_runs = []
         for row in rows:
-            vals, lens = _rle_encode(np.diff(row))
+            vals, lens = rle_encode(np.diff(row))
             run_values.append(vals)
             run_lengths.append(lens)
             n_runs.append(int(vals.size))
@@ -569,7 +569,7 @@ def compress_numpy_to_string(arr):
     return base64.b64encode(combined_data).decode("utf-8")
 
 
-def _save_gaps_npy(arr, path):
+def save_gaps_npy(arr, path):
     """Save a Token Access Vector array to ``path`` as a gzip-compressed .npy file
     holding the run-length encoding of its per-cycle deltas (the gaps form). One
     flat int64 array is written with layout::
@@ -587,7 +587,7 @@ def _save_gaps_npy(arr, path):
     run_values = []
     run_lengths = []
     for row in arr:
-        vals, lens = _rle_encode(np.diff(row))
+        vals, lens = rle_encode(np.diff(row))
         run_values.append(vals)
         run_lengths.append(lens)
         n_runs.append(vals.size)
@@ -605,7 +605,7 @@ def _save_gaps_npy(arr, path):
 
 
 def load_tav_npy(path):
-    """Load and unroll a Token Access Vector stored by _save_gaps_npy(), returning
+    """Load and unroll a Token Access Vector stored by save_gaps_npy(), returning
     the full per-cycle cumulative array of shape (k, n), dtype int32. Handles both
     gzip-compressed and plain .npy sidecars (autodetected by the gzip magic)."""
     with open(path, "rb") as fh:
@@ -644,7 +644,7 @@ def save_tav_npy(inst, attr_name, arr):
         tav_dir = make_build_dir(prefix="tav_")
     safe_name = re.sub(r"[^0-9A-Za-z_.-]", "_", inst.onnx_node.name)
     path = os.path.join(tav_dir, "tav_%s_%s.npy" % (safe_name, attr_name))
-    _save_gaps_npy(arr, path)
+    save_gaps_npy(arr, path)
     return path
 
 
@@ -787,11 +787,14 @@ def flat_characteristic_leaf(rd, wr, label):
     """One run-length encoded leaf from two per-cycle 0/1 schedules.
 
     A nested tree is the natural way to write a schedule down when its phases
-    nest, and several measured schedules do not: the MVAU's reads are aligned to
-    the feature map and its writes are not, and both are shifted by a wind-up
-    that belongs to neither. Building the two arrays and run-length encoding
-    them once is simpler to read, and cheaper to traverse, than a tree that has
-    to express the interleaving structurally.
+    nest. Some do not: the MVAU's reads are aligned to the feature map and its
+    writes are not, and its last write wraps to cycle 0 of the next period,
+    which no nesting can express. For those, building the two arrays and
+    run-length encoding them once is both clearer and cheaper to traverse than a
+    tree contorted to carry the interleaving structurally.
+
+    Prefer a nested tree where the schedule really nests -- it states the loop
+    structure instead of a cycle array. This is for the schedules that do not.
 
     ``rd`` and ``wr`` are equal-length 0/1 arrays covering exactly one period.
     """
@@ -812,11 +815,10 @@ def passthrough_characteristic(num_words, label):
     with no wind-up and no gap. Their schedule has no free parameters at all:
     it is a solid run of ``num_words`` read-and-write cycles.
 
-    This is a constructor for that fixed shape, not a base-class method: an
-    operator calls it because its loop has been read and found to have this
-    structure, and an operator later measured to differ simply stops calling it.
-    Nothing is inherited, so a correction to one operator's schedule cannot
-    reach another's.
+    A free constructor rather than a base-class method, so that nothing is
+    inherited: an operator calls it because its own loop has this structure, and
+    one that turns out to differ simply stops calling it. A correction to one
+    operator's schedule therefore cannot reach another's.
     """
     step = Characteristic_Node(label, [(int(num_words), [1, 1])], True)
     return Characteristic_Node(label + " frame", [(1, step)], False)

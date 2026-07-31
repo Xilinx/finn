@@ -35,6 +35,7 @@ from qonnx.core.modelwrapper import ModelWrapper
 
 from finn.custom_op.fpgadataflow import register_custom_op
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import Characteristic_Node
 
 
 # Generic implementation for elementwise binary operations
@@ -515,6 +516,30 @@ class ElementwiseBinaryOperation(HWCustomOp):
         return int(
             sum(width * math.ceil(depth / 64) for width, depth in self._parameter_memory_specs())
         )
+
+    def get_tree_model(self):
+        """Token access vector model for every elementwise binary operation.
+
+        The simplest shape a tree model takes: one flat phase of
+        ``prod(folded_output_shape[:-1])`` cycles reading and writing one token
+        each. That is not an approximation of this operator, it is its
+        definition -- ``get_exp_cycles()`` above is the same product, i.e. the
+        operator is II=1 with no wind-up phase to model, because an elementwise
+        operation needs nothing more than the element it is handed. Every
+        specialization below (add, mul, bitshift, the comparisons, ...) differs
+        only in the arithmetic applied to a token, never in when tokens move, so
+        the model lives on the base class rather than being repeated per op.
+
+        Both inputs are described by the single row a tree model emits. For a
+        two-stream join that is exact rather than a simplification: an
+        elementwise operation consumes one token from each input to produce one
+        output, so both input streams carry the identical schedule. When the
+        right-hand side is a constant (``rhs_style == "const"``) there is only
+        one stream to describe in the first place.
+        """
+        dim = int(np.prod(self.get_folded_output_shape()[:-1]))
+        read_write = Characteristic_Node("passing elementwise layer", [(dim, [1, 1])], True)
+        return Characteristic_Node("compute elementwise", [(1, read_write)], False)
 
 
 # Derive a specialization to implement elementwise addition of two inputs

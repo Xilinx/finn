@@ -41,7 +41,7 @@ from qonnx.util.basic import (
 )
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
-from finn.util.basic import Characteristic_Node, flat_characteristic_leaf
+from finn.util.basic import Characteristic_Node
 from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
 
 
@@ -885,7 +885,20 @@ class VVAU(HWCustomOp):
         return cmd
 
     def get_tree_model(self):
-        # key parameters
+        """One read per cycle, one write every SF, behind a fixed wind-up.
+
+        The depthwise VVAU accumulates ``SF = prod(Kernel)/SIMD`` folded words per
+        output and produces ``NF = Channels/PE`` outputs per pixel, over
+        ``prod(Dim)`` pixels. Its HLS loop is pipelined at II=1 with the reads
+        driving it, so the frame is a solid read run of ``numReps * NF * SF``
+        cycles with a write on every ``SF``-th -- the same accumulate-and-flush
+        shape as ``Pool``, and unlike ``MVAU`` there is no per-feature-map read
+        burst to place.
+
+        The HLS branch below expresses that as a five-cycle wind-up followed by
+        ``NF * numReps`` copies of an SF-cycle accumulate block. The nested tree
+        after it is for the RTL variant, whose schedule has not been measured.
+        """
         IMPL_STYLE = "rtl" if "_rtl" in (self.__class__.__name__) else "hls"
         assert IMPL_STYLE in ["rtl", "hls"], "Implementation style must be 'rtl' or 'hls'"
 
@@ -895,30 +908,39 @@ class VVAU(HWCustomOp):
         Kernel_2 = np.prod(self.get_nodeattr("Kernel"))
         NF = int(Channels / PE)
         numReps = np.prod(self.get_nodeattr("Dim"))
-        dim_h, dim_w = self.get_nodeattr("Dim")
 
         SF = Kernel_2 // SIMD
 
         if IMPL_STYLE == "hls":
-            # The HLS VVAU reads one folded word per cycle back to back and
+            # The HLS VVAU reads one folded word per cycle, back to back, and
             # emits one every SF, with a fixed five-cycle wind-up in front of
-            # both. A flat leaf rather than a branch in the nested tree below,
-            # because the wind-up sits outside the SF loop and expressing it
-            # structurally would mean special-casing the first and last SF.
+            # both: reads start at cycle 5 and the first write is at SF + 4.
+            #
+            # The write lands at the END of each SF block -- read k at 5 + k,
+            # write j at 4 + SF*(j+1), i.e. offset SF-1 within the j-th block --
+            # so a five-cycle prefix node in front of n_out copies of the block
+            # is the whole schedule, cycle for cycle.
             n_in = int(numReps) * NF * SF
             n_out = int(numReps) * NF
             if SF >= 1 and n_out >= 1 and n_in > 8:
-                # n_in + 5, not the n_in + 4 the reference reports: the recorded
-                # period rounds down, and +5 is what places every read and write
-                # on the reference's cycle with no wrap-around. Nodes with
-                # PE <= 2 record a saturated window and keep a small error; too
-                # few points to fit a rule for them.
-                period = n_in + 5
-                rd = np.zeros(period, dtype=np.int8)
-                wr = np.zeros(period, dtype=np.int8)
-                rd[5:] = 1
-                wr[(SF + 4) + SF * np.arange(n_out)] = 1
-                return flat_characteristic_leaf(rd, wr, "VVAU_hls schedule")
+                # The period is n_in + 5. rtlsim reports n_in + 4 because its
+                # period is cycles_rtlsim // periods_to_simulate and rounds down;
+                # n_in + 5 is the length that puts the wind-up and every read and
+                # write on the cycle the hardware has them, with no wrap-around.
+                #
+                # Validated on VVAU_hls nodes with PE >= 4. Nodes with PE <= 2
+                # record a saturated window instead -- period n_in + 1, no gap --
+                # and keep an error of about 8 cycles; no attribute other than PE
+                # separates them, and PE alone is too little to fit a rule on.
+                wind_up = Characteristic_Node("wind-up", [(5, [0, 0])], True)
+                accumulate = Characteristic_Node(
+                    "accumulate SF inputs, flush on the last",
+                    [(SF - 1, [1, 0]), (1, [1, 1])],
+                    True,
+                )
+                return Characteristic_Node(
+                    "VVAU_hls frame", [(1, wind_up), (n_out, accumulate)], False
+                )
 
         write_out = Characteristic_Node("write out simd (1 for hls)", [(1, [1, 1])], True)
 

@@ -150,7 +150,20 @@ class DuplicateStreams(HWCustomOp):
             context[outp] = output
 
     def get_tree_model(self):
-        # key parameters
+        """A fork is transparent: every output beat leaves on the cycle it arrives.
+
+        ``DuplicateStreams`` has no storage and no rate change. Its HLS loop reads
+        one folded word and writes the same word to each output in the same
+        iteration, pipelined at II=1, so the schedule is one solid run of
+        read-and-write cycles as long as the folded frame -- no wind-up, no gap,
+        and nothing that depends on the number of outputs.
+
+        The single run is also why this node is in ``_TRANSPARENT_OPS`` in the
+        chained-TAV pass: with writes on the same cycle as the read, the fork's
+        own output edges can never accumulate occupancy, so sizing them from this
+        schedule alone would say every branch needs depth 1. What a branch really
+        needs is decided at the *join*, from the imbalance between the two paths.
+        """
 
         dim = np.prod(self.get_folded_output_shape()[1:-1])
 

@@ -47,13 +47,19 @@ from finn.util.basic import Characteristic_Node
 # ---------------------------------------------------------------------------
 # Exact schedule of the RTL sliding-window generator, "default" impl style.
 #
-# The hardware -- swg_controller (finn-rtllib/swg/swg_common.sv) plus the
-# counter block of swg_template_default.sv -- is a small FSM with no data
-# dependence, and the characterisation stimulus holds input valid and output
-# ready throughout, so its schedule is a pure function of the generated
-# parameters. Executing that FSM in Python costs one iteration per cycle and
-# reproduces the rtlsim token access vector exactly, where the closed-form
-# trees further down only approximate it.
+# The analytical trees further down approximate this hardware with a handful of
+# closed-form special cases, and the commonest of them mispredicts by exactly
+# k_y * (IFMChannels/SIMD) tokens. That is unnecessary: the hardware is
+# swg_controller (finn-rtllib/swg/swg_common.sv) plus the counter block of
+# swg_template_default.sv, a small finite state machine with no data dependence.
+# The characterisation stimulus holds the input stream valid and the output
+# stream ready for the whole run, which removes the only external influence on
+# it, so the schedule is a pure function of the generated parameters.
+#
+# Executing that FSM in Python costs one loop iteration per cycle -- no IP
+# synthesis, no simulator -- and reproduces the rtlsim token access vector
+# exactly, bit for bit, over the configurations covered by
+# test_fpgadataflow_convinputgenerator.py's tree-model test.
 # ---------------------------------------------------------------------------
 
 
@@ -555,9 +561,11 @@ def swg_default_tree(inst):
         return None
     period = restarts[3] - restarts[2]
 
-    # rtlsim keeps two whole periods out of the middle of the run, starting one
-    # cycle before a period boundary. Match that phase: the same schedule at the
-    # wrong offset reads to the sizer as a delay that is not there.
+    # rtlsim characterises a node by running several feature maps back to back
+    # and keeping two whole periods out of the middle; the window it keeps
+    # starts one cycle before a period boundary. Reproduce that phase exactly,
+    # otherwise the vector is a correct schedule at the wrong offset, which
+    # reads to the FIFO sizer as a delay that is not there.
     start = 2 * period - 1
     if start + period > len(sched):
         return None
@@ -793,8 +801,24 @@ class ConvolutionInputGenerator(HWCustomOp):
         inst.execute_node(context, model_im2col.graph)
 
     def get_tree_model(self):
-        # Exact FSM execution where it applies (see the module header); it
-        # reproduces the rtlsim vector, so no approximation below can beat it.
+        """Execute the sliding-window FSM where possible; approximate where not.
+
+        Two tiers, in the order they are tried:
+
+        1. ``swg_default_tree`` -- the RTL generator's "default" style is a small
+           deterministic state machine, and with the input always valid and the
+           output always ready its schedule follows entirely from the generated
+           parameters. Running that FSM reproduces the rtlsim token access vector
+           exactly, so nothing below can improve on it and it is tried first.
+        2. hand-derived closed forms for the shapes the FSM path does not cover
+           (1x1, and the depthwise k=2 s=2 case).
+
+        The layering is necessary because the SWG is the one operator here whose
+        schedule is genuinely irregular -- output tokens come in bursts whose
+        spacing depends on where the window sits in the row -- so no single closed
+        form covers every folding. A folding that neither tier describes returns
+        the generic ``swg`` shape built at the end of this method.
+        """
         exact = swg_default_tree(self)
         if exact is not None:
             return exact

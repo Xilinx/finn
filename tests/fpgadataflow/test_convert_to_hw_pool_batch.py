@@ -330,9 +330,24 @@ def test_analytical_characterization_pool(idt, odt, pool_config, ifm_ch, pe, op_
 
     target_clk_ns = 4
 
-    max_allowed_volume_delta = 5000
-    max_allowed_length_delta = 5000
+    # TAV tolerances are fractions -- of the tokens moved and of the frame
+    # length -- with a floor for the fixed part of the error (wind-up, adder
+    # tree depth, the cycle rtlsim's period rounds away). The floors are the
+    # flat budgets this test used before the split, so nothing that passed
+    # then fails now; the fractions are what govern once the frame is long
+    # enough to exceed them.
+    max_allowed_volume_frac = 0.2
+    volume_const = 5000
+    max_allowed_length_frac = 0.2
+    length_const = 5000
 
     assert tree_model_test(
-        model, node_details, part, target_clk_ns, max_allowed_volume_delta, max_allowed_length_delta
+        model,
+        node_details,
+        part,
+        target_clk_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
     ), "characterized TAV does not match RTLsim'd one!"

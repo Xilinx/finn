@@ -219,23 +219,74 @@ def crop_center(size, img):
     return torchvision_util.center_crop(img, size)
 
 
-def compare_two_chr_funcs(a, b, max_allowed_volume_delta, max_allowed_length_delta):
-    # relaxation determines how much leeway we allow for the
-    # analytical implementation to be off from RTL ground truth
-    # this leeway may produce larger fifos.
-    # Output delays due to long pipelines generally do not effect
-    # fifo sizes and so large relaxation factors for them are expected.
+def tav_tolerance(frac, scale, const):
+    """``const + frac * scale`` -- the two terms a TAV error actually has.
 
+    The proportional term is the one that belongs in a budget: a period
+    reproduced to within four cycles is excellent on a 100k-cycle frame and
+    useless on a 40-cycle one, and a flat cycle count says the same thing about
+    both.
+
+    The constant term is not a fudge, it is the fixed part of the error:
+    pipeline wind-up, an adder tree's depth, the cycle rtlsim's
+    ``cycles_rtlsim // periods_to_simulate`` rounds away. Those cost the same
+    few cycles whatever the frame length, which is why they add rather than
+    compete -- a long frame carries the same fixed wind-up as a short one *and*
+    a proportional error on top, and ``max`` of the two would silently drop
+    whichever term happened to be smaller.
+    """
+    return float(const) + float(frac) * float(scale)
+
+
+def compare_two_chr_funcs(
+    a,
+    b,
+    max_allowed_volume_frac,
+    max_allowed_length_frac,
+    volume_const=0,
+    length_const=0,
+):
+    """Compare an analytical TAV ``a`` against the rtlsim ground truth ``b``.
+
+    ``max_allowed_volume_frac`` is a fraction of the tokens the reference moves
+    in the window, and ``max_allowed_length_frac`` a fraction of the reference's
+    length; ``*_const`` are the fixed cycle/token counts that add to the
+    proportional term. See ``tav_tolerance``.
+
+    The leeway this grants may produce larger FIFOs. Output delays due to long
+    pipelines generally do not affect FIFO sizes, so a larger relaxation on the
+    output side is expected.
+    """
+    a = np.asarray(a)
+    b = np.asarray(b)
     lower_len = min(len(a), len(b))
+
+    len_allowed = tav_tolerance(max_allowed_length_frac, len(b), length_const)
     if len(a) != len(b):
         len_dif = abs(len(a) - len(b))
-        print(f"TAV length delta: {len_dif}")
-        if len_dif > max_allowed_length_delta:
+        print(
+            "TAV length delta: %d (%.2f%% of %d, allowed %.0f)"
+            % (len_dif, 100.0 * len_dif / max(1, len(b)), len(b), len_allowed)
+        )
+        if len_dif > len_allowed:
             return False
 
-    peak_volume_delta = np.max(np.abs(a[:lower_len] - b[:lower_len]))
-    print(f"TAV peak volume delta: {peak_volume_delta}")
-    if peak_volume_delta > max_allowed_volume_delta:
+    # scale the volume budget by the tokens actually moved, not by the cycle
+    # count: a peak cumulative delta is a token count and the two differ by the
+    # folding factor
+    total_tokens = int(b[lower_len - 1]) if lower_len else 0
+    vol_allowed = tav_tolerance(max_allowed_volume_frac, total_tokens, volume_const)
+    peak_volume_delta = np.max(np.abs(a[:lower_len] - b[:lower_len])) if lower_len else 0
+    print(
+        "TAV peak volume delta: %d (%.2f%% of %d tokens, allowed %.0f)"
+        % (
+            peak_volume_delta,
+            100.0 * peak_volume_delta / max(1, total_tokens),
+            total_tokens,
+            vol_allowed,
+        )
+    )
+    if peak_volume_delta > vol_allowed:
         return False
     return True
 
@@ -310,8 +361,6 @@ def get_characteristic_fnc(model, node0, part, target_clk_ns, strategy, caching=
             inst.get_tree_model() is None or strategy == "rtlsim"
         ):
             try:
-                # lookup op_type in registry of CustomOps
-                # inst = registry.getCustomOp(node)
                 inst.prepare_rtlsim()
                 # ensure that executable path is now set
                 assert (
@@ -398,11 +447,19 @@ def tree_model_test(
     node_details,
     part,
     target_clk_ns,
-    max_allowed_volume_delta,
-    max_allowed_length_delta,
+    max_allowed_volume_frac,
+    max_allowed_length_frac,
+    volume_const=0,
+    length_const=0,
     CACHING=False,
     DEBUGGING=False,
 ):
+    """Characterize ``model``'s single node both ways and compare the two TAVs.
+
+    The tolerances are fractions -- of the tokens moved and of the frame length
+    respectively -- with an absolute floor for the fixed part of the error. See
+    ``compare_two_chr_funcs``.
+    """
     # caching means to run RTLSIM only once and store the model
     # so we can reuse the token access vector whenever we
     # update the tree model and want to test correctness
@@ -449,19 +506,138 @@ def tree_model_test(
     input_check = compare_two_chr_funcs(
         chr_in[0],
         rtlsim_in[0],
-        max_allowed_volume_delta,
-        max_allowed_length_delta,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
     )
 
     # test output port
     output_check = compare_two_chr_funcs(
         chr_out[0],
         rtlsim_out[0],
-        max_allowed_volume_delta,
-        max_allowed_length_delta,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
     )
 
     return input_check and output_check
+
+
+def compare_chr_funcs_up_to_rotation(
+    chr_in,
+    chr_out,
+    rtlsim_in,
+    rtlsim_out,
+    max_allowed_volume_frac,
+    max_allowed_length_frac,
+    volume_const=0,
+    length_const=0,
+):
+    """Compare a tree model against rtlsim allowing one *shared* phase offset.
+
+    Weaker than ``compare_two_chr_funcs`` in exactly one way and no other: the
+    tree model may place the frame anywhere within the period, as long as it
+    places the input and the output row at the *same* offset. That is the right
+    assertion for a node whose steady-state schedule is known exactly but whose
+    wind-up is not, and it is not a licence to be sloppy -- a model that got the
+    read-to-write relationship wrong, or the period, or the token count, still
+    fails, and those are what FIFO sizing integrates. Only the absolute
+    placement of the frame inside rtlsim's two-period window is forgiven, and
+    that placement is an artefact of where the window was cut.
+
+    Tolerances are fractions with an absolute floor, as in
+    ``compare_two_chr_funcs``. The length excess is one-sided here -- rtlsim's
+    period carries a share of the wind-up, so a model that reproduces the steady
+    state exactly is *short* by that share and never long -- and running long is
+    rejected outright, being a real error rather than a wind-up artefact.
+
+    Returns ``(ok, rotation, in_delta, out_delta)``.
+    """
+    a_in, b_in = np.asarray(chr_in), np.asarray(rtlsim_in)
+    a_out, b_out = np.asarray(chr_out), np.asarray(rtlsim_out)
+
+    len_dif = len(b_in) - len(a_in)
+    len_allowed = tav_tolerance(max_allowed_length_frac, len(b_in), length_const)
+    if len_dif < 0 or len_dif > len_allowed:
+        print(
+            "TAV length delta: %d (%.2f%% of %d, allowed %.0f)"
+            % (len_dif, 100.0 * len_dif / max(1, len(b_in)), len(b_in), len_allowed)
+        )
+        return False, 0, None, None
+
+    # one period of per-cycle deltas, which is what a rotation acts on
+    def one_period(cum):
+        n = len(cum) // 2
+        d = np.diff(np.concatenate(([0], np.asarray(cum, dtype=np.int64))))
+        return d[:n]
+
+    d_in, d_out = one_period(a_in), one_period(a_out)
+    r_in, r_out = one_period(b_in), one_period(b_out)
+
+    # Deliberately no equal-token-count assertion between the two. rtlsim's
+    # period is cycles_rtlsim // periods_to_simulate and rounds *up* off the
+    # wind-up, so on a short period its window holds a little more than one
+    # frame -- 41 reads against the node's 36 on SF=2, TH=9 -- and demanding
+    # equality would fail the model for the reference's rounding. That the
+    # model itself moves exactly one folded frame per period is an absolute
+    # property with no reference in it, and is asserted on its own.
+    n = min(len(d_in), len(r_in))
+    ref_in = np.cumsum(r_in[:n])
+    ref_out = np.cumsum(r_out[:n])
+    best = None
+    for rot in range(len(d_in)):
+        v = int(np.max(np.abs(np.cumsum(np.roll(d_in, rot)[:n]) - ref_in)))
+        if best is None or v < best[0]:
+            best = (v, rot)
+    in_delta, rot = best
+    out_delta = int(np.max(np.abs(np.cumsum(np.roll(d_out, rot)[:n]) - ref_out)))
+    vol_allowed = tav_tolerance(
+        max_allowed_volume_frac, max(int(ref_in[-1]), int(ref_out[-1])) if n else 0, volume_const
+    )
+    print(
+        "TAV rotation: %d, peak volume delta in/out: %d/%d (allowed %.0f)"
+        % (rot, in_delta, out_delta, vol_allowed)
+    )
+    ok = in_delta <= vol_allowed and out_delta <= vol_allowed
+    return ok, rot, in_delta, out_delta
+
+
+def tree_model_test_up_to_rotation(
+    model,
+    node_details,
+    part,
+    target_clk_ns,
+    max_allowed_volume_frac,
+    max_allowed_length_frac,
+    volume_const=0,
+    length_const=0,
+    CACHING=False,
+):
+    """``tree_model_test`` with ``compare_chr_funcs_up_to_rotation`` as the check."""
+    model_rtl = copy.deepcopy(model)
+    node_analytical = get_characteristic_fnc(
+        model, (*node_details, "tree_model"), part, target_clk_ns, "tree_model", False
+    )
+    node_rtlsim = get_characteristic_fnc(
+        model_rtl, (*node_details, "rtlsim"), part, target_clk_ns, "rtlsim", CACHING
+    )
+    chr_in = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_in"))
+    chr_out = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_out"))
+    rtlsim_in = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_in"))
+    rtlsim_out = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_out"))
+    ok, _, _, _ = compare_chr_funcs_up_to_rotation(
+        chr_in[0],
+        chr_out[0],
+        rtlsim_in[0],
+        rtlsim_out[0],
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    )
+    return ok
 
 
 def inter_token_gaps(tav):

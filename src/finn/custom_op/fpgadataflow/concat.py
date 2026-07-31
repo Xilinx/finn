@@ -155,27 +155,26 @@ class StreamingConcat(HWCustomOp):
         context[node.output[0]] = result
 
     def get_tree_model(self):
-        """The measured schedule of the freerunning HLS concatenator.
+        """The schedule of the freerunning HLS concatenator.
 
         The mirror image of ``StreamingSplit``: same ``hls_style: freerunning``
         wrapper, same Interval 5, and the inputs are consumed in **staggered
         contiguous bursts** in ``ChannelsPerStream`` order, not concurrently.
-        That matters for sizing: an imbalance between the inputs accumulates as
-        a prefix sum along the stream order, not as a max over the streams.
+        That matters for sizing: an imbalance between the inputs accumulates as a
+        prefix sum along the stream order, not as a max over the streams.
 
             input i, word j     at cycle 6 + 5*(offset_i + j)
             output word k       at cycle 2 + 5k
 
-        with ``offset_i = sum(C[:i])``. Both hold on all 9 harvested references.
+        with ``offset_i = sum(C[:i])``.
 
         Row 0 -- the only row a tree model can emit, and the only one the sizer
-        reads -- is ``in0``, so the model represents the *first* input's
-        schedule. The later inputs are read up to ``5 * offset_i`` cycles after
-        it and that offset is not expressible here; it is the single-row
-        constraint in ``derive_token_access_vectors_using_tree_model``, not
-        something this model can fix.
+        reads -- is ``in0``, so the schedule here is the *first* input's. The
+        later inputs are read up to ``5 * offset_i`` cycles after it; that offset
+        is a consequence of the single-row representation in
+        ``derive_token_access_vectors_using_tree_model``, not of this model.
 
-        Evidence boundary as for the splitter: four equal streams, SIMD 1.
+        Validated for four equal streams at SIMD 1, as for the splitter.
         """
         simd = self.get_nodeattr("SIMD")
         chans = list(self.get_nodeattr("ChannelsPerStream"))

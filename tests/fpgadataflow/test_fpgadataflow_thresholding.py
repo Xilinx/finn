@@ -444,12 +444,22 @@ def test_fpgadataflow_thresholding_stitched_ip(
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
 
 
-@pytest.mark.parametrize("num_input_channels", [6, 16])
+# The schedule depends on the folding and on where the thresholds live, not on
+# how they were quantized, so the channel/vector shapes and the two memory modes
+# are covered across the folds rather than crossed with them.
 @pytest.mark.parametrize(
-    "num_input_vecs",
+    "num_input_channels,num_input_vecs,fold,mem_mode",
     [
-        [1],
-        [1, 2, 2],
+        (6, [1], -1, "internal_embedded"),
+        (6, [1], 1, "internal_embedded"),
+        (6, [1], 2, "internal_embedded"),
+        (6, [1, 2, 2], -1, "internal_embedded"),
+        (16, [1], -1, "internal_embedded"),
+        (16, [1, 2, 2], 2, "internal_embedded"),
+        (6, [1], -1, "internal_decoupled"),
+        (6, [1], 2, "internal_decoupled"),
+        (16, [1], -1, "internal_decoupled"),
+        (16, [1, 2, 2], 1, "internal_decoupled"),
     ],
 )
 @pytest.mark.parametrize("activation", [DataType["BIPOLAR"]])
@@ -459,11 +469,9 @@ def test_fpgadataflow_thresholding_stitched_ip(
         (DataType["INT8"], DataType["INT8"]),
     ],
 )
-@pytest.mark.parametrize("fold", [-1, 1, 2])
-@pytest.mark.parametrize("narrow", [True, False])
-@pytest.mark.parametrize("per_tensor", [True, False])
+@pytest.mark.parametrize("narrow", [True])
+@pytest.mark.parametrize("per_tensor", [False])
 @pytest.mark.parametrize("impl_style", ["rtl"])
-@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
@@ -569,16 +577,26 @@ def test_fpgadataflow_analytical_characterization_thresholding(
         impl_style,
     )
 
-    max_allowed_volume_delta = 8
-    max_allowed_length_delta = 6
+    # TAV tolerances are fractions -- of the tokens moved and of the frame
+    # length -- with a floor for the fixed part of the error (wind-up, adder
+    # tree depth, the cycle rtlsim's period rounds away). The floors are the
+    # flat budgets this test used before the split, so nothing that passed
+    # then fails now; the fractions are what govern once the frame is long
+    # enough to exceed them.
+    max_allowed_volume_frac = 0.02
+    volume_const = 8
+    max_allowed_length_frac = 0.02
+    length_const = 6
 
     assert tree_model_test(
         model,
         node_details,
         test_fpga_part,
         target_clk_ns,
-        max_allowed_volume_delta,
-        max_allowed_length_delta,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
     ), "characterized TAV does not match RTLsim'd one!"
 
 

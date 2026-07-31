@@ -377,11 +377,13 @@ class HWCustomOp(CustomOp):
         # np.repeat plus one cumsum rather than a Python loop per cycle -- the
         # difference between milliseconds and a second on a 400k-cycle period.
         #
-        # Note there is deliberately no micro-buffer correction here: the tree
-        # models express their own wind-up, and applying a post-hoc shift on top
-        # double-counted it, leaving a node delivering one token per period
-        # fewer than it consumed. If a tree is ever reverted to a shape without
-        # its own wind-up, fix the tree rather than reintroducing the shift.
+        # The tree is taken as-is, with no post-hoc shift applied on top of it.
+        # Each tree model expresses its own operator's wind-up, so a correction
+        # here would double-count it: shifting a read to the head and deducting
+        # one from the tail leaves the node delivering one token per period fewer
+        # than it consumes, and the sizer's steady-state occupancy accumulates
+        # that deficit on every frame. A node whose wind-up is wrong is fixed in
+        # its own tree model.
         cum = chr_node.cumulative(periods=2)
         period = cum.shape[0] // 2
         self.set_nodeattr("io_chrc_period", period)

@@ -157,33 +157,30 @@ class StreamingSplit(HWCustomOp):
         return roundup_to_integer_multiple(in_width, 8)
 
     def get_tree_model(self):
-        """The measured schedule of the freerunning HLS splitter.
+        """The schedule of the freerunning HLS splitter: one word every five cycles.
 
-        Not a passthrough and not II=1, which is what the shape was assumed to
-        be before anyone read the reports. ``csynth.rpt`` for the generated top
-        level says Latency 4, **Interval 5**, ``Pipelined: no``,
+        Neither a passthrough nor II=1. ``csynth.rpt`` for the generated top level
+        reports Latency 4, **Interval 5**, ``Pipelined: no``,
         ``hls_style: freerunning``; the inner ``StreamingSplit`` in
         finn-hlslib/split.hpp is ``#pragma HLS pipeline II=1``, so it is the
         freerunning wrapper around it that admits one word every five cycles.
 
         Round-robin over the destinations in ``ChannelsPerStream`` order, so
-        destination *i* receives one contiguous burst of ``C[i]`` words per
-        input vector rather than a share of every word. The measured phases:
+        destination *i* receives one contiguous burst of ``C[i]`` words per input
+        vector rather than a share of every word:
 
             input word k        at cycle 1 + 5k
             output i, word j    at cycle 7 + 5*(offset_i + j)
 
-        where ``offset_i = sum(C[:i])``. Both hold on all 13 harvested
-        references (radioml, vision and language; numInputVectors 64 and 256).
+        with ``offset_i = sum(C[:i])``. Row 0 -- the only row a tree model emits,
+        and the only one the sizer reads -- is ``out0``, so the schedule here is
+        the first destination's.
 
-        Evidence boundary, stated because the model does not restrict itself to
-        it: every reference has **four equal streams and SIMD 1**, so the
-        initiation interval of 5 is measured only for that shape. It is a
-        property of the freerunning wrapper rather than of the stream count as
-        far as the HLS source shows, but that is an inference. A new
-        configuration will be caught rather than silently trusted -- the
-        reference suite fails on any configuration that has a tree model and no
-        recorded error budget.
+        The interval of 5 is validated only for four equal streams at SIMD 1,
+        which is every configuration that occurs here. The HLS source makes it a
+        property of the freerunning wrapper rather than of the stream count, but
+        that is an inference and this model does not restrict itself to the
+        validated shape.
         """
         simd = self.get_nodeattr("SIMD")
         chans = list(self.get_nodeattr("ChannelsPerStream"))

@@ -291,7 +291,22 @@ class Thresholding(HWCustomOp):
         return num_channels // pe
 
     def get_tree_model(self):
-        """Return tree model for analytical FIFO sizing."""
+        """One folded word in and one out every cycle, for the whole frame.
+
+        Thresholding is a pure map: ``ImgDim * NumChannels/PE`` folded words per
+        frame, each read and written in the same pipelined iteration, with no
+        accumulation and no rate change. So the schedule has no free parameters
+        at all -- a solid run of read-and-write cycles as long as the frame -- and
+        ``output_delay`` is 0 in every branch below.
+
+        The two branches exist only so that a hypothetical non-zero
+        ``output_delay`` (a pipeline latency shifting writes behind reads) would
+        still produce a well-formed schedule when it exceeds the frame itself.
+        They are otherwise the same shape.
+
+        The period is deliberately the folded word count and not the slightly
+        longer one rtlsim records; the comment below says why.
+        """
         reps = list(self.get_nodeattr("numInputVectors"))[0]
 
         NumChannels = self.get_nodeattr("NumChannels")
@@ -313,13 +328,16 @@ class Thresholding(HWCustomOp):
             else:
                 output_delay = 0
 
-        # Recorded, and deliberately NOT modelled: the rtlsim references report
-        # a period a few cycles longer than the folded word count (about the
-        # depth of the pipelined search over the threshold table). Reproducing
-        # it was tried and reverted -- those references are saturated, carrying
-        # more tokens per period than the node physically has, so matching the
-        # period cost accuracy on the values. The shape below is exact on values
-        # and token count, which is what the occupancy sum uses.
+        # A note on the period, which is deliberately *not* the recorded one.
+        # rtlsim reports a period `e` cycles longer than the folded word count,
+        # with e = max(1, ceil(log2(numSteps + 1)) // 2) -- the depth of the
+        # pipelined binary search over the threshold table. But its window is
+        # *saturated*: it moves one token in every one of those `n + e` cycles, so
+        # it carries n + e tokens per period where the node physically has n.
+        # Matching the length therefore costs `e` on the token count and on every
+        # row-0 value, and the occupancy sum reads those. The shape below --
+        # period n, one token per cycle -- is exact on both, at the price of a
+        # period short by at most 4 cycles out of 1024 to 401408.
         if total_iterations > output_delay:
             read = Characteristic_Node("read", [(output_delay, [1, 0])], True)
 

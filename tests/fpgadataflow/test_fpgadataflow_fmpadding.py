@@ -162,19 +162,26 @@ def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode):
 
 
 # input image dimension
+# Both backends, across the pad shapes that change the schedule (symmetric,
+# asymmetric, and one-sided) and folded/unfolded channels -- not their product.
+@pytest.mark.parametrize(
+    "impl_style,pad,num_ch,simd",
+    [
+        ("rtl", [1, 1, 1, 1], 4, 1),
+        ("rtl", [1, 1, 1, 1], 4, 2),
+        ("rtl", [1, 1, 2, 2], 4, 2),
+        ("rtl", [7, 0, 8, 0], 4, 2),
+        ("rtl", [1, 1, 1, 1], 2, 2),
+        ("hls", [1, 1, 1, 1], 4, 1),
+        ("hls", [1, 1, 1, 1], 4, 2),
+        ("hls", [1, 1, 2, 2], 4, 2),
+        ("hls", [7, 0, 8, 0], 4, 2),
+        ("hls", [1, 1, 1, 1], 2, 2),
+    ],
+)
 @pytest.mark.parametrize("idim", [[10, 8]])
-# number of rows and number of cols to add
-@pytest.mark.parametrize("pad", [[1, 1, 1, 1], [1, 1, 2, 2], [7, 0, 8, 0]])
-# number of channels
-@pytest.mark.parametrize("num_ch", [2, 4])
-# Input parallelism
-@pytest.mark.parametrize("simd", [1, 2])
-# FINN input datatype
 @pytest.mark.parametrize("idt", [DataType["INT2"]])
-# execution mode
 @pytest.mark.parametrize("mode", ["rtlsim"])
-# implementation style
-@pytest.mark.parametrize("impl_style", ["rtl", "hls"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado

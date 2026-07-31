@@ -32,7 +32,7 @@ import warnings
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
-from finn.util.basic import Characteristic_Node, flat_characteristic_leaf
+from finn.util.basic import Characteristic_Node
 
 # does not do anything at the ONNX node-by-node level, and input-output
 # tensor shapes are the same. performs data width conversion at the rtlsim level
@@ -130,10 +130,6 @@ class StreamingDataWidthConverter(HWCustomOp):
         folded_ishape = self.get_folded_input_shape()
         return np.prod(folded_ishape[:-1])
 
-    def get_number_output_values(self):
-        folded_oshape = self.get_folded_output_shape()
-        return np.prod(folded_oshape[:-1])
-
     def get_instream_width(self, ind=0):
         in_width = self.get_nodeattr("inWidth")
         return in_width
@@ -217,6 +213,25 @@ class StreamingDataWidthConverter(HWCustomOp):
         return int(cnt_luts + cset_luts)
 
     def get_tree_model(self):
+        """Three schedules, chosen by which side of the converter is wider.
+
+        A DWC has no compute and no storage beyond one word, so its schedule is
+        fixed by the width ratio alone:
+
+        * **down-conversion** (``inWidth > outWidth``): one read every
+          ``writes_per_read`` cycles, a write every cycle.
+        * **up-conversion**: a read every cycle, one write every
+          ``reads_per_write`` cycles, on the cycle the last input word arrives.
+        * **pass-through**: read and write on every cycle.
+
+        Only integer ratios are modelled; a non-dividing pair returns ``None``
+        and the node falls back to rtlsim characterization.
+
+        Down-conversion's first read is at cycle 1, not 0, and its period is
+        exactly ``numReps * writes_per_read``. The repeated block therefore opens
+        on a write-only cycle and takes its read on the second, which is what puts
+        the reads where the hardware has them.
+        """
         inWidth = self.get_nodeattr("inWidth")
         outWidth = self.get_nodeattr("outWidth")
 
@@ -232,18 +247,23 @@ class StreamingDataWidthConverter(HWCustomOp):
 
             writes_per_read = inWidth // outWidth
 
-            # The packer writes one word every cycle and reads one every
-            # ``writes_per_read``, first read at cycle 1, not 0. The period is
-            # exactly numReps * writes_per_read, so the wind-up is a rotation of
-            # the read train rather than an extra cycle. A flat leaf keeps the
-            # token count exact; the nested form could only fix the phase by
-            # dropping or duplicating a read.
+            # The packer writes one word every cycle and takes one word in every
+            # ``writes_per_read``, with its first read at cycle 1, not 0. Opening
+            # the repeated block on a write-only cycle puts the read there. With
+            # ``writes_per_read > 1`` the last read of a period is at
+            # ``period - writes_per_read + 1`` and never wraps, so the whole
+            # schedule nests.
             if writes_per_read > 1 and numReps >= 1:
-                period = numReps * writes_per_read
-                rd = np.zeros(period, dtype=np.int8)
-                wr = np.ones(period, dtype=np.int8)
-                rd[(1 + writes_per_read * np.arange(numReps)) % period] = 1
-                return flat_characteristic_leaf(rd, wr, "DWC down-conversion")
+                down_convert_word = Characteristic_Node(
+                    "write, then read the next word while writing",
+                    [(1, [0, 1]), (1, [1, 1]), (writes_per_read - 2, [0, 1])],
+                    True,
+                )
+                return Characteristic_Node(
+                    "compute a set of DWCs with down conversion",
+                    [(numReps, down_convert_word)],
+                    False,
+                )
 
             # read 1, write many, repeats for in-word count
 

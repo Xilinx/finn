@@ -167,28 +167,42 @@ class LabelSelect(HWCustomOp):
         return int(exp_cycles)
 
     def get_tree_model(self):
-        # key parameters
-        # this depends on the kernel type, hls or rtl etc
+        """The HLS ``LabelSelect_Batch`` schedule: read the frame, then write K.
 
-        # extract node attr
-        num_in_words = self.get_nodeattr("Labels")
+        The structure is that of ``finn-hlslib/maxpool.h``: per frame the top-K
+        array is initialised, then one ``II=1`` loop reads ``Labels / PE`` folded
+        words back to back, then a second loop writes the K labels, one per
+        cycle. So a frame is three runs -- wind-up, a solid read run, a solid
+        write run -- and the only part of it that scales with ``Labels`` is the
+        length of the read run. The comparison network is over the K top entries
+        and is unrolled inside the read loop, so it costs no cycles that grow
+        with the label count.
+
+        As offsets into one frame:
+
+            reads   [3, 3 + NF)
+            writes  [3 + NF + gap, ... + K)
+            period  3 + NF + gap + K + tail
+
+        ``gap`` is the flush of the unrolled shift chain over the K top entries,
+        about ``K - 2`` stages after the last read; ``tail`` is the cost of
+        re-entering the outer ``reps`` loop. Both are the fitted part, and are
+        interpolated in K between K = 1 and K = 5. Valid for Labels 10/12/24 at
+        K = 1 and Labels 1000 at K = 5, PE = 1.
+        """
         PE = self.get_nodeattr("PE")
-        # PE = 1
         K = self.get_nodeattr("K")
+        NF = self.get_nodeattr("Labels") // PE
 
-        NF = num_in_words // PE
+        if NF < 1 or K < 1:
+            return None
 
-        output_delay = int(np.log2(num_in_words)) + 1
-        # output_delay = NF
-
-        read_k = Characteristic_Node("read only", [(NF, [1, 0])], True)
-
-        compute_k = Characteristic_Node("compute k", [(output_delay, [0, 0])], True)
-
-        write_k = Characteristic_Node("write k", [(K, [0, 1])], True)
-
-        labelselect_top = Characteristic_Node(
-            "Fill feature map", [(1, read_k), (1, compute_k), (1, write_k)], False
+        WIND_UP = 3
+        gap = max(0, K - 2)
+        tail = (K - 1) // 2
+        frame = Characteristic_Node(
+            "read the frame, then write the top K",
+            [(WIND_UP, [0, 0]), (NF, [1, 0]), (gap, [0, 0]), (K, [0, 1]), (tail, [0, 0])],
+            True,
         )
-
-        return labelselect_top  # top level phase of this node
+        return Characteristic_Node("LabelSelect frame", [(1, frame)], False)

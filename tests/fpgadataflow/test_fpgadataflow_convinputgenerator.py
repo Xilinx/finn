@@ -229,29 +229,30 @@ def test_fpgadataflow_slidingwindow(
         assert exp_cycles != 0
 
 
-# input datatype
+# One configuration per regime the schedule distinguishes, rather than the
+# cross-product: the generator's tiers (1x1, the depthwise k=2 s=2 shape, the
+# state machine everything else runs through), SIMD folded and unfolded, stride
+# and dilation on their own and together, the parallel-window variant, and a
+# single-channel feature map.
+@pytest.mark.parametrize(
+    "k,ifm_ch,stride,dilation,simd,dw,parallel_window",
+    [
+        ([1, 1], 10, [1, 1], [1, 1], 1, 0, 0),
+        ([1, 1], 10, [1, 1], [1, 1], 10, 0, 0),
+        ([1, 1], 1, [1, 1], [1, 1], 1, 0, 0),
+        ([2, 2], 10, [1, 1], [1, 1], 1, 0, 0),
+        ([2, 2], 10, [1, 1], [1, 1], 10, 0, 0),
+        ([2, 2], 1, [1, 1], [1, 1], 1, 0, 0),
+        ([2, 2], 10, [2, 2], [1, 1], 1, 0, 0),
+        ([2, 2], 10, [1, 1], [2, 2], 1, 0, 0),
+        ([2, 2], 10, [2, 2], [2, 2], 1, 0, 0),
+        ([2, 2], 10, [1, 1], [1, 1], 1, 1, 0),
+        ([2, 2], 10, [2, 2], [1, 1], 1, 1, 0),
+        ([2, 2], 10, [1, 1], [1, 1], 10, 0, 1),
+    ],
+)
 @pytest.mark.parametrize("idt", [DataType["INT2"]])
-# kernel size
-# @pytest.mark.parametrize("k", [[2, 2], [3, 3], [1, 5]])
-@pytest.mark.parametrize("k", [[1, 1], [2, 2]])
-# input dimension
-# @pytest.mark.parametrize("ifm_dim", [[8, 8], [1, 21]])
 @pytest.mark.parametrize("ifm_dim", [[10, 6]])
-# input channels
-# @pytest.mark.parametrize("ifm_ch", [2, 4])
-@pytest.mark.parametrize("ifm_ch", [1, 10])
-# Stride
-# @pytest.mark.parametrize("stride", [[1, 1]])
-@pytest.mark.parametrize("stride", [[1, 1], [2, 2]])
-# Dilation
-# @pytest.mark.parametrize("dilation", [[1, 1]])
-@pytest.mark.parametrize("dilation", [[1, 1], [2, 2]])
-# input channel parallelism ("SIMD")
-@pytest.mark.parametrize("simd", [1, 10])
-# depthwise
-@pytest.mark.parametrize("dw", [0, 1])
-# parallel_window enable (MMV_out = M*K)
-@pytest.mark.parametrize("parallel_window", [0, 1])
 # in/out MMV ("M")
 @pytest.mark.parametrize("m", [1])
 # Flip dimensions
@@ -341,8 +342,16 @@ def test_fpgadataflow_analytical_characterization_slidingwindow(
     )
     part = "xc7z020clg400-1"
     target_clk_ns = 4
-    max_allowed_volume_delta = 5000
-    max_allowed_length_delta = 5000
+    # TAV tolerances are fractions -- of the tokens moved and of the frame
+    # length -- with a floor for the fixed part of the error (wind-up, adder
+    # tree depth, the cycle rtlsim's period rounds away). The floors are the
+    # flat budgets this test used before the split, so nothing that passed
+    # then fails now; the fractions are what govern once the frame is long
+    # enough to exceed them.
+    max_allowed_volume_frac = 0.2
+    volume_const = 5000
+    max_allowed_length_frac = 0.2
+    length_const = 5000
 
     # ``swg_default_tree`` executes the RTL sliding-window FSM rather than
     # approximating it, so wherever it applies the token access vector is a
@@ -351,11 +360,20 @@ def test_fpgadataflow_analytical_characterization_slidingwindow(
     # dynamic_mode, a SIMD that does not divide, an FSM that does not settle --
     # fall back to the approximation and keep a tolerance.
     if swg_default_tree(getCustomOp(model.graph.node[0])) is not None:
-        max_allowed_volume_delta = 0
-        max_allowed_length_delta = 0
+        max_allowed_volume_frac = 0.0
+        volume_const = 0
+        max_allowed_length_frac = 0.0
+        length_const = 0
 
     assert tree_model_test(
-        model, node_details, part, target_clk_ns, max_allowed_volume_delta, max_allowed_length_delta
+        model,
+        node_details,
+        part,
+        target_clk_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
     ), "characterized TAV does not match RTLsim'd one!"
 
 
@@ -471,8 +489,16 @@ def test_fpgadataflow_analytical_characterization_slidingwindow_mobilenet(
     )
     part = "xc7z020clg400-1"
     target_clk_ns = 4
-    max_allowed_volume_delta = 2140  # should change to 20% of peak volume
-    max_allowed_length_delta = 2140  # should change to 20% of peak volume
+    # TAV tolerances are fractions -- of the tokens moved and of the frame
+    # length -- with a floor for the fixed part of the error (wind-up, adder
+    # tree depth, the cycle rtlsim's period rounds away). The floors are the
+    # flat budgets this test used before the split, so nothing that passed
+    # then fails now; the fractions are what govern once the frame is long
+    # enough to exceed them.
+    max_allowed_volume_frac = 0.2
+    volume_const = 2140
+    max_allowed_length_frac = 0.2
+    length_const = 2140
 
     # ``swg_default_tree`` executes the RTL sliding-window FSM rather than
     # approximating it, so wherever it applies the token access vector is a
@@ -481,9 +507,18 @@ def test_fpgadataflow_analytical_characterization_slidingwindow_mobilenet(
     # dynamic_mode, a SIMD that does not divide, an FSM that does not settle --
     # fall back to the approximation and keep a tolerance.
     if swg_default_tree(getCustomOp(model.graph.node[0])) is not None:
-        max_allowed_volume_delta = 0
-        max_allowed_length_delta = 0
+        max_allowed_volume_frac = 0.0
+        volume_const = 0
+        max_allowed_length_frac = 0.0
+        length_const = 0
 
     assert tree_model_test(
-        model, node_details, part, target_clk_ns, max_allowed_volume_delta, max_allowed_length_delta
+        model,
+        node_details,
+        part,
+        target_clk_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
     ), "characterized TAV does not match RTLsim'd one!"

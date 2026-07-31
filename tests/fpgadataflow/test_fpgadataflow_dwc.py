@@ -204,9 +204,24 @@ def test_fpgadataflow_analytical_characterization_dwc(config, impl_style):
 
     target_clk_ns = 4
 
-    max_allowed_volume_delta = 5
-    max_allowed_length_delta = 20
+    # TAV tolerances are fractions -- of the tokens moved and of the frame
+    # length -- with a floor for the fixed part of the error (wind-up, adder
+    # tree depth, the cycle rtlsim's period rounds away). The floors are the
+    # flat budgets this test used before the split, so nothing that passed
+    # then fails now; the fractions are what govern once the frame is long
+    # enough to exceed them.
+    max_allowed_volume_frac = 0.02
+    volume_const = 5
+    max_allowed_length_frac = 0.05
+    length_const = 20
 
     assert tree_model_test(
-        model, node_details, part, target_clk_ns, max_allowed_volume_delta, max_allowed_length_delta
+        model,
+        node_details,
+        part,
+        target_clk_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
     ), "characterized TAV does not match RTLsim'd one!"
