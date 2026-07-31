@@ -771,6 +771,14 @@ def test_finnloop_end2end_mlo(
         ), f"Check vivado.log in {tmp_output_dir}/stitched_ip"
 
 
+# Tiled MVAU (mvau_th > 1) instantiates DSP58, which is Versal-only, so the
+# ZynqMP (xczu3eg) DDR flow uses the non-tiled MVAU (mvau_th=1 -> DSP48E2).
+@pytest.mark.parametrize(
+    "dim, simd, pe, mvau_th, helper_pe, bitwidth, weight_bitwidth",
+    [
+        (12, 3, 6, 1, 6, 8, 8),
+    ],
+)
 # iteration count, number of models chained together
 @pytest.mark.parametrize("iteration", [3])
 # elementwise operation
@@ -786,6 +794,8 @@ def test_finnloop_end2end_mlo_ddr(
     dim,
     simd,
     pe,
+    mvau_th,
+    helper_pe,
     iteration,
     elemwise_optype,
     rhs_shape,
@@ -816,6 +826,8 @@ def test_finnloop_end2end_mlo_ddr(
         dtype=data_dtype,
         mvau_simd=simd,
         mvau_pe=pe,
+        mvau_th=mvau_th,
+        helper_pe=helper_pe,
         weight_bitwidth=weight_bitwidth,
     )
     nodes_per_body = len(loop_body_models[0].graph.node)

@@ -113,8 +113,8 @@ class MakePynqProject(Transformation):
         versal = is_versal(self.fpga_part)
         golden_dir = None
         if versal:
-            clk_pin = "versal_cips_0/pl0_ref_clk"
-            rst_pin = "rst_pl0/peripheral_aresetn"
+            clk_pin = "clk_wizard_0/clk_out1"
+            rst_pin = "rst_kernel/peripheral_aresetn"
             golden_dir = os.environ.get("FINN_VERSAL_GOLDEN_DIR")
             if golden_dir is None:
                 raise Exception("FINN_VERSAL_GOLDEN_DIR must be set for the Versal flow")

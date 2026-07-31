@@ -244,11 +244,8 @@ set GOLDEN_DIR @GOLDEN_DIR@
 set OVERLAY_NAME finn_link
 set design_name $OVERLAY_NAME
 
-# Source the golden reference design
+# Source the golden reference design.
 source [file join $GOLDEN_DIR golden_ref.tcl]
-
-set_property -dict [list CONFIG.PS_PMC_CONFIG \
-    [list PMC_CRP_PL0_REF_CTRL_FREQMHZ [expr int($FREQ_MHZ)]]] [get_bd_cells versal_cips_0]
 
 # Remove the golden tie-offs on the interfaces FINN drives with real logic
 delete_bd_objs [get_bd_cells pl_tieoff_fpd]
@@ -258,13 +255,41 @@ delete_bd_objs [get_bd_cells pl_tieoff_dma1]
 # Control path: M_AXI_FPD -> control SmartConnect -> kernel AXI-Lite ports
 set smartconnect_vlnv [get_property VLNV [get_ipdefs "xilinx.com:ip:smartconnect:*"]]
 create_bd_cell -type ip -vlnv $smartconnect_vlnv axi_interconnect_0
-set_property -dict [list CONFIG.NUM_SI {1} CONFIG.NUM_MI $NUM_AXILITE] [get_bd_cells axi_interconnect_0]
+set_property -dict [list CONFIG.NUM_SI {1} CONFIG.NUM_MI $NUM_AXILITE CONFIG.NUM_CLKS {2}] [get_bd_cells axi_interconnect_0]
 connect_bd_intf_net [get_bd_intf_pins versal_cips_0/M_AXI_FPD] [get_bd_intf_pins axi_interconnect_0/S00_AXI]
 
 # DDR path: FINN I/O DMA masters -> SmartConnect -> axi_noc_pl/S00_AXI
 create_bd_cell -type ip -vlnv $smartconnect_vlnv smartconnect_0
-set_property -dict [list CONFIG.NUM_SI $NUM_AXIMM CONFIG.NUM_MI {1}] [get_bd_cells smartconnect_0]
+set_property -dict [list CONFIG.NUM_SI $NUM_AXIMM CONFIG.NUM_MI {1} CONFIG.NUM_CLKS {2}] [get_bd_cells smartconnect_0]
 connect_bd_intf_net [get_bd_intf_pins smartconnect_0/M00_AXI] [get_bd_intf_pins axi_noc_pl/S00_AXI]
+
+# Kernel clock domain: derive the compute clock (FREQ_MHZ) from pl0_ref_clk with
+# a clocking wizard, plus a reset synchronizer in the new domain. The NoC/CIPS
+# ports stay in the pl0_ref_clk domain; the SmartConnects below straddle the two
+# domains and insert clock converters. Read the wizard's input frequency straight
+# from the pl0_ref_clk pin (set by the golden preset, ~333.33 MHz) so the MMCM
+# divide ratios are chosen for the true runtime input clock.
+set pl0_freq_hz [get_property CONFIG.FREQ_HZ [get_bd_pins versal_cips_0/pl0_ref_clk]]
+set pl0_freq_mhz [expr {$pl0_freq_hz / 1000000.0}]
+set clk_wizard_vlnv [get_property VLNV [get_ipdefs "xilinx.com:ip:clk_wizard:*"]]
+create_bd_cell -type ip -vlnv $clk_wizard_vlnv clk_wizard_0
+set_property -dict [list \
+    CONFIG.PRIM_IN_FREQ $pl0_freq_mhz \
+    CONFIG.CLKOUT_REQUESTED_OUT_FREQUENCY [expr int($FREQ_MHZ)] \
+    CONFIG.USE_LOCKED {true} \
+    CONFIG.USE_RESET {true} \
+    CONFIG.RESET_TYPE {ACTIVE_LOW} \
+    CONFIG.RESET_PORT {resetn} \
+] [get_bd_cells clk_wizard_0]
+connect_bd_net [get_bd_pins clk_wizard_0/clk_in1] [get_bd_pins versal_cips_0/pl0_ref_clk]
+connect_bd_net [get_bd_pins clk_wizard_0/resetn] [get_bd_pins rst_pl0/peripheral_aresetn]
+
+set proc_sys_reset_vlnv [get_property VLNV [get_ipdefs "xilinx.com:ip:proc_sys_reset:*"]]
+create_bd_cell -type ip -vlnv $proc_sys_reset_vlnv rst_kernel
+# ext_reset_in defaults to active-low, matching rst_pl0/peripheral_aresetn
+connect_bd_net [get_bd_pins rst_kernel/slowest_sync_clk] [get_bd_pins clk_wizard_0/clk_out1]
+connect_bd_net [get_bd_pins rst_kernel/dcm_locked] [get_bd_pins clk_wizard_0/locked]
+connect_bd_net [get_bd_pins rst_kernel/ext_reset_in] [get_bd_pins rst_pl0/peripheral_aresetn]
 
 # Procedure to assign AXI-Lite register apertures in the M_AXI_FPD space.
 # PL peripherals live in the 0xA4000000 window in the golden address map.
@@ -307,7 +332,7 @@ set mlo_mm_pins [get_bd_intf_pins -quiet -of_objects [get_bd_cells] \
     -filter {MODE == Master && (NAME == m_axi_intermediate_frame || NAME =~ m_axi_MVAU_*)}]
 if {[llength $mlo_mm_pins] > 0} {
     create_bd_cell -type ip -vlnv $smartconnect_vlnv smartconnect_mlo
-    set_property -dict [list CONFIG.NUM_SI [llength $mlo_mm_pins] CONFIG.NUM_MI {1}] [get_bd_cells smartconnect_mlo]
+    set_property -dict [list CONFIG.NUM_SI [llength $mlo_mm_pins] CONFIG.NUM_MI {1} CONFIG.NUM_CLKS {2}] [get_bd_cells smartconnect_mlo]
     connect_bd_intf_net [get_bd_intf_pins smartconnect_mlo/M00_AXI] [get_bd_intf_pins axi_noc_pl/S01_AXI]
     set mlo_si_idx 0
     foreach mlo_mm_pin $mlo_mm_pins {
@@ -316,8 +341,9 @@ if {[llength $mlo_mm_pins] > 0} {
         assign_ddr_addr_proc [get_property PATH $mlo_mm_pin]
         incr mlo_si_idx
     }
-    connect_bd_net [get_bd_pins smartconnect_mlo/aclk] [get_bd_pins versal_cips_0/pl0_ref_clk]
-    connect_bd_net [get_bd_pins smartconnect_mlo/aresetn] [get_bd_pins rst_pl0/peripheral_aresetn]
+    connect_bd_net [get_bd_pins smartconnect_mlo/aclk] [get_bd_pins clk_wizard_0/clk_out1]
+    connect_bd_net [get_bd_pins smartconnect_mlo/aclk1] [get_bd_pins versal_cips_0/pl0_ref_clk]
+    connect_bd_net [get_bd_pins smartconnect_mlo/aresetn] [get_bd_pins rst_kernel/peripheral_aresetn]
 } else {
     # keep the second NoC PL slave port driven so the locked NoC solution
     # remains valid (matches the golden 2-SI topology)
@@ -329,11 +355,17 @@ if {[llength $mlo_mm_pins] > 0} {
     assign_ddr_addr_proc pl_dma1_tieoff/M_AXI
 }
 
-# clock/reset for the control + DDR SmartConnects
-connect_bd_net [get_bd_pins versal_cips_0/pl0_ref_clk] \
+# clock/reset for the control + DDR SmartConnects.
+# aclk  = kernel clock (clk_wizard output)
+# aclk1 = pl0_ref_clk (~333 MHz)
+# SmartConnect inserts clock converters across the two domains automatically.
+connect_bd_net [get_bd_pins clk_wizard_0/clk_out1] \
     [get_bd_pins axi_interconnect_0/aclk] \
     [get_bd_pins smartconnect_0/aclk]
-connect_bd_net [get_bd_pins rst_pl0/peripheral_aresetn] \
+connect_bd_net [get_bd_pins versal_cips_0/pl0_ref_clk] \
+    [get_bd_pins axi_interconnect_0/aclk1] \
+    [get_bd_pins smartconnect_0/aclk1]
+connect_bd_net [get_bd_pins rst_kernel/peripheral_aresetn] \
     [get_bd_pins axi_interconnect_0/aresetn] \
     [get_bd_pins smartconnect_0/aresetn]
 
