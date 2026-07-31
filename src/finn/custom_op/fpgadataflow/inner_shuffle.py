@@ -11,6 +11,7 @@ import warnings
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import flat_characteristic_leaf
 
 
 class InnerShuffle(HWCustomOp):
@@ -106,3 +107,40 @@ class InnerShuffle(HWCustomOp):
         page_size = I_dim * J_dim // simd
         total_elems = int(np.prod(in_shape)) // simd
         return 2 * total_elems + page_size
+
+    def get_tree_model(self):
+        """A page in at one word per cycle, a word out every two.
+
+        The banks take one access per cycle, so a word costs two: one to store
+        it and one to read it back transposed. That is what paces the node -- a
+        frame of ``N`` words takes ``2 * N`` cycles in steady state, which is
+        ``get_exp_cycles`` without the one-time fill of the first page.
+
+        Reads come a page at a time: the ``I * J / SIMD`` words of a page are
+        taken back to back while the other bank is drained, so a page turn is a
+        burst of ``page`` reads every ``2 * page`` cycles. The writes are that
+        drain, modelled at the rate the bank sustains: one word every other
+        cycle. Where inside its pair of cycles a write actually lands is not
+        modelled -- it is worth at most one token of cumulative difference,
+        which is inside the budget the tree-model test allows.
+
+        The phase between the two rows is not modelled -- the recorded window
+        opens wherever the first page fill left it -- so both start at cycle 0.
+        """
+        simd = self.get_nodeattr("SIMD")
+        in_shape = self.get_nodeattr("in_shape")
+        if len(in_shape) < 2 or simd < 1:
+            return None
+        total_elems = int(np.prod(in_shape)) // simd
+        page = (int(in_shape[-2]) * int(in_shape[-1])) // simd
+        if total_elems < 1 or page < 1 or total_elems % page:
+            # a page turn has to divide the frame for the steady-state pattern
+            # to repeat
+            return None
+        period = 2 * total_elems
+        rd = np.zeros(period, dtype=np.int8)
+        wr = np.zeros(period, dtype=np.int8)
+        starts = np.arange(total_elems // page) * 2 * page
+        rd[(starts[:, None] + np.arange(page)[None, :]).ravel()] = 1
+        wr[::2] = 1
+        return flat_characteristic_leaf(rd, wr, "InnerShuffle page schedule")

@@ -32,6 +32,7 @@ import pytest
 import numpy as np
 import torch
 from brevitas.export import export_qonnx
+from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -41,6 +42,7 @@ from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.make_input_chanlast import MakeInputChannelsLast
+from qonnx.util.basic import qonnx_make_model
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 from torch import nn
 
@@ -56,6 +58,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.util.basic import make_build_dir, robust_rmtree
+from finn.util.test import tree_model_test_up_to_rotation
 
 
 class ForceDataTypeForTensors(Transformation):
@@ -199,3 +202,79 @@ def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode, SIMD)
     elif exec_mode == "rtlsim":
         assert output_matches, "Rtlsim output doesn't match ONNX/PyTorch."
     robust_rmtree(tmpdir)
+
+
+def make_upsample_hw_modelwrapper(HI, WI, HO, WO, NumChannels, SIMD, dt):
+    """A single UpsampleNearestNeighbour node, for schedule characterization."""
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, HI, WI, NumChannels])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, HO, WO, NumChannels])
+    node = helper.make_node(
+        "UpsampleNearestNeighbour",
+        ["inp"],
+        ["outp"],
+        domain="finn.custom_op.fpgadataflow",
+        backend="fpgadataflow",
+        SIMD=SIMD,
+        HO=HO,
+        WO=WO,
+        HI=HI,
+        WI=WI,
+        NumChannels=NumChannels,
+        inputDataType=dt.name,
+        batchSize=1,
+    )
+    graph = helper.make_graph([node], "upsample_hw", [inp], [outp])
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="upsample-hw-model"))
+    model.set_tensor_datatype("inp", dt)
+    model.set_tensor_datatype("outp", dt)
+    return model
+
+
+# HI, WI, HO, WO, NumChannels, SIMD
+@pytest.mark.parametrize(
+    "config",
+    [
+        (4, 4, 8, 8, 8, 8),
+        (4, 4, 8, 8, 4, 2),
+        (2, 2, 6, 6, 8, 8),
+        (3, 5, 6, 10, 4, 4),
+        (4, 4, 4, 8, 4, 4),
+        (1, 4, 4, 8, 4, 4),
+        # a frame of a couple of thousand folded words, so that the fixed part of
+        # the error is visibly fixed rather than hidden by a short frame
+        (16, 16, 32, 32, 16, 8),
+    ],
+)
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_upsampler(config):
+    HI, WI, HO, WO, NumChannels, SIMD = config
+    part = "xczu7ev-ffvc1156-2-e"
+    target_clk_ns = 5.0
+    model = make_upsample_hw_modelwrapper(HI, WI, HO, WO, NumChannels, SIMD, DataType["INT8"])
+
+    # The rate, the read-to-write relationship and the token counts are exact;
+    # what remains is that rtlsim's period is a fifth of a five-frame run and so
+    # holds a fraction of a frame more than the model's whole one, worth one
+    # token. That one token is a fixed cost, not a proportional one -- the last
+    # config's frame is thirty times the first's and diverges by no more -- so the
+    # budget is a floor of a couple of tokens with a fraction that only matters if
+    # the error ever starts scaling. The model does not claim where rtlsim's
+    # window was cut, hence the rotation.
+    max_allowed_volume_frac = 0.005
+    volume_const = 2
+    max_allowed_length_frac = 0.005
+    length_const = 2
+
+    assert tree_model_test_up_to_rotation(
+        model,
+        ("UpsampleNearestNeighbour", config),
+        part,
+        target_clk_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    ), "characterized TAV does not match RTLsim'd one!"

@@ -46,6 +46,10 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.test import tree_model_test
+
+tree_model_fpga_part = "xczu7ev-ffvc1156-2-e"
+tree_model_clk_ns = 5.0
 
 
 def make_accpool_modelwrapper(ch, pe, idim, idt, impl_style):
@@ -144,3 +148,47 @@ def test_fpgadataflow_globalaccpool(idt, ch, fold, imdim, exec_mode, impl_style)
         # assert np.isclose(exp_cycles, cycles_rtlsim, atol=0.1 * cycles_rtlsim)
         assert exp_cycles != 0
         assert cycles_rtlsim != 0
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        (32, 4, 4),
+        (64, 8, 4),
+        (16, 2, 8),
+        (48, 6, 3),
+        (12, 4, 5),
+        (128, 16, 4),
+        (64, 32, 4),
+    ],
+)
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_globalaccpool(config):
+    ch, pe, idim = config
+    model = make_accpool_modelwrapper(ch, pe, idim, DataType["UINT4"], "hls")
+    model = model.transform(SpecializeLayers(tree_model_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+
+    node_details = ("GlobalAccPool", config)
+
+    # The two loops are placed exactly, so the token counts cannot drift at all
+    # and the budget is a floor rather than a fraction. The length floor covers
+    # the one cycle the reference's period rounds away on a wide accumulator.
+    max_allowed_volume_frac = 0.0
+    volume_const = 2
+    max_allowed_length_frac = 0.0
+    length_const = 4
+
+    assert tree_model_test(
+        model,
+        node_details,
+        tree_model_fpga_part,
+        tree_model_clk_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    ), "characterized TAV does not match RTLsim'd one!"

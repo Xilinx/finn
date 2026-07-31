@@ -15,6 +15,7 @@ import warnings
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import flat_characteristic_leaf
 
 
 class Crop(HWCustomOp):
@@ -124,6 +125,50 @@ class Crop(HWCustomOp):
         fold = int(normal_ishape[-1] / simd)
         folded_ishape = normal_ishape[:-1] + [fold, simd]
         return tuple(folded_ishape)
+
+    def get_tree_model(self):
+        """Every input word is read; the ones inside the crop are written on.
+
+        The layer streams its input raster once at one word per cycle and passes
+        through the words that fall inside the kept window, so the two rows are
+        the raster and the raster masked by the crop. The read row never pauses:
+        the row and column counters that decide whether a word is kept advance
+        off the read itself, so a dropped row costs no cycle and the period is
+        the input frame -- what ``get_exp_cycles`` returns.
+
+        ``LATENCY`` is the fixed delay from reading a word to writing it, over
+        the three dataflow stages a word passes through. It rotates the write
+        row against the read one and changes neither the period nor either row's
+        token count.
+
+        The raster assumes the pass-through pipelines at II=1, as
+        ``get_exp_cycles`` does. A design that schedules slower stretches every
+        read by that factor and takes proportionally longer.
+
+        Valid for ImgDim up to 48 x 48 and NumChannels / SIMD 1..16, for integer
+        and float words alike, and for any crop that keeps at least one word.
+        """
+        LATENCY = 8
+        simd = self.get_nodeattr("SIMD")
+        h, w = self.get_nodeattr("ImgDim")
+        h = 1 if h == 0 else h
+        ch = self.get_nodeattr("NumChannels")
+        num_vec = self.get_nodeattr("numInputVectors")
+        n_vec = int(np.prod(num_vec)) if num_vec != [0] else 1
+        fold = ch // simd
+        if min(h, w, fold, n_vec) < 1:
+            return None
+        keep = np.zeros((n_vec, h, w, fold), dtype=np.int8)
+        north = self.get_nodeattr("CropNorth")
+        south = self.get_nodeattr("CropSouth")
+        west = self.get_nodeattr("CropWest")
+        east = self.get_nodeattr("CropEast")
+        keep[:, north : h - south, west : w - east, :] = 1
+        if keep.sum() < 1:
+            return None
+        wr = np.roll(keep.reshape(-1), LATENCY)
+        rd = np.ones_like(wr)
+        return flat_characteristic_leaf(rd, wr, "Crop raster")
 
     def get_exp_cycles(self):
         simd = self.get_nodeattr("SIMD")

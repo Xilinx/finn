@@ -193,9 +193,110 @@ def test_fpgadataflow_analytical_characterization_fmpadding(
     part = "xc7z020clg400-1"
     target_clk_ns = 4
 
-    max_allowed_volume_delta = 2
-    max_allowed_length_delta = 2
+    # TAV tolerances are fractions -- of the tokens moved and of the frame
+    # length -- with a floor for the fixed part of the error (wind-up, adder
+    # tree depth, the cycle rtlsim's period rounds away). The floors are the
+    # flat budgets this test used before the split, so nothing that passed
+    # then fails now; the fractions are what govern once the frame is long
+    # enough to exceed them.
+    max_allowed_volume_frac = 0.01
+    volume_const = 2
+    max_allowed_length_frac = 0.01
+    length_const = 2
 
     assert tree_model_test(
-        model, node_details, part, target_clk_ns, max_allowed_volume_delta, max_allowed_length_delta
+        model,
+        node_details,
+        part,
+        target_clk_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    ), "characterized TAV does not match RTLsim'd one!"
+
+
+def make_single_fmpadding_pixel_modelwrapper(idim, stride, num_ch, simd, idt):
+    idim_h, idim_w = idim
+    stride_h, stride_w = stride
+    odim_h = idim_h + (idim_h - 1) * (stride_h - 1)
+    odim_w = idim_w + (idim_w - 1) * (stride_w - 1)
+
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, idim_h, idim_w, num_ch])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, odim_h, odim_w, num_ch])
+
+    node = helper.make_node(
+        "FMPadding_Pixel",
+        ["inp"],
+        ["outp"],
+        domain="finn.custom_op.fpgadataflow",
+        backend="fpgadataflow",
+        ImgDim=idim,
+        Stride=stride,
+        NumChannels=num_ch,
+        SIMD=simd,
+        inputDataType=str(idt.name),
+        numInputVectors=1,
+    )
+    graph = helper.make_graph(nodes=[node], name="pad_pixel_graph", inputs=[inp], outputs=[outp])
+    model = qonnx_make_model(graph, producer_name="pad_pixel-model")
+    model = ModelWrapper(model)
+    model.set_tensor_datatype("inp", idt)
+    model.set_tensor_datatype("outp", idt)
+    return model
+
+
+# Square and non-square strides, folded and unfolded channels, on two image
+# shapes -- the four things the raster mask depends on, one at a time.
+@pytest.mark.parametrize(
+    "idim,stride,num_ch,simd",
+    [
+        ([4, 4], [2, 2], 4, 2),
+        ([4, 4], [2, 2], 8, 4),
+        ([4, 4], [2, 2], 8, 8),
+        ([4, 4], [3, 2], 4, 2),
+        ([4, 4], [3, 3], 8, 4),
+        ([6, 4], [2, 2], 4, 2),
+        ([6, 4], [3, 2], 8, 4),
+        ([6, 4], [2, 3], 4, 4),
+    ],
+)
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_fmpadding_pixel(idim, stride, num_ch, simd):
+    if num_ch % simd != 0:
+        pytest.skip("num_ch % simd != 0, skipping")
+    idt = DataType["INT8"]
+    model = make_single_fmpadding_pixel_modelwrapper(idim, stride, num_ch, simd, idt)
+    model = model.transform(InferShapes())
+    model = model.transform(SetExecMode("rtlsim"))
+
+    node_details = ("FMPadding_Pixel", tuple(idim), tuple(stride), num_ch, simd)
+    # The schedule, like get_exp_cycles, assumes the HLS pipeline reaches II=1.
+    # Whether it does is a synthesis outcome, not a property of the node: this
+    # same node schedules at II=1, 2 or 4 depending on the part and the clock
+    # target. Characterize on a target that meets II=1, otherwise the comparison
+    # measures HLS scheduling rather than the model.
+    part = "xczu7ev-ffvc1156-2-e"
+    target_clk_ns = 4
+
+    # The padded raster is emitted one word per cycle with no wind-up to model,
+    # so both the period and the token counts should land within a couple of
+    # cycles of rtlsim.
+    max_allowed_volume_frac = 0.01
+    volume_const = 4
+    max_allowed_length_frac = 0.01
+    length_const = 4
+
+    assert tree_model_test(
+        model,
+        node_details,
+        part,
+        target_clk_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
     ), "characterized TAV does not match RTLsim'd one!"
