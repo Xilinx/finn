@@ -113,11 +113,11 @@ class JustInTimeSynthesize(Transformation):
                     not in [
                         "AddStreams_hls",
                         "DuplicateStreams_hls",
-                        "AlignLabels_hls",
                         "StreamingFIFO_hls",
                         "StreamingFIFO_rtl",
                     ]
                 )
+                and not is_stream_join(node)
                 and (inst.get_nodeattr("rtlsim_so") == "")
             ):
                 try:
@@ -177,13 +177,17 @@ class DeriveTokenAccessVectors(NodeLocalTransformation):
                 if node.name in self.nodes_to_ignore:
                     return (node, False)
 
+                # Fork and join nodes are not characterized in their own right:
+                # HandleBranches propagates their neighbours' vectors onto them.
+                # A join must be skipped whatever backend is selected, because
+                # derive_token_access_vectors_using_rtlsim drives "in0" only and
+                # would stall waiting on the second stream.
                 if op_type not in [
                     "AddStreams_hls",
                     "DuplicateStreams_hls",
-                    "AlignLabels_hls",
                     "StreamingFIFO_hls",
                     "StreamingFIFO_rtl",
-                ]:
+                ] and not is_stream_join(node):
                     inst.derive_token_access_vectors(
                         model=self.model,
                         period=self.period,
@@ -444,14 +448,22 @@ def get_full_branch_latency(nodes, branch_max):
 def assign_extra_fifo_volume(as_node, model, global_period):
     assert len(as_node.input) > 1
 
-    _, branch_0, _, _, period_0 = get_branch_volume(as_node, 0, model)
-    _, branch_1, _, _, period_1 = get_branch_volume(as_node, 1, model)
+    b0 = get_branch_volume(as_node, 0, model)
+    b1 = get_branch_volume(as_node, 1, model)
+    if b0 is None or b1 is None or b0[1][-1] is not b1[1][-1]:
+        # Not a fork/join pair this pass can describe: either input does not
+        # trace back to a fork, or the two inputs come from *different* forks.
+        # Leave the edges to the chained-TAV pass, which derives depths from
+        # arrival times on the DAG and needs no pairing at all.
+        return 0
+    _, branch_0, _, _, period_0 = b0
+    _, branch_1, _, _, period_1 = b1
 
     # propagate a characteristic onto the duplicatestreams node. Normally this is
     # inherited from its producer's output TAV; when the DuplicateStreams forks the
-    # global input (e.g. the AlignLabels side-channel) it has no producer, so fall
-    # back to the input TAV of the first layer it feeds on the model branch -- the
-    # rate at which tokens leave the fork equals the rate that layer accepts them.
+    # global input it has no producer, so fall back to the input TAV of the first
+    # layer it feeds on the model branch -- the rate at which tokens leave the fork
+    # equals the rate that layer accepts them.
     ds_node = registry.getCustomOp(branch_0[-1])
     prod_node = model.find_producer(branch_0[-1].input[0])
 
@@ -479,9 +491,9 @@ def assign_extra_fifo_volume(as_node, model, global_period):
     ds_node.set_nodeattr("io_chrc_period", period_ds)
 
     # last node with latencies version. Stretch both branches to a common,
-    # non-zero period: a side-channel branch (e.g. AlignLabels' direct edge) can
-    # contain only the DuplicateStreams, whose period is still unset here (0),
-    # which would collapse the stretch to an empty vector.
+    # non-zero period: a bypass branch can contain only the DuplicateStreams,
+    # whose period is still unset here (0), which would collapse the stretch to
+    # an empty vector.
     branch_period = max(period_0, period_1, global_period)
     latency_to_first_output_0 = get_full_branch_latency(branch_0[1:], branch_period)
     latency_to_first_output_1 = get_full_branch_latency(branch_1[1:], branch_period)
@@ -508,43 +520,8 @@ def assign_extra_fifo_volume(as_node, model, global_period):
     add_strm_child = get_consumer(as_node, model)
     volumes = [0, 0]
 
-    if as_node.op_type == "AlignLabels_hls":
-        # AlignLabels reads its whole label input before streaming the buffered
-        # data, so the DuplicateStreams keeps forking input into the side-channel
-        # for the entire model latency before that data is drained. The bypass
-        # FIFO must therefore hold ~the model-latency worth of input tokens, or the
-        # fork back-pressures and stalls the model path (throughput collapses).
-        # Put that whole surplus on exactly the DuplicateStreams output feeding the
-        # data input; the model-path output stays rate-matched (minimal). The
-        # AddStreams swap below assumes a different fork->branch mapping.
-        buf_tensor = as_node.input[1]
-        buf_idx = list(branch_0[-1].output).index(buf_tensor)
-        volumes[buf_idx] = int(max(peak_deltas))
-
-        # Analytic floor, independent of the TAV state: the bypass must hold
-        # every input beat the fork emits while the model branch drains its
-        # pipeline, i.e. (ceil(branch latency / interval) + 1) frames of input.
-        # The TAV-based peak delta above under-sizes on deep models (cnv: 237
-        # beats vs ~4 frames x 3072 beats needed -> 10% throughput loss from
-        # fork back-pressure); take whichever is larger.
-        model_branch = branch_0 if len(branch_0) >= len(branch_1) else branch_1
-        mid_nodes = model_branch[1:-1]
-        node_cycles = []
-        for mn in mid_nodes:
-            try:
-                node_cycles.append(int(registry.getCustomOp(mn).get_exp_cycles()))
-            except Exception:
-                pass
-        if node_cycles and max(node_cycles) > 0:
-            branch_latency = sum(node_cycles)
-            interval = max(node_cycles)
-            frames_in_flight = int(np.ceil(branch_latency / interval)) + 1
-            fork_inst = registry.getCustomOp(branch_0[-1])
-            beats_per_frame = int(np.prod(fork_inst.get_folded_output_shape()[:-1]))
-            volumes[buf_idx] = max(volumes[buf_idx], frames_in_flight * beats_per_frame)
-    else:
-        volumes[0] = peak_deltas[1]
-        volumes[1] = peak_deltas[0]
+    volumes[0] = peak_deltas[1]
+    volumes[1] = peak_deltas[0]
 
     ds_node.set_nodeattr("extra_branch_fifos", volumes)
 
@@ -554,8 +531,8 @@ def assign_extra_fifo_volume(as_node, model, global_period):
     ds_node.set_nodeattr("outFIFODepths", old_sizes)
 
     # Propagate the join node's characteristic from its consumer so its own
-    # output FIFO can be sized downstream. A terminal join (e.g. AlignLabels,
-    # whose outputs are global outputs) has no consumer -- nothing to size there.
+    # output FIFO can be sized downstream. A terminal join (whose outputs are
+    # global outputs) has no consumer -- nothing to size there.
     if add_strm_child is not None:
         tav = registry.getCustomOp(add_strm_child).get_nodeattr("io_chrc_in")
         tav_pad = registry.getCustomOp(add_strm_child).get_nodeattr("io_chrc_in_original")
@@ -572,9 +549,35 @@ def assign_extra_fifo_volume(as_node, model, global_period):
     return sum(volumes)
 
 
+def is_stream_join(node):
+    """True if ``node`` merges two streamed inputs into one output.
+
+    ``AddStreams`` was FINN's dedicated two-input adder. It is deprecated --
+    ``InferAddStreamsLayer`` now redirects to ``InferElementwiseBinaryOperation``
+    and no ``AddStreams_hls`` custom op is registered any more -- so a residual
+    branch reconverges on an ``ElementwiseAdd`` today. Both names are matched so
+    that a graph built either way is sized.
+
+    An ``ElementwiseAdd`` is only a join when *both* of its inputs are streams.
+    With a constant right-hand side it is a unary passthrough that happens to
+    have two ONNX inputs, and handing it to the branch machinery would have it
+    hunt for a DuplicateStreams fork that is not there.
+    """
+    if node is None or not node.op_type.startswith(("AddStreams", "ElementwiseAdd")):
+        return False
+    if len(node.input) < 2:
+        return False
+    inst = registry.getCustomOp(node)
+    attr_types = inst.get_nodeattr_types()
+    for style in ("lhs_style", "rhs_style"):
+        if style in attr_types and inst.get_nodeattr(style) != "input":
+            return False
+    return True
+
+
 class HandleBranches(Transformation):
     """Given a characterized model, additionally generate the token
-    access vectors for DuplicateStreams and AddStreams such that no
+    access vectors for DuplicateStreams and stream joins such that no
     deadlocks occur. These nodes were not characterized in the
     DeriveTokenAccessVectors step and must inherit the edge node
     token access vectors of the faster of the two branches'.
@@ -592,16 +595,16 @@ class HandleBranches(Transformation):
 
     def apply(self, model: ModelWrapper):
         depth_added = 0
-        # AddStreams and AlignLabels are both two-input join nodes fed by a
-        # DuplicateStreams fork; each needs the faster branch's FIFO stretched so
-        # the slower branch (e.g. the AlignLabels side-channel that buffers the
-        # model input for the whole model latency) does not deadlock.
-        join_nodes = model.get_nodes_by_op_type("AddStreams_hls") + model.get_nodes_by_op_type(
-            "AlignLabels_hls"
-        )
+        # A join node is fed by a DuplicateStreams fork; it needs the faster
+        # branch's FIFO stretched so the slower branch does not deadlock.
+        join_nodes = [node for node in model.graph.node if is_stream_join(node)]
         if len(join_nodes) == 0:
-            warnings.warn("No AddStreams/AlignLabels nodes found, skipping")
+            warnings.warn("No stream-join nodes found, skipping")
             return (model, False)
+        # assign_extra_fifo_volume returns 0 for a join it cannot pair with a
+        # fork, so a graph mixing describable and non-describable joins gets the
+        # bypass sizing on the ones that are and nothing on the ones that are
+        # not, instead of an exception for the whole graph.
 
         for join_node in join_nodes:
             depth_added += assign_extra_fifo_volume(join_node, model, self.period)
@@ -637,7 +640,6 @@ class ProducerDelayCharacteristicFunctions(NodeLocalTransformation):
 
                 if node.op_type in [
                     "DuplicateStreams_hls",
-                    "AlignLabels_hls",
                     "StreamingFIFO_hls",
                     "StreamingFIFO_rtl",
                 ]:
@@ -659,8 +661,8 @@ class ProducerDelayCharacteristicFunctions(NodeLocalTransformation):
 
                     cons = registry.getCustomOp(cons)
                     if cons.get_nodeattr("io_chrc_in") == "":
-                        # consumer is an uncharacterized join (e.g. terminal
-                        # AlignLabels) -- no input pattern to match against
+                        # consumer is an uncharacterized join -- no input
+                        # pattern to match against
                         continue
                     cons_chrc_in = decompress_string_to_numpy(cons.get_nodeattr("io_chrc_in"))[0]
 
@@ -716,7 +718,6 @@ class DelayCharacteristicFunctions(NodeLocalTransformation):
 
                 if node.op_type in [
                     "DuplicateStreams_hls",
-                    "AlignLabels_hls",
                     "StreamingFIFO_hls",
                     "StreamingFIFO_rtl",
                 ]:
@@ -820,14 +821,11 @@ class ChainComposeTAVs(Transformation):
     Isolated curves assume input always available (over-stating run-ahead:
     open-loop) while the stretch pass assumes the producer slows to the
     consumer's rate (under-stating bursts: closed-loop). The composed curves
-    are the middle ground -- free-running but input-constrained -- verified on
-    cnv-w1a1 where the SWG->MVAU edge needs the one-output-row burst (270
-    slots) that stretching flattens to ~1 and free-running inflates to ~a
-    frame. Composed schedules are stored as io_chrc_in/out_composed event-time
-    arrays for DeriveFIFOSizes' chain_composed strategy.
+    are the middle ground -- free-running but input-constrained. They are
+    stored as io_chrc_in/out_composed event-time arrays for DeriveFIFOSizes'
+    chain_composed strategy.
 
-    Joins (AddStreams) compose with the elementwise-max of both arrivals;
-    AlignLabels keeps its dedicated side-channel machinery; nodes without
+    Joins compose with the elementwise-max of both arrivals; nodes without
     characterization break the chain (edges touching them fall back to the
     default sizing strategy).
     """
@@ -838,15 +836,13 @@ class ChainComposeTAVs(Transformation):
         for node in model.graph.node:
             if not (is_hls_node(node) or is_rtl_node(node)):
                 continue
-            if node.op_type.startswith("AlignLabels"):
-                continue
             inst = registry.getCustomOp(node)
             chrc_in = inst.get_nodeattr("io_chrc_in")
             chrc_out = inst.get_nodeattr("io_chrc_out")
             if chrc_in == "" or chrc_out == "":
                 continue
-            in_times = _curve_to_times(decompress_string_to_numpy(chrc_in)[0])
-            out_times = _curve_to_times(decompress_string_to_numpy(chrc_out)[0])
+            in_times = curve_to_times(decompress_string_to_numpy(chrc_in)[0])
+            out_times = curve_to_times(decompress_string_to_numpy(chrc_out)[0])
             if len(in_times) == 0 or len(out_times) == 0:
                 continue
 
@@ -933,106 +929,33 @@ def swg_edge_burst_floor(prod_node, cons_node):
 #: Ops that fan out or join without a token access vector of their own. They are
 #: treated as transparent in the chained-TAV pass: a token handed to them is
 #: handed on in the same cycle, which is what the hardware does.
-#:
-#: Names for op types this tree does not (yet) carry -- the transformer fork/join
-#: family -- are listed on purpose: the test is a string comparison against
-#: node.op_type, so an absent op simply never matches, and the list stays
-#: diffable against finn-plus.
 _TRANSPARENT_OPS = (
     "DuplicateStreams_hls",
-    "ReplicateStream_hls",
     "AddStreams_hls",
     "ElementwiseAdd_hls",
-    "AlignLabels_hls",
+    "ElementwiseAdd_rtl",
 )
 
 
-def _raw_tav(inst):
-    """A node's token access vectors as rtlsim/tree-model derived them.
+#: Diagnostics opt-in: when true the per-edge trace also carries the raw
+#: (write, read, native-read) schedules the depth was derived from. Off by
+#: default -- these are per-token arrays.
+_TRACE_SCHEDULES = False
 
-    ``io_chrc_in``/``io_chrc_out`` are rewritten in place by the stretching and
-    delay transforms; ``*_original`` keeps the untouched pair. The chained-TAV
-    pass must see the untouched one, because the whole point is to derive each
-    node's real timeline from its neighbours rather than to assume it.
+
+def arrival_of(schedule, counts):
+    """Time at which ``counts[i]`` tokens have arrived, given per-token times.
+
+    An empty schedule means no token ever arrives, which constrains nothing, so
+    every arrival time is 0. Indexing would otherwise run off the empty array.
     """
-    out = []
-    for name in ("io_chrc_in", "io_chrc_out"):
-        raw = inst.get_nodeattr(name + "_original")
-        if raw == "":
-            raw = inst.get_nodeattr(name)
-        out.append(None if raw == "" else decompress_string_to_numpy(raw)[0].astype(np.int64))
-    return out[0], out[1]
-
-
-def _raw_tav_rows(inst):
-    """Every stream's cumulative token trace, not just the first.
-
-    ``derive_token_access_vectors_using_rtlsim`` traces one stream per row:
-    inputs in ``node.input`` order skipping the ones with no stream width,
-    outputs in ``node.output`` order. Everything downstream of it -- the stretch
-    transforms, the old sizing arithmetic, ``_raw_tav`` -- reads row 0 only,
-    which is exact for a node whose streams all keep the same schedule and
-    wrong for one whose streams do not.
-
-    ``StreamingSplit_hls``, ``StreamingConcat_hls`` and
-    ``ScaledDotProductAttention_hls`` are the second kind, and they are the
-    entire attention block: a split writes its four outputs in staggered
-    contiguous bursts, a concat reads its four inputs the same way, and
-    attention reads K and V as one burst up front while dribbling Q out over
-    the frame. Collapsing that onto one schedule erases exactly the imbalance
-    the FIFOs in front of them exist to absorb.
-    """
-    out = []
-    for name in ("io_chrc_in", "io_chrc_out"):
-        raw = inst.get_nodeattr(name + "_original")
-        if raw == "":
-            raw = inst.get_nodeattr(name)
-        out.append(
-            None if raw == "" else np.atleast_2d(decompress_string_to_numpy(raw)).astype(np.int64)
-        )
-    return out[0], out[1]
-
-
-def _stream_curves(node, inst, rows_in, rows_out):
-    """Bind TAV rows to tensor names: ``({tensor: curve}, {tensor: curve})``.
-
-    The binding is only taken when the row count matches the stream count,
-    which is the shape rtlsim produces. A tree model can emit only one row --
-    ``derive_token_access_vectors_using_tree_model`` filters the io_dict to
-    ``in0``/``out0`` -- so tree-derived nodes fall back to row 0 for every
-    stream, which is what this pass did for every node before.
-    """
-    in_curves, out_curves, bound = {}, {}, True
-    if rows_in is not None:
-        streamed = []
-        for i, t in enumerate(node.input):
-            try:
-                if inst.get_instream_width(i) == 0:
-                    continue
-            except Exception:
-                pass
-            streamed.append(t)
-        if len(streamed) == rows_in.shape[0]:
-            in_curves = {t: rows_in[k] for k, t in enumerate(streamed)}
-        else:
-            in_curves = {t: rows_in[0] for t in node.input}
-            bound = False
-    if rows_out is not None:
-        if len(node.output) == rows_out.shape[0]:
-            out_curves = {t: rows_out[k] for k, t in enumerate(node.output)}
-        else:
-            out_curves = {t: rows_out[0] for t in node.output}
-            bound = False
-    return in_curves, out_curves, bound
-
-
-def _arrival_of(schedule, counts):
-    """Time at which ``counts[i]`` tokens have arrived, given per-token times."""
+    if len(schedule) == 0:
+        return np.zeros(len(counts), dtype=np.int64)
     idx = np.clip(counts, 0, len(schedule)) - 1
     return np.where(counts > 0, schedule[np.maximum(idx, 0)], 0)
 
 
-def _peak_occupancy(write_times, read_times):
+def peak_occupancy(write_times, read_times):
     """Largest number of tokens simultaneously in flight on one edge."""
     n = min(len(write_times), len(read_times))
     if n == 0:
@@ -1895,7 +1818,7 @@ class DeriveFIFOSizes(Transformation):
         period=None,
         nodes_to_ignore=[],
         global_offset_correction=False,
-        tav_utilization_strategy="chained_tav",
+        heuristic_fifo_sizing_method="conservative_relaxation",
     ):
         super().__init__()
         self.io_fifo_depth = io_fifo_depth
@@ -1908,7 +1831,7 @@ class DeriveFIFOSizes(Transformation):
         self.max_delay_so_far = 0
         self.nodes_parsed = 0
         self.global_offset_correction = global_offset_correction
-        self.tav_utilization_strategy = tav_utilization_strategy
+        self.heuristic_fifo_sizing_method = heuristic_fifo_sizing_method
         self.delta_total_fifo_size = 0
         self.delta_adjusted_fifo_size = 0
         self.hybrid_fifo_size_rate = 0
@@ -1924,25 +1847,22 @@ class DeriveFIFOSizes(Transformation):
     def apply(self, model):
         nodes = [node for node in model.graph.node]
 
-        if self.tav_utilization_strategy == "chained_tav":
+        if self.heuristic_fifo_sizing_method == "chained_tav":
             # Two derivations of the same quantity, and the requirement is at
             # least both. They differ only in whether a node's writes are held
-            # to the inputs that carry them (``_causal_writes``):
+            # to the inputs that carry them (``causal_writes``):
             #
             #   * without it, a node's schedule keeps the phase its token access
             #     vector was measured with, so a producer's potential run-ahead
-            #     survives -- which is what resnet50's residual branches need;
+            #     survives, which residual branches need;
             #   * with it, a node that gathers many inputs per output shows the
-            #     latency it really has -- which is what tr-language's MLP
-            #     residual needs, and it is worth 66.9% of that model's
-            #     throughput.
+            #     latency it really has, which the FIFO across a residual has to
+            #     cover.
             #
             # Neither dominates: the bound raises latency downstream and lowers
             # occupancy on the bounded edge itself, so each pass is a lower
             # bound on the depth and the larger of the two is the safe answer.
-            # Measured: taking only the causal pass deadlocks resnet50, taking
-            # only the other leaves tr-language at +66.9%, and the max clears
-            # both at 1.7% more storage than the cheaper of them.
+            # Either one alone loses throughput or deadlocks on some graph shape.
             common = dict(
                 global_period=self.period,
                 slack_relaxation=self.CHAINED_TAV_SLACK_RELAXATION,
@@ -2017,16 +1937,14 @@ class DeriveFIFOSizes(Transformation):
                         # (input-arrival-constrained) schedules replaces the
                         # stretched-pair peak delta as the un-relaxed deficit;
                         # the budget-debited relaxation then trims it where
-                        # backpressure absorbs the transient for free (deep
-                        # nets like mobilenet: front-half run-ahead is real but
-                        # throttling it costs no throughput). Edges lacking
-                        # composed data (joins, uncharacterized nodes) use the
-                        # default machinery.
-                        strategy_env = self.tav_utilization_strategy
+                        # backpressure absorbs the transient for free. Edges
+                        # lacking composed data (joins, uncharacterized nodes)
+                        # use the default machinery.
+                        strategy_env = self.heuristic_fifo_sizing_method
                         composed_max = None
                         if (
                             strategy_env == "chain_composed"
-                            and node.op_type != "AddStreams_hls"
+                            and not is_stream_join(node)
                             and prod.get_nodeattr("io_chrc_out_composed") != ""
                             and cons.get_nodeattr("io_chrc_in_composed") != ""
                         ):
@@ -2312,7 +2230,7 @@ class DeriveFIFOSizes(Transformation):
                                 self.hybrid_fifo_size += hybrid_size
                                 self.hybrid_fifo_size_rate += hybrid_size_rate
 
-                                strategy = self.tav_utilization_strategy
+                                strategy = self.heuristic_fifo_sizing_method
                                 if strategy in ("conservative_relaxation", "chain_composed"):
                                     # minimized TAV different
                                     fifo_depth = minimized_depth

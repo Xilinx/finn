@@ -64,16 +64,12 @@ from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
-from qonnx.util.basic import get_by_name
 from qonnx.util.cleanup import cleanup_model
 from shutil import copy
 
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
-from finn.analysis.fpgadataflow.dataflow_performance import (
-    dataflow_performance,
-    max_period,
-)
+from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.analysis.fpgadataflow.op_and_param_counts import (
@@ -169,7 +165,11 @@ from finn.util.config import (
     extract_model_config_consolidate_shuffles,
     extract_model_config_to_json,
 )
-from finn.util.fpgadataflow import is_mlo, warn_hls_rtl_dsp_conflict
+from finn.util.fpgadataflow import (
+    cleanup_characterization,
+    is_mlo,
+    warn_hls_rtl_dsp_conflict,
+)
 from finn.util.rtlsim import annotate_rtlsim_performance, mlo_prehook_func_factory
 from finn.util.test import execute_parent
 from finn.util.vivado import parse_ooc_synth_results
@@ -965,8 +965,10 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     if cfg.auto_fifo_depths:
         strategy = cfg.auto_fifo_strategy
+        # the two heuristic strategies differ only in where the token access
+        # vectors come from
+        tav_strategy = "tree_model" if strategy == "heuristic_analytical" else "rtlsim"
 
-        # MLO models must use RTL sim characterize approach (no tree models)
         if is_mlo(model):
             model = model.transform(InsertDWC())
             model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
@@ -987,12 +989,11 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
             model = model.transform(PrepareRTLSim(behav=True))
             model = model.transform(AnnotateCycles())
             period = int(model.analysis(dataflow_performance)["max_cycles"]) + 10
-            # Use rtlsim strategy to force RTL simulation (no tree models for MLO)
             model = model.transform(
                 DeriveTokenAccessVectors(
                     model,
                     period,
-                    strategy="rtlsim",
+                    strategy=tav_strategy,
                     fpga_part=cfg._resolve_fpga_part(),
                     clk_period=cfg._resolve_hls_clk_period(),
                 )
@@ -1008,42 +1009,23 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     create_shallow_fifos=True,
                 )
             )
-            # Clean up characterization attributes after FIFO sizing. The
-            # io_chrc arrays are offloaded to sidecar .npy files referenced by
-            # the io_chrc_*_file attrs; unlink those files before dropping the
-            # attrs so we don't leak them.
-            for node in model.graph.node:
-                for file_attr_name in ["io_chrc_in_file", "io_chrc_out_file"]:
-                    attr = get_by_name(node.attribute, file_attr_name)
-                    if attr is not None:
-                        fname = attr.s.decode("utf-8")
-                        if fname != "" and os.path.isfile(fname):
-                            os.remove(fname)
-                for attr_name in [
-                    "io_chrc_period",
-                    "io_chrc_in_file",
-                    "io_chrc_out_file",
-                ]:
-                    attr = get_by_name(node.attribute, attr_name)
-                    if attr is not None:
-                        node.attribute.remove(attr)
+            cleanup_characterization(model)
             model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
             model = model.transform(GiveUniqueNodeNames())
             model = model.transform(GiveReadableTensorNames())
 
-        elif strategy == "analytical":
-            # Analytical FIFO sizing with tree models (Lukas's approach)
+        elif strategy in ("heuristic_analytical", "heuristic_rtlsim"):
+            # Heuristic FIFO sizing from per-node token access vectors. The two
+            # strategies share everything below and differ only in tav_strategy,
+            # i.e. whether a node's schedule comes from its tree model or rtlsim.
             model = model.transform(InsertDWC())
             model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
             model = model.transform(GiveUniqueNodeNames())
             model = model.transform(AnnotateCycles())
 
-            if cfg.tav_generation_strategy == "tree_model":
-                # if we have tree models, only rtlsim nodes for which we dont
-                only_jit_nodes_without_tree = True
-            else:
-                # rtlsim everything by force if not using trees
-                only_jit_nodes_without_tree = False
+            # heuristic_analytical takes each node's schedule from its tree
+            # model, so only the nodes without one need IP generated for rtlsim
+            only_jit_nodes_without_tree = tav_strategy == "tree_model"
 
             model = model.transform(
                 JustInTimeSynthesize(
@@ -1057,7 +1039,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                 DeriveTokenAccessVectors(
                     model,
                     period,
-                    cfg.tav_generation_strategy,
+                    tav_strategy,
                     cfg._resolve_fpga_part(),
                     cfg._resolve_hls_clk_period(),
                 )
@@ -1086,9 +1068,11 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                 )
             )
 
-            period = int(model.analysis(max_period)["max_cycles"])
+            period = int(
+                model.analysis(partial(dataflow_performance, use_characterized=True))["max_cycles"]
+            )
 
-            if cfg.tav_utilization_strategy == "chain_composed":
+            if cfg.heuristic_fifo_sizing_method == "chain_composed":
                 model = model.transform(ChainComposeTAVs())
 
             model = model.transform(
@@ -1096,7 +1080,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     period=period,
                     nodes_to_ignore=[],
                     global_offset_correction=True,
-                    tav_utilization_strategy=cfg.tav_utilization_strategy,
+                    heuristic_fifo_sizing_method=cfg.heuristic_fifo_sizing_method,
                 )
             )
 
@@ -1108,6 +1092,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                 )
             )
 
+            cleanup_characterization(model)
             model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
             model = model.transform(GiveUniqueNodeNames())
             model = model.transform(GiveReadableTensorNames())
@@ -1192,11 +1177,12 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(SplitLargeFIFOs())
     model = model.transform(RemoveShallowFIFOs())
 
-    # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again
-    # this will only run for the new nodes (e.g. FIFOs and DWCs)
-    if not cfg.skip_resynth_during_fifo_sizing:
-        model = model.transform(PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()))
-        model = model.transform(HLSSynthIP(cfg._resolve_fpga_part()))
+    # NOTE: the FIFOs and DWCs created above are not code-generated or
+    # synthesized here. phase_build_hardware owns that: step_hw_codegen runs
+    # PrepareIP and step_hw_ipgen runs HLSSynthIP, both after this step for
+    # either placement of it (phase_optimize_hardware for plain models,
+    # phase_build_hardware for MLO ones). An explicit cfg.steps list that places
+    # this step after step_hw_ipgen has to list those two steps again after it.
 
     return model
 

@@ -84,7 +84,12 @@ class HWCustomOp(CustomOp):
             "inFIFODepths": ("ints", False, [2]),
             "outFIFODepths": ("ints", False, [2]),
             "output_hook": ("s", False, ""),
-            # token access vectors used for analytical FIFO sizing
+            # Token access vectors used for analytical FIFO sizing: the
+            # accumulated characteristic function over two periods, of shape
+            # (n_streams, 2*period). The arrays are offloaded to sidecar .npy
+            # files (see save_tav_npy()) because for large periods they would
+            # blow the ONNX ModelProto past protobuf's 2GB limit, so these
+            # attrs hold a path to the sidecar rather than the array itself.
             "io_chrc_in": ("s", False, ""),
             "io_chrc_out": ("s", False, ""),
             "io_chrc_in_stretch": ("s", False, ""),
@@ -94,13 +99,6 @@ class HWCustomOp(CustomOp):
             # chain-composed event-time schedules (input-arrival-constrained)
             "io_chrc_in_composed": ("s", False, ""),
             "io_chrc_out_composed": ("s", False, ""),
-            # accumulated characteristic function over two periods; the arrays
-            # themselves are offloaded to sidecar .npy files (their shape is
-            # (n_streams, 2*period), which for large periods would blow the
-            # ONNX ModelProto past protobuf's 2GB limit). These attrs hold the
-            # paths to those files; see get_io_chrc_in()/get_io_chrc_out().
-            "io_chrc_in_file": ("s", False, ""),
-            "io_chrc_out_file": ("s", False, ""),
             # the period for which the characterization was run
             "io_chrc_period": ("i", False, 0),
             # amount of zero padding inserted during chrc.
@@ -660,26 +658,6 @@ class HWCustomOp(CustomOp):
         tav_path_out = save_tav_npy(self, "io_chrc_out", all_txns_out)
         self.set_nodeattr("io_chrc_out", tav_path_out)
         self.set_nodeattr("io_chrc_out_original", tav_path_out)
-
-    def get_io_chrc_in(self):
-        """Load the input characteristic array from its sidecar .npy file.
-
-        Returns an array of shape (n_streams, 2*period), or an empty (0, 0)
-        int32 array if characterization has not been run for this node."""
-        fname = self.get_nodeattr("io_chrc_in_file")
-        if fname == "" or not os.path.isfile(fname):
-            return np.empty((0, 0), dtype=np.int32)
-        return np.load(fname)
-
-    def get_io_chrc_out(self):
-        """Load the output characteristic array from its sidecar .npy file.
-
-        Returns an array of shape (n_streams, 2*period), or an empty (0, 0)
-        int32 array if characterization has not been run for this node."""
-        fname = self.get_nodeattr("io_chrc_out_file")
-        if fname == "" or not os.path.isfile(fname):
-            return np.empty((0, 0), dtype=np.int32)
-        return np.load(fname)
 
     def adapt_for_loop_body(self, input_types):
         """

@@ -219,3 +219,39 @@ def warn_hls_rtl_dsp_conflict(model, verification_type, output_dir=None):
 
         return True
     return False
+
+
+def cleanup_characterization(model):
+    """Drop the characterization attributes once FIFO sizing is done.
+
+    The token access vectors are offloaded to sidecar .npy files whose paths are
+    kept in the io_chrc_* attributes; unlink those files before dropping the
+    attributes, otherwise they are left behind in the build directory with
+    nothing referencing them."""
+
+    #: Node attributes holding token access vectors. Their values are paths to
+    #: sidecar .npy files (see save_tav_npy), which are only needed while FIFO
+    #: sizing runs.
+    tav_attrs = [
+        "io_chrc_in",
+        "io_chrc_out",
+        "io_chrc_in_stretch",
+        "io_chrc_out_stretch",
+        "io_chrc_in_original",
+        "io_chrc_out_original",
+        "io_chrc_in_composed",
+        "io_chrc_out_composed",
+    ]
+
+    for node in model.graph.node:
+        for attr_name in tav_attrs:
+            attr = get_by_name(node.attribute, attr_name)
+            if attr is None:
+                continue
+            fname = attr.s.decode("utf-8")
+            if fname.endswith(".npy") and os.path.isfile(fname):
+                os.remove(fname)
+            node.attribute.remove(attr)
+        attr = get_by_name(node.attribute, "io_chrc_period")
+        if attr is not None:
+            node.attribute.remove(attr)

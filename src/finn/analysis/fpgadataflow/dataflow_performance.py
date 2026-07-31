@@ -33,7 +33,7 @@ from finn.util.basic import decompress_string_to_numpy
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
-def dataflow_performance(model):
+def dataflow_performance(model, use_characterized=False):
     """Extract key performance indicators from given model with dataflow nodes.
     Note that the latency (critical path) analysis is very pessimistic, it
     assumes no overlap between executions and simply sums the expected cycles
@@ -44,6 +44,15 @@ def dataflow_performance(model):
     they do not need to be specialized yet
     - model has cycle estimates annotated (see AnnotateCycles transformation)
     - nodes have unique names (see GiveUniqueNodeNames)
+
+    Parameters:
+    - use_characterized : take each node's cycle count from its token access
+      vectors (see DeriveTokenAccessVectors) instead of the cycles_estimate
+      annotation. Nodes that carry no token access vector -- the fork and join
+      nodes, whose vectors are copied from their neighbours, and FIFOs -- count
+      as zero cycles, so max_cycles is the slowest *characterized* node. Note
+      that this makes critical_path_cycles a partial sum; the characterized mode
+      exists to report max_cycles.
 
     Returns:
     - max_cycles : number of cycles for slowest node
@@ -57,7 +66,24 @@ def dataflow_performance(model):
     for node in model.graph.node:
         if is_hls_node(node) or is_rtl_node(node) or node.op_type == "Shuffle":
             inst = getCustomOp(node)
-            node_cycles = int(inst.get_nodeattr("cycles_estimate"))
+            if use_characterized:
+                # The TAVs (see DeriveTokenAccessVectors) store one entry per
+                # clock cycle for the input and the output stream back to back,
+                # so half the array length is the number of cycles the node
+                # needs for one period. A node that has not been characterized
+                # counts as 0 -- fork and join nodes and FIFOs never are, they
+                # inherit their neighbours' vectors instead of having one
+                # measured.
+                chrc_in = inst.get_nodeattr("io_chrc_in")
+                chrc_out = inst.get_nodeattr("io_chrc_out")
+                if chrc_in == "" or chrc_out == "":
+                    node_cycles = 0
+                else:
+                    cycles_in = len(decompress_string_to_numpy(chrc_in)[0]) // 2
+                    cycles_out = len(decompress_string_to_numpy(chrc_out)[0]) // 2
+                    node_cycles = max(cycles_in, cycles_out)
+            else:
+                node_cycles = int(inst.get_nodeattr("cycles_estimate"))
             if node_cycles > max_cycles:
                 max_cycles = node_cycles
                 max_node_name = node.name
@@ -77,46 +103,4 @@ def dataflow_performance(model):
         "critical_path_cycles": int(critical_path_cycles),
         "max_cycles": int(max_cycles),
         "max_cycles_node_name": max_node_name,
-    }
-
-
-def max_period(model):
-    """Extract maximum period among all nodes in the graph
-
-    Preconditions:
-    - model consists of HLS/RTL nodes
-    - model has cycle estimates annotated (see AnnotateCycles transformation)
-    - nodes have unique names (see GiveUniqueNodeNames)
-    - model has been characteristically derived and contains specific chr periods
-
-    Returns:
-    - max_cycles : number of cycles for slowest node
-    - max_cycles_node_name : name of slowest node
-    - critical_path_cycles : pessimistic expected latency from input to output
-    """
-    max_cycles = 0
-
-    for node in model.graph.node:
-        if node is not None and node.op_type not in [
-            "AddStreams_hls",
-            "DuplicateStreams_hls",
-            "AlignLabels_hls",
-            "StreamingFIFO_hls",
-            "StreamingFIFO_rtl",
-        ]:
-            if is_hls_node(node) or is_rtl_node(node):
-                inst = getCustomOp(node)
-                node_cycles_in = (
-                    len(decompress_string_to_numpy(inst.get_nodeattr("io_chrc_in"))[0]) // 2
-                )
-                node_cycles_out = (
-                    len(decompress_string_to_numpy(inst.get_nodeattr("io_chrc_out"))[0]) // 2
-                )
-                node_cycles = max(node_cycles_in, node_cycles_out)
-
-                if node_cycles > max_cycles:
-                    max_cycles = node_cycles
-
-    return {
-        "max_cycles": int(max_cycles),
     }

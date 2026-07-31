@@ -63,8 +63,8 @@ def fetch_test_model(topology, wbits=2, abits=2):
 @pytest.mark.parametrize(
     "method",
     [
-        "analytic_model_based",
-        "analytic_rtlsim",
+        "heuristic_analytical",
+        "heuristic_rtlsim",
         "largefifo_rtlsim",
     ],
 )
@@ -77,21 +77,13 @@ def fetch_test_model(topology, wbits=2, abits=2):
 )
 def test_fifosizing_linear(method, topology):
     tmp_output_dir = fetch_test_model(topology)
-    if method == "analytic_model_based":
-        auto_fifo_strategy = "analytical"
-        tav_generation_strategy_key = "tree_model"
-    elif method == "analytic_rtlsim":
-        auto_fifo_strategy = "analytical"
-        tav_generation_strategy_key = "rtlsim"
-    else:
-        auto_fifo_strategy = "largefifo_rtlsim"
-        tav_generation_strategy_key = "rtlsim"
+    # ``method`` is the auto_fifo_strategy value itself
+    auto_fifo_strategy = method
 
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
         auto_fifo_depths=True,
         auto_fifo_strategy=auto_fifo_strategy,
-        tav_generation_strategy=tav_generation_strategy_key,
         target_fps=10000 if topology == "tfc" else 1000,
         synth_clk_period_ns=10.0,
         board="Pynq-Z1",
