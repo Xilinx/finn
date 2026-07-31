@@ -29,7 +29,6 @@
 import pytest
 
 import numpy as np
-import os
 import qonnx.custom_op.general.xnorpopcount as xp
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
@@ -69,6 +68,7 @@ from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.general import ApplyConfig
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import is_versal
+from finn.util.test import make_runtime_weight_stream
 
 finnxsi = xsi if xsi.is_available() else None
 
@@ -649,12 +649,7 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
         node = model.get_nodes_by_op_type("MVAU_rtl")[0]
     inst = getCustomOp(node)
     weights = model.get_initializer(node.input[1])
-    inst.make_weight_file(weights, "decoupled_runtime", "weights.dat")
-    with open("weights.dat", "r") as f:
-        weight_stream = f.read().strip()
-    os.remove("weights.dat")
-    weight_stream = map(lambda x: int(x, 16), weight_stream.split("\n"))
-    weight_stream = list(weight_stream)
+    weight_stream = make_runtime_weight_stream(inst, weights)
 
     # helper functions to write or read axilite
     def write_weights(sim):

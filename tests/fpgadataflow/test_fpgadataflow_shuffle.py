@@ -42,6 +42,7 @@ from finn.transformation.fpgadataflow.transpose_decomposition import (
     InferInnerOuterShuffles,
     ShuffleDecomposition,
 )
+from finn.util.basic import make_build_dir, robust_rmtree
 from finn.util.config import extract_model_config_consolidate_shuffles
 
 test_fpga_part: str = "xcvc1902-vsva2197-2MP-e-S"
@@ -427,9 +428,9 @@ def test_cppsim_shuffle_layer(cpp_shuffle_param, datatype, simd):
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_rtlsim_shuffle_layer(shuffle_param, datatype, simd):
+def test_rtlsim_shuffle_layer(shuffle_param, datatype, simd, monkeypatch):
     """Checks rtlsim of the shuffle_hls layer"""
-    os.environ["LIVENESS_THRESHOLD"] = "10000000"  # Need to bump this up for these RTL sims
+    monkeypatch.setenv("LIVENESS_THRESHOLD", "10000000")
     dt = DataType[datatype]
     simd = int(simd[-1])
     in_shape = shuffle_param["in_shape"]
@@ -609,7 +610,8 @@ def test_shuffle_config_consolidation():
 
     assert len(decomposed_nodes) > 0
 
-    consolidated_file = os.environ["FINN_BUILD_DIR"] + "/consolidated.json"
+    test_dir = make_build_dir("test_shuffle_config_")
+    consolidated_file = os.path.join(test_dir, "consolidated.json")
     extract_model_config_consolidate_shuffles(model, consolidated_file, ["SIMD"])
 
     with open(consolidated_file, "r") as f:
@@ -619,3 +621,4 @@ def test_shuffle_config_consolidation():
     assert consolidated_config[original_shuffle_name]["SIMD"] == 4
     for decomposed_name in decomposed_nodes:
         assert decomposed_name not in consolidated_config
+    robust_rmtree(test_dir)

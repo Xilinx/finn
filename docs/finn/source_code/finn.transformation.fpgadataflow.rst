@@ -270,14 +270,6 @@ finn.transformation.fpgadataflow.specialize\_layers
   :undoc-members:
   :show-inheritance:
 
-finn.transformation.fpgadataflow.synth\_ooc
----------------------------------------------
-
-.. automodule:: finn.transformation.fpgadataflow.synth_ooc
-  :members:
-  :undoc-members:
-  :show-inheritance:
-
 finn.transformation.fpgadataflow.template\_driver
 ---------------------------------------------------
 

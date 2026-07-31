@@ -22,6 +22,15 @@ finn.builder.build\_dataflow\_config
  :show-inheritance:
 
 
+finn.builder.build\_dataflow\_phases
+------------------------------------
+
+.. automodule:: finn.builder.build_dataflow_phases
+ :members:
+ :undoc-members:
+ :show-inheritance:
+
+
 finn.builder.build\_dataflow\_steps
 ------------------------------------
 

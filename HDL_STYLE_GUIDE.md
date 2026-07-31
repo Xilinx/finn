@@ -16,17 +16,13 @@ All HDL source files (HLS/C++ and SystemVerilog) must include a copyright header
 
 **C++/HLS**:
 ```cpp
-// Copyright (C) 2026, Advanced Micro Devices, Inc.
-// All rights reserved.
-//
+// Copyright Advanced Micro Devices, Inc.
 // SPDX-License-Identifier: BSD-3-Clause
 ```
 
 **SystemVerilog**:
 ```systemverilog
-// Copyright (C) 2026, Advanced Micro Devices, Inc.
-// All rights reserved.
-//
+// Copyright Advanced Micro Devices, Inc.
 // SPDX-License-Identifier: BSD-3-Clause
 ```
 

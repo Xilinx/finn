@@ -97,6 +97,14 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False, beha
         "-s",
         top_module_name,
     ]
+    # Xelab defaults to "auto" threading, which can expand to hundreds of
+    # workers on shared servers. Large stitched FINNLoop designs have shown
+    # intermittent elaborator SIGABRTs in that mode, so keep the default
+    # bounded while still allowing explicit override.
+    xelab_mt = os.environ.get("FINN_XELAB_MT", os.environ.get("NUM_DEFAULT_WORKERS", "8"))
+    if xelab_mt == "1":
+        xelab_mt = "off"
+    cmd_xelab.extend(["--mt", xelab_mt])
     if debug:
         cmd_xelab.append("-debug")
         cmd_xelab.append("all")

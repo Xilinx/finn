@@ -30,7 +30,6 @@
 import pytest
 
 import numpy as np
-import os
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
@@ -43,6 +42,7 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.create import hls_random_mlp_maker
+from finn.util.test import make_runtime_weight_stream
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -75,12 +75,7 @@ def test_runtime_weights_single_layer():
     op_inst.set_nodeattr("mem_mode", "internal_decoupled")
     op_inst.set_nodeattr("runtime_writeable_weights", 1)
     old_weights = model.get_initializer(fcl.input[1])
-    op_inst.make_weight_file(old_weights, "decoupled_runtime", "old_weights.dat")
-    with open("old_weights.dat", "r") as f:
-        old_weight_stream = f.read().strip()
-    os.remove("old_weights.dat")
-    old_weight_stream = map(lambda x: int(x, 16), old_weight_stream.split("\n"))
-    old_weight_stream = list(old_weight_stream)
+    old_weight_stream = make_runtime_weight_stream(op_inst, old_weights)
     model = model.transform(InsertFIFO(True))
     model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(GiveUniqueNodeNames())
@@ -116,12 +111,7 @@ def test_runtime_weights_single_layer():
     assert (y[1] == np.dot(in_tensor[1], old_weights)).all()
 
     new_weights = gen_finn_dt_tensor(wdt, (mw, mh))
-    op_inst.make_weight_file(new_weights, "decoupled_runtime", "new_weights.dat")
-    with open("new_weights.dat", "r") as f:
-        new_weight_stream = f.read().strip()
-    os.remove("new_weights.dat")
-    new_weight_stream = map(lambda x: int(x, 16), new_weight_stream.split("\n"))
-    new_weight_stream = list(new_weight_stream)
+    new_weight_stream = make_runtime_weight_stream(op_inst, new_weights)
 
     def write_weights(sim):
         addr = 0

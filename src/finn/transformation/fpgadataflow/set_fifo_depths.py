@@ -618,6 +618,7 @@ class InsertAndSetFIFODepths(Transformation):
 
         # clean up references to stitched IP and rtlsim objects
         # (the stitched IP needs to be re-done after FIFO sizing)
+        model.set_metadata_prop("exec_mode", "")
         model.set_metadata_prop("rtlsim_trace", "")
         model.set_metadata_prop("rtlsim_so", "")
         model.set_metadata_prop("vivado_stitch_proj", "")

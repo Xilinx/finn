@@ -33,11 +33,11 @@ def make_test_model(build_dir):
 
 
 def cfg(output_dir, **kw):
-    """Create config that stops immediately after first step."""
+    """Create config that stops immediately after first phase."""
     return DataflowBuildConfig(
         output_dir=output_dir,
         synth_clk_period_ns=5.0,
-        stop_step="step_qonnx_to_finn",
+        stop_step="phase_prepare_model",
         generate_outputs=kw.pop("generate_outputs", [DataflowOutputType.ESTIMATE_REPORTS]),
         **kw
     )

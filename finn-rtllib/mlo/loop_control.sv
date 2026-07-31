@@ -47,7 +47,7 @@ module loop_control #(
     int unsigned DATA_BITS,
     int unsigned LEN_BITS,
 
-    logic [ADDR_BITS-1:0] ADDRESS_OFFSET = 0
+    bit [ADDR_BITS-1:0] ADDRESS_OFFSET = 0
 ) (
     input  logic                aclk,
     input  logic                aresetn,

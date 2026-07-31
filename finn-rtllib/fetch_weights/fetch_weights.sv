@@ -24,18 +24,17 @@ module fetch_weights #(
 	int unsigned  N_DCPL_STGS = 1,
 	int unsigned  DBG = 0,
 
-	logic[ADDR_BITS-1:0]      ADDRESS_OFFSET = 0,
+	bit [ADDR_BITS-1:0]  ADDRESS_OFFSET = 0,
 
 	// Safely deducible parameters
-	int unsigned  IWSIMD = (TH > 1)? ((PE*SIMD)/TH) : SIMD,
-	int unsigned  OWSIMD = (PE * SIMD) / TH,
-	int unsigned  DS_BITS_BA = (IWSIMD*WEIGHT_WIDTH+7)/8 * 8,
-	int unsigned  WS_BITS_BA = (OWSIMD*WEIGHT_WIDTH+7)/8 * 8,
 	// In external memory (DDR, HBM, ...) weights are stored per IWSIMD group, each
 	// padded to roundup(IWSIMD*WEIGHT_WIDTH, 8) bits (= DS_BITS_BA, the DWC output
 	// width). The per-layer stride must reflect that per-group padding (not tight
 	// bit-packing); reduces to the tight value when IWSIMD*WEIGHT_WIDTH is byte-aligned.
-	logic[ADDR_BITS-1:0]  LAYER_OFFS = ((MH*MW/IWSIMD)*((IWSIMD*WEIGHT_WIDTH+7)/8) + (DATA_BITS/8-1)) & ~(DATA_BITS/8-1) // AXI bus-width aligned
+	localparam int unsigned  IWSIMD = (TH > 1)? ((PE*SIMD)/TH) : SIMD,
+	localparam int unsigned  OWSIMD = (PE * SIMD) / TH,
+	localparam int unsigned  DS_BITS_BA = (IWSIMD*WEIGHT_WIDTH+7)/8 * 8,
+	localparam int unsigned  WS_BITS_BA = (OWSIMD*WEIGHT_WIDTH+7)/8 * 8
 )(
 	input  logic  aclk,
 	input  logic  aresetn,
@@ -103,11 +102,12 @@ module fetch_weights #(
 	input  logic                     m_axis_tready,
 	output logic[WS_BITS_BA-1:0]     m_axis_tdata,
 
-    // Base Address
-    input logic[ADDR_BITS-1:0]          base_address
+	// Base Address
+	input logic [ADDR_BITS-1:0]      base_address
 );
 
 	//=== Layer Offsets =====================================================
+	localparam int unsigned  LAYER_OFFS = ((MH*MW/IWSIMD)*((IWSIMD*WEIGHT_WIDTH+7)/8) + (DATA_BITS/8-1)) & ~(DATA_BITS/8-1); // AXI bus-width aligned
 	logic [N_LAYERS-1:0][ADDR_BITS-1:0]  l_offsets;
 	for(genvar i = 0; i < N_LAYERS; i++) begin : genOffs
 		assign	l_offsets[i] = i * LAYER_OFFS;

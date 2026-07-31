@@ -210,10 +210,9 @@ def test_npy_to_rtlsim_input(dtype):
 def test_driver_pack_unpack(dtype, reverse_inner, reverse_endian, simd):
     folded_shape = (10, 8 // simd, simd)  # N H W FOLD SIMD
     input = gen_finn_dt_tensor(dtype, folded_shape)
-    input_packed = finnpy_to_packed_bytearray(input, dtype, reverse_inner, reverse_endian, True)
-
+    input_packed = finnpy_to_packed_bytearray(input, dtype, reverse_inner, reverse_endian)
     input_unpacked = packed_bytearray_to_finnpy(
-        input_packed, dtype, folded_shape, reverse_inner, reverse_endian
+        np.ascontiguousarray(input_packed), dtype, folded_shape, reverse_inner, reverse_endian
     )
 
     assert input_unpacked.dtype == np.float32

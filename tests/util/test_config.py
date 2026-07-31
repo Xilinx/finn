@@ -19,6 +19,7 @@ from qonnx.custom_op.registry import getCustomOp
 from typing import Any, Dict
 
 from finn.transformation.general import ApplyConfig
+from finn.util.basic import make_build_dir, robust_rmtree
 from finn.util.config import extract_model_config, extract_model_config_to_json
 
 # this is a pretend opset so that we can create
@@ -160,7 +161,8 @@ def test_roundtrip_export_import():
         model, subgraph_hier=None, attr_names_to_extract=attrs_to_extract
     )
     # Save in json
-    config_json_file = os.environ["FINN_BUILD_DIR"] + "/original_config.json"
+    test_dir = make_build_dir("test_config_roundtrip_")
+    config_json_file = os.path.join(test_dir, "original_config.json")
     extract_model_config_to_json(model, config_json_file, attrs_to_extract)
 
     # Modify all Im2Col nodes to different values (recursively through subgraphs)
@@ -191,8 +193,7 @@ def test_roundtrip_export_import():
     )
     assert restored_config == original_config, "Config not properly restored after roundtrip"
 
-    if os.path.exists(config_json_file):
-        os.remove(config_json_file)
+    robust_rmtree(test_dir)
 
 
 @pytest.mark.util
