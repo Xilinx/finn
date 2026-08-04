@@ -29,8 +29,17 @@
 import os
 import warnings
 from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp, is_custom_op
 from qonnx.util.basic import get_by_name
+
+
+def is_mlo(model: ModelWrapper) -> bool:
+    """Returns True if the model is an MLO model (contains FINNLoop), False otherwise."""
+    for node in model.graph.node:
+        if node.op_type == "FINNLoop":
+            return True
+    return False
 
 
 def is_fpgadataflow_node(node):
@@ -172,10 +181,9 @@ def warn_hls_rtl_dsp_conflict(model, verification_type, output_dir=None):
     conflicting DSP primitive initializations.
 
     Args:
-        model: ModelWrapper to check
-        verification_type: String describing the verification type
-        output_dir: Directory where verification outputs would be saved (optional)
-                    If provided, writes warning to a .txt file there
+        model: ModelWrapper to check.
+        verification_type: String describing the verification type.
+        output_dir: Optional directory for verification outputs (writes warning file if provided).
 
     Returns:
         bool: True if conflict was detected (and verification should be skipped)

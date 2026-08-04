@@ -27,6 +27,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import multiprocessing as mp
 import os
 import subprocess
 from qonnx.core.modelwrapper import ModelWrapper
@@ -34,6 +35,7 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
+from qonnx.util.basic import get_num_default_workers
 from shutil import copy
 
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
@@ -72,6 +74,13 @@ def collect_ip_dirs(model, ipstitch_path):
         if node.op_type.startswith("MVAU") or node.op_type == "Thresholding_hls":
             if node_inst.get_nodeattr("mem_mode") == "internal_decoupled":
                 need_memstreamer = True
+        if node.op_type == "FINNLoop":
+            loop_body = node_inst.get_nodeattr("body")
+            loop_body_ipstitch_path = loop_body.get_metadata_prop("vivado_stitch_proj")
+            assert loop_body_ipstitch_path is not None, (
+                "No stitched IPI design found for the body of %s, " % node.name
+            )
+            ip_dirs += collect_ip_dirs(loop_body, loop_body_ipstitch_path)
     ip_dirs += [ipstitch_path + "/ip"]
     if need_memstreamer:
         # add RTL streamer IP
@@ -237,6 +246,10 @@ class MakeZYNQProject(Transformation):
         # create a TCL recipe for the project
         ipcfg = vivado_pynq_proj_dir + "/ip_config.tcl"
         config = "\n".join(config) + "\n"
+        num_workers = get_num_default_workers()
+        assert num_workers >= 0, "Number of workers must be nonnegative."
+        if num_workers == 0:
+            num_workers = mp.cpu_count()
         with open(ipcfg, "w") as f:
             f.write(
                 templates.custom_zynq_shell_template
@@ -248,6 +261,7 @@ class MakeZYNQProject(Transformation):
                     pynq_part_map[self.platform],
                     config,
                     self.enable_debug,
+                    num_workers,
                 )
             )
 

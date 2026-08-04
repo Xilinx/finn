@@ -4,7 +4,7 @@
 import pytest
 
 from finn.builder.build_dataflow_config import DataflowBuildConfig
-from finn.builder.build_dataflow_steps import _annotate_rtlsim_performance
+from finn.util.rtlsim import annotate_rtlsim_performance
 
 
 def test_rtlsim_performance_defaults_to_multi_frame_measurement():
@@ -23,7 +23,7 @@ def test_rtlsim_performance_rejects_single_frame_interval():
         "UNFINISHED_OUTS": 0,
     }
 
-    result = _annotate_rtlsim_performance(stats, batch_size=1, clock_period_ns=5.0)
+    result = annotate_rtlsim_performance(stats, batch_size=1, clock_period_ns=5.0)
 
     assert result["throughput[images/s]"] == pytest.approx(1.0e9 / (5.0 * 45_244))
     assert result["interval_is_steady_state"] is False
@@ -47,7 +47,7 @@ def test_rtlsim_performance_rejects_incomplete_run():
         "UNFINISHED_OUTS": 0,
     }
 
-    result = _annotate_rtlsim_performance(stats, batch_size=2, clock_period_ns=10.0)
+    result = annotate_rtlsim_performance(stats, batch_size=2, clock_period_ns=10.0)
 
     assert result["interval_is_steady_state"] is False
     assert result["fps_from_interval"] is None

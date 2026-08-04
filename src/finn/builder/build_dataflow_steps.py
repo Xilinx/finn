@@ -66,7 +66,7 @@ from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.util.basic import get_by_name
 from qonnx.util.cleanup import cleanup_model
-from shutil import copy, move
+from shutil import copy
 
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
@@ -102,6 +102,9 @@ from finn.transformation.fpgadataflow.alveo_build import (
     VitisLink,
 )
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
+from finn.transformation.fpgadataflow.assign_ddr_weight_offsets import (
+    AssignMemoryOffset,
+)
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
@@ -157,8 +160,8 @@ from finn.util.config import (
     extract_model_config_consolidate_shuffles,
     extract_model_config_to_json,
 )
-from finn.util.fpgadataflow import warn_hls_rtl_dsp_conflict
-from finn.util.mlo_sim import is_mlo, mlo_prehook_func_factory
+from finn.util.fpgadataflow import is_mlo, warn_hls_rtl_dsp_conflict
+from finn.util.rtlsim import annotate_rtlsim_performance, mlo_prehook_func_factory
 from finn.util.test import execute_parent
 from finn.util.vivado import parse_ooc_synth_results
 
@@ -203,6 +206,7 @@ def verify_step(
     step_name: str,
     need_parent: bool,
     rtlsim_pre_hook=None,
+    batched: bool = False,
 ):
     print("Running verification for " + step_name)
     verify_out_dir = cfg.output_dir + "/verification_output"
@@ -213,9 +217,14 @@ def verify_step(
     bsize_out = exp_out_npy_all.shape[0]
     assert bsize_in == bsize_out, "Batch sizes don't match for verification IO pair"
     all_res = True
-    for b in range(bsize_in):
-        in_npy = np.expand_dims(in_npy_all[b], axis=0)
-        exp_out_npy = np.expand_dims(exp_out_npy_all[b], axis=0)
+    if batched:
+        chunks = [(in_npy_all, exp_out_npy_all, 0)]
+    else:
+        chunks = [
+            (np.expand_dims(in_npy_all[b], axis=0), np.expand_dims(exp_out_npy_all[b], axis=0), b)
+            for b in range(bsize_in)
+        ]
+    for in_npy, exp_out_npy, index in chunks:
         if need_parent:
             assert cfg.save_intermediate_models, "Enable save_intermediate_models for verification"
             parent_model_fn = intermediate_models_dir + "/dataflow_parent.onnx"
@@ -223,27 +232,29 @@ def verify_step(
             model.save(child_model_fn)
             parent_model = ModelWrapper(parent_model_fn)
             out_tensor_name = parent_model.get_first_global_out()
-            exp_ishape = parent_model.get_tensor_shape(parent_model.get_first_global_in())
-            if in_npy.shape != exp_ishape:
+            exp_ishape = tuple(parent_model.get_tensor_shape(parent_model.get_first_global_in()))
+            target_ishape = (in_npy.shape[0],) + exp_ishape[1:]
+            if in_npy.shape != target_ishape:
                 print(
                     "Verification input has shape %s while model expects %s"
-                    % (str(in_npy.shape), str(exp_ishape))
+                    % (str(in_npy.shape), str(target_ishape))
                 )
                 print("Attempting to force model shape on verification input")
-                in_npy = in_npy.reshape(exp_ishape)
+                in_npy = in_npy.reshape(target_ishape)
             out_dict = execute_parent(parent_model_fn, child_model_fn, in_npy, return_full_ctx=True)
             out_npy = out_dict[out_tensor_name]
         else:
             inp_tensor_name = model.get_first_global_in()
             out_tensor_name = model.get_first_global_out()
-            exp_ishape = model.get_tensor_shape(inp_tensor_name)
-            if in_npy.shape != exp_ishape:
+            exp_ishape = tuple(model.get_tensor_shape(inp_tensor_name))
+            target_ishape = (in_npy.shape[0],) + exp_ishape[1:]
+            if in_npy.shape != target_ishape:
                 print(
                     "Verification input has shape %s while model expects %s"
-                    % (str(in_npy.shape), str(exp_ishape))
+                    % (str(in_npy.shape), str(target_ishape))
                 )
                 print("Attempting to force model shape on verification input")
-                in_npy = in_npy.reshape(exp_ishape)
+                in_npy = in_npy.reshape(target_ishape)
             inp_dict = {inp_tensor_name: in_npy}
             if rtlsim_pre_hook is not None:
                 rtlsim_exec(model, inp_dict, pre_hook=rtlsim_pre_hook)
@@ -271,7 +282,7 @@ def verify_step(
         if cfg.verify_save_full_context and (rtlsim_pre_hook is None):
             verification_output_fn = verify_out_dir + "/verify_%s_%d_%s.npz" % (
                 step_name,
-                b,
+                index,
                 res_str,
             )
             np.savez(verification_output_fn, **out_dict)
@@ -280,7 +291,7 @@ def verify_step(
                 print("Warning: Unable to save the full context when using MLO")
             verification_output_fn = verify_out_dir + "/verify_%s_%d_%s.npy" % (
                 step_name,
-                b,
+                index,
                 res_str,
             )
             np.save(verification_output_fn, out_npy)
@@ -289,7 +300,7 @@ def verify_step(
             # Handle model-level waveform (stitched IP rtlsim)
             wdb_path = model.get_metadata_prop("rtlsim_trace")
             if wdb_path is not None and os.path.isfile(wdb_path):
-                new_wdb_path = wdb_path.replace(".wdb", "_%d.wdb" % b)
+                new_wdb_path = wdb_path.replace(".wdb", "_%d.wdb" % index)
                 shutil.move(wdb_path, new_wdb_path)
             # Handle node-level waveforms (only for node-by-node rtlsim)
             if step_name == "node_by_node_rtlsim":
@@ -297,7 +308,7 @@ def verify_step(
                     node_inst = getCustomOp(node)
                     node_wdb_path = node_inst.get_nodeattr("rtlsim_trace")
                     if node_wdb_path is not None and os.path.isfile(node_wdb_path):
-                        new_node_wdb_path = node_wdb_path.replace(".wdb", "_%d.wdb" % b)
+                        new_node_wdb_path = node_wdb_path.replace(".wdb", "_%d.wdb" % index)
                         shutil.move(node_wdb_path, new_node_wdb_path)
 
     print("Verification for %s : %s" % (step_name, res_to_str[all_res]))
@@ -508,6 +519,9 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     )
 
     # Streaming operations
+    model = apply_if_relevant(
+        model, ["Concat"], to_hw.InferPad1DLayer(), "1D padding and CLS token insertion"
+    )
     model = apply_if_relevant(model, ["Concat"], to_hw.InferConcatLayer(), "concat layers")
     model = apply_if_relevant(model, ["Split"], to_hw.InferSplitLayer(), "split layers")
 
@@ -1085,7 +1099,14 @@ def verify_mlo(model: ModelWrapper, cfg: DataflowBuildConfig, step: str):
     finn_loop = model.get_nodes_by_op_type("FINNLoop")
     # TODO: allow for multiple FINNLoops
     mlo_prehook = mlo_prehook_func_factory(finn_loop[0])
-    verify_step(model, cfg, "stitched_ip_rtlsim", need_parent=False, rtlsim_pre_hook=mlo_prehook)
+    verify_step(
+        model,
+        cfg,
+        "stitched_ip_rtlsim",
+        need_parent=False,
+        rtlsim_pre_hook=mlo_prehook,
+        batched=True,
+    )
 
 
 def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
@@ -1187,70 +1208,6 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
-def _annotate_rtlsim_performance(rtlsim_stats, batch_size, clock_period_ns):
-    """Add latency and throughput metrics to raw XSI simulation statistics.
-
-    Overall throughput includes pipeline fill and is available for any completed
-    run. Steady-state throughput requires at least two completed output frames;
-    one frame provides latency only and cannot define an output-to-output rate.
-    """
-
-    batch_size = int(batch_size)
-    clock_period_ns = float(clock_period_ns)
-    cycles = int(rtlsim_stats["cycles"])
-    latency_cycles = int(rtlsim_stats["latency_cycles"])
-    assert batch_size > 0, "rtlsim batch size must be >0"
-    assert cycles > 0, "rtlsim cycle count must be >0"
-    assert clock_period_ns > 0.0, "rtlsim clock period must be >0"
-
-    runtime_s = cycles * clock_period_ns * 1.0e-9
-    rtlsim_stats["runtime[ms]"] = runtime_s * 1000.0
-    rtlsim_stats["throughput[images/s]"] = batch_size / runtime_s
-    rtlsim_stats["fclk[mhz]"] = 1000.0 / clock_period_ns
-
-    timeout = int(rtlsim_stats.get("TIMEOUT", 1))
-    unfinished_inputs = int(rtlsim_stats.get("UNFINISHED_INS", 1))
-    unfinished_outputs = int(rtlsim_stats.get("UNFINISHED_OUTS", 1))
-    run_complete = timeout == 0 and unfinished_inputs == 0 and unfinished_outputs == 0
-    completed_frames = int(
-        rtlsim_stats.get("completed_output_frames", batch_size if run_complete else 0)
-    )
-    run_complete = run_complete and completed_frames >= batch_size
-
-    interval_cycles = int(rtlsim_stats.get("interval_cycles", 0))
-    xsi_interval_valid = bool(
-        int(rtlsim_stats.get("interval_valid", completed_frames >= 2 and interval_cycles > 0))
-    )
-    interval_valid = (
-        run_complete and completed_frames >= 2 and interval_cycles > 0 and xsi_interval_valid
-    )
-    rtlsim_stats["interval_is_steady_state"] = interval_valid
-    rtlsim_stats["fps_from_interval"] = (
-        1.0e9 / (clock_period_ns * interval_cycles) if interval_valid else None
-    )
-
-    # New XSI results report the exact span and frame count between the first
-    # and last completed outputs. Fall back to legacy results by removing the
-    # first (pipeline-fill) frame from both the count and elapsed cycles.
-    steady_state_frames = int(rtlsim_stats.get("steady_state_frames", max(0, batch_size - 1)))
-    steady_state_cycles = int(
-        rtlsim_stats.get("steady_state_cycles", max(0, cycles - latency_cycles))
-    )
-    stable_valid = (
-        run_complete
-        and completed_frames >= 2
-        and steady_state_frames > 0
-        and steady_state_cycles > 0
-    )
-    rtlsim_stats["stable_throughput_valid"] = stable_valid
-    rtlsim_stats["stable_throughput[images/s]"] = (
-        steady_state_frames * 1.0e9 / (clock_period_ns * steady_state_cycles)
-        if stable_valid
-        else None
-    )
-    return rtlsim_stats
-
-
 def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Measure performance + latency of stitched-IP model in rtlsim (xsi).
     Depends on the DataflowOutputType.STITCHED_IP output product.
@@ -1285,7 +1242,7 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
         for key, val in rtlsim_perf_dict.items():
             if "max_count" in key:
                 del rtlsim_perf_dict[key]
-        rtlsim_perf_dict = _annotate_rtlsim_performance(
+        rtlsim_perf_dict = annotate_rtlsim_performance(
             rtlsim_perf_dict, rtlsim_bs, cfg.synth_clk_period_ns
         )
 
@@ -1466,10 +1423,10 @@ def step_loop_rolling(model, cfg):
             )
         if cfg.loop_body_hierarchy is not None:
             print(f"Running Loop Rolling on {cfg.loop_body_hierarchy} hierarchy")
-            loop_extraction = LoopExtraction(cfg.loop_body_hierarchy)
+            template_path = os.path.join(cfg.output_dir, "loop-body-template.onnx")
+            loop_extraction = LoopExtraction(cfg.loop_body_hierarchy, template_path)
             model = model.transform(loop_extraction)
             model = model.transform(LoopRolling(loop_extraction.loop_body_template))
-            move("loop-body-template.onnx", cfg.output_dir + "/loop-body-template.onnx")
     else:
         print("MLO not selected, skipping step_loop_rolling.")
 
@@ -1563,6 +1520,35 @@ def step_loop_body_ipgen_and_stitch(model: ModelWrapper, cfg: DataflowBuildConfi
     return model
 
 
+def step_assign_ddr_weight_offsets(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """MLO only: assign DDR address offsets for streamed weights.
+
+    Must run before step_hw_codegen, because PrepareIP bakes the assigned
+    address_offset into the generated RTL, and after folding/bit-width
+    minimization, because the offsets depend on the final weight layout.
+    No-op unless MLO is enabled. AssignMemoryOffset itself skips any FINNLoop
+    node whose mem_type attribute is not "DDR".
+
+    Any FINNLoop whose mem_type is still unset is resolved here
+    """
+    if cfg.mlo:
+        resolved_mem_type = cfg._resolve_mem_type()
+        for node in model.get_nodes_by_op_type("FINNLoop"):
+            node_inst = getCustomOp(node)
+            if node_inst.get_nodeattr("mem_type") == "":
+                node_inst.set_nodeattr("mem_type", resolved_mem_type)
+                if resolved_mem_type == "HBM":
+                    print(
+                        "NOTE: selecting HBM mem_type for FINNLoop '%s' on board %s. "
+                        "You can create a stitched IP to use with HBM, but there is "
+                        "currently no automatic system integration for HBM as there is "
+                        "for boards with DDR. Set mem_type in the folding config to "
+                        "override." % (node.name, cfg.board)
+                    )
+        model = model.transform(AssignMemoryOffset())
+    return model
+
+
 #: map step name strings to step functions
 build_dataflow_step_lookup = {
     "step_qonnx_to_finn": step_qonnx_to_finn,
@@ -1587,4 +1573,5 @@ build_dataflow_step_lookup = {
     "step_loop_rolling": step_loop_rolling,
     "step_loop_body_set_fifo_depths": step_loop_body_set_fifo_depths,
     "step_loop_body_ipgen_and_stitch": step_loop_body_ipgen_and_stitch,
+    "step_assign_ddr_weight_offsets": step_assign_ddr_weight_offsets,
 }

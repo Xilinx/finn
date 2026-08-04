@@ -94,6 +94,11 @@ part_map = {**pynq_part_map, **vitis_part_map, **slash_part_map}
 part_map["VEK280"] = "xcve2802-vsvh1760-2MP-e-S"
 part_map["VCK190"] = "xcvc1902-vsva2197-2MP-e-S"
 
+# Boards that expose HBM. Note that U50 has only HBM (no DDR), while the other
+# entries have HBM in addition to DDR. All boards not listed here are assumed to
+# be DDR-only (this includes U200/U250 and all Zynq/RFSoC boards).
+hbm_boards = {"U50", "U280", "U55C", "V80"}
+
 
 def get_rtlsim_trace_depth():
     """Return the trace depth for rtlsim. Controllable
@@ -307,6 +312,7 @@ def resolve_xilinx_tool(tool_name):
     - vitis-run
     - v++
     - xelab
+    - slashkit
 
     With FINN_TOOL_DIR_OVERRIDE set, the command resolves to
     <override>/<tool_name>, otherwise the bare tool_name is used.
