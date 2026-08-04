@@ -152,11 +152,28 @@ def get_vivado_version() -> Optional[Tuple[int, int]]:
     return (int(match.group(1)), int(match.group(2))) if match else None
 
 
-def get_liveness_threshold_cycles():
+def get_liveness_threshold_cycles(cycles_estimate=None):
     """Return the number of no-output cycles rtlsim will wait before assuming
-    the simulation is not finishing and throwing an exception."""
+    the simulation is not finishing and throwing an exception. If an estimate
+    is supplied, ``LIVENESS_THRESHOLD`` can only increase it."""
 
-    return int(os.getenv("LIVENESS_THRESHOLD", 1000000))
+    configured_threshold = int(os.getenv("LIVENESS_THRESHOLD", 10000))
+    if cycles_estimate is None:
+        return configured_threshold
+    return max(int(cycles_estimate), configured_threshold)
+
+
+def get_rtlsim_timeout_error_message(threshold, cycles_estimate=None):
+    """Return an actionable RTL simulation timeout error message."""
+
+    message = f"RTL simulation timed out after {int(threshold)} cycles"
+    if cycles_estimate is not None:
+        message += f" (derived estimate: {int(cycles_estimate)})"
+    return (
+        message
+        + ". If your model requires more cycles, set LIVENESS_THRESHOLD "
+        + "to a higher value."
+    )
 
 
 def make_build_dir(prefix=""):

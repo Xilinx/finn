@@ -226,16 +226,16 @@ class HWCustomOp(CustomOp):
     def rtlsim_multi_io(self, sim, io_dict, sname="_V"):
         "Run rtlsim for this node, supports multiple i/o streams."
         num_out_values = self.get_number_output_values()
-        # Use the larger of expected cycles or liveness threshold
+        # LIVENESS_THRESHOLD can only increase the expected cycle count.
         exp_cycles = self.get_exp_cycles()
-        liveness_threshold = get_liveness_threshold_cycles()
-        effective_threshold = max(exp_cycles, liveness_threshold)
+        effective_threshold = get_liveness_threshold_cycles(exp_cycles)
         total_cycle_count = finnxsi.rtlsim_multi_io(
             sim,
             io_dict,
             num_out_values,
             sname=sname,
             liveness_threshold=effective_threshold,
+            liveness_estimate=exp_cycles,
         )
 
         self.set_nodeattr("cycles_rtlsim", total_cycle_count)

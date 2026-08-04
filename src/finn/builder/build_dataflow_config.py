@@ -373,11 +373,6 @@ class DataflowBuildConfig:
     #: rtlsim, otherwise they will be replaced by RTL implementations.
     rtlsim_use_vivado_comps: Optional[bool] = True
 
-    #: Optional liveness watchdog override, in cycles, for stitched-IP rtlsim
-    #: verification. If unset, FINN derives the watchdog from the performance
-    #: estimate for the graph.
-    stitched_rtlsim_liveness_threshold: Optional[int] = None
-
     #: Use behavioral simulation for RTLSim verification steps.
     #: When True, passes -define FINN_SIMULATION to xelab, enabling faster
     #: behavioral models for DSP-heavy modules (MVU, LayerNorm, Elementwise)

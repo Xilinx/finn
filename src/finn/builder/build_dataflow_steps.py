@@ -155,7 +155,7 @@ from finn.transformation.qonnx.quant_act_to_multithreshold import (
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import get_liveness_threshold_cycles, get_rtlsim_trace_depth
+from finn.util.basic import get_rtlsim_trace_depth
 from finn.util.config import (
     extract_model_config_consolidate_shuffles,
     extract_model_config_to_json,
@@ -1169,42 +1169,28 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
             # (very conservative)
             verify_model = verify_model.transform(AnnotateCycles())
             estimate_network_performance = verify_model.analysis(dataflow_performance)
-            prev_liveness = get_liveness_threshold_cycles()
-            stitched_liveness = cfg.stitched_rtlsim_liveness_threshold
-            if stitched_liveness is None:
-                stitched_liveness = int(
-                    estimate_network_performance["critical_path_cycles"] * 1.1 + 50
-                )
-                print(
-                    "Using stitched-IP rtlsim liveness threshold from performance "
-                    + "estimate: "
-                    + str(stitched_liveness)
-                )
+            stitched_liveness_estimate = int(
+                estimate_network_performance["critical_path_cycles"] * 1.1 + 50
+            )
+            verify_model.set_metadata_prop(
+                "rtlsim_liveness_estimate", str(stitched_liveness_estimate)
+            )
+            if cfg.verify_save_rtlsim_waveforms:
+                verify_out_dir = cfg.output_dir + "/verification_output"
+                waveform_dir = verify_out_dir + "/stitched_ip_rtlsim_waveforms"
+                os.makedirs(waveform_dir, exist_ok=True)
+                abspath = os.path.abspath(waveform_dir)
+                verify_model.set_metadata_prop("rtlsim_trace", abspath + "/verify_rtlsim.wdb")
+            if cfg.verify_rtlsim_behavioral:
+                verify_model.set_metadata_prop("rtlsim_behavioral", "1")
+            if is_mlo(model):
+                verify_mlo(verify_model, cfg, "stitched_ip_rtlsim")
+                for loop_node in verify_model.get_nodes_by_op_type("FINNLoop"):
+                    snapshot_fifo_logs(cfg, "stitched_ip_rtlsim", loop_context=loop_node.name)
+                snapshot_fifo_logs(cfg, "stitched_ip_rtlsim")
             else:
-                print(
-                    "Using stitched-IP rtlsim liveness threshold override: "
-                    + str(stitched_liveness)
-                )
-            os.environ["LIVENESS_THRESHOLD"] = str(int(stitched_liveness))
-            try:
-                if cfg.verify_save_rtlsim_waveforms:
-                    verify_out_dir = cfg.output_dir + "/verification_output"
-                    waveform_dir = verify_out_dir + "/stitched_ip_rtlsim_waveforms"
-                    os.makedirs(waveform_dir, exist_ok=True)
-                    abspath = os.path.abspath(waveform_dir)
-                    verify_model.set_metadata_prop("rtlsim_trace", abspath + "/verify_rtlsim.wdb")
-                if cfg.verify_rtlsim_behavioral:
-                    verify_model.set_metadata_prop("rtlsim_behavioral", "1")
-                if is_mlo(model):
-                    verify_mlo(verify_model, cfg, "stitched_ip_rtlsim")
-                    for loop_node in verify_model.get_nodes_by_op_type("FINNLoop"):
-                        snapshot_fifo_logs(cfg, "stitched_ip_rtlsim", loop_context=loop_node.name)
-                    snapshot_fifo_logs(cfg, "stitched_ip_rtlsim")
-                else:
-                    verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
-                    snapshot_fifo_logs(cfg, "stitched_ip_rtlsim")
-            finally:
-                os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
+                verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
+                snapshot_fifo_logs(cfg, "stitched_ip_rtlsim")
     return model
 
 
