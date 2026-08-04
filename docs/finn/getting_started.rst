@@ -100,7 +100,7 @@ The most relevant are summarized below:
 * (required) ``FINN_XILINX_VERSION`` sets the Xilinx tools version to be used (e.g. ``2022.2``)
 * (required for Vitis) ``PLATFORM_REPO_PATHS`` points to the Vitis platform files (DSA).
 * (required for Vitis) ``XRT_DEB_VERSION`` specifies the .deb to be installed for XRT inside the container (see default value in ``run-docker.sh``).
-* (required for Slash) ``V80PP_DEB_PACKAGE`` specifies the .deb to be installed for Slash's v80++ linker.
+* (required for Slash) ``SLASHKIT_DEB_PACKAGE`` specifies the .deb to be installed for Slash's slashkit linker. This replaces the former ``V80PP_DEB_PACKAGE`` variable, there is no backwards compatibility.
 * (optional) ``NUM_DEFAULT_WORKERS`` (default 4) specifies the degree of parallelization for the transformations that can be run in parallel, potentially reducing build time
 * (optional) ``FINN_XELAB_MT`` overrides the number of threads used by ``xelab`` when building XSI simulations. Defaults to ``NUM_DEFAULT_WORKERS`` or 8 if unset. Set to 1 to disable xelab multithreading.
 * (optional) ``FINN_HOST_BUILD_DIR`` specifies which directory on the host will be used as the build directory. Defaults to ``/tmp/finn_dev_<username>``
@@ -258,7 +258,7 @@ card is installed. These two can be the same PC, or connected over the network.
 Prior to first usage, you need to build the Slash packages from source and set up both
 the host and the target. Please refer to the `Slash GitHub repository
 <https://github.com/Xilinx/slash>`_ for instructions on how to build all Slash packages,
-including the ``v80++`` linker package.
+including the ``slashkit`` linker package.
 
 On the target side:
 
@@ -268,10 +268,10 @@ On the target side:
 
 On the host side:
 
-1. Build the ``v80++`` Debian package from the `Slash GitHub repository
+1. Build the ``slashkit`` Debian package from the `Slash GitHub repository
    <https://github.com/Xilinx/slash>`_ and copy it to a location accessible on the host.
-2. Set the ``V80PP_DEB_PACKAGE`` environment variable to the path of the ``v80++``
-   Debian package (e.g. ``export V80PP_DEB_PACKAGE=/path/to/v80++.deb``). The package
+2. Set the ``SLASHKIT_DEB_PACKAGE`` environment variable to the path of the ``slashkit``
+   Debian package (e.g. ``export SLASHKIT_DEB_PACKAGE=/path/to/slashkit.deb``). The package
    will be installed into the Docker image when ``run-docker.sh`` builds it.
 3. `Set up public key authentication <https://www.digitalocean.com/community/tutorials/how-to-configure-ssh-key-based-authentication-on-a-linux-server>`_.
    Copy your private key to the ``finn/ssh_keys`` folder on the host to get
