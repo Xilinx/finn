@@ -29,13 +29,13 @@
 
 import numpy as np
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from dataclasses_json import dataclass_json
 from enum import Enum
-from typing import Any, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
-from finn.transformation.fpgadataflow.vitis_build import VitisOptStrategy
-from finn.util.basic import alveo_default_platform, alveo_part_map, pynq_part_map
+from finn.transformation.fpgadataflow.alveo_build import VitisOptStrategy
+from finn.util.basic import hbm_boards, part_map, vitis_default_platform
 
 
 class AutoFIFOSizingMethod(str, Enum):
@@ -51,6 +51,7 @@ class ShellFlowType(str, Enum):
 
     VIVADO_ZYNQ = "vivado_zynq"
     VITIS_ALVEO = "vitis_alveo"
+    SLASH_ALVEO = "slash_alveo"
 
 
 class DataflowOutputType(str, Enum):
@@ -62,6 +63,7 @@ class DataflowOutputType(str, Enum):
     RTLSIM_PERFORMANCE = "rtlsim_performance"
     BITFILE = "bitfile"
     PYNQ_DRIVER = "pynq_driver"
+    CPP_DRIVER = "cpp_driver"
     DEPLOYMENT_PACKAGE = "deployment_package"
 
 
@@ -96,6 +98,8 @@ class VerificationStepType(str, Enum):
     STREAMLINED_PYTHON = "streamlined_python"
     #: verify after step_apply_folding_config, using C++ for each HLS node
     FOLDED_HLS_CPPSIM = "folded_hls_cppsim"
+    #: verify after step_hw_ipgen
+    NODE_BY_NODE_RTLSIM = "node_by_node_rtlsim"
     #: verify after step_create_stitched_ip, using stitched-ip Verilog
     STITCHED_IP_RTLSIM = "stitched_ip_rtlsim"
 
@@ -104,39 +108,20 @@ class VerificationStepType(str, Enum):
 #: specified order. Use the `steps` as part of build config to restrict which
 #: steps will be run.
 default_build_dataflow_steps = [
-    "step_qonnx_to_finn",
-    "step_tidy_up",
-    "step_streamline",
-    "step_convert_to_hw",
-    "step_create_dataflow_partition",
-    "step_specialize_layers",
-    "step_target_fps_parallelization",
-    "step_apply_folding_config",
-    "step_minimize_bit_width",
-    "step_generate_estimate_reports",
-    "step_hw_codegen",
-    "step_hw_ipgen",
-    "step_set_fifo_depths",
-    "step_create_stitched_ip",
-    "step_measure_rtlsim_performance",
-    "step_out_of_context_synthesis",
-    "step_synthesize_bitfile",
-    "step_make_pynq_driver",
-    "step_deployment_package",
+    "phase_prepare_model",
+    "phase_optimize_model",
+    "phase_convert_to_hardware",
+    "phase_optimize_hardware",
+    "phase_build_hardware",
+    "phase_generate_outputs",
 ]
 
 #: List of steps to run for an estimate-only (no synthesis) dataflow build
 estimate_only_dataflow_steps = [
-    "step_qonnx_to_finn",
-    "step_tidy_up",
-    "step_streamline",
-    "step_convert_to_hw",
-    "step_create_dataflow_partition",
-    "step_specialize_layers",
-    "step_target_fps_parallelization",
-    "step_apply_folding_config",
-    "step_minimize_bit_width",
-    "step_generate_estimate_reports",
+    "phase_prepare_model",
+    "phase_optimize_model",
+    "phase_convert_to_hardware",
+    "phase_optimize_hardware",
 ]
 
 #: List of steps to run for a dataflow build including HW code generation, but
@@ -169,7 +154,7 @@ class DataflowBuildConfig:
     #: The SpecializeLayers transformation picks up these settings and if possible
     #: fulfills the desired implementation style for each layer by converting the
     #: node into its HLS or RTL variant.
-    #: Will be applied with :py:mod:`qonnx.transformation.general.ApplyConfig`
+    #: Will be applied with :py:mod:`finn.transformation.general.ApplyConfig`
     specialize_layers_config_file: Optional[str] = None
 
     #: (Optional) Path to configuration JSON file. May include parallelization,
@@ -177,7 +162,7 @@ class DataflowBuildConfig:
     #: If the parallelization attributes (PE, SIMD) are part of the config,
     #: this will override the automatically generated parallelization
     #: attributes inferred from target_fps (if any)
-    #: Will be applied with :py:mod:`qonnx.transformation.general.ApplyConfig`
+    #: Will be applied with :py:mod:`finn.transformation.general.ApplyConfig`
     folding_config_file: Optional[str] = None
 
     #: (Optional) Target inference performance in frames per second.
@@ -215,6 +200,9 @@ class DataflowBuildConfig:
     #: By default, waveforms won't be saved.
     verify_save_rtlsim_waveforms: Optional[bool] = False
 
+    #: Manually specify the verification tolerance
+    verification_atol: Optional[float] = 1e-1
+
     #: (Optional) Run synthesis to generate a .dcp for the stitched-IP output product.
     #: This can make it easier to treat it as a standalone artifact without requiring
     #: the full list of layer IP build directories. By default, synthesis will not run.
@@ -237,11 +225,24 @@ class DataflowBuildConfig:
     #: flexibility, and makes it possible to have runtime-writable thresholds.
     standalone_thresholds: Optional[bool] = False
 
+    #: (Optional) Bitwidth threshold for choosing between Requant and Thresholding
+    #: for MultiThreshold nodes. When output bitwidth >= this threshold, Requant is
+    #: preferred (if thresholds are uniform). When output bitwidth < threshold,
+    #: Thresholding is used. Requant is more efficient for high bitwidths.
+    #: Default is 9 (use Requant for 9+ bit outputs, Thresholding for 8-bit and below).
+    requant_bitwidth_threshold: Optional[int] = 9
+
     #: (Optional) Whether optimizations that minimize the bit width of the
     #: weights and accumulator will be applied. Because this optimization relies
     #: on the the values of the weights, it will only be applied if runtime-
     #: writeable weights is not enabled.
     minimize_bit_width: Optional[bool] = True
+
+    #: (Optional) Whether to skip converting the first Transpose node
+    #: to a Shuffle layer. This is useful for image classification networks where
+    #: the first transpose converts NCHW to NHWC layout for data preprocessing.
+    #: Enabled by default.
+    infer_shuffle_skip_first: Optional[bool] = True
 
     #: Target board, only needed for generating full bitfiles where the FINN
     #: design is integrated into a shell.
@@ -271,13 +272,25 @@ class DataflowBuildConfig:
     #: setting the FIFO sizes.
     auto_fifo_strategy: Optional[AutoFIFOSizingMethod] = AutoFIFOSizingMethod.LARGEFIFO_RTLSIM
 
-    #: Avoid using C++ rtlsim for auto FIFO sizing and rtlsim throughput test
-    #: if set to True, always using Python instead
-    force_python_rtlsim: Optional[bool] = False
-
     #: Memory resource type for large FIFOs
     #: Only relevant when `auto_fifo_depths = True`
     large_fifo_mem_style: Optional[LargeFIFOMemStyle] = LargeFIFOMemStyle.AUTO
+
+    #: Enable input throttling for simulation-based FIFO sizing
+    #: Only relevant if auto_fifo_strategy = LARGEFIFO_RTLSIM
+    fifosim_input_throttle: Optional[bool] = True
+
+    #: Manually specify the number of inferences for simulation-based FIFO sizing
+    #: Default is 2
+    fifosim_n_inferences: Optional[int] = 2
+
+    #: Enable saving waveforms from simulation-based FIFO sizing.
+    #: Applies to the LARGEFIFO_RTLSIM strategy as well as the characterize
+    #: strategy (used for MLO/FINNLoop models), where it traces the per-node
+    #: characterization simulations.
+    fifosim_save_waveform: Optional[bool] = False
+
+    debug_fifo: Optional[bool] = False
 
     #: Target clock frequency (in nanoseconds) for Vitis HLS synthesis.
     #: e.g. `hls_clk_period_ns=5.0` will target a 200 MHz clock.
@@ -297,7 +310,7 @@ class DataflowBuildConfig:
 
     #: Path to JSON config file assigning each layer to an SLR.
     #: Only relevant when `shell_flow_type = ShellFlowType.VITIS_ALVEO`
-    #: Will be applied with :py:mod:`qonnx.transformation.general.ApplyConfig`
+    #: Will be applied with :py:mod:`finn.transformation.general.ApplyConfig`
     vitis_floorplan_file: Optional[str] = None
 
     #: Vitis optimization strategy
@@ -311,6 +324,10 @@ class DataflowBuildConfig:
     #: Whether hardware debugging will be enabled (e.g. ILA cores inserted to
     #: debug signals in the generated hardware)
     enable_hw_debug: Optional[bool] = False
+
+    #: Whether to build a simulation image instead of a full hardware image.
+    #: Currently only supported by the SLASH_VRT shell flow.
+    enable_hw_sim: Optional[bool] = False
 
     #: Whether pdb postmortem debuggig will be launched when the build fails
     enable_build_pdb_debug: Optional[bool] = True
@@ -329,10 +346,14 @@ class DataflowBuildConfig:
     steps: Optional[List[Any]] = None
 
     #: If given, start from this step, loading the intermediate model generated
-    #: from the previous step (save_intermediate_models must be enabled)
+    #: from the previous step (save_intermediate_models must be enabled).
+    #: Note: When using phase-based builds (default), specify phase names
+    #: (e.g., "phase_build_hardware") rather than fine-grained step names.
     start_step: Optional[str] = None
 
     #: If given, stop at this step.
+    #: Note: When using phase-based builds (default), specify phase names
+    #: (e.g., "phase_build_hardware") rather than fine-grained step names.
     stop_step: Optional[str] = None
 
     #: The optional argument `max_multithreshold_bit_width` affects which Quant nodes
@@ -340,15 +361,64 @@ class DataflowBuildConfig:
     #: only affects Quant nodes in the activation path. Quant nodes, which define a
     #: bit width larger than `max_multithreshold_bit_width` are not converted to
     #: MultiThreshold nodes and a warning is raised instead.
-    #: If not given `max_multithreshold_bit_width` defaults to 8.
-    max_multithreshold_bit_width: Optional[int] = 8
+    #: If not given `max_multithreshold_bit_width` defaults to 16.
+    max_multithreshold_bit_width: Optional[int] = 16
 
-    #: Override the number of inputs for rtlsim performance measurement.
-    rtlsim_batch_size: Optional[int] = 1
+    #: Override the number of frames for rtlsim performance measurement.
+    #: At least two are required to report steady-state throughput; a one-frame
+    #: run can measure latency and pipeline-fill throughput only.
+    rtlsim_batch_size: Optional[int] = 2
 
     #: If set to True, FIFOs with impl_style=vivado will be kept during
     #: rtlsim, otherwise they will be replaced by RTL implementations.
     rtlsim_use_vivado_comps: Optional[bool] = True
+
+    #: Use behavioral simulation for RTLSim verification steps.
+    #: When True, passes -define FINN_SIMULATION to xelab, enabling faster
+    #: behavioral models for DSP-heavy modules (MVU, LayerNorm, Elementwise)
+    #: and fifo_gauge (with debug capabilities) instead of Q_srl.
+    #: Does not affect FIFO sizing which always uses behavioral simulation.
+    verify_rtlsim_behavioral: Optional[bool] = False
+
+    #: If set to True, the FINN compiler tries to create an MLO design based on
+    #: loop_body_hierarchy and loop_body_range
+    mlo: Optional[bool] = False
+
+    #: A List of strings that specify the PyTorch metadata hierarchy to
+    #: be used for the loop body hierarchy. Each item in the list should
+    #: be a string that represents a level in the hierarchy.
+    loop_body_hierarchy: Optional[List[List[str]]] = None
+
+    #: A list of a start and an end node to mark the loop body subgraph
+    #: For this node range, the PyTorch metadata hierarchy will be simulated
+    #: TODO: this argument will be replaced or extended when there is a way
+    #: to preserve node metadata from the PyTorch model (e.g. from dynamo exporter)
+    loop_body_range: Optional[List[Any]] = None
+
+    #: Determine if the C++ driver should be generated instead of the PYNQ driver
+    #: If set to latest newest version will be used
+    #: If set to commit hash specified version will be used
+    cpp_driver_version: Optional[str] = "latest"
+
+    #: If True, suppress assertion errors for configuration checks.
+    #: Warnings and info will still be printed but errors will not halt the build.
+    mute_config_assertions: Optional[bool] = False
+
+    #: Inject custom steps after named steps/phases.
+    #: Dict mapping step/phase names to list of callable functions to run after that step.
+    #: Works at both granularities: keys can be a phase name (e.g. "phase_optimize_model")
+    #: or an internal step name (e.g. "step_tidy_up"), and the two can be mixed.
+    #: Example (phase): inject_steps_after={"phase_optimize_model": [my_custom_verification]}
+    #: Example (step):  inject_steps_after={"step_tidy_up": [my_custom_verification]}
+    inject_steps_after: Dict[str, List[Callable]] = field(default_factory=dict)
+
+    #: Inject custom steps before named steps/phases.
+    #: Dict mapping step/phase names to list of callable functions to run before that step.
+    #: Works at both granularities: keys can be a phase name (e.g. "phase_build_hardware")
+    #: or an internal step name (e.g. "step_convert_to_hw"), and the two can be mixed.
+    #: Example (phase): inject_steps_before={"phase_build_hardware": [my_custom_analysis]}
+    #: Example (step):  inject_steps_before={"step_convert_to_hw": [my_custom_analysis]}
+    inject_steps_before: Dict[str, List[Callable]] = field(default_factory=dict)
 
     def _resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:
@@ -361,22 +431,29 @@ class DataflowBuildConfig:
         if self.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
             return "zynq-iodma"
         elif self.shell_flow_type == ShellFlowType.VITIS_ALVEO:
-            return "alveo"
+            return "vitis-xrt"
+        elif self.shell_flow_type == ShellFlowType.SLASH_ALVEO:
+            return "slash-vrt"
         else:
             raise Exception("Couldn't resolve driver platform for " + str(self.shell_flow_type))
 
     def _resolve_fpga_part(self):
         if self.fpga_part is None:
             # lookup from part map if not specified
-            if self.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
-                return pynq_part_map[self.board]
-            elif self.shell_flow_type == ShellFlowType.VITIS_ALVEO:
-                return alveo_part_map[self.board]
-            else:
+            try:
+                fpga_part = part_map[self.board]
+                return fpga_part
+            except KeyError:
                 raise Exception("Couldn't resolve fpga_part for " + self.board)
         else:
             # return as-is when explicitly specified
             return self.fpga_part
+
+    def _resolve_mem_type(self):
+        """Resolve the memory type used to stream weights from the memories
+        available on the target board. When a board exposes more than one memory
+        type, HBM takes precedence over DDR."""
+        return "HBM" if self.board in hbm_boards else "DDR"
 
     def _resolve_cycles_per_frame(self):
         if self.target_fps is None:
@@ -402,7 +479,7 @@ class DataflowBuildConfig:
         if self.vitis_platform is not None:
             return self.vitis_platform
         elif (self.vitis_platform is None) and (self.board is not None):
-            return alveo_default_platform[self.board]
+            return vitis_default_platform[self.board]
         else:
             raise Exception(
                 "Could not resolve Vitis platform:" " need either board or vitis_platform specified"

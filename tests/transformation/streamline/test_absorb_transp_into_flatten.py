@@ -66,7 +66,7 @@ def test_absorb_transp_into_flatten(perm, shape, ishape, data_layout):
 
     # verify transformation
     inp_values = np.random.uniform(low=-1, high=1, size=tuple(ishape)).astype(np.float32)
-    idict = {model.graph.input[0].name: inp_values}
+    idict = {model.get_first_global_in(): inp_values}
     assert oxe.compare_execution(model, model_transformed, idict)
 
     # only some of the parameter combinations lead to a graph that will be changed when

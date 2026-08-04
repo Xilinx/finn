@@ -35,8 +35,11 @@ import onnx
 import onnx.numpy_helper as nph
 import torch
 from brevitas.export import export_qonnx
+from onnx import TensorProto, helper
 from pkgutil import get_data
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.cleanup import cleanup
 from tempfile import TemporaryDirectory
 
@@ -113,9 +116,9 @@ def test_QONNX_to_FINN(model_name, wbits, abits):
 
     # Compare output
     model = ModelWrapper(qonnx_base_path.format("clean"))
-    input_dict = {model.graph.input[0].name: input_tensor}
+    input_dict = {model.get_first_global_in(): input_tensor}
     output_dict = oxe.execute_onnx(model, input_dict, False)
-    qonnx_export_output = output_dict[model.graph.output[0].name]
+    qonnx_export_output = output_dict[model.get_first_global_out()]
     assert np.isclose(
         brev_output, qonnx_export_output, atol=ATOL
     ).all(), "The output of the Brevitas model and the QONNX model should match."
@@ -127,9 +130,9 @@ def test_QONNX_to_FINN(model_name, wbits, abits):
 
     # Compare output
     model = ModelWrapper(qonnx_base_path.format("whole_trafo"))
-    input_dict = {model.graph.input[0].name: input_tensor}
+    input_dict = {model.get_first_global_in(): input_tensor}
     output_dict = oxe.execute_onnx(model, input_dict, False)
-    test_output = output_dict[model.graph.output[0].name]
+    test_output = output_dict[model.get_first_global_out()]
     assert np.isclose(test_output, qonnx_export_output, atol=ATOL).all(), (
         "The output of the FINN model " "and the QONNX -> FINN converted model should match."
     )
@@ -139,3 +142,63 @@ def test_QONNX_to_FINN(model_name, wbits, abits):
     _ = model.analysis(analysis_testing_for_no_quant_nodes)
 
     temp_dir.cleanup()
+
+
+def _make_single_quant_model(x, scale, zeropt, bitwidth, signed, narrow, rounding):
+    """Minimal graph: global_in -> Quant -> global_out, params as initializers."""
+    ish = list(x.shape)
+    gi = helper.make_tensor_value_info("global_in", TensorProto.FLOAT, ish)
+    go = helper.make_tensor_value_info("global_out", TensorProto.FLOAT, ish)
+
+    def _init(name, arr):
+        return nph.from_array(np.asarray(arr, dtype=np.float32), name)
+
+    inits = [_init("scale", scale), _init("zeropt", zeropt), _init("bitwidth", bitwidth)]
+    quant = helper.make_node(
+        "Quant",
+        ["global_in", "scale", "zeropt", "bitwidth"],
+        ["global_out"],
+        domain="qonnx.custom_op.general",
+        signed=int(signed),
+        narrow=int(narrow),
+        rounding_mode=str(rounding),
+    )
+    graph = helper.make_graph([quant], "single_quant", [gi], [go], initializer=inits)
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    model.opset_import.append(helper.make_opsetid("qonnx.custom_op.general", 1))
+    m = ModelWrapper(model)
+    return m.transform(InferShapes()).transform(InferDataTypes())
+
+
+@pytest.mark.transform
+def test_QONNX_to_FINN_threshold_precision():
+    """Regression test for a float32 accumulation error in MultiThreshold
+    threshold derivation (QuantActBaseHandler._calculate_thresholds).
+
+    Each threshold used to be accumulated as ``min_threshold + step * t`` in
+    float32. Because ``min_threshold`` grows to ~-step*(num_thresholds/2), that
+    accumulation carried ~1 ulp of error at the base's magnitude, which could
+    place a boundary slightly below an input that Quant legitimately rounds down.
+    MultiThreshold's exact ``>=`` compare then stepped up where Quant did not,
+    giving a one-step mismatch.
+
+    The input below sits just under the ideal 1->2 boundary (1.5*scale), inside
+    the sliver the float32 error opened up: x/scale = 1.4999988 rounds to level 1
+    under Quant, so the converted graph must agree.
+    """
+    x = np.array([[[0.39990925788879395]]], dtype=np.float32)
+    scale = np.array([0.2666063904762268], dtype=np.float32)
+    zeropt = np.array([0.0], dtype=np.float32)
+    bitwidth = np.array([6.0], dtype=np.float32)
+
+    ref_m = _make_single_quant_model(x, scale, zeropt, bitwidth, 1, 0, "ROUND")
+    conv_m = ref_m.transform(ConvertQONNXtoFINN())
+
+    ref = oxe.execute_onnx(ref_m, {"global_in": x.copy()})["global_out"]
+    conv = oxe.execute_onnx(conv_m, {"global_in": x.copy()})["global_out"]
+
+    assert np.allclose(ref, conv, atol=1e-6), (
+        "Quant and ConvertQONNXtoFINN disagree on a boundary input: "
+        f"Quant={ref.ravel()[0]!r} vs MultiThreshold={conv.ravel()[0]!r} "
+        "(threshold derivation precision regression)"
+    )

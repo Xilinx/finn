@@ -30,12 +30,11 @@
 import pytest
 
 import numpy as np
-import os
-import shutil
 import torch
 from brevitas.export import export_qonnx
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
@@ -56,9 +55,7 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
-from finn.util.basic import make_build_dir
-
-tmpdir = os.environ["FINN_BUILD_DIR"]
+from finn.util.basic import make_build_dir, robust_rmtree
 
 
 class ForceDataTypeForTensors(Transformation):
@@ -101,26 +98,26 @@ class PyTorchTestModel(nn.Module):
 # param datatype
 @pytest.mark.parametrize("dt", [DataType["INT8"]])
 # spatial dim input feature map
-@pytest.mark.parametrize("IFMDim", [3, 5])
+@pytest.mark.parametrize("IFMDim", [[3, 3], [3, 5], [3, 1]])
 # upscaling factor
 @pytest.mark.parametrize("scale", [2, 3])
 # Number of input/output channels
 @pytest.mark.parametrize("NumChannels", [4])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
-# whether to use 1D or 2D square testcases
-@pytest.mark.parametrize("is_1d", [False, True])
+# parallelization level
+@pytest.mark.parametrize("SIMD", [1, 2, 4])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode, is_1d):
+def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode, SIMD):
     tmpdir = make_build_dir("upsample_export_")
     atol = 1e-3
-    if is_1d:
-        input_shape = (1, NumChannels, IFMDim, 1)
+    idim0, idim1 = IFMDim
+    input_shape = (1, NumChannels, idim0, idim1)
+    if idim1 == 1:
         upscale_factor = (scale, 1)
     else:
-        input_shape = (1, NumChannels, IFMDim, IFMDim)
         upscale_factor = (scale, scale)
     # Create the test model and inputs for it
     torch_model = PyTorchTestModel(upscale_factor=upscale_factor)
@@ -140,10 +137,10 @@ def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode, is_1d
     model = ModelWrapper(export_path)
     model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(InferShapes())
-    input_dict = {model.graph.input[0].name: test_in.numpy().astype(np.int32)}
-    input_dict = {model.graph.input[0].name: test_in.numpy()}
+    input_dict = {model.get_first_global_in(): test_in.numpy().astype(np.int32)}
+    input_dict = {model.get_first_global_in(): test_in.numpy()}
     golden_output_dict = oxe.execute_onnx(model, input_dict, True)
-    golden_result = golden_output_dict[model.graph.output[0].name]
+    golden_result = golden_output_dict[model.get_first_global_out()]
 
     # Make sure PyTorch and ONNX match
     pyTorch_onnx_match = np.isclose(golden_result, golden_torch_float).all()
@@ -165,13 +162,15 @@ def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode, is_1d
     for n in model.get_finn_nodes():
         node_check = n.op_type == "UpsampleNearestNeighbour"
         assert node_check, "All nodes should be UpsampleNearestNeighbour nodes."
+        inst = getCustomOp(n)
+        inst.set_nodeattr("SIMD", SIMD)
 
     test_in_transposed = test_in.numpy().transpose(_to_chan_last_args)
-    input_dict = {model.graph.input[0].name: test_in_transposed}
+    input_dict = {model.get_first_global_in(): test_in_transposed}
 
     # Run sim
     output_dict = oxe.execute_onnx(model, input_dict, True)
-    test_result = output_dict[model.graph.output[0].name]
+    test_result = output_dict[model.get_first_global_out()]
     output_matches = np.isclose(golden_result, test_result, atol=atol).all()
 
     model = model.transform(SpecializeLayers("xc7z020clg400-1"))
@@ -192,11 +191,11 @@ def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode, is_1d
 
     # Run sim
     output_dict = oxe.execute_onnx(model, input_dict, True)
-    test_result = output_dict[model.graph.output[0].name]
+    test_result = output_dict[model.get_first_global_out()]
     output_matches = np.isclose(golden_result, test_result, atol=atol).all()
 
     if exec_mode == "cppsim":
         assert output_matches, "Cppsim output doesn't match ONNX/PyTorch."
     elif exec_mode == "rtlsim":
         assert output_matches, "Rtlsim output doesn't match ONNX/PyTorch."
-    shutil.rmtree(tmpdir, ignore_errors=True)
+    robust_rmtree(tmpdir)
