@@ -26,7 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import numpy as np
+import warnings
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -129,22 +129,32 @@ class ConvolutionInputGenerator(HWCustomOp):
             folded_oshape = (1, ofm_dim_h, ofm_dim_w, wf, simd)
         return folded_oshape
 
-    def make_shape_compatible_op(self, model):
-        exp_ishape = self.get_normal_input_shape()
-        oshape = self.get_normal_output_shape()
-        ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == exp_ishape, "Unexpect input shape for ConvInpGen."
-        # implement tensor with correct shape
-        return super().make_const_shape_op(oshape)
-
     def infer_node_datatype(self, model):
         node = self.onnx_node
         # data type stays the same
         dtype = model.get_tensor_datatype(node.input[0])
-        model.set_tensor_datatype(node.output[0], dtype)
 
-    def verify_node(self):
-        pass
+        # Test for changing input datatype
+        if dtype != self.get_nodeattr("inputDataType"):
+            # Issue a warning message
+            warnings.warn(
+                f"{node.name}: inputDataType changing from"
+                f" {self.get_nodeattr('inputDataType')} to {dtype}"
+            )
+            # Set the new datatype attribute
+            self.set_nodeattr("inputDataType", dtype.name)
+
+        # Test for changing output datatype
+        if dtype != self.get_nodeattr("outputDataType"):
+            # Issue a warning message
+            warnings.warn(
+                f"{node.name}: outputDataType changing from"
+                f" {self.get_nodeattr('outputDataType')} to {dtype}"
+            )
+            # Set the new datatype attribute
+            self.set_nodeattr("outputDataType", dtype.name)
+        # Propagate the datatype through the model graph
+        model.set_tensor_datatype(node.output[0], dtype)
 
     def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
@@ -172,11 +182,6 @@ class ConvolutionInputGenerator(HWCustomOp):
         else:
             # if parallel variant not in use: same width for output and input stream
             return self.get_instream_width()
-
-    def get_number_output_values(self):
-        folded_oshape = self.get_folded_output_shape()
-        num_output_elems = np.prod(folded_oshape[:-1])
-        return num_output_elems
 
     def get_1d_conv_attrs_normalized(self):
         # support both (1, D) and (D, 1) cases transparently:
@@ -246,8 +251,7 @@ class ConvolutionInputGenerator(HWCustomOp):
             outputs=[outp],
         )
 
-        opset_version = self.onnx_opset_version
-        opset_imports = [helper.make_opsetid("", opset_version)]
+        opset_imports = [helper.make_opsetid("qonnx.custom_op.general", 1)]
         onnx_kwargs = {"opset_imports": opset_imports}
         model_im2col = ModelWrapper(qonnx_make_model(graph_im2col, **onnx_kwargs))
         model_im2col.set_tensor_datatype(node.input[0], self.get_input_datatype())

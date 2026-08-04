@@ -53,11 +53,11 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
+from finn.util.basic import get_vivado_version, make_build_dir, robust_rmtree
 
-export_onnx_path = "test_lookup.onnx"
 
-
-def make_lookup_model(embeddings, ishape, idt, edt):
+def make_lookup_model(embeddings, ishape, idt, edt, build_dir):
+    export_onnx_path = f"{build_dir}/test_lookup.onnx"
     num_embeddings, embedding_dim = embeddings.shape
 
     class LookupModel(nn.Module):
@@ -76,7 +76,7 @@ def make_lookup_model(embeddings, ishape, idt, edt):
     model = ModelWrapper(export_onnx_path)
     model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(InferShapes())
-    iname = model.graph.input[0].name
+    iname = model.get_first_global_in()
     ename = model.graph.node[0].input[0]
     model.set_tensor_datatype(iname, idt)
     eshape = model.get_tensor_shape(ename)
@@ -96,21 +96,45 @@ def make_lookup_model(embeddings, ishape, idt, edt):
 )
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+# fpga part and ram style combinations
+@pytest.mark.parametrize(
+    "fpga_part, ram_style",
+    [
+        ("xczu3eg-sbva484-1-e", "auto"),
+        ("xczu3eg-sbva484-1-e", "block"),
+        ("xczu3eg-sbva484-1-e", "distributed"),
+        ("xcvc1902-vsva2197-2MP-e-S", "ultra"),  # URAM requires Versal
+    ],
+)
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_fpgadataflow_lookup(edt, embedding_cfg, exec_mode):
+def test_fpgadataflow_lookup(edt, embedding_cfg, exec_mode, fpga_part, ram_style):
+    build_dir = make_build_dir(prefix="test_fpgadataflow_lookup_")
+    try:
+        _test_fpgadataflow_lookup(edt, embedding_cfg, exec_mode, fpga_part, ram_style, build_dir)
+    finally:
+        robust_rmtree(build_dir)
+
+
+def _test_fpgadataflow_lookup(edt, embedding_cfg, exec_mode, fpga_part, ram_style, build_dir):
+    # Skip URAM on old Vivado versions
+    if ram_style == "ultra":
+        vivado_version = get_vivado_version()
+        if vivado_version is not None and vivado_version < (2024, 2):
+            pytest.skip("URAM lookup requires Vivado 2024.2+")
+
     ishape = (1, 10)
     num_embeddings, idt, embedding_dim = embedding_cfg
     eshape = (num_embeddings, embedding_dim)
     exp_oshape = tuple(list(ishape) + [embedding_dim])
     embeddings = gen_finn_dt_tensor(edt, eshape)
-    model = make_lookup_model(embeddings, ishape, idt, edt)
+    model = make_lookup_model(embeddings, ishape, idt, edt, build_dir)
     assert len(model.graph.node) == 1
     assert model.graph.node[0].op_type == "Gather"
-    iname = model.graph.input[0].name
+    iname = model.get_first_global_in()
     ename = model.graph.node[0].input[0]
-    oname = model.graph.output[0].name
+    oname = model.get_first_global_out()
     assert model.get_tensor_datatype(iname) == idt
     assert model.get_tensor_datatype(ename) == edt
     assert model.get_tensor_datatype(oname) == edt
@@ -131,8 +155,10 @@ def test_fpgadataflow_lookup(edt, embedding_cfg, exec_mode):
     ret_hw = execute_onnx(model, {iname: itensor})
     assert (exp_out == ret_hw[oname]).all()
     # call transformation to convert abstraction layer into HLS layer
-    model = model.transform(SpecializeLayers("xczu3eg-sbva484-1-e"))
+    model = model.transform(SpecializeLayers(fpga_part))
     assert model.graph.node[0].op_type == "Lookup_hls"
+    # set the ram_style attribute
+    getCustomOp(model.graph.node[0]).set_nodeattr("ram_style", ram_style)
     if exec_mode == "cppsim":
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(PrepareCppSim())
@@ -140,7 +166,7 @@ def test_fpgadataflow_lookup(edt, embedding_cfg, exec_mode):
         model = model.transform(SetExecMode("cppsim"))
     elif exec_mode == "rtlsim":
         model = model.transform(GiveUniqueNodeNames())
-        model = model.transform(PrepareIP("xczu3eg-sbva484-1-e", 10))
+        model = model.transform(PrepareIP(fpga_part, 10))
         model = model.transform(HLSSynthIP())
         model = model.transform(SetExecMode("rtlsim"))
         model = model.transform(PrepareRTLSim())
@@ -152,6 +178,14 @@ def test_fpgadataflow_lookup(edt, embedding_cfg, exec_mode):
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_fpgadataflow_lookup_external():
+    build_dir = make_build_dir(prefix="test_fpgadataflow_lookup_external_")
+    try:
+        _test_fpgadataflow_lookup_external(build_dir)
+    finally:
+        robust_rmtree(build_dir)
+
+
+def _test_fpgadataflow_lookup_external(build_dir):
     fpga_part = "xczu3eg-sbva484-1-e"
     edt = DataType["INT8"]
     embedding_cfg = (200000, DataType["UINT32"], 300)
@@ -160,12 +194,12 @@ def test_fpgadataflow_lookup_external():
     eshape = (num_embeddings, embedding_dim)
     exp_oshape = tuple(list(ishape) + [embedding_dim])
     embeddings = gen_finn_dt_tensor(edt, eshape)
-    model = make_lookup_model(embeddings, ishape, idt, edt)
+    model = make_lookup_model(embeddings, ishape, idt, edt, build_dir)
     assert len(model.graph.node) == 1
     assert model.graph.node[0].op_type == "Gather"
-    iname = model.graph.input[0].name
+    iname = model.get_first_global_in()
     ename = model.graph.node[0].input[0]
-    oname = model.graph.output[0].name
+    oname = model.get_first_global_out()
     assert model.get_tensor_datatype(iname) == idt
     assert model.get_tensor_datatype(ename) == edt
     assert model.get_tensor_datatype(oname) == edt

@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020-2022 Xilinx, Inc.
+# Copyright (C) 2022-2025, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -28,8 +29,10 @@
 
 import pytest
 
+import json
 import numpy as np
 import os
+from qonnx.core.modelwrapper import ModelWrapper
 from shutil import copytree
 
 from finn.builder.build_dataflow import build_dataflow_directory
@@ -47,6 +50,7 @@ def test_end2end_build_dataflow_directory():
     build_dataflow_directory(target_dir)
     # check the generated files
     output_dir = target_dir + "/output_tfc_w1a1_Pynq-Z1"
+    assert os.path.isfile(output_dir + "/build_dataflow.log")
     assert os.path.isfile(output_dir + "/time_per_step.json")
     assert os.path.isfile(output_dir + "/auto_folding_config.json")
     assert os.path.isfile(output_dir + "/final_hw_config.json")
@@ -55,11 +59,44 @@ def test_end2end_build_dataflow_directory():
     assert os.path.isfile(output_dir + "/driver/driver.py")
     assert os.path.isfile(output_dir + "/report/estimate_layer_cycles.json")
     assert os.path.isfile(output_dir + "/report/estimate_layer_resources.json")
-    assert os.path.isfile(output_dir + "/report/rtlsim_perf_batch_1.vcd")
+    assert os.path.isfile(output_dir + "/report/rtlsim_perf_batch_2.wdb")
+    assert os.path.isfile(output_dir + "/report/fifosim_trace.wdb")
     assert os.path.isfile(output_dir + "/report/estimate_layer_config_alternatives.json")
     assert os.path.isfile(output_dir + "/report/estimate_network_performance.json")
     assert os.path.isfile(output_dir + "/report/ooc_synth_and_timing.json")
     assert os.path.isfile(output_dir + "/report/rtlsim_performance.json")
+
+    # Exercise the complete multi-frame XSI path. These assertions use raw
+    # harness statistics so that first/last completion accounting regressions
+    # cannot be hidden by downstream throughput arithmetic.
+    with open(output_dir + "/report/rtlsim_performance.json") as f:
+        rtlsim_perf = json.load(f)
+    assert rtlsim_perf["TIMEOUT"] == 0
+    assert rtlsim_perf["UNFINISHED_INS"] == 0
+    assert rtlsim_perf["UNFINISHED_OUTS"] == 0
+    assert rtlsim_perf["completed_output_frames"] == 2
+    assert rtlsim_perf["latency_cycles"] > 0
+    assert rtlsim_perf["latency_cycles"] < rtlsim_perf["cycles"]
+    assert rtlsim_perf["interval_valid"] == 1
+    assert rtlsim_perf["interval_cycles"] > 0
+    assert rtlsim_perf["steady_state_frames"] == 1
+    assert rtlsim_perf["steady_state_cycles"] == rtlsim_perf["interval_cycles"]
+    assert (
+        rtlsim_perf["latency_cycles"] + rtlsim_perf["steady_state_cycles"] <= rtlsim_perf["cycles"]
+    )
+    assert rtlsim_perf["stable_throughput_valid"] is True
+    expected_stable_throughput = 1.0e9 / (10.0 * rtlsim_perf["steady_state_cycles"])
+    assert rtlsim_perf["stable_throughput[images/s]"] == pytest.approx(expected_stable_throughput)
+
+    # Verify OOC P&R flow results are present in report directory
+    assert os.path.isfile(
+        output_dir + "/report/ooc_synth_and_timing.json"
+    ), "OOC P&R results not found in report directory"
+
+    # Also verify the raw Vivado reports are in stitched_ip
+    assert os.path.isfile(
+        output_dir + "/stitched_ip/ooc_utilization.rpt"
+    ), "OOC utilization report not found in stitched_ip directory"
     assert os.path.isfile(output_dir + "/bitfile/finn-accel.bit")
     assert os.path.isfile(output_dir + "/bitfile/finn-accel.hwh")
     assert os.path.isfile(output_dir + "/report/post_synth_resources.xml")
@@ -67,10 +104,44 @@ def test_end2end_build_dataflow_directory():
     assert os.path.isfile(output_dir + "/report/post_synth_resources.json")
     # verification outputs
     verif_batchsize = np.load(target_dir + "/input.npy").shape[0]
+    # Load model to get node names for waveform verification
+    intermediate_models_dir = output_dir + "/intermediate_models"
+    model = ModelWrapper(intermediate_models_dir + "/step_hw_ipgen.onnx")
+
     for i in range(verif_batchsize):
         verify_out_dir = output_dir + "/verification_output"
         assert os.path.isfile(verify_out_dir + f"/verify_initial_python_{i}_SUCCESS.npy")
         assert os.path.isfile(verify_out_dir + f"/verify_streamlined_python_{i}_SUCCESS.npy")
         assert os.path.isfile(verify_out_dir + f"/verify_folded_hls_cppsim_{i}_SUCCESS.npy")
+        assert os.path.isfile(verify_out_dir + f"/verify_node_by_node_rtlsim_{i}_SUCCESS.npy")
         assert os.path.isfile(verify_out_dir + f"/verify_stitched_ip_rtlsim_{i}_SUCCESS.npy")
-        assert os.path.isfile(output_dir + f"/report/verify_rtlsim_{i}.vcd")
+
+        # Check stitched IP rtlsim waveform in its subfolder
+        stitched_waveform_dir = verify_out_dir + "/stitched_ip_rtlsim_waveforms"
+        assert os.path.isfile(stitched_waveform_dir + f"/verify_rtlsim_{i}.wdb")
+
+        # Check that node-by-node rtlsim waveforms were created for each node
+        # Skip FIFO nodes as they use pass-through execution (no RTL simulation)
+        node_waveform_dir = verify_out_dir + "/node_by_node_rtlsim_waveforms"
+        for node in model.graph.node:
+            if node.op_type.startswith("StreamingFIFO"):
+                continue
+            assert os.path.isfile(
+                node_waveform_dir + f"/{node.name}_rtlsim_{i}.wdb"
+            ), f"Missing waveform for node {node.name} in batch {i}"
+
+    # Check debug_fifo log files were created (enabled in dataflow_build_config.json)
+    fifo_log_base = output_dir + "/debug/fifo_logs"
+    assert os.path.isdir(fifo_log_base), "FIFO debug log directory not created"
+
+    # Check that fifo_sizing phase logs were created
+    fifo_sizing_dir = fifo_log_base + "/fifo_sizing/main"
+    assert os.path.isdir(fifo_sizing_dir), "FIFO sizing log directory not created"
+    fifo_sizing_logs = [f for f in os.listdir(fifo_sizing_dir) if f.endswith(".log")]
+    assert len(fifo_sizing_logs) > 0, "No FIFO debug logs created during fifo_sizing phase"
+
+    # Check that stitched_ip_rtlsim phase logs were created
+    stitched_rtlsim_dir = fifo_log_base + "/stitched_ip_rtlsim/main"
+    assert os.path.isdir(stitched_rtlsim_dir), "Stitched IP rtlsim log directory not created"
+    stitched_logs = [f for f in os.listdir(stitched_rtlsim_dir) if f.endswith(".log")]
+    assert len(stitched_logs) > 0, "No FIFO debug logs created during stitched_ip_rtlsim phase"

@@ -48,6 +48,7 @@ cfg = build.DataflowBuildConfig(
     synth_clk_period_ns=10.0,
     board=platform_name,
     shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
+    debug_fifo=True,
     generate_outputs=[
         build_cfg.DataflowOutputType.PYNQ_DRIVER,
         build_cfg.DataflowOutputType.STITCHED_IP,
@@ -61,6 +62,7 @@ cfg = build.DataflowBuildConfig(
         build_cfg.VerificationStepType.TIDY_UP_PYTHON,
         build_cfg.VerificationStepType.STREAMLINED_PYTHON,
         build_cfg.VerificationStepType.FOLDED_HLS_CPPSIM,
+        build_cfg.VerificationStepType.NODE_BY_NODE_RTLSIM,
         build_cfg.VerificationStepType.STITCHED_IP_RTLSIM,
     ],
     save_intermediate_models=True,
