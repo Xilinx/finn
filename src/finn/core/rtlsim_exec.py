@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import json
+import logging
 import numpy as np
 import os
 from qonnx.custom_op.registry import getCustomOp
@@ -43,11 +44,11 @@ from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 from finn.util.rtlsim import dat_file_to_numpy_array
 
 finnxsi = xsi if xsi.is_available() else None
+logger = logging.getLogger(__name__)
 
 
 def _debug_stage(msg):
-    if os.getenv("FINN_RTLSIM_DEBUG_STAGES"):
-        print("rtlsim_exec: " + msg, flush=True)
+    logger.debug("rtlsim_exec: %s", msg)
 
 
 def prep_rtlsim_io_dict(model, execution_context):
