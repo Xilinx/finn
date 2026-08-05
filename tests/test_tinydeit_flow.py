@@ -820,6 +820,8 @@ def test_tinydeit_vck190_folding_configs():
             shuffle_simd = 8 if w3a3 else 4
             for index in range(4):
                 assert config[f"{loop_prefix}_OuterShuffle_hls_{index}"] == {"SIMD": shuffle_simd}
+            for index in range(2):
+                assert config[f"{loop_prefix}_LayerNorm_rtl_{index}"] == {"SIMD": 4 if w3a3 else 3}
             assert config[f"{loop_prefix}_MVAU_rtl_7"] == {
                 "PE": 3 if w3a3 else 2,
                 "SIMD": 768,

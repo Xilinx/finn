@@ -72,7 +72,7 @@
     "PE": 3
   },
   "FINNLoop_0_body_FINNLoop_0_LayerNorm_rtl_0": {
-    "SIMD": 3
+    "SIMD": 4
   },
   "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_0": {
     "PE": 3
@@ -168,7 +168,7 @@
     "PE": 3
   },
   "FINNLoop_0_body_FINNLoop_0_LayerNorm_rtl_1": {
-    "SIMD": 3
+    "SIMD": 4
   },
   "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_6": {
     "PE": 3
