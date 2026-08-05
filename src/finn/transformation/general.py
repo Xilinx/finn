@@ -34,12 +34,26 @@ class ApplyConfig(Transformation):
         "Im2Col_0" : {"kernel_size" : 7}
         }
 
+    Note: ApplyConfig traverses subgraphs itself (using hierarchical config keys
+    of the form ``<parent_hier>_<attr_name>_<node_name>``, matching
+    finn.util.config.extract_model_config). This descent is controlled by the
+    ``apply_to_subgraphs`` constructor argument and defaults to False (top-level
+    only). Do NOT pass ``apply_to_subgraphs=True`` to ``ModelWrapper.transform``
+    for this transform - the generic mechanism re-enters each subgraph as a
+    standalone top-level model, which loses the hierarchical key context and
+    would look up nodes with the wrong (flat) keys.
     """
 
-    def __init__(self, config, node_filter=lambda x: True):
+    # Marker: this transform manages its own subgraph traversal (via the
+    # apply_to_subgraphs constructor argument). A guard in ModelWrapper.transform
+    # can check this marker to reject the generic apply_to_subgraphs=True path.
+    handles_subgraphs_internally = True
+
+    def __init__(self, config, node_filter=lambda x: True, apply_to_subgraphs=False):
         super().__init__()
         self.config = config
         self.node_filter = node_filter
+        self.apply_to_subgraphs = apply_to_subgraphs
         self.used_configurations = ["Defaults"]
         self.missing_configurations = []
         self.ignored_non_custom_configurations = []
@@ -97,16 +111,17 @@ class ApplyConfig(Transformation):
                 self.ignored_non_custom_configurations += [(config_key, node.op_type)]
 
             # Recursively handle nested subgraphs
-            for attr in node.attribute:
-                if attr.type == AttributeProto.GRAPH:
-                    # Build the subgraph hierarchy including the attribute name
-                    if subgraph_hier is None:
-                        new_hier = node.name
-                    else:
-                        new_hier = str(subgraph_hier) + "_" + node.name
-                    # Include the subgraph attribute name in the hierarchy
-                    new_hier = new_hier + "_" + attr.name
-                    self.configure_network(attr.g, model_config, subgraph_hier=new_hier)
+            if self.apply_to_subgraphs:
+                for attr in node.attribute:
+                    if attr.type == AttributeProto.GRAPH:
+                        # Build the subgraph hierarchy including the attribute name
+                        if subgraph_hier is None:
+                            new_hier = node.name
+                        else:
+                            new_hier = str(subgraph_hier) + "_" + node.name
+                        # Include the subgraph attribute name in the hierarchy
+                        new_hier = new_hier + "_" + attr.name
+                        self.configure_network(attr.g, model_config, subgraph_hier=new_hier)
 
     def apply(self, model):
         if isinstance(self.config, dict):
