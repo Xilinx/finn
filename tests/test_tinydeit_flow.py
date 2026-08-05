@@ -816,18 +816,37 @@ def test_tinydeit_vck190_folding_configs():
             assert config[f"{loop_prefix}_InnerShuffle_rtl_0"] == {"SIMD": 197}
             assert config[f"{loop_prefix}_HWSoftmax_rtl_0"] == {"SIMD": 197}
 
-            w3a3 = config_path.stem.startswith("w3a3")
-            shuffle_simd = 8 if w3a3 else 4
             for index in range(4):
-                assert config[f"{loop_prefix}_OuterShuffle_hls_{index}"] == {"SIMD": shuffle_simd}
+                assert config[f"{loop_prefix}_OuterShuffle_hls_{index}"] == {"SIMD": 8}
             for index in range(2):
-                assert config[f"{loop_prefix}_LayerNorm_rtl_{index}"] == {"SIMD": 4 if w3a3 else 3}
-            assert config[f"{loop_prefix}_MVAU_rtl_7"] == {
-                "PE": 3 if w3a3 else 2,
-                "SIMD": 768,
-                "mem_mode": "external",
-                "resType": "lut",
-            }
+                assert config[f"{loop_prefix}_LayerNorm_rtl_{index}"] == {"SIMD": 4}
+
+            if config_path.stem.startswith("w3a3"):
+                assert config[f"{loop_prefix}_MVAU_rtl_7"] == {
+                    "PE": 3,
+                    "SIMD": 768,
+                    "mem_mode": "external",
+                    "resType": "lut",
+                }
+            else:
+                assert config[f"{loop_prefix}_MVAU_rtl_3"] == {
+                    "PE": 197,
+                    "SIMD": 8,
+                    "mem_mode": "dynamic",
+                    "resType": "lut",
+                }
+                assert config[f"{loop_prefix}_MVAU_rtl_5"] == {
+                    "PE": 3,
+                    "SIMD": 192,
+                    "mem_mode": "internal_decoupled",
+                    "resType": "lut",
+                }
+                assert config[f"{loop_prefix}_MVAU_rtl_7"] == {
+                    "PE": 3,
+                    "SIMD": 768,
+                    "mem_mode": "external",
+                    "resType": "dsp",
+                }
         else:
             assert config["Defaults"] == {}
             assert config["Pad1D_rtl_0"] == {"SIMD": 1}
