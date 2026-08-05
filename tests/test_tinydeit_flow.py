@@ -835,6 +835,12 @@ def test_tinydeit_vck190_folding_configs():
                     "mem_mode": "dynamic",
                     "resType": "lut",
                 }
+                assert config[f"{loop_prefix}_MVAU_rtl_4"] == {
+                    "PE": 4,
+                    "SIMD": 197,
+                    "mem_mode": "dynamic",
+                    "resType": "lut",
+                }
                 assert config[f"{loop_prefix}_MVAU_rtl_5"] == {
                     "PE": 3,
                     "SIMD": 192,

@@ -149,7 +149,8 @@
   "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_4": {
     "PE": 4,
     "SIMD": 197,
-    "mem_mode": "dynamic"
+    "mem_mode": "dynamic",
+    "resType": "lut"
   },
   "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_5": {
     "PE": 4
