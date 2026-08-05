@@ -798,14 +798,22 @@ def test_tinydeit_vck190_folding_configs():
 
     assert [path.name for path in config_paths] == [
         "w3a3_vck190_250mhz.json",
+        "w3a3_vck190_performance.json",
         "w4a4_vck190_250mhz.json",
+        "w4a4_vck190_performance.json",
     ]
     assert not (example_dir / "results").exists()
 
     for config_path in config_paths:
         config = json.loads(config_path.read_text())
-        assert config["Defaults"] == {}
-        assert config["Pad1D_rtl_0"] == {"SIMD": 1}
         assert "AddCLSToken_rtl_0" not in config
         assert len(config) > 1
         assert all(isinstance(node_config, dict) for node_config in config.values())
+        if "performance" in config_path.stem:
+            assert config["Defaults"] == {"pumpedCompute": [1, ["MVAU_rtl"]]}
+            assert config["Pad1D_rtl_0"] == {"SIMD": 3}
+            assert config["FINNLoop_0_body_FINNLoop_0_InnerShuffle_rtl_0"] == {"SIMD": 197}
+            assert config["FINNLoop_0_body_FINNLoop_0_HWSoftmax_rtl_0"] == {"SIMD": 197}
+        else:
+            assert config["Defaults"] == {}
+            assert config["Pad1D_rtl_0"] == {"SIMD": 1}
