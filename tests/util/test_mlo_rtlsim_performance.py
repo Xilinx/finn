@@ -50,20 +50,21 @@ def test_multi_frame_throughput_uses_first_to_last_completion_span():
     assert result["stable_throughput[images/s]"] == pytest.approx(2.0e9 / (10.0 * 230))
 
 
-def test_multi_output_summary_uses_slowest_complete_result():
+def test_multi_output_summary_aggregates_each_completed_frame():
     stats = summarize_output_frame_completions(
         {
-            "fast": [90, 180, 270],
-            "slow": [100, 205, 325],
+            "early_and_late": [150, 220, 330],
+            "middle": [100, 240, 325],
         },
-        total_cycles=326,
+        total_cycles=331,
     )
 
-    assert stats["latency_cycles"] == 100
-    assert stats["interval_cycles"] == 120
+    assert stats["aggregate_output_frame_completion_cycles"] == [150, 240, 330]
+    assert stats["latency_cycles"] == 150
+    assert stats["interval_cycles"] == 90
     assert stats["completed_output_frames"] == 3
     assert stats["steady_state_frames"] == 2
-    assert stats["steady_state_cycles"] == 225
+    assert stats["steady_state_cycles"] == 180
 
 
 def test_output_frame_sizes_are_derived_from_batch():

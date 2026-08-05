@@ -11,25 +11,25 @@ def summarize_output_frame_completions(completion_cycles, total_cycles):
     """Summarize per-stream frame completion cycles conservatively.
 
     A complete multi-output frame is available only when every output stream
-    has completed it. The reported latency and spans therefore use the slowest
-    output stream for each measurement.
+    has completed it. Compute that timestamp for each frame first, then derive
+    latency and spans from the aggregate sequence. This remains correct when
+    the slowest output stream changes between frames.
     """
 
     assert completion_cycles, "At least one output stream is required"
     completed_frames = min(len(cycles) for cycles in completion_cycles.values())
+    aggregate_completion_cycles = [
+        max(cycles[frame] for cycles in completion_cycles.values())
+        for frame in range(completed_frames)
+    ]
     latency_cycles = 0
     interval_cycles = 0
     steady_state_cycles = 0
     if completed_frames > 0:
-        latency_cycles = max(cycles[0] for cycles in completion_cycles.values())
+        latency_cycles = aggregate_completion_cycles[0]
     if completed_frames > 1:
-        interval_cycles = max(
-            cycles[completed_frames - 1] - cycles[completed_frames - 2]
-            for cycles in completion_cycles.values()
-        )
-        steady_state_cycles = max(
-            cycles[completed_frames - 1] - cycles[0] for cycles in completion_cycles.values()
-        )
+        interval_cycles = aggregate_completion_cycles[-1] - aggregate_completion_cycles[-2]
+        steady_state_cycles = aggregate_completion_cycles[-1] - aggregate_completion_cycles[0]
 
     interval_valid = completed_frames > 1 and interval_cycles > 0
     return {
@@ -40,6 +40,7 @@ def summarize_output_frame_completions(completion_cycles, total_cycles):
         "interval_valid": int(interval_valid),
         "steady_state_frames": int(max(0, completed_frames - 1)),
         "steady_state_cycles": int(steady_state_cycles),
+        "aggregate_output_frame_completion_cycles": aggregate_completion_cycles,
         "output_frame_completion_cycles": completion_cycles,
     }
 
