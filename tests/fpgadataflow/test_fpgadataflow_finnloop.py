@@ -6,6 +6,7 @@ import os
 import re
 from dataclasses import replace
 from onnx import TensorProto, helper
+from pathlib import Path
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.general import RemoveUnusedTensors
@@ -561,6 +562,19 @@ def test_finnloop_exposes_body_double_pumped_clock():
     assert CreateStitchedIP(fpga_part, clk_ns).is_double_pumped(loop_node, model)
 
 
+@pytest.mark.fpgadataflow
+def test_finnloop_mux_prioritizes_intermediate_frames():
+    mux_path = Path(__file__).resolve().parents[2] / "finn-rtllib/mlo/infrastructure/mux.sv"
+    mux_source = mux_path.read_text()
+    control_start = mux_source.index("always_comb begin: DP_CTRL")
+    control_end = mux_source.index("Q_srl #(", control_start)
+    control = mux_source[control_start:control_end]
+
+    # If a new batch input and recirculated frame are both ready, the feedback
+    # frame must run first. Otherwise batch input can starve loop progress.
+    assert control.index("if(s_idx_tvalid)") < control.index("else if(idx_fs_tvalid)")
+
+
 # MVAU folding as a jointly-valid tuple (dim, mvau_pe, mvau_simd, mvau_th, helper_pe).
 # TH=1 selects the standard MVAU; TH>1 selects the tiled MVAU (Versal DSP58).
 # The dimensions must satisfy the tiling constraints: MW % SIMD == 0, MH % PE == 0
@@ -693,7 +707,7 @@ def test_finnloop_end2end_mlo(
     # path uses the ideal AXI-MM models for loop storage and MVAU weights.
     run_rtlsim_performance = (
         mvau_cfg == (16, 2, 2, 1, 2)
-        and elemwise_optype == "ElementwiseAdd_hls"
+        and elemwise_optype == "ElementwiseAdd_rtl"
         and rhs_shape == [1]
         and eltw_param_dtype == "INT8"
         and not tail_node
