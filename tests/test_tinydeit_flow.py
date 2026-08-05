@@ -812,8 +812,20 @@ def test_tinydeit_vck190_folding_configs():
         if "performance" in config_path.stem:
             assert config["Defaults"] == {"pumpedCompute": [1, ["MVAU_rtl"]]}
             assert config["Pad1D_rtl_0"] == {"SIMD": 3}
-            assert config["FINNLoop_0_body_FINNLoop_0_InnerShuffle_rtl_0"] == {"SIMD": 197}
-            assert config["FINNLoop_0_body_FINNLoop_0_HWSoftmax_rtl_0"] == {"SIMD": 197}
+            loop_prefix = "FINNLoop_0_body_FINNLoop_0"
+            assert config[f"{loop_prefix}_InnerShuffle_rtl_0"] == {"SIMD": 197}
+            assert config[f"{loop_prefix}_HWSoftmax_rtl_0"] == {"SIMD": 197}
+
+            w3a3 = config_path.stem.startswith("w3a3")
+            shuffle_simd = 8 if w3a3 else 4
+            for index in range(4):
+                assert config[f"{loop_prefix}_OuterShuffle_hls_{index}"] == {"SIMD": shuffle_simd}
+            assert config[f"{loop_prefix}_MVAU_rtl_7"] == {
+                "PE": 3 if w3a3 else 2,
+                "SIMD": 768,
+                "mem_mode": "external",
+                "resType": "lut",
+            }
         else:
             assert config["Defaults"] == {}
             assert config["Pad1D_rtl_0"] == {"SIMD": 1}
