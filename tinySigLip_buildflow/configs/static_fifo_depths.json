@@ -1,0 +1,5 @@
+{
+  "Defaults": {
+    "depth": [64, ["StreamingFIFO_rtl"]]
+  }
+}
