@@ -820,7 +820,7 @@ def test_tinydeit_vck190_folding_configs():
                 for index in range(4):
                     assert config[f"{loop_prefix}_OuterShuffle_hls_{index}"] == {"SIMD": 8}
                 for index in range(2):
-                    assert config[f"{loop_prefix}_LayerNorm_rtl_{index}"] == {"SIMD": 4}
+                    assert config[f"{loop_prefix}_LayerNorm_rtl_{index}"] == {"SIMD": 6}
                 for index in range(3):
                     assert config[f"{loop_prefix}_MVAU_rtl_{index}"]["PE"] == 4
                 assert config[f"{loop_prefix}_MVAU_rtl_3"]["resType"] == "lut"
