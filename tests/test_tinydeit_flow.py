@@ -840,43 +840,49 @@ def test_tinydeit_vck190_folding_configs():
                 }
             else:
                 for index in range(4):
-                    assert config[f"{loop_prefix}_OuterShuffle_hls_{index}"] == {"SIMD": 4}
+                    assert config[f"{loop_prefix}_OuterShuffle_hls_{index}"] == {"SIMD": 8}
                 for index in range(2):
-                    assert config[f"{loop_prefix}_LayerNorm_rtl_{index}"] == {"SIMD": 3}
+                    assert config[f"{loop_prefix}_LayerNorm_rtl_{index}"] == {"SIMD": 4}
                 for index in range(3):
-                    assert config[f"{loop_prefix}_MVAU_rtl_{index}"]["PE"] == 2
+                    assert config[f"{loop_prefix}_MVAU_rtl_{index}"]["PE"] == 3
                 assert config[f"{loop_prefix}_MVAU_rtl_3"] == {
                     "PE": 197,
-                    "SIMD": 4,
+                    "SIMD": 8,
                     "mem_mode": "dynamic",
                     "resType": "lut",
                 }
                 assert config[f"{loop_prefix}_MVAU_rtl_4"] == {
-                    "PE": 2,
+                    "PE": 4,
                     "SIMD": 197,
                     "mem_mode": "dynamic",
                     "resType": "lut",
                 }
                 assert config[f"{loop_prefix}_MVAU_rtl_5"] == {
-                    "PE": 2,
+                    "PE": 3,
                     "SIMD": 192,
                     "mem_mode": "internal_decoupled",
                     "resType": "lut",
                 }
-                assert config[f"{loop_prefix}_MVAU_rtl_6"]["PE"] == 8
+                assert config[f"{loop_prefix}_MVAU_rtl_6"]["PE"] == 12
+                for node_name in [
+                    "ElementwiseMul_rtl_5",
+                    "PWPolyF_rtl_0",
+                    "Thresholding_rtl_7",
+                ]:
+                    assert config[f"{loop_prefix}_{node_name}"] == {"PE": 12}
                 assert config[f"{loop_prefix}_MVAU_rtl_7"] == {
-                    "PE": 2,
+                    "PE": 3,
                     "SIMD": 768,
                     "mem_mode": "external",
-                    "resType": "lut",
+                    "resType": "dsp",
                 }
                 assert config[f"{loop_prefix}_ElementwiseMul_rtl_7"] == {"PE": 197}
-                assert config[f"{loop_prefix}_ElementwiseMul_rtl_10"] == {"PE": 8}
-                assert config[f"{loop_prefix}_ElementwiseAdd_rtl_7"] == {"PE": 8}
+                assert config[f"{loop_prefix}_ElementwiseMul_rtl_10"] == {"PE": 12}
+                assert config[f"{loop_prefix}_ElementwiseAdd_rtl_7"] == {"PE": 12}
                 for index in [2, 3, 4, 5, 6, 8, 9]:
-                    assert config[f"{loop_prefix}_ElementwiseAdd_rtl_{index}"] == {"PE": 2}
+                    assert config[f"{loop_prefix}_ElementwiseAdd_rtl_{index}"] == {"PE": 3}
                 for index in [8, 9, 11]:
-                    assert config[f"{loop_prefix}_ElementwiseMul_rtl_{index}"] == {"PE": 2}
+                    assert config[f"{loop_prefix}_ElementwiseMul_rtl_{index}"] == {"PE": 3}
         else:
             assert config["Defaults"] == {}
             assert config["Pad1D_rtl_0"] == {"SIMD": 1}
