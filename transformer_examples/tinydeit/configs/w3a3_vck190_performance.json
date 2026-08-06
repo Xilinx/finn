@@ -69,43 +69,43 @@
     "mem_mode": "internal_decoupled"
   },
   "FINNLoop_0_body_FINNLoop_0_DuplicateStreams_hls_0": {
-    "PE": 3
+    "PE": 4
   },
   "FINNLoop_0_body_FINNLoop_0_LayerNorm_rtl_0": {
     "SIMD": 4
   },
   "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_0": {
-    "PE": 3
+    "PE": 4
   },
   "FINNLoop_0_body_FINNLoop_0_DuplicateStreams_hls_1": {
-    "PE": 3
+    "PE": 4
   },
   "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_0": {
-    "PE": 3,
+    "PE": 4,
     "SIMD": 192,
     "mem_mode": "external",
     "resType": "lut"
   },
   "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_1": {
-    "PE": 3,
+    "PE": 4,
     "SIMD": 192,
     "mem_mode": "external",
     "resType": "lut"
   },
   "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_2": {
-    "PE": 3,
+    "PE": 4,
     "SIMD": 192,
     "mem_mode": "external",
     "resType": "lut"
   },
   "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_0": {
-    "PE": 3
+    "PE": 4
   },
   "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_1": {
-    "PE": 3
+    "PE": 4
   },
   "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_2": {
-    "PE": 3
+    "PE": 4
   },
   "FINNLoop_0_body_FINNLoop_0_OuterShuffle_hls_0": {
     "SIMD": 8
@@ -131,7 +131,8 @@
   "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_3": {
     "PE": 197,
     "SIMD": 4,
-    "mem_mode": "dynamic"
+    "mem_mode": "dynamic",
+    "resType": "lut"
   },
   "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_3": {
     "PE": 197
@@ -145,7 +146,8 @@
   "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_4": {
     "PE": 4,
     "SIMD": 197,
-    "mem_mode": "dynamic"
+    "mem_mode": "dynamic",
+    "resType": "lut"
   },
   "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_5": {
     "PE": 4
@@ -154,49 +156,50 @@
     "SIMD": 8
   },
   "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_5": {
-    "PE": 3,
+    "PE": 4,
     "SIMD": 192,
-    "mem_mode": "internal_decoupled"
+    "mem_mode": "internal_decoupled",
+    "resType": "lut"
   },
   "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_4": {
-    "PE": 3
+    "PE": 4
   },
   "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_0": {
-    "PE": 3
+    "PE": 4
   },
   "FINNLoop_0_body_FINNLoop_0_DuplicateStreams_hls_2": {
-    "PE": 3
+    "PE": 4
   },
   "FINNLoop_0_body_FINNLoop_0_LayerNorm_rtl_1": {
     "SIMD": 4
   },
   "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_6": {
-    "PE": 3
+    "PE": 4
   },
   "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_6": {
-    "PE": 12,
+    "PE": 16,
     "SIMD": 192,
     "mem_mode": "internal_decoupled"
   },
   "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_5": {
-    "PE": 12
+    "PE": 16
   },
   "FINNLoop_0_body_FINNLoop_0_PWPolyF_rtl_0": {
-    "PE": 12
+    "PE": 16
   },
   "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_7": {
-    "PE": 12
+    "PE": 16
   },
   "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_7": {
-    "PE": 3,
+    "PE": 4,
     "SIMD": 768,
     "mem_mode": "external",
-    "resType": "lut"
+    "resType": "dsp"
   },
   "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_6": {
-    "PE": 3
+    "PE": 4
   },
   "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_1": {
-    "PE": 3
+    "PE": 4
   }
 }

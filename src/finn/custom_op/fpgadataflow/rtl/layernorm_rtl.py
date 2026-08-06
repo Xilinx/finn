@@ -136,3 +136,12 @@ class LayerNorm_rtl(LayerNorm, RTLBackend):
         exp_cycles = val_queue_len_0 + val_queue_len_1 + np.prod(idim) // simd + 5
 
         return int(exp_cycles)
+
+    def dsp_estimation(self, fpgapart=None):
+        # Two normalization diamonds contain 5*SIMD FP32 operators in total.
+        # rsqrtf uses three DSPs at II=1, two at II=2, and one shared DSP for
+        # every larger sustainable interval.
+        simd = self.get_nodeattr("SIMD")
+        interval = self.get_normal_input_shape()[-1] // simd
+        rsqrt_dsps = max(1, 4 - interval)
+        return 5 * simd + rsqrt_dsps

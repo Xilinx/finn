@@ -161,15 +161,44 @@ class MVAU_rtl(MVAU, RTLBackend):
         return 0
 
     def dsp_estimation(self, fpgapart):
-        # multiplication
-        P = self.get_nodeattr("PE")
-        Q = self.get_nodeattr("SIMD")
+        """Estimate the DSP core instantiated by ``mvu_vvu_axi``.
+
+        The generated RTL first halves the physical SIMD width when compute
+        pumping is enabled. On Versal, narrow MVAUs can then pack output (PE)
+        lanes into each DSP58; wider INT8-style configurations instead use the
+        three-SIMD-lane core. Keep tiled MVAUs on the existing conservative
+        estimate because they use a separate compute kernel.
+        """
+
+        pe = self.get_nodeattr("PE")
+        simd = self.get_nodeattr("SIMD")
         dsp_block = get_dsp_block(fpgapart)
-        if dsp_block == "DSP58":
-            mult_dsp = P * np.ceil(Q / 3)
-        else:
-            mult_dsp = np.ceil(P / 4) * Q
-        return int(mult_dsp)
+        if self.get_nodeattr("TH") > 1:
+            if dsp_block == "DSP58":
+                return int(pe * np.ceil(simd / 3))
+            return int(np.ceil(pe / 4) * simd)
+
+        pumped_compute = self.get_nodeattr("pumpedCompute")
+        effective_simd = simd + int(bool(pumped_compute) and simd % 2 != 0)
+        dsp_simd = effective_simd // (pumped_compute + 1)
+
+        # This mirrors the lane-count and core-selection constants in
+        # finn-rtllib/mvu/mvu_vvu_axi.sv. Resource estimation has no access to
+        # initializer values, so assume the conservative non-narrow weight
+        # range used by dynamic and MLO external-memory weights.
+        a_width = 25 if dsp_block == "DSP48E1" else 27
+        weight_width = self.get_input_datatype(1).bitwidth()
+        activation_width = self.get_input_datatype(0).bitwidth()
+        min_lane_width = weight_width + activation_width - 1
+        num_lanes = 1 + (a_width - 1 - weight_width) // min_lane_width
+        num_lanes = max(1, num_lanes)
+
+        use_dsp58_int8_core = (
+            dsp_block == "DSP58" and num_lanes <= 3 and weight_width <= 8 and activation_width <= 9
+        )
+        if use_dsp58_int8_core:
+            return int(pe * np.ceil(dsp_simd / 3))
+        return int(np.ceil(pe / num_lanes) * dsp_simd)
 
     def instantiate_ip(self, cmd):
         # instantiate the RTL IP

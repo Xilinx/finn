@@ -543,6 +543,15 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             return list(folded_lhs[:-1])
         return [1]
 
+    def dsp_estimation(self, fpgapart=None):
+        """Count the arithmetic primitive instantiated for every PE lane."""
+
+        lhs_float = self.get_input_datatype(0) == DataType["FLOAT32"]
+        rhs_float = self.get_input_datatype(1) == DataType["FLOAT32"]
+        if lhs_float or rhs_float or self._get_rtl_op_name() == '"MUL"':
+            return self.get_nodeattr("PE")
+        return 0
+
     def _get_rtl_op_name(self):
         """Override in subclasses to return the correct RTL operation name."""
         raise NotImplementedError("Subclasses must implement _get_rtl_op_name")

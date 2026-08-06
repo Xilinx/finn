@@ -132,6 +132,12 @@ class HWSoftmax_rtl(HWSoftmax, RTLBackend):
         # Pipeline fill: ~50 cycles (tree + poly + recip + div latencies)
         return n_beats + beats_per_vec + 50
 
+    def dsp_estimation(self, fpgapart=None):
+        # softmaxf uses, per SIMD lane, one subtractor, a degree-2 exp
+        # polynomial, and one final multiplier. Its two reciprocal iterations
+        # each instantiate MUL/SUB/MUL, giving six shared DSPFP32 primitives.
+        return 4 * self.get_nodeattr("SIMD") + 6
+
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         if mode == "cppsim":
