@@ -76,6 +76,9 @@ def make_mt_add_model(num_ch=64, num_steps=15, out_dtype="UINT4", bias_value=-8.
         (8.0, 0, False, "UINT4"),
         # same bias, but tolerance raised to allow +1 bit -> absorbed as UINT5
         (8.0, 1, True, "UINT5"),
+        # straddling range [-5, 10] where the positive endpoint dominates:
+        # needs signed INT5, exercises the signed-range datatype derivation
+        (-5.0, 1, True, "INT5"),
     ],
 )
 def test_absorb_scalar_bias_into_multithreshold(

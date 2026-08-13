@@ -125,28 +125,33 @@ class AbsorbScalarBiasIntoMultiThreshold(Transformation):
                     # Remember the old datatype for some further checks and info
                     old_odt = threshold_op.get_nodeattr("out_dtype")
                     # Get the number of bits currently used to represent the
-                    # output values
-                    bits = DataType[old_odt].bitwidth()  # noqa: bitwidth?
-                    # Check whether these thresholds have been generated from a
-                    # narrow range quantizer
-                    narrow = int(thresholds.shape[-1] < (2**bits - 1))
+                    # output values (used below to bound the allowed width
+                    # increase of the output datatype)
+                    bits = DataType[old_odt].bitwidth()
 
                     # Flatten effectively scalar bias tensors and extract to
                     # have "plain" scalar
                     bias = bias.flatten()[0]
                     # Shift the output bias of the thresholding operator
                     out_bias = threshold_op.get_nodeattr("out_bias") + bias
-                    # Derive the new output range due to shifting the bias
-                    # Note: We count thresholds steps on top of the bias
-                    new_min = out_bias - narrow
+                    # Derive the new output range due to shifting the bias. The
+                    # MultiThreshold step count is in [0, num_steps], so after
+                    # shifting the output range is
+                    # [out_bias, out_bias + num_steps].
+                    new_min = out_bias
                     new_max = out_bias + thresholds.shape[-1]
 
-                    # Allows the signedness to change depending on the new
-                    # output range [new_min,new_max]
-                    if abs(new_min) >= abs(new_max):
-                        odt = DataType.get_smallest_possible(new_min)
-                    else:
+                    # Derive the smallest datatype that represents the full
+                    # shifted output range [new_min, new_max]. Use an unsigned
+                    # type when the range is non-negative, otherwise a signed
+                    # type wide enough to cover both endpoints. Note a signed
+                    # type reaching -(new_max + 1) also represents +new_max, so
+                    # the negative magnitude that must fit is the more negative
+                    # of new_min and -(new_max + 1).
+                    if new_min >= 0:
                         odt = DataType.get_smallest_possible(new_max)
+                    else:
+                        odt = DataType.get_smallest_possible(min(new_min, -(new_max + 1)))
 
                     # Check whether the new range can be represented with the
                     # derived integer datatype
