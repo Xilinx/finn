@@ -39,12 +39,26 @@ from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import get_by_name
 
 
-# Note: Old name kept for compatibility reasons but actually allows to absorb
-# any bias irrespective of signedness which might result in changed signedness
-# of the output type
-class AbsorbSignBiasIntoMultiThreshold(Transformation):
-    """Absorb scalar bias originating from signed int export back into
-    MultiThreshold and re-evaluate the output datatype."""
+class AbsorbScalarBiasIntoMultiThreshold(Transformation):
+    """Absorb a scalar bias following a MultiThreshold (as a downstream Add)
+    back into the MultiThreshold's out_bias and re-evaluate the output
+    datatype.
+
+    Unlike the historical sign-bias-only version, this absorbs any scalar
+    bias irrespective of signedness. Because the hardware carries out_bias as
+    an additive term, absorbing a (large positive) bias can widen the output
+    datatype. To keep this from inflating the downstream datapath, absorption
+    is only performed when the resulting output bitwidth does not grow by more
+    than ``max_bitwidth_increase`` bits (default 0, i.e. only absorb when the
+    output width stays the same or shrinks). Set a larger value to explicitly
+    allow trading a wider output type for one fewer elementwise Add node."""
+
+    def __init__(self, max_bitwidth_increase=0):
+        super().__init__()
+        # Maximum allowed increase of the output datatype bitwidth (in bits)
+        # for an absorption to be performed. 0 means the output width must not
+        # grow at all.
+        self.max_bitwidth_increase = max_bitwidth_increase
 
     def apply(self, model: ModelWrapper):
         # Get the model graph out of the model wrapper object
@@ -145,6 +159,24 @@ class AbsorbSignBiasIntoMultiThreshold(Transformation):
                         # Skip to the next candidate node
                         continue
 
+                    # Absorbing a bias can widen the output datatype (e.g. a
+                    # large positive bias). Skip the absorption if the output
+                    # bitwidth would grow by more than the allowed tolerance, to
+                    # avoid inflating the downstream datapath/FIFO widths.
+                    bitwidth_increase = odt.bitwidth() - bits
+                    if bitwidth_increase > self.max_bitwidth_increase:
+                        warnings.warn(
+                            f"{self.__class__.__name__}: Not absorbing bias from"
+                            f" {consumer.name} into {node.name}: would grow"
+                            f" output datatype from {old_odt} to {odt.name}"
+                            f" (+{bitwidth_increase} bits >"
+                            f" max_bitwidth_increase={self.max_bitwidth_increase})."
+                            f" Increase max_bitwidth_increase to allow this"
+                            f" absorption if the wider output type is acceptable."
+                        )
+                        # Skip to the next candidate node
+                        continue
+
                     # Check whether the datatype changes as this is something
                     # the "user" should be aware of
                     if odt.name != old_odt:
@@ -181,6 +213,24 @@ class AbsorbSignBiasIntoMultiThreshold(Transformation):
         # Transformed model and indication whether the transformation should be
         # applied again
         return model, graph_modified
+
+
+class AbsorbSignBiasIntoMultiThreshold(AbsorbScalarBiasIntoMultiThreshold):
+    """Deprecated alias for :class:`AbsorbScalarBiasIntoMultiThreshold`.
+
+    The transformation was renamed because it no longer only absorbs sign
+    bias but any scalar bias. This alias is kept for backwards compatibility
+    and will be removed in a future release."""
+
+    def __init__(self, *args, **kwargs):
+        warnings.warn(
+            "AbsorbSignBiasIntoMultiThreshold has been renamed to "
+            "AbsorbScalarBiasIntoMultiThreshold and will be removed in a "
+            "future release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        super().__init__(*args, **kwargs)
 
 
 class AbsorbAddIntoMultiThreshold(Transformation):
