@@ -343,15 +343,13 @@ add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/cdma/cdma_u/axi_dma_wr_u.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/cdma/cdma_x/cdma_x.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/cdma/cdma_x/cdma_x_rd.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/cdma/cdma_x/cdma_x_wr.sv"
-add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/dwc/hdl/axis_adapter.v"
-add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/dwc/hdl/axis_fifo.v"
-add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/dwc/hdl/axis_fifo_adapter.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/skid/skid.sv"
-add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/ram/ram_p_c.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/mlo/infrastructure/intermediate_frames.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/mlo/infrastructure/mux.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/mlo/infrastructure/demux.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/mlo/loop_control.sv"
+add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/mlo/address_config.sv"
+add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/axi/hdl/axilite.sv"
 add_files -norecurse "@TOP_VERILOG_FILE@"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/fifo/hdl/Q_srl.v"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/fifo/hdl/fifo_gauge.sv"
@@ -427,7 +425,7 @@ foreach xci_file $xci_files {
     }
 }
 
-set all_v_files [get_files -filter {USED_IN_SYNTHESIS == 1 && (FILE_TYPE == Verilog || FILE_TYPE == SystemVerilog || FILE_TYPE =="Verilog Header" || FILE_TYPE == XCI)}]
+set all_v_files [get_files -filter {USED_IN_SYNTHESIS == 1 && (FILE_TYPE == Verilog || FILE_TYPE == SystemVerilog || FILE_TYPE =="Verilog Header" || FILE_TYPE == VHDL || FILE_TYPE == XCI)}]
 
 set fp [open @PRJFOLDER@/all_verilog_srcs.txt w]
 foreach vf $all_v_files {puts $fp $vf}

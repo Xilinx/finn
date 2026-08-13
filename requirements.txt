@@ -13,11 +13,12 @@ pre-commit==3.5.0
 protobuf==5.29.6
 psutil==5.9.4
 pybind11==2.11.1
-pyscaffold==4.5
-pytest-forked==1.6.0
+pyscaffold==4.6
 scipy==1.11.4
 setupext-janitor>=1.1.2
 sigtools==4.0.1
+sphinx==5.0.2
+sphinx_rtd_theme==2.0.0
 toposort==1.7.0
 vcdvcd==1.0.5
 wget==3.2

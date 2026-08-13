@@ -31,7 +31,7 @@ import os
 import warnings
 from abc import abstractmethod
 from qonnx.custom_op.base import CustomOp
-from qonnx.util.basic import roundup_to_integer_multiple
+from qonnx.util.basic import get_by_name, roundup_to_integer_multiple
 
 from finn import xsi
 from finn.util.basic import get_liveness_threshold_cycles, is_versal
@@ -85,15 +85,20 @@ class HWCustomOp(CustomOp):
             "inFIFODepths": ("ints", False, [2]),
             "outFIFODepths": ("ints", False, [2]),
             "output_hook": ("s", False, ""),
-            # accumulated characteristic function over two periods
-            "io_chrc_in": ("t", False, np.asarray([], dtype=np.int32)),
-            "io_chrc_out": ("t", False, np.asarray([], dtype=np.int32)),
+            # accumulated characteristic function over two periods; the arrays
+            # themselves are offloaded to sidecar .npy files (their shape is
+            # (n_streams, 2*period), which for large periods would blow the
+            # ONNX ModelProto past protobuf's 2GB limit). These attrs hold the
+            # paths to those files; see get_io_chrc_in()/get_io_chrc_out().
+            "io_chrc_in_file": ("s", False, ""),
+            "io_chrc_out_file": ("s", False, ""),
             # the period for which the characterization was run
             "io_chrc_period": ("i", False, 0),
             # amount of zero padding inserted during chrc.
             "io_chrc_pads_in": ("ints", False, []),
             "io_chrc_pads_out": ("ints", False, []),
             "mlo_max_iter": ("i", False, 0),
+            "address_offset": ("i", False, 0),
         }
 
     def make_shape_compatible_op(self, model):
@@ -315,6 +320,8 @@ class HWCustomOp(CustomOp):
                 sets = mlo_max_iter
             if self.onnx_node.op_type.startswith("Thresholding"):
                 depth = self.calc_tmem()
+            elif self.onnx_node.op_type.startswith("MVAU"):
+                depth = self.calc_wmem() * self.get_nodeattr("TH")
             else:
                 depth = self.calc_wmem()
             padded_width = self.get_instream_width_padded(1)
@@ -348,12 +355,14 @@ class HWCustomOp(CustomOp):
         else:
             pass
 
-    def generate_hdl_fetch_weights(self, fpgapart):
+    def generate_hdl_fetch_weights(self):
         """Helper function to generate verilog code for fetch_weights component.
         Currently utilized by MVAU."""
         ops = ["MVAU_hls", "MVAU_rtl"]
         if self.onnx_node.op_type in ops or self.onnx_node.op_type.startswith("Elementwise"):
-            template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mlo/fetch_weights_wrapper.v"
+            template_path = (
+                os.environ["FINN_ROOT"] + "/finn-rtllib/fetch_weights/fetch_weights_wrapper.v"
+            )
             mname = self.onnx_node.name
             wdt = self.get_input_datatype(1)
             if self.onnx_node.op_type in ops:
@@ -361,7 +370,9 @@ class HWCustomOp(CustomOp):
                 mh = self.get_nodeattr("MH")
                 pe = self.get_nodeattr("PE")
                 simd = self.get_nodeattr("SIMD")
-                n_reps = np.prod(self.get_nodeattr("numInputVectors"))
+                theight = self.get_nodeattr("TH")
+                n_reps = np.prod(self.get_nodeattr("numInputVectors")) // theight
+                en_mlo = "EN_MLO" if self.get_nodeattr("mlo_max_iter") else "NO_MLO"
             else:
                 # Eltwise layers only have one parallelism parameter
                 mw = 1
@@ -370,10 +381,12 @@ class HWCustomOp(CustomOp):
                 simd = 1
                 # TODO use broadcast rhs shape here
                 n_reps = np.prod(self.get_nodeattr("rhs_shape")[:-1])
-            layer_offs = mw * mh
+                theight = 1
+                en_mlo = "EN_MLO" if self.get_nodeattr("mlo_max_iter") else "NO_MLO"
             # upper bound on how many layers can be supported, set to 64 for now
             n_max_layers = 64
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+
             code_gen_dict = {
                 "$MODULE_NAME_AXI_WRAPPER$": [mname + "_fetch_weights_wrapper"],
                 "$MW$": [str(mw)],
@@ -382,8 +395,11 @@ class HWCustomOp(CustomOp):
                 "$SIMD$": [str(simd)],
                 "$N_REPS$": [str(n_reps)],
                 "$WEIGHT_WIDTH$": [str(wdt.bitwidth())],
-                "$LAYER_OFFS$": [str(layer_offs)],
                 "$N_LAYERS$": [str(n_max_layers)],
+                "$TH$": [str(theight)],
+                "$EN_MLO$": [en_mlo],
+                "$DWC_MODULE_NAME$": [mname + "_dwc"],
+                "$ADDRESS_OFFSET$": [str(self.get_nodeattr("address_offset"))],
             }
             # apply code generation to template
             with open(template_path, "r") as f:
@@ -392,6 +408,10 @@ class HWCustomOp(CustomOp):
                 # transform list into long string separated by '\n'
                 code_gen_line = "\n".join(value)
                 template_wrapper = template_wrapper.replace(key, code_gen_line)
+            # DDR exposes a runtime base_address port; HBM leaves the macro undefined
+            # so the port is dropped and the streamer reads from address 0.
+            if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
+                template_wrapper = "`define HAS_BASE_ADDRESS\n" + template_wrapper
             with open(
                 os.path.join(code_gen_dir, mname + "_fetch_weights_wrapper.v"),
                 "w",
@@ -479,13 +499,18 @@ class HWCustomOp(CustomOp):
         for k in txns_out.keys():
             txns_out[k] = sim.trace_stream(k + sname)
         # For characterization, use period as liveness threshold directly
-        total_cycle_count = finnxsi.rtlsim_multi_io(
-            sim,
-            io_dict,
-            num_out_values=self.get_number_output_values(),
-            sname=sname,
-            liveness_threshold=period,
-        )
+        try:
+            total_cycle_count = finnxsi.rtlsim_multi_io(
+                sim,
+                io_dict,
+                num_out_values=self.get_number_output_values(),
+                sname=sname,
+                liveness_threshold=period,
+            )
+        finally:
+            # Assert sim_finish to trigger $finish so that SystemVerilog final
+            # blocks execute, which flush and close the fifo_gauge log files.
+            self.close_rtlsim(sim)
         self.set_nodeattr("cycles_rtlsim", total_cycle_count)
         assert (
             total_cycle_count <= period
@@ -535,10 +560,43 @@ class HWCustomOp(CustomOp):
             all_txns_out[out_idx, :] = txn_out
             all_pad_out.append(pad_out)
 
-        self.set_nodeattr("io_chrc_in", all_txns_in)
-        self.set_nodeattr("io_chrc_out", all_txns_out)
+        # Offload the (potentially very large) characteristic arrays to sidecar
+        # .npy files rather than storing them as ONNX tensor attributes, which
+        # would otherwise push the ModelProto past protobuf's 2GB message limit
+        # (the arrays are shape (n_streams, 2*period)).
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        assert code_gen_dir != "", (
+            "code_gen_dir_ipgen not set for %s; cannot store io_chrc sidecar files"
+            % self.onnx_node.name
+        )
+        in_file = os.path.join(code_gen_dir, "io_chrc_in.npy")
+        out_file = os.path.join(code_gen_dir, "io_chrc_out.npy")
+        np.save(in_file, all_txns_in)
+        np.save(out_file, all_txns_out)
+        self.set_nodeattr("io_chrc_in_file", in_file)
+        self.set_nodeattr("io_chrc_out_file", out_file)
         self.set_nodeattr("io_chrc_pads_in", all_pad_in)
         self.set_nodeattr("io_chrc_pads_out", all_pad_out)
+
+    def get_io_chrc_in(self):
+        """Load the input characteristic array from its sidecar .npy file.
+
+        Returns an array of shape (n_streams, 2*period), or an empty (0, 0)
+        int32 array if characterization has not been run for this node."""
+        fname = self.get_nodeattr("io_chrc_in_file")
+        if fname == "" or not os.path.isfile(fname):
+            return np.empty((0, 0), dtype=np.int32)
+        return np.load(fname)
+
+    def get_io_chrc_out(self):
+        """Load the output characteristic array from its sidecar .npy file.
+
+        Returns an array of shape (n_streams, 2*period), or an empty (0, 0)
+        int32 array if characterization has not been run for this node."""
+        fname = self.get_nodeattr("io_chrc_out_file")
+        if fname == "" or not os.path.isfile(fname):
+            return np.empty((0, 0), dtype=np.int32)
+        return np.load(fname)
 
     def adapt_for_loop_body(self, input_types):
         """

@@ -1385,6 +1385,37 @@ class MoveAddPastJoinAdd(MoveIdenticalOpPastJoinOp):
         return True
 
 
+class MoveMulPastJoinMul(MoveIdenticalOpPastJoinOp):
+    """Move constant Mul operations past a join Mul node, folding the two
+    constants into a single one: (x*A) * (y*B) -> (x*y) * (A*B).
+    Unlike MoveMulPastJoinAdd, the two constants need not be equal since they
+    are combined into their product."""
+
+    def __init__(self):
+        super().__init__(["Mul"], ["Mul"])
+
+    def are_producers_identical(self, model, producers):
+        if not super().are_producers_identical(model, producers):
+            return False
+        for producer in producers:
+            if model.get_initializer(producer.input[1]) is None:
+                return False
+        return True
+
+    def move_node(self, model, n, producers):
+        """
+        Fold the producer constants into their product on the surviving
+        producer, then use the base move_node to move it past the join node
+        (and delete the rest).
+        """
+        mul_inits = [model.get_initializer(producer.input[1]) for producer in producers]
+        new_init = np.prod(mul_inits, axis=0)
+        model.set_initializer(producers[0].input[1], new_init)
+        super().move_node(model, n, producers)
+
+        return True
+
+
 class MoveTransposePastJoinConcat(MoveIdenticalOpPastJoinOp):
     def __init__(self):
         super().__init__(["Transpose"], ["Concat"])

@@ -360,11 +360,15 @@ class QuantReluHandler(QuantActBaseHandler):
             # onnx/finn/handler/act.py#L21
             num_distinct_values = 2**bit_width
             num_thresholds = int(num_distinct_values - 1)
-            flat_scale = quant_scale.flatten().astype(np.float32)
+            # Accumulate in float64 and narrow to the storage dtype once at the
+            # end, so the per-threshold value carries at most a single float32
+            # rounding step rather than accumulated error across min_threshold +
+            # step*t (see QuantIdentityHandler._calculate_thresholds).
+            flat_scale = quant_scale.flatten().astype(np.float64)
             num_scale_channels = flat_scale.shape[0]
-            step = np.abs(flat_scale).astype(np.float32)
+            step = np.abs(flat_scale)
             min_threshold = step / 2
-            thresholds = np.empty((num_scale_channels, num_thresholds), dtype=np_default_dtype)
+            thresholds = np.empty((num_scale_channels, num_thresholds), dtype=np.float64)
             for c in range(num_scale_channels):
                 for t in range(num_thresholds):
                     thresholds[c][t] = min_threshold[c] + step[c] * t
@@ -378,15 +382,15 @@ class QuantReluHandler(QuantActBaseHandler):
                 num_distinct_values = 2**bit_width
 
             num_thresholds = int(num_distinct_values - 1)
-            flat_scale = quant_scale.flatten().astype(np.float32)
+            flat_scale = quant_scale.flatten().astype(np.float64)
             num_scale_channels = flat_scale.shape[0]
-            scale = np.abs(flat_scale).astype(np.float32)
+            scale = np.abs(flat_scale)
             half_scale = scale / 2
             # alpha and lambda
             # from https://pytorch.org/docs/stable/generated/torch.nn.SELU.html
             alpha = 1.6732632423543772848170429916717
             selu_scale = 1.0507009873554804934193349852946
-            thresholds = np.empty((num_scale_channels, num_thresholds), dtype=np_default_dtype)
+            thresholds = np.empty((num_scale_channels, num_thresholds), dtype=np.float64)
             for c in range(num_scale_channels):
                 for t in range(num_thresholds):
                     step = -1.0 + half_scale + scale[c] * t
@@ -394,6 +398,9 @@ class QuantReluHandler(QuantActBaseHandler):
                         thresholds[c][t] = np.log(step / (alpha * selu_scale) + 1)
                     else:
                         thresholds[c][t] = step / selu_scale
+
+        # narrow back to the storage dtype only after the accumulation
+        thresholds = thresholds.astype(np_default_dtype)
 
         # First try to consider the tensor layout of the output for determining
         # the number of output channels
@@ -476,10 +483,6 @@ class QuantIdentityHandler(QuantActBaseHandler):
     def _check_compatibility(self):
         # Gather parameters to check
         if self._q_node.op_type == "Quant":
-            q_inst = getCustomOp(self._q_node)
-            signed = q_inst.get_nodeattr("signed")
-            if not signed:
-                raise ValueError("FINN only supports signed Quant nodes for identity activations.")
             if not self._model.get_initializer(self._q_node.input[2]) == 0:
                 raise ValueError(
                     "Only Quant nodes with zero-point == 0 "
@@ -501,6 +504,7 @@ class QuantIdentityHandler(QuantActBaseHandler):
         if self._q_node.op_type == "Quant":
             bit_width = self._model.get_initializer(self._q_node.input[3])
             narrow = q_inst.get_nodeattr("narrow")
+            signed = q_inst.get_nodeattr("signed")
         elif self._q_node.op_type == "BipolarQuant":
             bit_width = 1.0
         else:
@@ -511,10 +515,13 @@ class QuantIdentityHandler(QuantActBaseHandler):
         if bit_width == 1.0:
             bias = np.array([-0.5], dtype=np_default_dtype)
         else:
-            if narrow:
-                min_non_scaled_val = -(2 ** (bit_width - 1) - 1)
+            if not signed:
+                min_non_scaled_val = 0
             else:
-                min_non_scaled_val = -(2 ** (bit_width - 1))
+                if narrow:
+                    min_non_scaled_val = -(2 ** (bit_width - 1) - 1)
+                else:
+                    min_non_scaled_val = -(2 ** (bit_width - 1))
             bias = np.array([min_non_scaled_val], dtype=np_default_dtype)
         return bias
 
@@ -525,6 +532,7 @@ class QuantIdentityHandler(QuantActBaseHandler):
         if self._q_node.op_type == "Quant":
             bit_width = self._model.get_initializer(self._q_node.input[3])
             narrow = q_inst.get_nodeattr("narrow")
+            signed = q_inst.get_nodeattr("signed")
         elif self._q_node.op_type == "BipolarQuant":
             bit_width = 1.0
         else:
@@ -544,19 +552,29 @@ class QuantIdentityHandler(QuantActBaseHandler):
                 num_distinct_values = 2**bit_width
 
             num_thresholds = int(num_distinct_values - 1)
-            flat_scale = quant_scale.flatten()
+            # Accumulate the thresholds in float64. Each threshold is computed as
+            # a large base (min_threshold ~ -step*num_thresholds/2) plus a large
+            # multiple (step*t); doing this in float32 leaves ~1 ulp of error at
+            # the base's magnitude (~5e-7 for typical scales), which can shift a
+            # boundary below an input that Quant legitimately rounds down, causing
+            # a one-step MultiThreshold mismatch. float64 keeps that error ~1e-15.
+            flat_scale = quant_scale.flatten().astype(np.float64)
             num_scale_channels = flat_scale.shape[0]
             step = np.abs(flat_scale)
             half_step = step / 2.0
-            thresholds = np.empty((num_scale_channels, num_thresholds), dtype=np_default_dtype)
+            thresholds = np.empty((num_scale_channels, num_thresholds), dtype=np.float64)
             # compute the value of the smallest threshold, we'll neg-bias all
             # generated thresholds by this much
             min_threshold = -half_step - step * ((num_thresholds // 2) - 1)
             if not narrow:
                 min_threshold -= step
+            if not signed:
+                min_threshold = half_step
             for c in range(num_scale_channels):
                 for t in range(num_thresholds):
                     thresholds[c][t] = min_threshold[c] + step[c] * t
+            # narrow back to the storage dtype only after the accumulation
+            thresholds = thresholds.astype(np_default_dtype)
 
             # First try to consider the tensor layout of the output for
             # determining the number of output channels

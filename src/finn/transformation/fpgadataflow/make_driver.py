@@ -27,10 +27,12 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import inspect
 import json
 import numpy as np
 import os
 import qonnx
+import qonnx.util.basic
 import shlex
 import shutil
 import subprocess
@@ -38,14 +40,65 @@ import warnings
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
+from qonnx.util.basic import get_by_name, roundup_to_integer_multiple
 from string import Template
 from typing import Dict, Tuple
 
 import finn.util
 from finn.util.basic import get_driver_shapes, make_build_dir
 from finn.util.data_packing import to_external_tensor
+from finn.util.rtlsim import dat_file_to_numpy_array
 
 from . import template_driver
+
+
+def _extract_license_header(source_module):
+    """Return the leading comment/blank-line block from a module's source file.
+
+    Used so that generated minimal copies of a source file keep the original
+    copyright/license notice intact."""
+    src_lines = inspect.getsource(source_module).splitlines()
+    header = []
+    for line in src_lines:
+        if line.startswith("#") or line.strip() == "":
+            header.append(line)
+        else:
+            break
+    return "\n".join(header).rstrip()
+
+
+def _generate_minimal_module(target_file, source_module, functions, import_block):
+    """Write a lightweight copy of source_module to target_file that contains
+    only the given functions, the original license header and a minimal import
+    block.
+
+    The generated PYNQ driver only needs a small subset of the helper functions
+    in qonnx.util.basic and finn.util.data_packing. Copying those files verbatim
+    would pull heavy imports (onnx, bitstring) onto the deployment board, even
+    though none of that functionality is exercised by the driver. Emitting a
+    trimmed-down module keeps the board dependencies limited to numpy (+pynq)."""
+    orig_module = source_module.__name__
+    license_header = _extract_license_header(source_module)
+    note = (
+        "# This is a minimal version of {0}, containing only the subset of\n"
+        "# functions required by the generated PYNQ driver. It is trimmed down to\n"
+        "# keep the runtime dependencies on the deployment board lightweight\n"
+        "# (avoiding heavy imports such as onnx / bitstring). Refer to the full\n"
+        "# {0} in the original source tree for the complete implementation."
+    ).format(orig_module)
+    bodies = "\n\n\n".join(inspect.getsource(fn) for fn in functions)
+    content = (
+        license_header
+        + "\n\n"
+        + note
+        + "\n\n"
+        + import_block.strip()
+        + "\n\n\n"
+        + bodies.rstrip()
+        + "\n"
+    )
+    with open(target_file, "w") as f:
+        f.write(content)
 
 
 class MakeCPPDriver(Transformation):
@@ -334,15 +387,8 @@ class MakePYNQDriver(Transformation):
         files_to_copy.append(
             (qonnx_path + "/core/__init__.py", qonnx_target_path + "/core/__init__.py")
         )
-        files_to_copy.append((qonnx_path + "/util/basic.py", qonnx_target_path + "/util/basic.py"))
         files_to_copy.append(
             (qonnx_path + "/util/__init__.py", qonnx_target_path + "/util/__init__.py")
-        )
-        files_to_copy.append(
-            (
-                finn_util_path + "/data_packing.py",
-                finn_target_path + "/util/data_packing.py",
-            )
         )
         files_to_copy.append(
             (
@@ -353,12 +399,54 @@ class MakePYNQDriver(Transformation):
         for src_file, target_file in files_to_copy:
             shutil.copy(src_file, target_file)
 
+        # qonnx.util.basic and finn.util.data_packing are not copied verbatim:
+        # the driver only needs a handful of pure-numpy helpers from each, while
+        # the full files import onnx (qonnx.util.basic) and bitstring
+        # (finn.util.data_packing). Emitting a trimmed-down module keeps those
+        # heavy dependencies off the deployment board.
+        _generate_minimal_module(
+            qonnx_target_path + "/util/basic.py",
+            qonnx.util.basic,
+            [
+                qonnx.util.basic.roundup_to_integer_multiple,
+                qonnx.util.basic.gen_finn_dt_tensor,
+            ],
+            "import numpy as np\n"
+            "from typing import cast\n\n"
+            "from qonnx.core.datatype import BaseDataType, DataType, FixedPointType",
+        )
+        dp = finn.util.data_packing
+        _generate_minimal_module(
+            finn_target_path + "/util/data_packing.py",
+            dp,
+            [
+                dp.finnpy_to_packed_bytearray,
+                dp._pack_whole_byte_container,
+                dp._pack_bit_double_reverse,
+                dp._pack_general,
+                dp.finnpy_to_int_array,
+                dp.int_array_to_packed_bytearray,
+                dp.packed_bytearray_to_finnpy,
+                dp.prepare_values,
+                dp.unsiged_array_to_signed,
+                dp.packed_bytearray_to_finnpy_fast,
+                dp.data_prepared_to_finnpy_bipolar,
+                dp.data_prepared_to_finnpy_ternary,
+                dp.data_prepared_to_finnpy_fixed,
+                dp.data_prepared_to_finnpy_int,
+                dp.packed_bytearray_to_finnpy_float,
+            ],
+            "import numpy as np\n\n"
+            "from qonnx.core.datatype import DataType\n"
+            "from qonnx.util.basic import roundup_to_integer_multiple",
+        )
+
         driver_shapes: Dict = get_driver_shapes(model)
 
-        # generate external weights npy files
-        weights_dir = pynq_driver_dir + "/runtime_weights"
+        weights_base_dir = pynq_driver_dir + "/weights"
+        runtime_weights_dir = weights_base_dir + "/runtime_weights"
+        mlo_weights_dir = weights_base_dir + "/mlo_weights"
 
-        os.makedirs(weights_dir)
         idma_idx = 0
         ext_weight_dma_cnt = 0
         ext_weight_shapes_dict = {}
@@ -395,8 +483,57 @@ class MakePYNQDriver(Transformation):
                     ext_weight_dma_cnt += 1
                     w_dtype = df_model.get_tensor_datatype(iodma_node.onnx_node.input[0])
                     init_external_tensor = to_external_tensor(init_tensor, w_dtype)
-                    np.save(weights_dir + "/" + idma_name + ".npy", init_external_tensor)
+                    # generate external weights npy files
+                    os.makedirs(runtime_weights_dir, exist_ok=True)
+                    np.save(runtime_weights_dir + "/" + idma_name + ".npy", init_external_tensor)
                 idma_idx += 1
+
+        mlo_weight_entries = []
+        mlo_total_bytes = 0
+        mlo_axilite_ips = []
+        for sdp_node in model.graph.node:
+            dataflow_model = ModelWrapper(getCustomOp(sdp_node).get_nodeattr("model"))
+            for node in dataflow_model.graph.node:
+                if node.op_type != "FINNLoop":
+                    continue
+                fl_inst = getCustomOp(node)
+                if get_by_name(node.attribute, "address_offset") is None:
+                    continue
+                fl_code_gen_dir = fl_inst.get_nodeattr("code_gen_dir_ipgen")
+                fl_body = fl_inst.get_nodeattr("body")
+                for idx, lb_inp in enumerate(fl_body.graph.input):
+                    consumer = fl_body.find_consumer(lb_inp.name)
+                    if consumer is None or not consumer.op_type.startswith("MVAU"):
+                        continue
+                    dat_src = "%s/memblock_MVAU_rtl_id_%d.dat" % (fl_code_gen_dir, idx)
+                    if not os.path.isfile(dat_src):
+                        continue
+                    address_offset = int(getCustomOp(consumer).get_nodeattr("address_offset"))
+                    num_bytes = int(dat_file_to_numpy_array(dat_src).shape[0])
+                    dat_name = "%s_memblock_MVAU_rtl_id_%d.dat" % (node.name, idx)
+                    os.makedirs(mlo_weights_dir, exist_ok=True)
+                    shutil.copy(dat_src, mlo_weights_dir + "/" + dat_name)
+                    mlo_weight_entries.append(
+                        {
+                            "dat_file": dat_name,
+                            "address_offset": address_offset,
+                            "num_bytes": num_bytes,
+                        }
+                    )
+                    if sdp_node.name not in mlo_axilite_ips:
+                        mlo_axilite_ips.append(sdp_node.name)
+                # full buffer size = weight regions + intermediate-frame region
+                loop_address_offset = int(fl_inst.get_nodeattr("address_offset"))
+                mlo_total_bytes = loop_address_offset + fl_inst.intermediate_frame_bytes()
+
+        if len(mlo_weight_entries) > 0:
+            mlo_config = {
+                "total_size_bytes": int(roundup_to_integer_multiple(mlo_total_bytes, 32)),
+                "weights": mlo_weight_entries,
+                "address_config_ips": mlo_axilite_ips,
+            }
+        else:
+            mlo_config = {}
 
         # fill in the driver template
         driver_py = pynq_driver_dir + "/driver.py"
@@ -419,6 +556,8 @@ class MakePYNQDriver(Transformation):
         driver = driver.replace("$NUM_OUTPUTS$", str(len(driver_shapes["odma_names"])))
         driver = driver.replace("$EXT_WEIGHT_NUM$", str(ext_weight_dma_cnt))
         driver = driver.replace("$EXT_WEIGHT_INPUT_SHAPES$", str(ext_weight_shapes_dict))
+        mlo_config_str = json.dumps(mlo_config, indent=4).replace("\n", "\n    ")
+        driver = driver.replace("$MLO_WEIGHT_CONFIG$", mlo_config_str)
 
         with open(driver_py, "w") as f:
             f.write(driver)
@@ -445,7 +584,8 @@ class MakePYNQDriver(Transformation):
                     is_rt_weights = node_inst.get_nodeattr("runtime_writeable_weights")
                     if is_rt_weights == 1:
                         fcl_w = dataflow_model.get_initializer(node.input[1])
-                        w_filename = weights_dir + "/%d_%d_%s.dat" % (
+                        os.makedirs(runtime_weights_dir, exist_ok=True)
+                        w_filename = runtime_weights_dir + "/%d_%d_%s.dat" % (
                             sdp_ind,
                             rt_layer_ind,
                             node.name,
