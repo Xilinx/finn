@@ -35,6 +35,7 @@ from qonnx.core.datatype import DataType
 from qonnx.custom_op.general.multithreshold import multithreshold
 from qonnx.util.basic import (
     calculate_matvec_accumulator_range,
+    get_by_name,
     interleave_matrix_outer_dim_from_partitions,
     roundup_to_integer_multiple,
 )
@@ -979,6 +980,8 @@ class MVAU(HWCustomOp):
                 intf_names["aximm"].append(("axi_mm", 64))
                 if self.get_nodeattr("mlo_max_iter") > 0:
                     intf_names["s_axis"].append(("in_idx0_V", 32))
+                    if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
+                        intf_names["ap_none"].append("base_address")
             case "dynamic" | "external":
                 intf_names["s_axis"].append(("in1_V", self.get_instream_width_padded(1)))
             case "internal_decoupled":
@@ -1051,7 +1054,6 @@ class MVAU(HWCustomOp):
                 "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, din_name)
             )
 
-            #
             # Instantiate either the HLS or RTL IP depending on operator
             self.instantiate_ip(cmd)
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
@@ -1100,6 +1102,12 @@ class MVAU(HWCustomOp):
                             "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s"
                             % (node_name, "in_idx0_V")
                         )
+
+                        if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
+                            ba_name = self.get_verilog_top_module_intf_names()["ap_none"][0]
+                            cmd.append(
+                                "create_bd_pin -dir I -from 63 -to 0 /%s/%s" % (node_name, ba_name)
+                            )
 
                     # instantiate a fetch weights component and connect it to the IP
                     reg_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/skid/")
@@ -1217,6 +1225,13 @@ class MVAU(HWCustomOp):
                             % (node_name, "in_idx0_V", node_name, strm_inst, "in_idx0_V")
                         )
 
+                        if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
+                            cmd.append(
+                                "connect_bd_net [get_bd_pins %s/%s] "
+                                "[get_bd_pins %s/%s/%s]"
+                                % (node_name, "base_address", node_name, strm_inst, "base_address")
+                            )
+
             cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/%s/%s] "
                 "[get_bd_intf_pins %s/%s/in1_V]"
@@ -1290,3 +1305,21 @@ class MVAU(HWCustomOp):
             raise Exception("Unrecognized mem_mode for MatrixVectorActivation")
 
         return cmd
+
+    def get_weight_mem_bytes(self):
+        """Return (size, offs) in bytes for one layer's weight matrix.
+        size is the tight per-layer packing (byte-aligned per IWSIMD group);
+        offs rounds it up to the DATA_BITS wide AXI bus (DATA_BITS in fetch_weights.sv),
+        matching LAYER_OFFS, the spacing between layers in the DDR image."""
+        data_bits = 256  # DATA_BITS in fetch_weights.sv
+        th = self.get_nodeattr("TH")
+        iwsimd = (
+            (self.get_nodeattr("PE") * self.get_nodeattr("SIMD")) // th
+            if th > 1
+            else self.get_nodeattr("SIMD")
+        )
+        weight_width = self.get_input_datatype(1).bitwidth()
+        bytes_chunk = roundup_to_integer_multiple(iwsimd * weight_width, 8) // 8
+        size = (self.get_nodeattr("MH") * self.get_nodeattr("MW") // iwsimd) * bytes_chunk
+        offs = roundup_to_integer_multiple(size, data_bits // 8)  # round up to the AXI bus width
+        return size, offs

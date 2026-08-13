@@ -167,6 +167,7 @@ class CreateStitchedIP(Transformation):
         self.s_axis_idx = 0
         self.clock_reset_are_external = False
         self.clock2x_is_external = False
+        self.has_base_address = False
         self.create_cmds = []
         self.connect_cmds = []
         # keep track of top-level interface names
@@ -177,6 +178,7 @@ class CreateStitchedIP(Transformation):
             "m_axis": [],
             "aximm": [],
             "axilite": [],
+            "ap_none": [],
         }
 
     def is_double_pumped(self, node, model):
@@ -375,12 +377,32 @@ class CreateStitchedIP(Transformation):
         # make external
         for i in range(len(input_intf_names)):
             input_intf_name = input_intf_names[i]
+            # base_address is handled in connect_base_address
+            if input_intf_name == "base_address":
+                continue
             self.connect_cmds.append(
                 "make_bd_pins_external [get_bd_pins %s/%s]" % (inst_name, input_intf_name)
             )
             self.connect_cmds.append(
                 "set_property name %s [get_bd_ports %s_0]" % (input_intf_name, input_intf_name)
             )
+
+    def connect_base_address(self, node, model):
+        inst_name = node.name
+        node_inst = getHWCustomOp(node, model)
+        input_intf_names = node_inst.get_verilog_top_module_intf_names()["ap_none"]
+        if "base_address" not in input_intf_names:
+            return
+        if self.has_base_address is True:
+            self.connect_cmds.append(
+                "connect_bd_net [get_bd_ports base_address] "
+                "[get_bd_pins %s/base_address]" % inst_name
+            )
+            return
+        self.has_base_address = True
+        self.intf_names["ap_none"].append("base_address")
+        self.connect_cmds.append("make_bd_pins_external [get_bd_pins %s/base_address]" % inst_name)
+        self.connect_cmds.append("set_property name base_address [get_bd_ports base_address_0]")
 
     def insert_signature(self, checksum_count):
         signature_vlnv = "AMD:user:axi_info_top:1.0"
@@ -480,6 +502,7 @@ class CreateStitchedIP(Transformation):
             self.create_cmds += node_inst.code_generation_ipi()
             self.connect_clk_rst(node, model)
             self.connect_ap_none_external(node, model)
+            self.connect_base_address(node, model)
             self.connect_axi(node, model)
             for i in range(len(node.input)):
                 if not is_external_input(node, model, i):
@@ -653,10 +676,12 @@ class CreateStitchedIP(Transformation):
         # in some cases, the IP packager seems to infer an aperture of 64K or 4G,
         # preventing address assignment of the DDR_LOW and/or DDR_HIGH segments
         # the following is a hotfix to remove this aperture during IODMA packaging
-        tcl.append(
-            "ipx::remove_segment -quiet m_axi_gmem0:APERTURE_0 "
-            "[ipx::get_address_spaces m_axi_gmem0 -of_objects [ipx::current_core]]"
-        )
+        for aximm_name, _ in self.intf_names["aximm"]:
+            tcl.append(
+                "ipx::remove_segment -quiet %s:APERTURE_0 "
+                "[ipx::get_address_spaces %s -of_objects [ipx::current_core]]"
+                % (aximm_name, aximm_name)
+            )
         tcl.append("set_property core_revision 2 [ipx::find_open_core %s]" % block_vlnv)
         tcl.append("ipx::create_xgui_files [ipx::find_open_core %s]" % block_vlnv)
         # mark bus interface params as user-resolvable to avoid FREQ_MHZ mismatches
@@ -851,6 +876,7 @@ close $ofile
         self.s_axis_idx = 0
         self.clock_reset_are_external = False
         self.clock2x_is_external = False
+        self.has_base_address = False
         self.create_cmds = []
         self.connect_cmds = []
         self.intf_names = {
@@ -860,6 +886,7 @@ close $ofile
             "m_axis": [],
             "aximm": [],
             "axilite": [],
+            "ap_none": [],
         }
 
         return (model, False)

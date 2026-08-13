@@ -48,6 +48,9 @@ def register_custom_op(cls):
 # flake8: noqa
 # Disable linting from here, as all import will be flagged E402 and maybe F401
 
+# Import the submodule containing specializations of ElementwiseBinaryOperation
+# Note: This will automatically register all decorated classes into this domain
+import finn.custom_op.fpgadataflow.elementwise_binary
 from finn.custom_op.fpgadataflow.concat import StreamingConcat
 from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
     ConvolutionInputGenerator,

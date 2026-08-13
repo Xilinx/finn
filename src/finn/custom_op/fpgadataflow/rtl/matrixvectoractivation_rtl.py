@@ -385,10 +385,33 @@ class MVAU_rtl(MVAU, RTLBackend):
                 "Clock pumping an input of SIMD=1 is not meaningful. Please increase SIMD."
             )
 
-        # Check to make sure that tile size divides the number of input vectors evenly;
-        # otherwise the final partial tile can cause output to be dropped and eventually stall.
+        # Validate the tiled-MVU (TH>1) constraints
         theight = self.get_nodeattr("TH")
         if theight > 1:
+            pe = self.get_nodeattr("PE")
+            tile = pe * simd
+            if tile % theight != 0:
+                raise Exception(
+                    "%s: TH=%d does not divide the tile PE*SIMD=%d. The tiled MVU "
+                    "requires (PE*SIMD) %% TH == 0." % (self.onnx_node.name, theight, tile)
+                )
+
+            # The tiled wrapper conservatively caps both activation and weight widths at 8 bits.
+            act_width = self.get_input_datatype(0).bitwidth()
+            if act_width > 8:
+                raise Exception(
+                    "%s: activation width of %d bits exceeds the tiled MVU maximum of 8 bits."
+                    % (self.onnx_node.name, act_width)
+                )
+            weight_width = self.get_input_datatype(1).bitwidth()
+            if weight_width > 8:
+                raise Exception(
+                    "%s: weight width of %d bits exceeds the tiled MVU maximum of 8 bits."
+                    % (self.onnx_node.name, weight_width)
+                )
+
+            # The tile size must divide the number of input vectors evenly; otherwise the
+            # final partial tile can cause output to be dropped and eventually stall.
             num_inp_vec = int(np.prod(self.get_nodeattr("numInputVectors")))
             if num_inp_vec % theight != 0:
                 valid_th = [t for t in range(1, num_inp_vec + 1) if num_inp_vec % t == 0]
