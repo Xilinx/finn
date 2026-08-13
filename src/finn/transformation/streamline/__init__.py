@@ -46,7 +46,7 @@ from finn.transformation.streamline.absorb import (
     Absorb1BitMulIntoMatMul,
     AbsorbAddIntoMultiThreshold,
     AbsorbMulIntoMultiThreshold,
-    AbsorbSignBiasIntoMultiThreshold,
+    AbsorbScalarBiasIntoMultiThreshold,
     FactorOutMulSignMagnitude,
 )
 from finn.transformation.streamline.collapse_repeated import (
@@ -62,7 +62,6 @@ from finn.transformation.streamline.reorder import (
     MoveScalarMulPastConv,
     MoveScalarMulPastMatMul,
 )
-from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.transformation.streamline.sign_to_thres import ConvertSignToThres
 
 
@@ -76,8 +75,8 @@ class Streamline(Transformation):
             BatchNormToAffine(),
             ConvertSignToThres(),
             MoveMulPastMaxPool(),
+            AbsorbScalarBiasIntoMultiThreshold(),
             MoveScalarLinearPastInvariants(),
-            AbsorbSignBiasIntoMultiThreshold(),
             MoveAddPastMul(),
             MoveScalarAddPastMatMul(),
             MoveAddPastConv(),
@@ -92,7 +91,6 @@ class Streamline(Transformation):
             AbsorbMulIntoMultiThreshold(),
             Absorb1BitMulIntoMatMul(),
             Absorb1BitMulIntoConv(),
-            RoundAndClipThresholds(),
         ]
         for trn in streamline_transformations:
             model = model.transform(trn)

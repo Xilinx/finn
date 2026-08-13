@@ -31,7 +31,6 @@ import pytest
 
 import numpy as np
 from onnx import TensorProto, helper
-from pyverilator.util.axi_utils import axilite_read, axilite_write
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -190,18 +189,25 @@ def test_fpgadataflow_checksum():
     def read_checksum_and_drain(sim):
         chk_addr = 16
         drain_addr = 32
+        read_handles = []
         for i in range(len(model.get_nodes_by_op_type("CheckSum_hls"))):
-            axi_name = "s_axi_checksum_{}_".format(i)
-            checksums.append(axilite_read(sim, chk_addr, basename=axi_name))
-            drain.append(axilite_read(sim, drain_addr, basename=axi_name))
+            axi_name = "s_axi_checksum_{}".format(i)
+            read_handles.append(sim.read_axilite(axi_name, iter([chk_addr, drain_addr])))
+        sim.run()
+        for i in range(len(model.get_nodes_by_op_type("CheckSum_hls"))):
+            checksums.append(int(read_handles[i][chk_addr], 16))
+            drain.append(int(read_handles[i][drain_addr], 16))
 
-    drain_value = False
+    # hex string for drain_value=False
+    drain_value = "00000000"
 
     def write_drain(sim):
         addr = 32
         for i in range(len(model.get_nodes_by_op_type("CheckSum_hls"))):
-            axi_name = "s_axi_checksum_{}_".format(i)
-            axilite_write(sim, addr, drain_value, basename=axi_name)
+            axi_name = "s_axi_checksum_{}".format(i)
+            writes = [(addr, drain_value)]
+            sim.write_axilite(axi_name, iter(writes))
+        sim.run()
 
     rtlsim_exec(model, inp, pre_hook=write_drain, post_hook=read_checksum_and_drain)
     checksum0_rtlsim = int(checksums[0])

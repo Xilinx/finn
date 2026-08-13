@@ -57,9 +57,15 @@ class Lookup(HWCustomOp):
             # Input shape
             "InputShape": ("ints", False, [1]),
             # Memory mode
-            # internal_embedded : parameters baked into bitfile (BRAM)
+            # internal_embedded : parameters baked into bitfile
             # external : lookup performed in external memory over AXI MM
             "mem_mode": ("s", False, "internal_embedded", ["internal_embedded", "external"]),
+            # FPGA resource type for internal_embedded lookup table storage
+            # auto -- let Vitis HLS decide
+            # block -- use BRAM
+            # distributed -- use LUTRAM
+            # ultra -- use URAM
+            "ram_style": ("s", False, "block", {"auto", "block", "distributed", "ultra"}),
             # Width for AXI-MM interface
             # only relevant when mem_mode="external"
             "ext_mem_width": ("i", False, 32),
@@ -73,7 +79,12 @@ class Lookup(HWCustomOp):
         return exp_cycles
 
     def get_normal_input_shape(self, ind=0):
-        return self.get_nodeattr("InputShape")
+        if ind == 0:
+            return self.get_nodeattr("InputShape")
+        elif ind == 1:
+            return tuple([self.get_nodeattr("NumEmbeddings"), self.get_nodeattr("EmbeddingDim")])
+        else:
+            raise Exception("Undefined input ind for this layer type")
 
     def get_normal_output_shape(self, ind=0):
         ishape = self.get_normal_input_shape()
@@ -82,8 +93,11 @@ class Lookup(HWCustomOp):
         return tuple(oshape)
 
     def get_folded_input_shape(self, ind=0):
-        ishape = self.get_normal_input_shape()
-        folded_ishape = list(ishape) + [1]
+        if ind == 0:
+            ishape = self.get_normal_input_shape()
+            folded_ishape = list(ishape) + [1]
+        else:
+            folded_ishape = self.get_normal_input_shape(ind)
         return tuple(folded_ishape)
 
     def get_folded_output_shape(self, ind=0):
@@ -105,16 +119,6 @@ class Lookup(HWCustomOp):
             raise Exception("Unrecognized mem_mode:" + mem_mode)
         return tuple(oshape)
 
-    def make_shape_compatible_op(self, model):
-        exp_ishape = tuple(self.get_normal_input_shape())
-        oshape = tuple(self.get_normal_output_shape())
-        ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == exp_ishape, "Unexpected input shape for Lookup: %s vs %s" % (
-            str(exp_ishape),
-            str(ishape),
-        )
-        return super().make_const_shape_op(oshape)
-
     def infer_node_datatype(self, model):
         node = self.onnx_node
         idt = model.get_tensor_datatype(node.input[0])
@@ -129,11 +133,13 @@ class Lookup(HWCustomOp):
         odt = DataType[self.get_nodeattr("EmbeddingType")]
         model.set_tensor_datatype(node.output[0], odt)
 
-    def verify_node(self):
-        pass
-
     def get_input_datatype(self, ind=0):
-        ret = DataType[self.get_nodeattr("InputType")]
+        if ind == 0:
+            ret = DataType[self.get_nodeattr("InputType")]
+        elif ind == 1:
+            ret = DataType[self.get_nodeattr("EmbeddingType")]
+        else:
+            raise Exception("Undefined input ind for this layer type")
         return ret
 
     def get_output_datatype(self, ind=0):
@@ -141,17 +147,21 @@ class Lookup(HWCustomOp):
         return ret
 
     def get_instream_width(self, ind=0):
-        ibits = self.get_input_datatype().bitwidth()
-        return ibits
+        if ind == 0:
+            bits = self.get_input_datatype().bitwidth()
+        elif ind == 1:
+            if self.get_nodeattr("mem_mode") == "internal_embedded":
+                bits = 0
+            else:
+                bits = self.get_nodeattr("ext_mem_width")
+        else:
+            raise Exception("Undefined input ind for this layer type")
+        return bits
 
     def get_outstream_width(self, ind=0):
         folded_oshape = self.get_folded_output_shape()
         obits = self.get_output_datatype().bitwidth()
         return obits * folded_oshape[-1]
-
-    def get_number_output_values(self):
-        folded_oshape = self.get_folded_output_shape()
-        return np.prod(folded_oshape[:-1])
 
     def execute_node(self, context, graph):
         # create a standard add node to help calculate the result
@@ -176,8 +186,7 @@ class Lookup(HWCustomOp):
             outputs=[outp],
         )
 
-        opset_version = 13
-        opset_imports = [helper.make_opsetid("", opset_version)]
+        opset_imports = [helper.make_opsetid("", 13)]
         onnx_kwargs = {"opset_imports": opset_imports}
         model_gather = qonnx_make_model(graph_gather, **onnx_kwargs)
         idict = {node.input[0]: inp_values, node.input[1]: data_values}
@@ -187,14 +196,24 @@ class Lookup(HWCustomOp):
 
     def bram_estimation(self):
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "internal_embedded":
-            # current calculation assumes embeddings always stored in BRAM_18Ks
-            # when mem_mode is internal_embedded
+        ram_style = self.get_nodeattr("ram_style")
+        if mem_mode == "internal_embedded" and ram_style in ["auto", "block"]:
             width_factor = ceil(self.get_outstream_width() / 16)
             depth_factor = ceil(self.get_nodeattr("NumEmbeddings") / 1024)
             return width_factor * depth_factor
         else:
             # TODO can we estimate BRAMs for the DMA engine?
+            return 0
+
+    def uram_estimation(self):
+        mem_mode = self.get_nodeattr("mem_mode")
+        ram_style = self.get_nodeattr("ram_style")
+        if mem_mode == "internal_embedded" and ram_style == "ultra":
+            width_factor = ceil(self.get_outstream_width() / 72)
+            depth_factor = ceil(self.get_nodeattr("NumEmbeddings") / 4096)
+            return width_factor * depth_factor
+        else:
+            # TODO can we estimate URAMs for the DMA engine?
             return 0
 
     def bram_efficiency_estimation(self):
@@ -204,6 +223,27 @@ class Lookup(HWCustomOp):
         ebits = self.get_outstream_width() * self.get_nodeattr("NumEmbeddings")
         bram16_est_capacity = bram16_est * 18 * 1024
         return ebits / bram16_est_capacity
+
+    def uram_efficiency_estimation(self):
+        # TODO: Versal URAM supports flexible bit widths (9/18/36/72) unlike
+        # UltraScale+ which only supports 72-bit. This could improve efficiency
+        # for narrow data types on Versal devices.
+        uram_est = self.uram_estimation()
+        if uram_est == 0:
+            return 1
+        ebits = self.get_outstream_width() * self.get_nodeattr("NumEmbeddings")
+        uram_est_capacity = uram_est * 72 * 4096
+        return ebits / uram_est_capacity
+
+    def lut_estimation(self):
+        mem_mode = self.get_nodeattr("mem_mode")
+        ram_style = self.get_nodeattr("ram_style")
+        if mem_mode == "internal_embedded" and ram_style == "distributed":
+            width = self.get_outstream_width()
+            depth = self.get_nodeattr("NumEmbeddings")
+            return width * ceil(depth / 64)
+        else:
+            return 0
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()

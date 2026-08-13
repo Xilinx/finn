@@ -1,4 +1,4 @@
-# Copyright (C) 2024, Advanced Micro Devices, Inc.
+# Copyright (C) 2025, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -29,9 +29,7 @@
 import pytest
 
 import numpy as np
-import os
 from onnx import TensorProto, helper
-from pyverilator.util.axi_utils import axilite_read, axilite_write
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.multithreshold import multithreshold
@@ -39,6 +37,7 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
+from finn import xsi
 from finn.core.rtlsim_exec import rtlsim_exec
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
@@ -46,6 +45,9 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.test import make_runtime_weight_stream
+
+finnxsi = xsi if xsi.is_available() else None
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -170,13 +172,7 @@ def test_runtime_thresholds_read(impl_style, idt_act_cfg, cfg, narrow, per_tenso
         op_inst.set_nodeattr("mem_mode", hls_mem_mode)
     op_inst.set_nodeattr("runtime_writeable_weights", 1)
 
-    dat_fname = f"old_weights_{cfg}.dat"
-    op_inst.make_weight_file(T, "decoupled_runtime", dat_fname)
-    with open(dat_fname, "r") as f:
-        old_weight_stream = f.read().strip()
-    os.remove(dat_fname)
-    old_weight_stream = map(lambda x: int(x, 16), old_weight_stream.split("\n"))
-    old_weight_stream = list(old_weight_stream)
+    old_weight_stream = make_runtime_weight_stream(op_inst, T)
     # need to create stitched IP for runtime weight testing
     model = model.transform(InsertFIFO(True))
     model = model.transform(SpecializeLayers(test_fpga_part))
@@ -193,14 +189,20 @@ def test_runtime_thresholds_read(impl_style, idt_act_cfg, cfg, narrow, per_tenso
     in_tensor = gen_finn_dt_tensor(idt, tuple(n_inp_vecs + [ch]))
     in_tensor = np.tile(in_tensor, (2, 1, 1, 1))
 
-    exec_ctx = {"inp": in_tensor}
+    exec_ctx = {model.get_first_global_in(): in_tensor}
     extracted_weight_stream = []
 
     def read_weights(sim):
         addr = 0
+        read_handles = []
+        addresses = []
         for i in range(len(old_weight_stream)):
-            extracted_weight_stream.append(axilite_read(sim, addr, basename="s_axilite_0_"))
+            addresses.append(addr)
             addr += 4
+        read_handles.append(sim.read_axilite("s_axilite_0", iter(addresses)))
+        sim.run()
+        for addr in addresses:
+            extracted_weight_stream.append(int(read_handles[0][addr], 16))
 
     rtlsim_exec(model, exec_ctx, pre_hook=read_weights)
 
@@ -281,14 +283,7 @@ def test_runtime_thresholds_write(impl_style, idt_act_cfg, cfg, narrow, per_tens
     # provide non-decreasing/ascending thresholds
     T_write = sort_thresholds_increasing(T_write)
 
-    dat_fname = f"T_write_{cfg}.dat"  # distinguish fname per paramter for distributed testing
-    op_inst.make_weight_file(T_write, "decoupled_runtime", dat_fname)
-    with open(dat_fname, "r") as f:
-        T_write_stream = f.read().strip()
-    os.remove(dat_fname)
-
-    T_write_stream = map(lambda x: int(x, 16), T_write_stream.split("\n"))
-    T_write_stream = list(T_write_stream)
+    T_write_stream = make_runtime_weight_stream(op_inst, T_write)
 
     # need to create stitched IP for runtime weight testing
     model = model.transform(InsertFIFO(True))
@@ -306,21 +301,33 @@ def test_runtime_thresholds_write(impl_style, idt_act_cfg, cfg, narrow, per_tens
     in_tensor = gen_finn_dt_tensor(idt, tuple(n_inp_vecs + [ch]))
     in_tensor = np.tile(in_tensor, (2, 1, 1, 1))
 
-    exec_ctx_write = {"inp": in_tensor}
+    exec_ctx_write = {model.get_first_global_in(): in_tensor}
 
     def write_weights(sim):
         addr = 0
+        writes = []
         for nw in T_write_stream:
-            axilite_write(sim, addr, nw, basename="s_axilite_0_")
+            # convert value to hex value and without '0x' prefix
+            hex_val = format(nw, "x")
+            writes.append((addr, hex_val))
             addr += 4
+        sim.write_axilite("s_axilite_0", iter(writes))
+        sim.run()
+        finnxsi.reset_rtlsim(sim)
 
     T_read_stream = []
 
     def read_weights(sim):
         addr = 0
+        read_handles = []
+        addresses = []
         for i in range(len(T_write_stream)):
-            T_read_stream.append(axilite_read(sim, addr, basename="s_axilite_0_"))
+            addresses.append(addr)
             addr += 4
+        read_handles.append(sim.read_axilite("s_axilite_0", iter(addresses)))
+        sim.run()
+        for addr in addresses:
+            T_read_stream.append(int(read_handles[0][addr], 16))
 
     rtlsim_exec(model, exec_ctx_write, pre_hook=write_weights, post_hook=read_weights)
 

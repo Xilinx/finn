@@ -30,7 +30,6 @@
 import pytest
 
 import json
-import shutil
 import torch
 from brevitas.export import export_qonnx
 from qonnx.core.modelwrapper import ModelWrapper
@@ -39,7 +38,7 @@ from qonnx.custom_op.registry import getCustomOp
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 from finn.transformation.fpgadataflow.set_fifo_depths import get_fifo_split_configs
-from finn.util.basic import make_build_dir
+from finn.util.basic import make_build_dir, robust_rmtree
 from finn.util.test import get_trained_network_and_ishape
 
 
@@ -54,7 +53,7 @@ def fetch_test_model(topology, wbits=2, abits=2):
 def get_folding_cfg(depth=65536):
     cfg = dict()
     cfg["Defaults"] = dict()
-    for i in range(4):
+    for i in range(8):
         key = "StreamingFIFO_rtl_" + str(i)
         cfg[key] = {"depth": depth, "ram_style": "auto", "impl_style": "vivado"}
     return cfg
@@ -63,9 +62,8 @@ def get_folding_cfg(depth=65536):
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.fpgadataflow
-@pytest.mark.parametrize("depth", [16384, 65536, 45000])
-@pytest.mark.parametrize("force_python_rtlsim", ["True", "False"])
-def test_split_large_fifos(depth, force_python_rtlsim):
+@pytest.mark.parametrize("depth", [16384, 65536, 45000, 1537])
+def test_split_large_fifos(depth):
     tmp_output_dir = fetch_test_model("tfc")
     folding_cfg = get_folding_cfg(depth)
     with open(tmp_output_dir + "/folding_config.json", "w") as f:
@@ -76,7 +74,6 @@ def test_split_large_fifos(depth, force_python_rtlsim):
         split_large_fifos=True,
         folding_config_file=tmp_output_dir + "/folding_config.json",
         target_fps=10000,
-        force_python_rtlsim=force_python_rtlsim,
         synth_clk_period_ns=10.0,
         board="Pynq-Z1",
         rtlsim_batch_size=100,
@@ -103,13 +100,14 @@ def test_split_large_fifos(depth, force_python_rtlsim):
         inst = getCustomOp(fifo_node)
         fifo_depth = inst.get_nodeattr("depth")
         assert fifo_depth == golden_cfg[i % len(golden_cfg)][0]
+        assert fifo_depth > 1
 
-    shutil.rmtree(tmp_output_dir)
+    robust_rmtree(tmp_output_dir)
 
 
 def test_split_large_fifo_configs():
     ret0 = get_fifo_split_configs(513, 256, 32768)
-    assert ret0 == [(512, "vivado"), (1, "rtl")]
+    assert ret0 == [(512, "vivado"), (2, "rtl")]
     ret1 = get_fifo_split_configs(1200, 256, 32768)
     assert ret1 == [(1024, "vivado"), (176, "rtl")]
     ret2 = get_fifo_split_configs(45000, 256, 32768)

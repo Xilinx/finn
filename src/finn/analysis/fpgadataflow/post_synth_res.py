@@ -35,28 +35,14 @@ from qonnx.custom_op.registry import getCustomOp
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
-def post_synth_res(model, override_synth_report_filename=None):
-    """Extracts the FPGA resource results from the Vivado synthesis.
+def _extract_from_vivado_report(model, root: ET.Element):
+    """Extracts the FPGA resource results from Vivado synthesis.
     Ensure that all nodes have unique names (by calling the GiveUniqueNodeNames
     transformation) prior to calling this analysis pass to ensure all nodes are
     visible in the results.
 
     Returns {node name : resources_dict}."""
-
     res_dict = {}
-    if override_synth_report_filename is not None:
-        synth_report_filename = override_synth_report_filename
-    else:
-        synth_report_filename = model.get_metadata_prop("vivado_synth_rpt")
-    if os.path.isfile(synth_report_filename):
-        tree = ET.parse(synth_report_filename)
-        root = tree.getroot()
-        all_cells = root.findall(".//tablecell")
-        # strip all whitespace from table cell contents
-        for cell in all_cells:
-            cell.attrib["contents"] = cell.attrib["contents"].strip()
-    else:
-        raise Exception("Please run synthesis first")
 
     restype_to_ind_default = {
         "LUT": 2,
@@ -99,7 +85,7 @@ def post_synth_res(model, override_synth_report_filename=None):
     else:
         # could not infer resource types from header
         # fall back to default indices
-        if model.get_metadata_prop("platform") == "alveo":
+        if model.get_metadata_prop("platform") == "vitis-xrt":
             restype_to_ind = restype_to_ind_vitis
         else:
             restype_to_ind = restype_to_ind_default
@@ -123,7 +109,7 @@ def post_synth_res(model, override_synth_report_filename=None):
     for node in model.graph.node:
         if node.op_type == "StreamingDataflowPartition":
             sdp_model = ModelWrapper(getCustomOp(node).get_nodeattr("model"))
-            sdp_res_dict = post_synth_res(sdp_model, synth_report_filename)
+            sdp_res_dict = _extract_from_vivado_report(sdp_model, root)
             res_dict.update(sdp_res_dict)
         elif is_hls_node(node) or is_rtl_node(node):
             node_dict = get_instance_stats(node.name)
@@ -131,3 +117,78 @@ def post_synth_res(model, override_synth_report_filename=None):
                 res_dict[node.name] = node_dict
 
     return res_dict
+
+
+def _extract_from_slash_report(model, root: ET.Element):
+    """Extracts the FPGA resource results from SLASH synthesis.
+
+    Returns {node name : resources_dict}."""
+    res_dict = dict()
+
+    def totals_to_stats(totals: ET.Element):
+        return {
+            "LUT": int(totals.get("total_luts", 0)),
+            "SRL": int(totals.get("srl"), 0),
+            "FF": int(totals.get("ff"), 0),
+            "BRAM_36K": int(totals.get("ramb36"), 0),
+            "BRAM_18K": int(totals.get("ramb18"), 0),
+            "URAM": int(totals.get("uram"), 0),
+            "DSP": int(totals.get("dsp"), 0),
+        }
+
+    top_totals = root.find("totals")
+    assert top_totals is not None
+    if top_totals is not None:
+        res_dict["(top)"] = totals_to_stats(top_totals)
+
+    layer_cell_stats = {
+        layer.get("instance"): totals_to_stats(layer.find("totals"))
+        for layer in root.findall("slash/kernels/kernel/cell/cell")
+    }
+
+    for kernel in model.graph.node:
+        if kernel.op_type != "StreamingDataflowPartition":
+            continue
+
+        sdp_model = ModelWrapper(getCustomOp(kernel).get_nodeattr("model"))
+        for layer in sdp_model.graph.node:
+            if not (is_hls_node(layer) or is_rtl_node(layer)):
+                continue
+            if layer.name in layer_cell_stats:
+                res_dict[layer.name] = layer_cell_stats[layer.name]
+
+    return res_dict
+
+
+def post_synth_res(model, override_synth_report_filename=None):
+    """Extracts the FPGA resource results from either Vivado or SLASH synthesis.
+    Ensure that all nodes have unique names (by calling the GiveUniqueNodeNames
+    transformation) prior to calling this analysis pass to ensure all nodes are
+    visible in the results.
+
+    Returns {node name : resources_dict}."""
+    platform = model.get_metadata_prop("platform")
+
+    if override_synth_report_filename is not None:
+        synth_report_filename = override_synth_report_filename
+    else:
+        if platform == "slash-vrt":
+            synth_report_filename = model.get_metadata_prop("slash_report")
+        else:
+            synth_report_filename = model.get_metadata_prop("vivado_synth_rpt")
+
+    if os.path.isfile(synth_report_filename):
+        tree = ET.parse(synth_report_filename)
+        root = tree.getroot()
+        if platform != "slash-vrt":
+            all_cells = root.findall(".//tablecell")
+            # strip all whitespace from table cell contents
+            for cell in all_cells:
+                cell.attrib["contents"] = cell.attrib["contents"].strip()
+    else:
+        raise Exception("Please run synthesis first")
+
+    if platform == "slash-vrt":
+        return _extract_from_slash_report(model, root)
+    else:
+        return _extract_from_vivado_report(model, root)

@@ -39,18 +39,10 @@ RTLBackend
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.fpgadataflow.addstreams
-----------------------------------------
+finn.custom\_op.fpgadataflow.pad1d
+-----------------------------------
 
-.. automodule:: finn.custom_op.fpgadataflow.addstreams
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-finn.custom\_op.fpgadataflow.channelwise\_op
----------------------------------------------
-
-.. automodule:: finn.custom_op.fpgadataflow.channelwise_op
+.. automodule:: finn.custom_op.fpgadataflow.pad1d
    :members:
    :undoc-members:
    :show-inheritance:
@@ -67,14 +59,6 @@ finn.custom\_op.fpgadataflow.convolutioninputgenerator
 --------------------------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.convolutioninputgenerator
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-finn.custom\_op.fpgadataflow.downsampler
------------------------------------------
-
-.. automodule:: finn.custom_op.fpgadataflow.downsampler
    :members:
    :undoc-members:
    :show-inheritance:
@@ -161,26 +145,10 @@ finn.custom\_op.fpgadataflow.streamingdatawidthconverter
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.fpgadataflow.streamingeltwise
-----------------------------------------------
-
-.. automodule:: finn.custom_op.fpgadataflow.streamingeltwise
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 finn.custom\_op.fpgadataflow.streamingfifo
 -------------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.streamingfifo
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-finn.custom\_op.fpgadataflow.streamingmaxpool
-----------------------------------------------
-
-.. automodule:: finn.custom_op.fpgadataflow.streamingmaxpool
    :members:
    :undoc-members:
    :show-inheritance:

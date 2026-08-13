@@ -44,8 +44,11 @@ More FINN Resources
    end_to_end_flow
    command_line
    example_networks
-   internals
    developers
+   concepts
+   Implementation Guide <implementation/index>
+   Components <components/index>
+   Reference <reference/index>
    faq
    source_code/finn
    genindex
