@@ -498,7 +498,7 @@ class TestEnd2End:
     def test_streamline(self, topology, wbits, abits, board):
         prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "pre_post")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
-        model = model.transform(absorb.AbsorbSignBiasIntoMultiThreshold())
+        model = model.transform(absorb.AbsorbScalarBiasIntoMultiThreshold())
         # move past any reshapes to be able to streamline input scaling
         model = model.transform(MoveScalarLinearPastInvariants())
         model = model.transform(Streamline())
