@@ -10,6 +10,7 @@ import pytest
 
 import onnx
 import os
+import warnings
 from onnxscript import BOOL, FLOAT
 from onnxscript import opset13 as op
 from onnxscript import script
@@ -194,6 +195,41 @@ def test_roundtrip_export_import():
     assert restored_config == original_config, "Config not properly restored after roundtrip"
 
     robust_rmtree(test_dir)
+
+
+@pytest.mark.util
+def test_apply_config_can_preserve_subgraphs():
+    """Top-level reconfiguration can leave an already-generated subgraph intact."""
+    model, _ = make_im2col_test_model()
+    partition_node = model.graph.node[1]
+    graph_attr = partition_node.attribute[0]
+    nested_node = graph_attr.g.node[0]
+    nested_kernel_size = getCustomOp(nested_node).get_nodeattr("kernel_size")
+    nested_config_key = (
+        f"{partition_node.name}_{graph_attr.name}_{nested_node.name}"
+    )
+    stale_nested_config_key = (
+        f"{partition_node.name}_{graph_attr.name}_RemovedNestedNode"
+    )
+    config = {
+        "Defaults": {"kernel_size": [[9, 9], ["Im2Col"]]},
+        nested_config_key: {"kernel_size": [7, 7]},
+        stale_nested_config_key: {"kernel_size": [5, 5]},
+    }
+
+    transform = ApplyConfig(config, recurse_subgraphs=False)
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        model = model.transform(transform)
+
+    top_node = model.graph.node[0]
+    nested_node = model.graph.node[1].attribute[0].g.node[0]
+    assert getCustomOp(top_node).get_nodeattr("kernel_size") == [9, 9]
+    assert getCustomOp(nested_node).get_nodeattr("kernel_size") == nested_kernel_size
+    assert transform.preserved_configurations == [
+        nested_config_key,
+        stale_nested_config_key,
+    ]
+    assert not any("Unused HW configurations" in str(x.message) for x in caught_warnings)
 
 
 @pytest.mark.util

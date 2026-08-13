@@ -491,11 +491,12 @@ class MakePYNQDriver(Transformation):
         mlo_total_bytes = 0
         mlo_axilite_ips = []
         for sdp_node in model.graph.node:
-            dataflow_model = ModelWrapper(getCustomOp(sdp_node).get_nodeattr("model"))
+            sdp_inst = getHWCustomOp(sdp_node, model)
+            dataflow_model = ModelWrapper(sdp_inst.get_nodeattr("model"))
             for node in dataflow_model.graph.node:
                 if node.op_type != "FINNLoop":
                     continue
-                fl_inst = getCustomOp(node)
+                fl_inst = getHWCustomOp(node, dataflow_model)
                 if get_by_name(node.attribute, "address_offset") is None:
                     continue
                 fl_code_gen_dir = fl_inst.get_nodeattr("code_gen_dir_ipgen")
@@ -504,12 +505,21 @@ class MakePYNQDriver(Transformation):
                     consumer = fl_body.find_consumer(lb_inp.name)
                     if consumer is None or not consumer.op_type.startswith("MVAU"):
                         continue
-                    dat_src = "%s/memblock_MVAU_rtl_id_%d.dat" % (fl_code_gen_dir, idx)
+                    dat_src = "%s/memblock_%s_id_%d.dat" % (
+                        fl_code_gen_dir,
+                        consumer.op_type,
+                        idx,
+                    )
                     if not os.path.isfile(dat_src):
                         continue
-                    address_offset = int(getCustomOp(consumer).get_nodeattr("address_offset"))
+                    consumer_inst = getHWCustomOp(consumer, fl_body)
+                    address_offset = int(consumer_inst.get_nodeattr("address_offset"))
                     num_bytes = int(dat_file_to_numpy_array(dat_src).shape[0])
-                    dat_name = "%s_memblock_MVAU_rtl_id_%d.dat" % (node.name, idx)
+                    dat_name = "%s_memblock_%s_id_%d.dat" % (
+                        node.name,
+                        consumer.op_type,
+                        idx,
+                    )
                     os.makedirs(mlo_weights_dir, exist_ok=True)
                     shutil.copy(dat_src, mlo_weights_dir + "/" + dat_name)
                     mlo_weight_entries.append(

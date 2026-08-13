@@ -27,6 +27,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import filecmp
 import json
 import multiprocessing as mp
 import os
@@ -62,7 +63,9 @@ def append_missing_finnloop_rtlsim_sources(model, v_file_list):
     with open(v_file_list) as f:
         existing_sources = [line.strip() for line in f if line.strip()]
     existing_paths = set(existing_sources)
-    existing_basenames = {os.path.basename(path) for path in existing_sources}
+    existing_by_basename = {
+        os.path.basename(path): path for path in existing_sources
+    }
     appended_sources = []
 
     for node in model.graph.node:
@@ -80,11 +83,21 @@ def append_missing_finnloop_rtlsim_sources(model, v_file_list):
             if ext.lower() not in RTLSIM_SOURCE_EXTENSIONS:
                 continue
             source_basename = os.path.basename(source_path)
-            if source_path in existing_paths or source_basename in existing_basenames:
+            if source_path in existing_paths:
+                continue
+            if source_basename in existing_by_basename:
+                existing_path = existing_by_basename[source_basename]
+                if not filecmp.cmp(existing_path, source_path, shallow=False):
+                    raise RuntimeError(
+                        "Conflicting stitched-RTL sources share basename "
+                        f"{source_basename}: {existing_path} and {source_path}. "
+                        "Regenerate the FINNLoop with globally unique node names "
+                        "before HLS/RTL code generation."
+                    )
                 continue
             appended_sources.append(source_path)
             existing_paths.add(source_path)
-            existing_basenames.add(source_basename)
+            existing_by_basename[source_basename] = source_path
 
     if appended_sources:
         with open(v_file_list, "a") as f:

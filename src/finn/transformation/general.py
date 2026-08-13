@@ -24,6 +24,9 @@ from qonnx.transformation.base import Transformation
 class ApplyConfig(Transformation):
     """Applies node properties (attributes) from either a config dict or its JSON
     representation given as a filename.
+    Nested graph attributes are configured recursively by default. Set
+    ``recurse_subgraphs=False`` when their metadata must be preserved, for
+    example after a nested hardware graph has already been code-generated.
     The JSON file can specify default values for particular op_types, as well
     as values for nodes with particular names. Example dict::
 
@@ -36,13 +39,22 @@ class ApplyConfig(Transformation):
 
     """
 
-    def __init__(self, config, node_filter=lambda x: True):
+    def __init__(self, config, node_filter=lambda x: True, recurse_subgraphs=True):
         super().__init__()
         self.config = config
         self.node_filter = node_filter
+        self.recurse_subgraphs = recurse_subgraphs
         self.used_configurations = ["Defaults"]
+        self.preserved_configurations = []
         self.missing_configurations = []
         self.ignored_non_custom_configurations = []
+
+    def record_preserved_configurations(self, model_config, subgraph_hier):
+        """Record all configs intentionally left untouched below a hierarchy."""
+        prefix = str(subgraph_hier) + "_"
+        self.preserved_configurations.extend(
+            config_key for config_key in model_config if config_key.startswith(prefix)
+        )
 
     def configure_network(self, graph_proto, model_config, subgraph_hier):
         # Configure network - graph_proto can be a GraphProto or ModelWrapper
@@ -96,7 +108,9 @@ class ApplyConfig(Transformation):
             elif node_config:
                 self.ignored_non_custom_configurations += [(config_key, node.op_type)]
 
-            # Recursively handle nested subgraphs
+            # Handle nested subgraphs. In preservation mode, record their
+            # matching config entries so they are not misleadingly reported as
+            # unused even though leaving them unapplied was intentional.
             for attr in node.attribute:
                 if attr.type == AttributeProto.GRAPH:
                     # Build the subgraph hierarchy including the attribute name
@@ -104,9 +118,11 @@ class ApplyConfig(Transformation):
                         new_hier = node.name
                     else:
                         new_hier = str(subgraph_hier) + "_" + node.name
-                    # Include the subgraph attribute name in the hierarchy
                     new_hier = new_hier + "_" + attr.name
-                    self.configure_network(attr.g, model_config, subgraph_hier=new_hier)
+                    if self.recurse_subgraphs:
+                        self.configure_network(attr.g, model_config, subgraph_hier=new_hier)
+                    else:
+                        self.record_preserved_configurations(model_config, new_hier)
 
     def apply(self, model):
         if isinstance(self.config, dict):
@@ -146,6 +162,7 @@ class ApplyConfig(Transformation):
             x
             for x in model_config
             if x not in self.used_configurations
+            and x not in self.preserved_configurations
             and x not in ignored_configurations
             and x != "Defaults"
         ]

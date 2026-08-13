@@ -18,6 +18,7 @@ from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 import finn.core.onnx_exec as oxe
+from finn.custom_op.fpgadataflow.rtl.finn_loop import _get_stream_tap_adjacency
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
@@ -32,6 +33,34 @@ verif_steps = [
 
 fpga_part = "xcvc1902-vsva2197-2MP-e-S"
 clk_ns = 5
+
+
+def test_stream_tap_adjacency_includes_hls_mvau_fork():
+    """HLS MVAUs in a Q/K/V fork must receive the forwarded loop index."""
+    activation = create_tensor_info("activation", [1, 8])
+    weights = [create_tensor_info(f"weights_{name}", [8, 8]) for name in ("q", "k", "v")]
+    outputs = [create_tensor_info(f"output_{name}", [1, 8]) for name in ("q", "k", "v")]
+    nodes = [
+        helper.make_node(
+            "MVAU_hls",
+            ["activation", f"weights_{name}"],
+            [f"output_{name}"],
+            name=f"MVAU_hls_{name}",
+            domain="finn.custom_op.fpgadataflow.hls",
+            mlo_max_iter=12,
+        )
+        for name in ("q", "k", "v")
+    ]
+    graph = helper.make_graph(nodes, "qkv", [activation] + weights, outputs)
+    loop_body = ModelWrapper(qonnx_make_model(graph, producer_name="qkv-loop-body"))
+
+    _, pruned_adjacency = _get_stream_tap_adjacency(loop_body)
+
+    assert pruned_adjacency["__INPUT0__"] == [
+        "MVAU_hls_q",
+        "MVAU_hls_k",
+        "MVAU_hls_v",
+    ]
 
 
 def generate_random_threshold_values(data_type, num_input_channels, num_steps):
@@ -590,6 +619,28 @@ def test_finnloop_mux_prioritizes_intermediate_frames():
     # If a new batch input and recirculated frame are both ready, the feedback
     # frame must run first. Otherwise batch input can starve loop progress.
     assert control.index("if(s_idx_tvalid)") < control.index("else if(idx_fs_tvalid)")
+
+
+@pytest.mark.fpgadataflow
+def test_mlo_write_dma_boundary_helpers_are_continuous_nets():
+    dma_path = (
+        Path(__file__).resolve().parents[2]
+        / "finn-rtllib/cdma/cdma_u/axi_dma_wr_u.sv"
+    )
+    dma_source = dma_path.read_text()
+
+    # These values depend on live descriptor state. Declaring them as logic
+    # with an initializer evaluates them only once at time zero in SystemVerilog,
+    # causing later unaligned frames to overrun a 4 KiB boundary and underflow
+    # op_word_count_reg.
+    assert (
+        "uwire [AXI_ADDR_WIDTH-1:0] addr_plus_max_burst = "
+        "addr_reg + AXI_MAX_BURST_SIZE;"
+    ) in dma_source
+    assert (
+        "uwire [AXI_ADDR_WIDTH-1:0] addr_plus_count = "
+        "addr_reg + op_word_count_reg;"
+    ) in dma_source
 
 
 # MVAU folding as a jointly-valid tuple (dim, mvau_pe, mvau_simd, mvau_th, helper_pe).

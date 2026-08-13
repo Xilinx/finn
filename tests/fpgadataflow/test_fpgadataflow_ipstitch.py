@@ -102,7 +102,7 @@ def test_ipstitch_appends_missing_finnloop_rtlsim_sources(tmp_path, monkeypatch)
     existing_top = tmp_path / "top_existing.v"
     existing_duplicate_basename = tmp_path / "same_name.sv"
     existing_top.write_text("// top\n")
-    existing_duplicate_basename.write_text("// duplicate basename\n")
+    existing_duplicate_basename.write_text("// shared source\n")
     top_list.write_text(str(existing_top) + "\n" + str(existing_duplicate_basename) + "\n")
 
     loop_a = tmp_path / "loop_a"
@@ -118,9 +118,9 @@ def test_ipstitch_appends_missing_finnloop_rtlsim_sources(tmp_path, monkeypatch)
         loop_a_new_v,
         loop_a_new_sv,
         loop_a_skip_txt,
-        loop_a_dup_basename,
     ]:
         source_path.write_text("// loop a\n")
+    loop_a_dup_basename.write_text("// shared source\n")
     (loop_a / "all_verilog_srcs.txt").write_text(
         "\n".join(
             map(
@@ -140,6 +140,7 @@ def test_ipstitch_appends_missing_finnloop_rtlsim_sources(tmp_path, monkeypatch)
     loop_b_dup_basename = loop_b / "nested_a.v"
     for source_path in [loop_b_new_vhd, loop_b_dup_basename]:
         source_path.write_text("// loop b\n")
+    loop_b_dup_basename.write_text("// loop a\n")
     (loop_b / "all_verilog_srcs.txt").write_text(
         "\n".join(map(str, [loop_b_new_vhd, loop_b_dup_basename])) + "\n"
     )
@@ -168,6 +169,30 @@ def test_ipstitch_appends_missing_finnloop_rtlsim_sources(tmp_path, monkeypatch)
     ]
 
     append_missing_finnloop_rtlsim_sources(model, str(tmp_path / "missing_top.txt"))
+
+
+@pytest.mark.fpgadataflow
+def test_ipstitch_rejects_conflicting_nested_rtlsim_basename(tmp_path, monkeypatch):
+    top_source = tmp_path / "top" / "same_name.v"
+    nested_source = tmp_path / "loop" / "same_name.v"
+    top_source.parent.mkdir()
+    nested_source.parent.mkdir()
+    top_source.write_text("module same_name(input [7:0] in); endmodule\n")
+    nested_source.write_text("module same_name(input [15:0] in); endmodule\n")
+    top_list = tmp_path / "all_verilog_srcs.txt"
+    top_list.write_text(str(top_source) + "\n")
+    (nested_source.parent / "all_verilog_srcs.txt").write_text(
+        str(nested_source) + "\n"
+    )
+    model = FakeModel([FakeNode("FINNLoop", str(nested_source.parent))])
+    monkeypatch.setattr(
+        create_stitched_ip,
+        "getHWCustomOp",
+        lambda node, model: FakeHWCustomOp(node.code_gen_dir),
+    )
+
+    with pytest.raises(RuntimeError, match="Conflicting stitched-RTL sources"):
+        append_missing_finnloop_rtlsim_sources(model, str(top_list))
 
 
 def create_one_fc_model(mem_mode="internal_embedded"):

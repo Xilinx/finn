@@ -3,9 +3,11 @@
 
 import json
 import os
+from types import SimpleNamespace
 
 import finn.builder.build_dataflow_steps as steps
 from finn.builder.build_dataflow_config import DataflowBuildConfig, DataflowOutputType
+from finn.transformation.general import ApplyConfig
 
 
 class _FakeMLOModel:
@@ -47,6 +49,57 @@ class _FakeFIFOInstance:
 
     def set_nodeattr(self, name, value):
         self.attrs[name] = value
+
+
+class _FakeMLOFoldingModel:
+    def __init__(self):
+        self.graph = SimpleNamespace(node=[SimpleNamespace(op_type="FINNLoop")])
+        self.transforms = []
+
+    def transform(self, transformation, **_kwargs):
+        self.transforms.append(transformation)
+        return self
+
+    def get_nodes_by_op_type(self, _op_type):
+        return []
+
+
+class _FakeLoopBodyModel:
+    def __init__(self, loop_context):
+        self.loop_context = loop_context
+        self.transforms = []
+
+    def get_metadata_prop(self, name):
+        assert name == "loop_context"
+        return self.loop_context
+
+    def transform(self, transformation):
+        self.transforms.append(transformation)
+        return self
+
+
+def test_mlo_fifo_step_preserves_generated_loop_body(tmp_path, monkeypatch):
+    """Late top-level FIFO configuration must not recurse into FINNLoop IP."""
+    model = _FakeMLOFoldingModel()
+    folding_config = tmp_path / "folding.json"
+    folding_config.write_text("{}")
+    monkeypatch.setattr(steps, "extract_model_config_to_json", lambda *_args: None)
+    monkeypatch.setattr(steps, "extract_model_config_consolidate_shuffles", lambda *_args: None)
+    cfg = DataflowBuildConfig(
+        output_dir=str(tmp_path),
+        synth_clk_period_ns=5.0,
+        board="VCK190",
+        auto_fifo_depths=False,
+        folding_config_file=str(folding_config),
+        generate_outputs=[],
+    )
+
+    returned = steps.step_set_fifo_depths(model, cfg)
+
+    assert returned is model
+    applied_configs = [x for x in model.transforms if isinstance(x, ApplyConfig)]
+    assert len(applied_configs) == 1
+    assert applied_configs[0].recurse_subgraphs is False
 
 
 def test_mlo_performance_step_uses_two_frames_and_ideal_memory(tmp_path, monkeypatch):
@@ -131,3 +184,36 @@ def test_mlo_loop_body_replaces_vivado_fifos_for_rtlsim(tmp_path, monkeypatch):
         "ipgen_path": "",
     }
     assert model.transforms == ["PrepareIP", "HLSSynthIP", "CreateStitchedIP"]
+
+
+def test_mlo_loop_body_names_hls_before_fifo_characterization(tmp_path, monkeypatch):
+    """Nested HLS modules must be namespaced before their RTL is generated."""
+    model = _FakeLoopBodyModel("FINNLoop_0")
+    insert_call = {}
+
+    class _FakeInsertAndSetFIFODepths:
+        pass
+
+    def fake_insert_and_set_fifo_depths(*args, **kwargs):
+        insert_call["args"] = args
+        insert_call["kwargs"] = kwargs
+        return _FakeInsertAndSetFIFODepths()
+
+    monkeypatch.setattr(
+        steps,
+        "InsertAndSetFIFODepths",
+        fake_insert_and_set_fifo_depths,
+    )
+    monkeypatch.setattr(steps, "snapshot_fifo_logs", lambda *_args, **_kwargs: None)
+    cfg = DataflowBuildConfig(
+        output_dir=str(tmp_path),
+        synth_clk_period_ns=5.0,
+        board="VCK190",
+        generate_outputs=[],
+    )
+
+    returned = steps.step_loop_body_set_fifo_depths(model, cfg)
+
+    assert returned is model
+    assert model.transforms[0].prefix == "FINNLoop_0_"
+    assert insert_call["kwargs"]["node_name_prefix"] == "FINNLoop_0_"

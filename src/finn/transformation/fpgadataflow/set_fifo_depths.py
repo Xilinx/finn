@@ -281,6 +281,7 @@ class InsertAndSetFIFODepths(Transformation):
         cfg_n_inferences=2,
         debug_log_dir=None,
         debug_log_prefix="",
+        node_name_prefix="",
     ):
         super().__init__()
         self.fpgapart = fpgapart
@@ -295,9 +296,10 @@ class InsertAndSetFIFODepths(Transformation):
         self.ind_map = {}
         self.debug_log_dir = debug_log_dir
         self.debug_log_prefix = debug_log_prefix
+        self.node_name_prefix = node_name_prefix
 
     def apply(self, model):
-        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(GiveUniqueNodeNames(prefix=self.node_name_prefix))
         model = model.transform(GiveReadableTensorNames())
         for x in model.graph.node:
             if x.op_type == "FINNLoop":
@@ -430,7 +432,7 @@ class InsertAndSetFIFODepths(Transformation):
         model = model.transform(InsertDWC())
         model = model.transform(InsertFIFO(create_shallow_fifos=True))
         model = model.transform(SpecializeLayers(self.fpgapart))
-        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(GiveUniqueNodeNames(prefix=self.node_name_prefix))
         model = model.transform(GiveReadableTensorNames())
 
         # gather FIFO names, check they are of expected depth

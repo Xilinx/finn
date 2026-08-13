@@ -53,6 +53,61 @@ from finn.util.rtlsim import dat_file_to_numpy_array, mlo_prehook_func_factory
 finnxsi = xsi if xsi.is_available() else None
 
 
+def _is_stream_tap_parameter_node(node):
+    """Return whether ``node`` consumes a loop-indexed parameter stream."""
+    has_mlo_parameter = any(
+        attr.name == "mlo_max_iter" and attr.i > 0 for attr in node.attribute
+    )
+    return has_mlo_parameter and (
+        node.op_type == "Thresholding_rtl"
+        or node.op_type.startswith("MVAU")
+        or node.op_type.startswith("Elementwise")
+    )
+
+
+def _get_stream_tap_adjacency(loop_body):
+    """Build and prune the parameter-node graph used to connect stream taps."""
+    adj_list = adjacency_list(loop_body, _is_stream_tap_parameter_node)
+
+    # Remove the parameter inputs themselves. Their consumers remain reachable
+    # through the activation path rooted at INPUT0 and receive the forwarded
+    # iteration index from that path.
+    pruned_adj_list = copy.deepcopy(adj_list)
+    for key in adj_list:
+        if key.startswith("__INPUT") and "INPUT0" not in key:
+            del pruned_adj_list[key]
+        if "__OUTPUT0__" in adj_list[key] and len(adj_list[key]) > 1:
+            pruned_adj_list[key].remove("__OUTPUT0__")
+
+    # Remove duplicate join edges, retaining the latest source in topological
+    # order when the same parameter node is reachable along multiple paths.
+    pruned_adj_list = {tuple(v): k for k, v in pruned_adj_list.items()}
+    pruned_adj_list = {v: list(k) for k, v in pruned_adj_list.items()}
+    pruned_adj_list_copy = copy.deepcopy(pruned_adj_list)
+
+    for key0, value0 in pruned_adj_list_copy.items():
+        for key1, value1 in pruned_adj_list_copy.items():
+            for val in value1:
+                if val in value0 and key0 != key1:
+                    node0 = loop_body.get_node_from_name(key0)
+                    id0 = (
+                        loop_body.get_node_index(node0)
+                        if loop_body.get_node_index(node0) is not None
+                        else -1
+                    )
+                    node1 = loop_body.get_node_from_name(key1)
+                    id1 = (
+                        loop_body.get_node_index(node1)
+                        if loop_body.get_node_index(node1) is not None
+                        else -1
+                    )
+                    if id0 < id1:
+                        pruned_adj_list[key0].remove(val)
+
+    pruned_adj_list = {key: value for key, value in pruned_adj_list.items() if value}
+    return adj_list, pruned_adj_list
+
+
 def collect_ip_dirs(model, ipstitch_path):
     # collect list of all IP dirs
     ip_dirs = []
@@ -477,7 +532,9 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 # (make_driver.py) consume this file as-is. Written one hex byte per
                 # line.
                 param_file = "{}/memblock_{}_id_{}.dat".format(path, param_node.op_type, i + 1)
-                layer_bytes, layer_offs = getCustomOp(param_node).get_weight_mem_bytes()
+                layer_bytes, layer_offs = getHWCustomOp(
+                    param_node, model
+                ).get_weight_mem_bytes()
                 padded = np.zeros(iteration * layer_offs, dtype=np.uint8)
                 for iter in range(iteration):
                     memblock_file = "{}/{}_memblock_{}.dat".format(path, param_node.op_type, iter)
@@ -797,21 +854,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         for f in sourcefiles:
             cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
 
-        adj_list = adjacency_list(
-            loop_body,
-            lambda node: (
-                node.op_type == "Thresholding_rtl"
-                and any(attr.name == "mlo_max_iter" and attr.i > 0 for attr in node.attribute)
-            )
-            or (
-                node.op_type == "MVAU_rtl"
-                and any(attr.name == "mlo_max_iter" and attr.i > 0 for attr in node.attribute)
-            )
-            or (
-                node.op_type.startswith("Elementwise")
-                and any(attr.name == "mlo_max_iter" and attr.i > 0 for attr in node.attribute)
-            ),
-        )
+        adj_list, pruned_adj_list = _get_stream_tap_adjacency(loop_body)
 
         # create map that maps each stream tap to its param node
         st_map = {}
@@ -837,49 +880,6 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 "connect_bd_intf_net [get_bd_intf_pins %s/m_axis_%s] "
                 "[get_bd_intf_pins %s/%s/m_axis_1]" % (bd_name, id + 1, bd_name, st_name)
             )
-
-        # prune adj_list to remove join duplicates
-        pruned_adj_list = copy.deepcopy(adj_list)
-
-        for key in adj_list:
-            if key.startswith("__INPUT") and "INPUT0" not in key:
-                del pruned_adj_list[key]
-            if "__OUTPUT0__" in adj_list[key] and len(adj_list[key]) > 1:
-                pruned_adj_list[key].remove("__OUTPUT0__")
-
-        pruned_adj_list = {tuple(v): k for k, v in pruned_adj_list.items()}  # exchange keys, values
-        pruned_adj_list = {v: list(k) for k, v in pruned_adj_list.items()}
-
-        # look for double edges,
-        # e.g. input connected to node_x and intermediate node connected to node_x
-
-        pruned_adj_list_copy = copy.deepcopy(pruned_adj_list)
-
-        for key0, value0 in pruned_adj_list_copy.items():
-            for key1, value1 in pruned_adj_list_copy.items():
-                for val in value1:
-                    if val in value0 and key0 != key1:
-                        # check which src is in the topological order last
-                        # key0
-                        node0 = loop_body.get_node_from_name(key0)
-                        id0 = (
-                            loop_body.get_node_index(node0)
-                            if loop_body.get_node_index(node0) is not None
-                            else -1
-                        )
-                        # key1
-                        node1 = loop_body.get_node_from_name(key1)
-                        id1 = (
-                            loop_body.get_node_index(node1)
-                            if loop_body.get_node_index(node1) is not None
-                            else -1
-                        )
-                        # if node0 is earlier in the graph remove val from list
-                        if id0 < id1:
-                            pruned_adj_list[key0].remove(val)
-
-        # filter pruned_adj_list in case some of the values are now empty lists
-        pruned_adj_list = {key: value for key, value in pruned_adj_list.items() if value != []}
 
         # create stg
         for src, dsts in pruned_adj_list.items():
