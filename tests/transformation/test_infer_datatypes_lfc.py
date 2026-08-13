@@ -28,7 +28,6 @@
 
 import pytest
 
-import os
 import torch
 from brevitas.export import export_qonnx
 from qonnx.core.datatype import DataType
@@ -40,29 +39,32 @@ from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
+from finn.util.basic import make_build_dir, robust_rmtree
 from finn.util.test import get_test_model_trained
-
-export_onnx_path = "test_infer_datatypes.onnx"
 
 
 @pytest.mark.transform
 def test_infer_datatypes_lfc():
-    lfc = get_test_model_trained("LFC", 1, 1)
-    export_qonnx(lfc, torch.randn(1, 1, 28, 28), export_onnx_path)
-    qonnx_cleanup(export_onnx_path, out_file=export_onnx_path)
-    model = ModelWrapper(export_onnx_path)
-    model = model.transform(ConvertQONNXtoFINN())
-    model = model.transform(InferShapes())
-    model = model.transform(FoldConstants())
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(GiveReadableTensorNames())
-    model = model.transform(InferDataTypes())
-    assert model.get_tensor_datatype("MatMul_0_out0") == DataType["INT32"]
-    assert model.get_tensor_datatype("MatMul_1_out0") == DataType["INT32"]
-    assert model.get_tensor_datatype("MatMul_2_out0") == DataType["INT32"]
-    assert model.get_tensor_datatype("MatMul_3_out0") == DataType["INT32"]
-    assert model.get_tensor_datatype("MultiThreshold_0_out0") == DataType["BIPOLAR"]
-    assert model.get_tensor_datatype("MultiThreshold_1_out0") == DataType["BIPOLAR"]
-    assert model.get_tensor_datatype("MultiThreshold_2_out0") == DataType["BIPOLAR"]
-    assert model.get_tensor_datatype("MultiThreshold_3_out0") == DataType["BIPOLAR"]
-    os.remove(export_onnx_path)
+    build_dir = make_build_dir(prefix="test_infer_datatypes_lfc_")
+    try:
+        export_onnx_path = f"{build_dir}/test_infer_datatypes.onnx"
+        lfc = get_test_model_trained("LFC", 1, 1)
+        export_qonnx(lfc, torch.randn(1, 1, 28, 28), export_onnx_path)
+        qonnx_cleanup(export_onnx_path, out_file=export_onnx_path)
+        model = ModelWrapper(export_onnx_path)
+        model = model.transform(ConvertQONNXtoFINN())
+        model = model.transform(InferShapes())
+        model = model.transform(FoldConstants())
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(GiveReadableTensorNames())
+        model = model.transform(InferDataTypes())
+        assert model.get_tensor_datatype("MatMul_0_out0") == DataType["INT32"]
+        assert model.get_tensor_datatype("MatMul_1_out0") == DataType["INT32"]
+        assert model.get_tensor_datatype("MatMul_2_out0") == DataType["INT32"]
+        assert model.get_tensor_datatype("MatMul_3_out0") == DataType["INT32"]
+        assert model.get_tensor_datatype("MultiThreshold_0_out0") == DataType["BIPOLAR"]
+        assert model.get_tensor_datatype("MultiThreshold_1_out0") == DataType["BIPOLAR"]
+        assert model.get_tensor_datatype("MultiThreshold_2_out0") == DataType["BIPOLAR"]
+        assert model.get_tensor_datatype("MultiThreshold_3_out0") == DataType["BIPOLAR"]
+    finally:
+        robust_rmtree(build_dir)

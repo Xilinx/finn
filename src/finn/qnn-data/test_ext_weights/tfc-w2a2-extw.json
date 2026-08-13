@@ -3,7 +3,7 @@
     "Thresholding_rtl_0": {
       "PE": 49
     },
-    "MVAU_rtl_0": {
+    "MVAU_hls_0": {
       "PE": 16,
       "SIMD": 49,
       "ram_style": "block"
@@ -11,7 +11,7 @@
     "Thresholding_rtl_1": {
       "PE": 16
     },
-    "MVAU_hls_0": {
+    "MVAU_hls_1": {
       "PE": 8,
       "SIMD": 8,
       "mem_mode": "external"
@@ -19,7 +19,7 @@
     "Thresholding_rtl_2": {
       "PE": 8
     },
-    "MVAU_rtl_1": {
+    "MVAU_hls_2": {
       "PE": 8,
       "SIMD": 8,
       "mem_mode": "external"
@@ -27,7 +27,7 @@
     "Thresholding_rtl_3": {
       "PE": 8
     },
-    "MVAU_rtl_2": {
+    "MVAU_hls_3": {
       "PE": 10,
       "SIMD": 8,
       "ram_style": "distributed"

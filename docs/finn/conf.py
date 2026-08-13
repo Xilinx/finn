@@ -11,6 +11,7 @@
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
 import os
+import sphinx_rtd_theme  # noqa: F401 (imported for theme availability)
 import sys
 
 sys.path.insert(0, os.path.abspath("../../src/"))
@@ -32,6 +33,10 @@ extensions = []
 extensions.append("sphinx.ext.autodoc")
 extensions.append("sphinx.ext.autosectionlabel")
 
+# Prefix section labels with document name to avoid duplicates
+# e.g., "concepts:overview" instead of just "overview"
+autosectionlabel_prefix_document = True
+
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
 
@@ -47,10 +52,5 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 # a list of builtin themes.
 #
 html_theme = "sphinx_rtd_theme"
-
-# Add any paths that contain custom static files (such as style sheets) here,
-# relative to this directory. They are copied after the builtin static files,
-# so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = ["_static"]
 
 master_doc = "index"
