@@ -72,6 +72,23 @@ class MVAU_rtl(MVAU, RTLBackend):
         if self.get_nodeattr("mlo_max_iter") > 0:
             self.set_nodeattr("mem_mode", "external_mem")
 
+    def _validate_weight_mode(self):
+        if self.get_nodeattr("mem_mode") == "internal_embedded":
+            raise ValueError(
+                f"{self.onnx_node.name}: MVAU_rtl has a streamed weight port and "
+                "does not support mem_mode='internal_embedded'. Use "
+                "mem_mode='internal_decoupled' for an on-chip weight stream or "
+                "specialize the node as MVAU_hls."
+            )
+
+    def prepare_rtlsim(self, behav=False):
+        self._validate_weight_mode()
+        return super().prepare_rtlsim(behav)
+
+    def code_generation_ipi(self):
+        self._validate_weight_mode()
+        return super().code_generation_ipi()
+
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         mem_mode = self.get_nodeattr("mem_mode")
@@ -325,6 +342,7 @@ class MVAU_rtl(MVAU, RTLBackend):
                 return 1
 
     def generate_hdl(self, model, fpgapart, clk):
+        self._validate_weight_mode()
         # Generate params as part of IP preparation
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         if not self.get_nodeattr("mlo_max_iter"):

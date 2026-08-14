@@ -502,6 +502,36 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, pumpe
         ).all(), "stitched-IP rtlsim failed"
 
 
+@pytest.mark.fpgadataflow
+def test_mvau_rtl_rejects_internal_embedded_weights():
+    mw = 16
+    mh = 16
+    dtype = DataType["INT4"]
+    weights = gen_finn_dt_tensor(dtype, (mw, mh))
+    model = make_single_fclayer_modelwrapper(
+        weights,
+        pe=1,
+        simd=1,
+        wdt=dtype,
+        idt=dtype,
+        odt=DataType["INT32"],
+        T=None,
+        tdt=None,
+    )
+    node = model.graph.node[0]
+    inst = getHWCustomOp(node)
+    inst.set_nodeattr("preferred_impl_style", "rtl")
+    inst.set_nodeattr("resType", "dsp")
+    inst.set_nodeattr("mem_mode", "internal_embedded")
+    model = model.transform(SpecializeLayers("xcvc1902-vsva2197-2MP-e-S"))
+
+    node = model.graph.node[0]
+    assert node.op_type == "MVAU_rtl"
+    inst = getHWCustomOp(node)
+    with pytest.raises(ValueError, match="does not support mem_mode='internal_embedded'"):
+        inst.code_generation_ipi()
+
+
 # mem_mode: internal_embedded or internal_decoupled
 @pytest.mark.parametrize("mem_mode", ["internal_decoupled"])
 # activation: None or DataType
