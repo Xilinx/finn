@@ -103,6 +103,10 @@ RUN if [ -z "$SKIP_XRT" ];then \
 
 # versioned Python package requirements for FINN compiler
 # these are given in requirements.txt
+# The apt-provided typing_extensions has no pip RECORD and cannot be
+# uninstalled by pip; install a pip-managed copy first so the requirements
+# install can upgrade it for onnx/onnxruntime instead of failing on it.
+RUN pip install --break-system-packages --ignore-installed typing_extensions
 RUN pip install --break-system-packages -r /tmp/requirements.txt
 RUN rm /tmp/requirements.txt
 
@@ -111,7 +115,6 @@ RUN pip install --break-system-packages torch==2.8.0 torchvision==0.23.0 torchau
 
 # extra Python package dependencies (for testing and interaction)
 RUN pip install --break-system-packages pygments==2.17.2
-RUN pip install --break-system-packages --ignore-installed typing_extensions
 RUN pip install --break-system-packages ipykernel==6.29.0
 RUN pip install --break-system-packages jupyter==1.0.0
 # anyio >= 4.13.0 for jupyter incompatible with pytest 6.2.5 (missing _pytest.scope module, added in pytest 7.0.0)
@@ -130,9 +133,13 @@ RUN pip install --break-system-packages git+https://github.com/fbcotter/dataset_
 # these versions of pytest and associated plugins allow for stable collection of
 # test reports and code coverage reports in HTML
 RUN pip install --break-system-packages pytest==7.4.4
-RUN pip install --break-system-packages pytest-metadata==1.7.0
-RUN pip install --break-system-packages pytest-html==3.0.0
-RUN pip install --break-system-packages pytest-html-merger==0.0.8
+# pytest-html 4.x is required on Python 3.12: 3.0.0 imports the removed
+# py.xml (from the unmaintained py library) and fails to load as a pytest
+# plugin. 4.x uses jinja2 templates instead; it needs pytest-metadata>=2,
+# and pytest-html-merger 0.1.0 for the 4.x report format.
+RUN pip install --break-system-packages pytest-metadata==3.1.1
+RUN pip install --break-system-packages pytest-html==4.1.1
+RUN pip install --break-system-packages pytest-html-merger==0.1.0
 RUN pip install --break-system-packages pytest-cov==4.1.0
 RUN pip install --break-system-packages pyyaml==6.0.1
 
