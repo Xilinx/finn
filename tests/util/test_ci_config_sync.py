@@ -7,7 +7,7 @@ import pytest
 
 import os
 import re
-from finn_ci import config
+from finn_ci import config, hw
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -45,4 +45,21 @@ def test_readme_stages_table_matches_python_source():
     ), "README STAGES table %r drifted from finn_ci.config.jenkins_stage_choices() %r" % (
         table_rows,
         expected,
+    )
+
+
+def test_board_harness_packaging_skip_prefix_matches_python_source():
+    # The board harness ships on its own and cannot import finn_ci, so the prefix
+    # report aggregation keys on is written out in both places. Read from source
+    # rather than imported, because the harness pulls in numpy and scipy that
+    # only a board needs.
+    harness = os.path.join(REPO_ROOT, "ci", "test_bnn_hw_pytest.py")
+    text = open(harness).read()
+    match = re.search(r"""^packaging_skip_prefix\s*=\s*['"]([^'"]+)['"]""", text, re.MULTILINE)
+    assert match is not None, "could not locate packaging_skip_prefix in ci/test_bnn_hw_pytest.py"
+    assert (
+        match.group(1) == hw.PACKAGING_SKIP_PREFIX
+    ), "harness packaging_skip_prefix %r drifted from finn_ci.hw.PACKAGING_SKIP_PREFIX %r" % (
+        match.group(1),
+        hw.PACKAGING_SKIP_PREFIX,
     )
