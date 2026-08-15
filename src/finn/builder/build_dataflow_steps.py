@@ -1581,9 +1581,7 @@ def step_loop_body_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig
     # hence IP/module) names stay unique across the whole design. Without this
     # the loop body's stitched IP uses generic names that collide with the main
     # graph's nodes at top-level stitching, elaborating as a black box (X output).
-    model = model.transform(
-        GiveUniqueNodeNames(prefix=node_name_prefix)
-    )
+    model = model.transform(GiveUniqueNodeNames(prefix=node_name_prefix))
     model = model.transform(GiveReadableTensorNames())
 
     return model

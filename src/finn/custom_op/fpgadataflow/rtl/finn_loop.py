@@ -55,9 +55,7 @@ finnxsi = xsi if xsi.is_available() else None
 
 def _is_stream_tap_parameter_node(node):
     """Return whether ``node`` consumes a loop-indexed parameter stream."""
-    has_mlo_parameter = any(
-        attr.name == "mlo_max_iter" and attr.i > 0 for attr in node.attribute
-    )
+    has_mlo_parameter = any(attr.name == "mlo_max_iter" and attr.i > 0 for attr in node.attribute)
     return has_mlo_parameter and (
         node.op_type == "Thresholding_rtl"
         or node.op_type.startswith("MVAU")
@@ -532,9 +530,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 # (make_driver.py) consume this file as-is. Written one hex byte per
                 # line.
                 param_file = "{}/memblock_{}_id_{}.dat".format(path, param_node.op_type, i + 1)
-                layer_bytes, layer_offs = getHWCustomOp(
-                    param_node, model
-                ).get_weight_mem_bytes()
+                layer_bytes, layer_offs = getHWCustomOp(param_node, model).get_weight_mem_bytes()
                 padded = np.zeros(iteration * layer_offs, dtype=np.uint8)
                 for iter in range(iteration):
                     memblock_file = "{}/{}_memblock_{}.dat".format(path, param_node.op_type, iter)

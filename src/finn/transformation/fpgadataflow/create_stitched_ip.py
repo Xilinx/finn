@@ -63,9 +63,7 @@ def append_missing_finnloop_rtlsim_sources(model, v_file_list):
     with open(v_file_list) as f:
         existing_sources = [line.strip() for line in f if line.strip()]
     existing_paths = set(existing_sources)
-    existing_by_basename = {
-        os.path.basename(path): path for path in existing_sources
-    }
+    existing_by_basename = {os.path.basename(path): path for path in existing_sources}
     appended_sources = []
 
     for node in model.graph.node:

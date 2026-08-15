@@ -623,10 +623,7 @@ def test_finnloop_mux_prioritizes_intermediate_frames():
 
 @pytest.mark.fpgadataflow
 def test_mlo_write_dma_boundary_helpers_are_continuous_nets():
-    dma_path = (
-        Path(__file__).resolve().parents[2]
-        / "finn-rtllib/cdma/cdma_u/axi_dma_wr_u.sv"
-    )
+    dma_path = Path(__file__).resolve().parents[2] / "finn-rtllib/cdma/cdma_u/axi_dma_wr_u.sv"
     dma_source = dma_path.read_text()
 
     # These values depend on live descriptor state. Declaring them as logic
@@ -634,12 +631,10 @@ def test_mlo_write_dma_boundary_helpers_are_continuous_nets():
     # causing later unaligned frames to overrun a 4 KiB boundary and underflow
     # op_word_count_reg.
     assert (
-        "uwire [AXI_ADDR_WIDTH-1:0] addr_plus_max_burst = "
-        "addr_reg + AXI_MAX_BURST_SIZE;"
+        "uwire [AXI_ADDR_WIDTH-1:0] addr_plus_max_burst = " "addr_reg + AXI_MAX_BURST_SIZE;"
     ) in dma_source
     assert (
-        "uwire [AXI_ADDR_WIDTH-1:0] addr_plus_count = "
-        "addr_reg + op_word_count_reg;"
+        "uwire [AXI_ADDR_WIDTH-1:0] addr_plus_count = " "addr_reg + op_word_count_reg;"
     ) in dma_source
 
 

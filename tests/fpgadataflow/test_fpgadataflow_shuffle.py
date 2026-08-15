@@ -854,10 +854,7 @@ def test_inner_shuffle_rtlsim_sparse_frames_are_quiescent(monkeypatch):
         values = np.asarray(values, dtype=np.float32).reshape(shape)
         return npy_to_rtlsim_input(values, dtype, width)
 
-    frames = [
-        np.arange(16, dtype=np.float32).reshape(in_shape) + offset
-        for offset in (0, 32, 64)
-    ]
+    frames = [np.arange(16, dtype=np.float32).reshape(in_shape) + offset for offset in (0, 32, 64)]
     packed_frames = [
         pack(frame, in_folded, inst.get_input_datatype(0), inst.get_instream_width(0))
         for frame in frames
@@ -875,12 +872,8 @@ def test_inner_shuffle_rtlsim_sparse_frames_are_quiescent(monkeypatch):
     sim = inst.get_rtlsim()
     try:
         inst.reset_rtlsim(sim)
-        for frame_index, (packed_input, expected) in enumerate(
-            zip(packed_frames, packed_expected)
-        ):
-            sim.stream_input(
-                "in0_V", (f"{value:x}" for value in packed_input), throttle=(1, 4)
-            )
+        for frame_index, (packed_input, expected) in enumerate(zip(packed_frames, packed_expected)):
+            sim.stream_input("in0_V", (f"{value:x}" for value in packed_input), throttle=(1, 4))
             watchdog = sim.create_watchdog(f"frame {frame_index} timeout", 256)
             output = sim.collect_output("out0_V", len(expected), watchdog=watchdog)
             assert not sim.run()

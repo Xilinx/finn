@@ -181,8 +181,6 @@ def mlo_prehook_func_factory(node) -> Callable[[SimEngine], None]:
                 break
         for _name, intf in mvau_mlo_weights.items():
             if _has_aximm_read_bus(sim, intf["extern_name"]):
-                sim.aximm_ro_image(
-                    intf["extern_name"], intf["offset"], intf["value"].flatten()
-                )
+                sim.aximm_ro_image(intf["extern_name"], intf["offset"], intf["value"].flatten())
 
     return mlo_rtlsim_prehook

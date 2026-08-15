@@ -205,12 +205,8 @@ def test_apply_config_can_preserve_subgraphs():
     graph_attr = partition_node.attribute[0]
     nested_node = graph_attr.g.node[0]
     nested_kernel_size = getCustomOp(nested_node).get_nodeattr("kernel_size")
-    nested_config_key = (
-        f"{partition_node.name}_{graph_attr.name}_{nested_node.name}"
-    )
-    stale_nested_config_key = (
-        f"{partition_node.name}_{graph_attr.name}_RemovedNestedNode"
-    )
+    nested_config_key = f"{partition_node.name}_{graph_attr.name}_{nested_node.name}"
+    stale_nested_config_key = f"{partition_node.name}_{graph_attr.name}_RemovedNestedNode"
     config = {
         "Defaults": {"kernel_size": [[9, 9], ["Im2Col"]]},
         nested_config_key: {"kernel_size": [7, 7]},

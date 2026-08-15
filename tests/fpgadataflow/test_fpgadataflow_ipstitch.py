@@ -181,9 +181,7 @@ def test_ipstitch_rejects_conflicting_nested_rtlsim_basename(tmp_path, monkeypat
     nested_source.write_text("module same_name(input [15:0] in); endmodule\n")
     top_list = tmp_path / "all_verilog_srcs.txt"
     top_list.write_text(str(top_source) + "\n")
-    (nested_source.parent / "all_verilog_srcs.txt").write_text(
-        str(nested_source) + "\n"
-    )
+    (nested_source.parent / "all_verilog_srcs.txt").write_text(str(nested_source) + "\n")
     model = FakeModel([FakeNode("FINNLoop", str(nested_source.parent))])
     monkeypatch.setattr(
         create_stitched_ip,
