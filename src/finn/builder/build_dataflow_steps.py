@@ -160,7 +160,12 @@ from finn.util.config import (
     extract_model_config_consolidate_shuffles,
     extract_model_config_to_json,
 )
-from finn.util.fpgadataflow import is_mlo, warn_hls_rtl_dsp_conflict
+from finn.util.fpgadataflow import (
+    is_hls_node,
+    is_mlo,
+    is_rtl_node,
+    warn_hls_rtl_dsp_conflict,
+)
 from finn.util.rtlsim import annotate_rtlsim_performance, mlo_prehook_func_factory
 from finn.util.test import execute_parent
 from finn.util.vivado import parse_ooc_synth_results
@@ -964,6 +969,17 @@ def step_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
+def _get_characterization_period(model, skip_node_names=None):
+    skip_node_names = set(skip_node_names or [])
+    characterized_cycles = [
+        int(getCustomOp(node).get_nodeattr("cycles_estimate"))
+        for node in model.graph.node
+        if node.name not in skip_node_names
+        and (is_hls_node(node) or is_rtl_node(node) or node.op_type == "Shuffle")
+    ]
+    return max(characterized_cycles, default=0) + 10
+
+
 def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     """
     Depending on the auto_fifo_depths setting, do one of the following:
@@ -998,7 +1014,6 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     )
             model = model.transform(PrepareRTLSim(behav=True))
             model = model.transform(AnnotateCycles())
-            period = model.analysis(dataflow_performance)["max_cycles"] + 10
             characteristic_skip_nodes = set()
             output_fifo_depth_overrides = {}
             if is_mlo(model):
@@ -1020,6 +1035,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                             output_fifo_depth_overrides.setdefault(producer.name, {})[
                                 output_index
                             ] = 2
+            period = _get_characterization_period(model, characteristic_skip_nodes)
             model = model.transform(
                 DeriveCharacteristic(
                     period,
