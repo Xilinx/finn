@@ -31,6 +31,7 @@ import qonnx.core.data_layout as DataLayout
 import warnings
 from onnx import helper as oh
 from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.infer_datatypes import InferDataTypes
@@ -38,66 +39,203 @@ from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import get_by_name
 
 
-class AbsorbSignBiasIntoMultiThreshold(Transformation):
-    """Absorb scalar bias originating from signed int export back into
-    MultiThreshold and re-evaluate the output datatype."""
+class AbsorbScalarBiasIntoMultiThreshold(Transformation):
+    """Absorb a scalar bias following a MultiThreshold (as a downstream Add)
+    back into the MultiThreshold's out_bias and re-evaluate the output
+    datatype.
 
-    def apply(self, model):
+    Unlike the historical sign-bias-only version, this absorbs any scalar
+    bias irrespective of signedness. Because the hardware carries out_bias as
+    an additive term, absorbing a (large positive) bias can widen the output
+    datatype. To keep this from inflating the downstream datapath, absorption
+    is only performed when the resulting output bitwidth does not grow by more
+    than ``max_bitwidth_increase`` bits (default 0, i.e. only absorb when the
+    output width stays the same or shrinks). Set a larger value to explicitly
+    allow trading a wider output type for one fewer elementwise Add node."""
+
+    def __init__(self, max_bitwidth_increase=0):
+        super().__init__()
+        # Maximum allowed increase of the output datatype bitwidth (in bits)
+        # for an absorption to be performed. 0 means the output width must not
+        # grow at all.
+        self.max_bitwidth_increase = max_bitwidth_increase
+
+    def apply(self, model: ModelWrapper):
+        # Get the model graph out of the model wrapper object
         graph = model.graph
-        node_ind = 0
+        # Keep track of whether the graph has been modified
         graph_modified = False
-        for n in graph.node:
-            # search for (MultiThreshold, Add) pair
-            node_ind += 1
+        # Iterate all nodes in the graph keeping track of the index
+        for index, node in enumerate(graph.node):
+            # Only non-branching threshold operations are supported
             if (
-                n.op_type == "MultiThreshold"
-                and not model.is_fork_node(n)
-                and not model.is_join_node(n)
+                node.op_type == "MultiThreshold"
+                and not model.is_fork_node(node)
+                and not model.is_join_node(node)
             ):
-                consumer = model.find_consumer(n.output[0])
+                # We now we are not forking, so there is at most one consumer
+                consumer = model.find_consumer(node.output[0])
+                # At the end of the graph we might have no consumer. If we have
+                # one, only handle Adds, turn Sub into Add first...
                 if consumer is not None and consumer.op_type == "Add":
-                    mt_node = n
-                    add_node = consumer
-                    threshold_name = mt_node.input[1]
-                    add_weight_name = add_node.input[1]
-                    T = model.get_initializer(threshold_name)
-                    A = model.get_initializer(add_weight_name)
-                    if (A is None) or (T is None):
-                        warnings.warn("Threshold or add bias not constant, skipping")
+                    # Try to get the parameter tensor for the addition: Sanity
+                    # check whether this is present, even though we already
+                    # tested for non-joining
+                    bias = model.get_initializer(consumer.input[1])
+
+                    # Warn and skip if there is no constant bias present
+                    if bias is None:
+                        warnings.warn(
+                            f"{self.__class__.__name__}: Bias not constant for"
+                            f" {consumer.name}, skipping."
+                        )
+                        # Skip to next node, nothing changed so far, no need to
+                        # break here
                         continue
-                    end_name = add_node.output[0]
-                    # we can only absorb scalar adds
-                    is_scalar = A.ndim == 0 or all(x == 1 for x in A.shape)
-                    if not is_scalar:
+
+                    # Try to get the parameter tensor for the thresholds: Sanity
+                    # check whether this is present, even though we already
+                    # tested for non-joining
+                    thresholds = model.get_initializer(node.input[1])
+
+                    # Warn and skip if there is no constant bias present
+                    if thresholds is None:
+                        warnings.warn(
+                            f"{self.__class__.__name__}: Thresholds not"
+                            f" constant for {node.name}, skipping."
+                        )
+                        # Skip to next node, nothing changed so far, no need to
+                        # break here
                         continue
-                    bias = A.flatten()[0]
-                    # set MultiThreshold bias property
-                    mt_inst = getCustomOp(mt_node)
-                    bias += mt_inst.get_nodeattr("out_bias")
-                    mt_inst.set_nodeattr("out_bias", bias)
+
+                    # Check whether the bias is as scalar as we cannot absorb
+                    # full tensors into node attributes
+                    if not (bias.ndim == 0 or all(x == 1 for x in bias.shape)):
+                        warnings.warn(
+                            f"{self.__class__.__name__}: Bias not scalar"
+                            f" for {consumer.name}, skipping."
+                        )
+                        # Skip to next node, nothing changed so far, no need to
+                        # break here
+                        continue
+
+                    # CustomOp instance of the thresholding node required for
+                    # convenient attribute manipulation
+                    threshold_op = getCustomOp(node)
+                    # Remember the old datatype for some further checks and info
+                    old_odt = threshold_op.get_nodeattr("out_dtype")
+                    # Get the number of bits currently used to represent the
+                    # output values (used below to bound the allowed width
+                    # increase of the output datatype)
+                    bits = DataType[old_odt].bitwidth()
+
+                    # Flatten effectively scalar bias tensors and extract to
+                    # have "plain" scalar
+                    bias = bias.flatten()[0]
+                    # Shift the output bias of the thresholding operator
+                    out_bias = threshold_op.get_nodeattr("out_bias") + bias
+                    # Derive the new output range due to shifting the bias. The
+                    # MultiThreshold step count is in [0, num_steps], so after
+                    # shifting the output range is
+                    # [out_bias, out_bias + num_steps].
+                    new_min = out_bias
+                    new_max = out_bias + thresholds.shape[-1]
+
+                    # Derive the smallest datatype that represents the full
+                    # shifted output range [new_min, new_max]. Use an unsigned
+                    # type when the range is non-negative, otherwise a signed
+                    # type wide enough to cover both endpoints. Note a signed
+                    # type reaching -(new_max + 1) also represents +new_max, so
+                    # the negative magnitude that must fit is the more negative
+                    # of new_min and -(new_max + 1).
+                    if new_min >= 0:
+                        odt = DataType.get_smallest_possible(new_max)
+                    else:
+                        odt = DataType.get_smallest_possible(min(new_min, -(new_max + 1)))
+
+                    # Check whether the new range can be represented with the
+                    # derived integer datatype
+                    if not (odt.allowed(new_max) and odt.allowed(new_min)):
+                        # Cannot be represented, warn and skip transforming
+                        warnings.warn(
+                            f"{self.__class__.__name__}: Cannot absorb bias"
+                            f" from {consumer.name} into {node.name}: {bias}"
+                        )
+                        # Skip to the next candidate node
+                        continue
+
+                    # Absorbing a bias can widen the output datatype (e.g. a
+                    # large positive bias). Skip the absorption if the output
+                    # bitwidth would grow by more than the allowed tolerance, to
+                    # avoid inflating the downstream datapath/FIFO widths.
+                    bitwidth_increase = odt.bitwidth() - bits
+                    if bitwidth_increase > self.max_bitwidth_increase:
+                        warnings.warn(
+                            f"{self.__class__.__name__}: Not absorbing bias from"
+                            f" {consumer.name} into {node.name}: would grow"
+                            f" output datatype from {old_odt} to {odt.name}"
+                            f" (+{bitwidth_increase} bits >"
+                            f" max_bitwidth_increase={self.max_bitwidth_increase})."
+                            f" Increase max_bitwidth_increase to allow this"
+                            f" absorption if the wider output type is acceptable."
+                        )
+                        # Skip to the next candidate node
+                        continue
+
+                    # Check whether the datatype changes as this is something
+                    # the "user" should be aware of
+                    if odt.name != old_odt:
+                        warnings.warn(
+                            f"{self.__class__.__name__}: Output datatype for"
+                            f" {node.name} changing from {old_odt} to {odt}"
+                        )
+
+                    # Up until now we did not modify the nodes/grap, just did
+                    # some checks and derive the new bias and datatype. Start
+                    # inserting this back into the graph now...
+
+                    # Set new bias and datatype attributes into the threshold
+                    # operator
+                    threshold_op.set_nodeattr("out_bias", out_bias)
+                    threshold_op.set_nodeattr("out_dtype", odt.name)
+                    # Remove the bias operator and rewire the graph to skip the
+                    # now-missing node
+                    node.output[0] = consumer.output[0]
+                    graph.node.remove(consumer)
+                    # Update the datatype at the output of the threshold
+                    # operation
+                    model.set_tensor_datatype(node.output[0], odt)
+
+                    # Graph modified so we need to apply this transformation
+                    # again
                     graph_modified = True
-                    # compute new DataType for MultiThreshold output
-                    steps = T.shape[-1]
-                    new_min = bias
-                    new_max = steps + bias
-                    odt = DataType.get_smallest_possible(steps).name.replace("UINT", "INT")
-                    odt = DataType[odt]
-                    assert odt.allowed(new_max) and odt.allowed(
-                        new_min
-                    ), """Could
-                    not compute new MultiThreshold DataType (min = %d max = %d)""" % (
-                        new_min,
-                        new_max,
-                    )
-                    mt_inst.set_nodeattr("out_dtype", odt.name)
-                    # remove Add node, rewire MultiThreshold
-                    graph.node.remove(add_node)
-                    mt_node.output[0] = end_name
-                    # set datatype
-                    model.set_tensor_datatype(end_name, odt)
-        if graph_modified:
-            model = model.transform(InferDataTypes())
-        return (model, graph_modified)
+                    # Better break now to clean up and recover annotations first
+                    break
+        # As we might have changes types and removed nodes better redo some
+        # annotations
+        model = model.transform(InferDataTypes())
+        model = model.transform(InferShapes())
+        # Transformed model and indication whether the transformation should be
+        # applied again
+        return model, graph_modified
+
+
+class AbsorbSignBiasIntoMultiThreshold(AbsorbScalarBiasIntoMultiThreshold):
+    """Deprecated alias for :class:`AbsorbScalarBiasIntoMultiThreshold`.
+
+    The transformation was renamed because it no longer only absorbs sign
+    bias but any scalar bias. This alias is kept for backwards compatibility
+    and will be removed in a future release."""
+
+    def __init__(self, *args, **kwargs):
+        warnings.warn(
+            "AbsorbSignBiasIntoMultiThreshold has been renamed to "
+            "AbsorbScalarBiasIntoMultiThreshold and will be removed in a "
+            "future release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        super().__init__(*args, **kwargs)
 
 
 class AbsorbAddIntoMultiThreshold(Transformation):

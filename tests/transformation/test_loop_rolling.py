@@ -23,7 +23,7 @@ from finn.transformation.fpgadataflow.raise_scalar_to_rank1 import RaiseScalarTo
 from finn.transformation.fpgadataflow.set_loop_boundary import SetLoopBoundary
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
-from finn.transformation.streamline.absorb import AbsorbSignBiasIntoMultiThreshold
+from finn.transformation.streamline.absorb import AbsorbScalarBiasIntoMultiThreshold
 from finn.transformation.streamline.collapse_repeated import (
     CollapseRepeatedAdd,
     CollapseRepeatedMul,
@@ -148,7 +148,7 @@ def test_finn_loop(input_size, num_layers):
     # Warning: Running standard streamlining here causes optimizations
     # across loop body boundaries that breaks current loop rolling assumptions.
     # instead of streamlining only apply some transformations and then convert to hw
-    model_wrapper = model_wrapper.transform(AbsorbSignBiasIntoMultiThreshold())
+    model_wrapper = model_wrapper.transform(AbsorbScalarBiasIntoMultiThreshold())
     model_wrapper = model_wrapper.transform(ConvertSubToAdd())
     model_wrapper = model_wrapper.transform(ConvertDivToMul())
     model_wrapper = model_wrapper.transform(MoveScalarMulPastMatMul())
