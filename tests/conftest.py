@@ -45,7 +45,7 @@ _CI_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 if _CI_DIR not in sys.path:
     sys.path.insert(0, _CI_DIR)
 
-from rng_seed import (  # noqa: E402  # (needs to come after ci/ on sys.path)
+from finn_ci.rng_seed import (  # noqa: E402  # (needs to come after ci/ on sys.path)
     seed_from_nodeid,
 )
 
