@@ -19,6 +19,8 @@ module requant_axi #(
 	shortreal     SCALES[PE][C/PE],
 	shortreal     BIASES[PE][C/PE],
 
+	bit  SIGNED_OUT = 0,  // 0: unsigned clip [0, 2^N-1], 1: signed clip [-2^(N-1), 2^(N-1)-1]
+
 	localparam int unsigned  INPUT_STREAM_WIDTH = ((PE*K+7)/8)*8,
 	localparam int unsigned  OUTPUT_STREAM_WIDTH = ((PE*N+7)/8)*8
 )(
@@ -69,7 +71,8 @@ module requant_axi #(
 	requant #(
 		.VERSION(VERSION),
 		.K(K), .N(N), .C(C), .PE(PE),
-		.SCALES(SCALES), .BIASES(BIASES)
+		.SCALES(SCALES), .BIASES(BIASES),
+		.SIGNED_OUT(SIGNED_OUT)
 	) impl (
 		.clk(ap_clk), .rst,
 		.idat(core_idat), .ivld(issue),

@@ -23,6 +23,8 @@ module requant_axi_decoupled #(
 	int unsigned  TAP_MIN,  // Worst-case minimum tap across all channels
 	int unsigned  TAP_MAX,  // Worst-case maximum tap across all channels
 
+	bit  SIGNED_OUT = 0,  // 0: unsigned clip [0, 2^N-1], 1: signed clip [-2^(N-1), 2^(N-1)-1]
+
 	// Derived multiplier operand widths (must match derive_MUL_WIDTHS)
 	localparam int unsigned  S_WIDTH = (K <= (VERSION==3? 24 : 18))? 25 :
 	                                    (VERSION==3? 24 : 18),
@@ -93,7 +95,8 @@ module requant_axi_decoupled #(
 	requant_decoupled #(
 		.VERSION(VERSION),
 		.K(K), .N(N), .C(C), .PE(PE),
-		.TAP_MIN(TAP_MIN), .TAP_MAX(TAP_MAX)
+		.TAP_MIN(TAP_MIN), .TAP_MAX(TAP_MAX),
+		.SIGNED_OUT(SIGNED_OUT)
 	) impl (
 		.clk(ap_clk), .rst,
 		.idat(core_idat), .ivld(issue),

@@ -35,6 +35,8 @@ module requant_decoupled #(
 	int unsigned  TAP_MIN,  // Worst-case minimum tap across all channels
 	int unsigned  TAP_MAX,  // Worst-case maximum tap across all channels
 
+	bit  SIGNED_OUT = 0,  // 0: unsigned clip [0, 2^N-1], 1: signed clip [-2^(N-1), 2^(N-1)-1]
+
 	// Derived multiplier operand widths (must match derive_MUL_WIDTHS)
 	localparam int unsigned  S_WIDTH = (K <= (VERSION==3? 24 : 18))? 25 :
 	                                    (VERSION==3? 24 : 18),
@@ -138,18 +140,16 @@ module requant_decoupled #(
 
 		//- Stage #4: window extract, shift, clip (window sized worst-case)
 		logic [N-1:0]  R4 = 'x;
-		if(1) begin : blkStage4
-			localparam int unsigned  TAP_SPAN = TAP_MAX - TAP_MIN;
+		localparam int unsigned  TAP_SPAN = TAP_MAX - TAP_MIN;
+		uwire  neg = P3[$left(P3)];
+		if(!SIGNED_OUT) begin : blkStage4Unsigned
 			uwire [TAP_SPAN + N-1:0]  win = P3[TAP_MAX+N-1 : TAP_MIN];
 			uwire [TAP_SPAN + N-1:0]  tap = win >> T3;
-			uwire  neg = P3[$left(P3)];
 			uwire  ovf =
 				(($left(P3)  > TAP_MAX+N)? |P3[$left(P3)-1:TAP_MAX+N] : 0) ||
 				((TAP_MIN    < TAP_MAX  )? |tap[$left(tap):N] : 0);
 			always_ff @(posedge clk) begin
-				if(rst) begin
-					R4 <= 'x;
-				end
+				if(rst)  R4 <= 'x;
 				else begin
 					R4 <=
 						neg?  0 :
@@ -157,7 +157,18 @@ module requant_decoupled #(
 						tap[N-1:0];
 				end
 			end
-		end : blkStage4
+		end : blkStage4Unsigned
+		else begin : blkStage4Signed
+			uwire signed [TAP_SPAN + N-1:0]  win = P3[TAP_MAX+N-1 : TAP_MIN];
+			uwire signed [TAP_SPAN + N-1:0]  tap = win >>> T3;
+			uwire  ovf =
+				(($left(P3)  > TAP_MAX+N-1)? |(P3[$left(P3)-1:TAP_MAX+N-1] ^ {($left(P3)-TAP_MAX-N+1){neg}}) : 0) ||
+				((TAP_MIN    < TAP_MAX     )? ~(&tap[$left(tap):N-1]) && (|tap[$left(tap):N-1]) : 0);
+			always_ff @(posedge clk) begin
+				if(rst)  R4 <= 'x;
+				else     R4 <= ovf? {neg, {(N-1){!neg}}} : tap[N-1:0];
+			end
+		end : blkStage4Signed
 
 		assign	odat[pe] = R4;
 	end : genPE

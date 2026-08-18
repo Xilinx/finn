@@ -23,7 +23,9 @@ module requant #(
 	int unsigned  PE = 1,  // Vector parallelism, must divide C
 
 	shortreal     SCALES[PE][C/PE],
-	shortreal     BIASES[PE][C/PE]
+	shortreal     BIASES[PE][C/PE],
+
+	bit  SIGNED_OUT = 0  // 0: unsigned clip [0, 2^N-1], 1: signed clip [-2^(N-1), 2^(N-1)-1]
 )(
 	input	logic  clk,
 	input	logic  rst,
@@ -238,18 +240,16 @@ module requant #(
 		end
 
 		logic [N-1:0]  R4 = 'x;
-		if(1) begin : blkStage4
-			localparam int unsigned  TAP_SPAN = TAP_MINMAX.max - TAP_MINMAX.min;
+		localparam int unsigned  TAP_SPAN = TAP_MINMAX.max - TAP_MINMAX.min;
+		uwire  neg = P3[$left(P3)];
+		if(!SIGNED_OUT) begin : blkStage4Unsigned
 			uwire [TAP_SPAN + N-1:0]  win = P3[TAP_MINMAX.max+N-1 : TAP_MINMAX.min];
 			uwire [TAP_SPAN + N-1:0]  tap = win >> T3;
-			uwire  neg = P3[$left(P3)];
 			uwire  ovf =
 				(($left(P3)      > TAP_MINMAX.max+N)? |P3[$left(P3)-1:TAP_MINMAX.max+N] : 0) ||
 				((TAP_MINMAX.min < TAP_MINMAX.max  )? |tap[$left(tap):N] : 0);
 			always_ff @(posedge clk) begin
-				if(rst) begin
-					R4 <= 'x;
-				end
+				if(rst)  R4 <= 'x;
 				else begin
 					R4 <=
 						neg?  0 :
@@ -257,7 +257,18 @@ module requant #(
 						tap[N-1:0];
 				end
 			end
-		end : blkStage4
+		end : blkStage4Unsigned
+		else begin : blkStage4Signed
+			uwire signed [TAP_SPAN + N-1:0]  win = P3[TAP_MINMAX.max+N-1 : TAP_MINMAX.min];
+			uwire signed [TAP_SPAN + N-1:0]  tap = win >>> T3;
+			uwire  ovf =
+				(($left(P3)      > TAP_MINMAX.max+N-1)? |(P3[$left(P3)-1:TAP_MINMAX.max+N-1] ^ {($left(P3)-TAP_MINMAX.max-N+1){neg}}) : 0) ||
+				((TAP_MINMAX.min < TAP_MINMAX.max    )? ~(&tap[$left(tap):N-1]) && (|tap[$left(tap):N-1]) : 0);
+			always_ff @(posedge clk) begin
+				if(rst)  R4 <= 'x;
+				else     R4 <= ovf? {neg, {(N-1){!neg}}} : tap[N-1:0];
+			end
+		end : blkStage4Signed
 
 		assign	odat[pe] = R4;
 	end : genPE

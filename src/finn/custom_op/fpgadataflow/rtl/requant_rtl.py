@@ -313,6 +313,7 @@ class Requant_rtl(Requant, RTLBackend):
         sv_code = sv_code.replace("$PE$", str(pe))
         sv_code = sv_code.replace("$SCALES$", scales_sv)
         sv_code = sv_code.replace("$BIASES$", biases_sv)
+        sv_code = sv_code.replace("$SIGNED_OUT$", str(int(odt.signed())))
         sv_code = sv_code.replace("$IN_STREAM_WIDTH$", str(in_stream_width))
         sv_code = sv_code.replace("$OUT_STREAM_WIDTH$", str(out_stream_width))
 
@@ -356,6 +357,7 @@ class Requant_rtl(Requant, RTLBackend):
         top_module_name = self.get_verilog_top_module_name()
         rtllib_dir = os.environ["FINN_ROOT"] + "/finn-rtllib/requant/hdl/"
 
+        odt = self.get_output_datatype()
         subst = {
             "$TOP_MODULE_NAME$": top_module_name,
             "$VERSION$": str(info["version"]),
@@ -365,6 +367,7 @@ class Requant_rtl(Requant, RTLBackend):
             "$PE$": str(pe),
             "$TAP_MIN$": str(info["tap_min"]),
             "$TAP_MAX$": str(info["tap_max"]),
+            "$SIGNED_OUT$": str(int(odt.signed())),
         }
 
         # Verilog wrapper (.v) for IP packaging

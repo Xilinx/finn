@@ -203,7 +203,7 @@ def _determine_impl_style(node, fpgapart, model):
             else:
                 warn_str = """There is no RTL variant for %s. The node will automatically be
                         set to HLS variant. The RTL Requant layers currently only supports
-                        integer inputs, unsigned outputs and non-narrow quantization.""" % (
+                        integer inputs and non-narrow quantization.""" % (
                     node.name,
                 )
                 warnings.warn(warn_str)
@@ -386,14 +386,12 @@ def _requant_rtl_possible(n, fpgapart):
     # Checks whether RTL-based Requant is supported
     # RTL Requant requires:
     # - Integer input (not float)
-    # - Unsigned output (RTL clips to [0, 2^N-1])
     # - Full range (narrow=0)
     node_inst = getCustomOp(n)
     idt = node_inst.get_input_datatype(0)
-    odt = node_inst.get_output_datatype(0)
     narrow = node_inst.get_nodeattr("narrow")
-    # RTL backend works with integer inputs, unsigned outputs, and full range
-    return idt.is_integer() and not odt.signed() and narrow == 0
+    # RTL backend works with integer inputs and full range
+    return idt.is_integer() and narrow == 0
 
 
 class SpecializeLayers(Transformation):

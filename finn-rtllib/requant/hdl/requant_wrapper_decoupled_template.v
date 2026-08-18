@@ -21,6 +21,7 @@ module $TOP_MODULE_NAME$ #(
     parameter PE      = $PE$,
     parameter TAP_MIN = $TAP_MIN$,
     parameter TAP_MAX = $TAP_MAX$,
+    parameter SIGNED_OUT = $SIGNED_OUT$,
 
     // Derived widths (matching requant_axi_decoupled.sv localparam chain)
     parameter S_WIDTH = (K <= (VERSION == 3 ? 24 : 18)) ? 25 : (VERSION == 3 ? 24 : 18),
@@ -59,7 +60,8 @@ module $TOP_MODULE_NAME$ #(
     requant_axi_decoupled #(
         .VERSION(VERSION),
         .K(K), .N(N), .C(C), .PE(PE),
-        .TAP_MIN(TAP_MIN), .TAP_MAX(TAP_MAX)
+        .TAP_MIN(TAP_MIN), .TAP_MAX(TAP_MAX),
+        .SIGNED_OUT(SIGNED_OUT)
     ) core (
         .ap_clk(ap_clk),
         .ap_rst_n(ap_rst_n),
