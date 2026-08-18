@@ -23,7 +23,7 @@ from finn.transformation.fpgadataflow.raise_scalar_to_rank1 import RaiseScalarTo
 from finn.transformation.fpgadataflow.set_loop_boundary import SetLoopBoundary
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
-from finn.transformation.streamline.absorb import AbsorbSignBiasIntoMultiThreshold
+from finn.transformation.streamline.absorb import AbsorbScalarBiasIntoMultiThreshold
 from finn.transformation.streamline.collapse_repeated import (
     CollapseRepeatedAdd,
     CollapseRepeatedMul,
@@ -116,17 +116,25 @@ def check_tensor_shape(model_wrapper, name, expected_shape):
     ), f"Shape mismatch for {name}: expected {expected_shape}, got {actual_shape}"
 
 
+@pytest.mark.transform
+def test_loop_extraction_default_paths_are_unique():
+    first = LoopExtraction(hierarchy_list=[["", "layers.0"]])
+    second = LoopExtraction(hierarchy_list=[["", "layers.0"]])
+    first_dir = Path(first.loop_body_template_path).parent
+    second_dir = Path(second.loop_body_template_path).parent
+    assert first_dir != second_dir
+    assert first_dir.parent == second_dir.parent
+    robust_rmtree(first_dir)
+    robust_rmtree(second_dir)
+
+
 # input_size == hidden_size to create model that can be rolled
 @pytest.mark.parametrize("input_size", [20, 30, 40])
 # num_layers
 @pytest.mark.parametrize("num_layers", [6, 12, 24])
 @pytest.mark.transform
-def test_finn_loop(input_size, num_layers, monkeypatch):
+def test_finn_loop(input_size, num_layers):
     out_dir = Path(make_build_dir(prefix="test_finn_loop_"))
-    # LoopExtraction saves and reloads a fixed-name loop-body-template.onnx in
-    # the cwd, so run each case in its own build dir (kept on failure for
-    # debugging) to stop concurrent workers racing on that file
-    monkeypatch.chdir(out_dir)
     # fixed seed so the deep quantised configs stay within tolerance run to run
     torch.manual_seed(0)
     np.random.seed(0)
@@ -143,7 +151,7 @@ def test_finn_loop(input_size, num_layers, monkeypatch):
     # Warning: Running standard streamlining here causes optimizations
     # across loop body boundaries that breaks current loop rolling assumptions.
     # instead of streamlining only apply some transformations and then convert to hw
-    model_wrapper = model_wrapper.transform(AbsorbSignBiasIntoMultiThreshold())
+    model_wrapper = model_wrapper.transform(AbsorbScalarBiasIntoMultiThreshold())
     model_wrapper = model_wrapper.transform(ConvertSubToAdd())
     model_wrapper = model_wrapper.transform(ConvertDivToMul())
     model_wrapper = model_wrapper.transform(MoveScalarMulPastMatMul())
@@ -179,7 +187,10 @@ def test_finn_loop(input_size, num_layers, monkeypatch):
     model_wrapper = model_wrapper.transform(SetLoopBoundary(node_metadata, node_range=node_range))
 
     # Loop extraction
-    loop_extraction = LoopExtraction(hierarchy_list=[["", "layers.0"]])
+    template_path = out_dir / "loop-body-template.onnx"
+    loop_extraction = LoopExtraction(
+        hierarchy_list=[["", "layers.0"]], loop_body_template_path=template_path
+    )
     model_wrapper = model_wrapper.transform(loop_extraction)
 
     # should be one constant node and one loop-body node per layer
@@ -284,10 +295,8 @@ def test_finn_loop(input_size, num_layers, monkeypatch):
 
 
 @pytest.mark.transform
-def test_inconsistent_initializer_shape(monkeypatch):
+def test_inconsistent_initializer_shape():
     out_dir = Path(make_build_dir(prefix="test_inconsistent_initializer_"))
-    # isolate LoopExtraction's fixed-name cwd file per test, see test_finn_loop
-    monkeypatch.chdir(out_dir)
     # test that if the initializer shape is inconsistent with the value info
     # shape, the transformation fails
     input_size = 20
@@ -307,7 +316,10 @@ def test_inconsistent_initializer_shape(monkeypatch):
     param0 = model_wrapper.get_initializer("Mul_0_param0")
     model_wrapper.set_initializer("Mul_0_param0", np.append(param0, param0))
 
-    loop_extraction = LoopExtraction(hierarchy_list=[["", "layers.0"]])
+    template_path = out_dir / "loop-body-template.onnx"
+    loop_extraction = LoopExtraction(
+        hierarchy_list=[["", "layers.0"]], loop_body_template_path=template_path
+    )
     model_wrapper = model_wrapper.transform(loop_extraction)
 
     # should throw an error because the initializer shape is inconsistent with the value info shape

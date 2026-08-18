@@ -64,9 +64,9 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${FINN_SSH_KEY_DIR="$SCRIPTPATH/ssh_keys"}
 : ${PLATFORM_REPO_PATHS="/opt/xilinx/platforms"}
 : ${XRT_DEB_VERSION="xrt_202220.2.14.354_22.04-amd64-xrt"}
-: ${V80PP_DEB_PACKAGE=""}
+: ${SLASHKIT_DEB_PACKAGE=""}
 : ${FINN_HOST_BUILD_DIR="/tmp/$DOCKER_INST_NAME"}
-: ${FINN_DOCKER_TAG="xilinx/finn:$(OLD_PWD=$(pwd); cd $SCRIPTPATH; git describe --always --tags --dirty; cd $OLD_PWD).$XRT_DEB_VERSION"}
+: ${FINN_DOCKER_TAG="xilinx/finn:$(OLD_PWD=$(pwd); cd $SCRIPTPATH; git describe --always --tags --dirty --abbrev=12; cd $OLD_PWD).$XRT_DEB_VERSION"}
 : ${FINN_DOCKER_PREBUILT="0"}
 : ${FINN_DOCKER_RUN_AS_ROOT="0"}
 : ${FINN_DOCKER_EXTRA=""}
@@ -92,7 +92,8 @@ if [ "$1" = "print-tag" ]; then
   exit 0
 fi
 
-DOCKER_INTERACTIVE=""
+# Default to interactive runs, for non-interactive set DOCKER_INTERACTIVE=""
+: "${DOCKER_INTERACTIVE="-it"}"
 
 # Catch FINN_DOCKER_EXTRA options being passed in without a trailing space
 FINN_DOCKER_EXTRA+=" "
@@ -112,8 +113,8 @@ if [ -z "$PLATFORM_REPO_PATHS" ];then
   recho "This is required to be able to use Vitis-based Alveo PCIe cards."
 fi
 
-if [ -z "$V80PP_DEB_PACKAGE" ];then
-  recho "Please set V80PP_DEB_PACKAGE pointing to the SLASH v80++ .deb package."
+if [ -z "$SLASHKIT_DEB_PACKAGE" ];then
+  recho "Please set SLASHKIT_DEB_PACKAGE pointing to the SLASH slashkit .deb package."
   recho "This is required to be able to use the Alveo V80 card."
 fi
 
@@ -151,7 +152,6 @@ elif [ "$1" = "notebook" ]; then
 elif [ "$1" = "build_dataflow" ]; then
   BUILD_DATAFLOW_DIR=$(readlink -f "$2")
   FINN_DOCKER_EXTRA+="-v $BUILD_DATAFLOW_DIR:$BUILD_DATAFLOW_DIR "
-  DOCKER_INTERACTIVE="-it"
   #FINN_HOST_BUILD_DIR=$BUILD_DATAFLOW_DIR/build
   gecho "Running build_dataflow for folder $BUILD_DATAFLOW_DIR"
   DOCKER_CMD="build_dataflow $BUILD_DATAFLOW_DIR"
@@ -159,13 +159,14 @@ elif [ "$1" = "build_custom" ]; then
   BUILD_CUSTOM_DIR=$(readlink -f "$2")
   FLOW_NAME=${3:-build}
   FINN_DOCKER_EXTRA+="-v $BUILD_CUSTOM_DIR:$BUILD_CUSTOM_DIR -w $BUILD_CUSTOM_DIR "
-  DOCKER_INTERACTIVE="-it"
   #FINN_HOST_BUILD_DIR=$BUILD_DATAFLOW_DIR/build
   gecho "Running build_custom: $BUILD_CUSTOM_DIR/$FLOW_NAME.py"
   DOCKER_CMD="python -mpdb -cc -cq $FLOW_NAME.py ${@:4}"
 elif [ -z "$1" ]; then
    gecho "Running container only"
    DOCKER_CMD="bash"
+   # Overwrite: container only should always be interactive as it drops us into
+   # a bash prompt...
    DOCKER_INTERACTIVE="-it"
 else
   gecho "Running container with passed arguments"
@@ -197,9 +198,9 @@ if [ -f "$FINN_XRT_PATH/$XRT_DEB_VERSION.deb" ]; then
   export LOCAL_XRT=1
 fi
 
-# If v80++ deb package given, copy it to repo root for docker build
-if [ -n "$V80PP_DEB_PACKAGE" ] && [ -f "$V80PP_DEB_PACKAGE" ]; then
-  cp "$V80PP_DEB_PACKAGE" ./v80pp.deb
+# If slashkit deb package given, copy it to repo root for docker build
+if [ -n "$SLASHKIT_DEB_PACKAGE" ] && [ -f "$SLASHKIT_DEB_PACKAGE" ]; then
+  cp "$SLASHKIT_DEB_PACKAGE" ./slashkit.deb
 fi
 
 if [ "$FINN_DOCKER_NO_CACHE" = "1" ]; then
@@ -264,7 +265,7 @@ if [ "$FINN_DOCKER_PREBUILT" = "0" ] && [ -z "$FINN_SINGULARITY" ]; then
     --build-arg XRT_DEB_VERSION=$XRT_DEB_VERSION \
     --build-arg SKIP_XRT=$FINN_SKIP_XRT_DOWNLOAD \
     --build-arg LOCAL_XRT=$LOCAL_XRT \
-    --build-arg V80PP_DEB_PACKAGE=$V80PP_DEB_PACKAGE \
+    --build-arg SLASHKIT_DEB_PACKAGE=$SLASHKIT_DEB_PACKAGE \
     --tag=$FINN_DOCKER_TAG $FINN_DOCKER_BUILD_EXTRA \
     --build-arg GROUP_ID=$DOCKER_GID \
     --build-arg GROUPNAME=$DOCKER_GNAME \
@@ -279,15 +280,15 @@ if [ ! -z "$LOCAL_XRT" ];then
   rm $XRT_DEB_VERSION.deb
 fi
 
-# Remove local v80pp.deb file from repo
-if [ -f "./v80pp.deb" ]; then
-  rm ./v80pp.deb
+# Remove local slashkit.deb file from repo
+if [ -f "./slashkit.deb" ]; then
+  rm ./slashkit.deb
 fi
 
 # Launch container with current directory mounted
 # important to pass the --init flag here for correct Vivado operation, see:
 # https://stackoverflow.com/questions/55733058/vivado-synthesis-hangs-in-docker-container-spawned-by-jenkins
-DOCKER_BASE="docker run -t --rm $DOCKER_INTERACTIVE --tty --init --hostname $DOCKER_INST_NAME "
+DOCKER_BASE="docker run --rm $DOCKER_INTERACTIVE --init --hostname $DOCKER_INST_NAME "
 DOCKER_EXEC="-e SHELL=/bin/bash "
 DOCKER_EXEC+="-w $SCRIPTPATH "
 DOCKER_EXEC+="-v $SCRIPTPATH:$SCRIPTPATH "

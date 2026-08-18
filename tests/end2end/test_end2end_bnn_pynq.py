@@ -316,15 +316,7 @@ def topology2dataset(topology):
 
 
 def deploy_based_on_board(model, model_title, topology, wbits, abits, board):
-    # Check if a deployment directory for this board type already exists
-    if ("FINN_DEPLOY_DIR" in os.environ) and (board in os.environ["FINN_DEPLOY_DIR"]):
-        deploy_dir_root = os.environ["FINN_DEPLOY_DIR"]
-    else:
-        deploy_dir_root = make_build_dir(prefix="hw_deployment_" + board + "_")
-        # Set it for the next round if multiple bitstreams are selected for generation
-        os.environ["FINN_DEPLOY_DIR"] = deploy_dir_root
-
-    # create directory for deployment files
+    deploy_dir_root = make_build_dir(prefix="hw_deployment_" + board + "_")
     deployment_dir = deploy_dir_root + "/" + board + "/" + model_title
     os.makedirs(deployment_dir)
 
@@ -506,7 +498,7 @@ class TestEnd2End:
     def test_streamline(self, topology, wbits, abits, board):
         prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "pre_post")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
-        model = model.transform(absorb.AbsorbSignBiasIntoMultiThreshold())
+        model = model.transform(absorb.AbsorbScalarBiasIntoMultiThreshold())
         # move past any reshapes to be able to streamline input scaling
         model = model.transform(MoveScalarLinearPastInvariants())
         model = model.transform(Streamline())
@@ -707,7 +699,7 @@ class TestEnd2End:
 
     @pytest.mark.slow
     @pytest.mark.vivado
-    def test_ipstitch_rtlsim(self, topology, wbits, abits, board):
+    def test_ipstitch_rtlsim(self, topology, wbits, abits, board, monkeypatch):
         prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "fifodepth")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         test_fpga_part = get_build_env(board, target_clk_ns)["part"]
@@ -724,10 +716,10 @@ class TestEnd2End:
         model = model.transform(HLSSynthIP())
         model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
         model.set_metadata_prop("exec_mode", "rtlsim")
-        os.environ["LIVENESS_THRESHOLD"] = str(int(latency * 1.1))
+        monkeypatch.setenv("LIVENESS_THRESHOLD", str(int(latency * 1.1)))
         if rtlsim_trace:
             model.set_metadata_prop("rtlsim_trace", "%s_w%da%d.vcd" % (topology, wbits, abits))
-            os.environ["RTLSIM_TRACE_DEPTH"] = "3"
+            monkeypatch.setenv("RTLSIM_TRACE_DEPTH", "3")
         rtlsim_chkpt = get_checkpoint_name(board, topology, wbits, abits, "ipstitch_rtlsim")
         model.save(rtlsim_chkpt)
         parent_chkpt = get_checkpoint_name(board, topology, wbits, abits, "dataflow_parent")

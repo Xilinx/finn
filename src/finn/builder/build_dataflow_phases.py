@@ -22,6 +22,7 @@ from qonnx.custom_op.registry import getCustomOp
 from finn.builder.build_dataflow_config import DataflowBuildConfig, DataflowOutputType
 from finn.builder.build_dataflow_steps import (
     step_apply_folding_config,
+    step_assign_ddr_weight_offsets,
     step_convert_to_hw,
     step_create_dataflow_partition,
     step_create_stitched_ip,
@@ -189,6 +190,7 @@ def phase_optimize_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     Whether FIFO sizing runs here is an orchestration decision owned by the phase
     (the step itself just sizes FIFOs):
+
     - For MLO models it is deferred to phase_build_hardware, because the
       characterize strategy requires FINNLoop nodes to have stitched IP, which
       depends on loop body FIFO sizing and IP generation happening first.
@@ -277,15 +279,17 @@ def phase_build_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     RTL/SystemVerilog for RTL layers) and synthesizes IP blocks via Vitis HLS.
 
     For models with FINNLoop nodes, loop bodies are processed in a specific order:
-    1. FIFO sizing for loop bodies (creates FIFO nodes in subgraphs)
-    2. step_hw_codegen for main model (applies to subgraphs, so loop body FIFOs get codegen)
-    3. Create stitched IP for loop bodies (subgraph IP needed by FINNLoop wrapper)
-    4. step_set_fifo_depths for main model (MLO only - needs loop body stitched IPs)
-    5. step_hw_ipgen for main model (FINNLoop ipgen uses the subgraph IPs)
+    1. Assign DDR weight offsets (MLO & DDR only - baked into RTL by step_hw_codegen)
+    2. FIFO sizing for loop bodies (creates FIFO nodes in subgraphs)
+    3. step_hw_codegen for main model (applies to subgraphs, so loop body FIFOs get codegen)
+    4. Create stitched IP for loop bodies (subgraph IP needed by FINNLoop wrapper)
+    5. step_set_fifo_depths for main model (MLO only - needs loop body stitched IPs)
+    6. step_hw_ipgen for main model (FINNLoop ipgen uses the subgraph IPs)
 
     For non-MLO models, step_set_fifo_depths already ran in phase_optimize_hardware.
 
     Internal steps:
+    - step_assign_ddr_weight_offsets: Assign DDR weight offsets (MLO/DDR only)
     - step_loop_body_set_fifo_depths: FIFO sizing for loop bodies (MLO only)
     - step_hw_codegen: Generate HLS C++ or RTL code via PrepareIP
     - step_loop_body_ipgen_and_stitch: Synth IP and create stitchedIP for loop bodies (MLO only)
@@ -299,23 +303,27 @@ def phase_build_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     Returns:
         ModelWrapper with generated and synthesized IP blocks
     """
-    # Step 1: FIFO sizing for loop bodies (creates FIFO nodes in subgraphs)
+    # Step 1: MLO/DDR weight offset assignment (no-op unless mem_type DDR)
+    # Must happen before step_hw_codegen so PrepareIP bakes the offsets into the RTL
+    model = _execute_step(step_assign_ddr_weight_offsets, model, cfg)
+
+    # Step 2: FIFO sizing for loop bodies (creates FIFO nodes in subgraphs)
     # Must happen before step_hw_codegen so the new FIFO nodes get code generated
     model = _apply_to_loop_bodies(model, cfg, step_loop_body_set_fifo_depths)
 
-    # Step 2: HW codegen for main model (applies to subgraphs via apply_to_subgraphs=True)
+    # Step 3: HW codegen for main model (applies to subgraphs via apply_to_subgraphs=True)
     model = _execute_step(step_hw_codegen, model, cfg)
 
-    # Step 3: Create stitched IP for loop bodies
+    # Step 4: Create stitched IP for loop bodies
     # Must happen before step_set_fifo_depths (MLO) so FINNLoop can be simulated
     model = _apply_to_loop_bodies(model, cfg, step_loop_body_ipgen_and_stitch)
 
-    # Step 4: FIFO sizing for main model (MLO only)
+    # Step 5: FIFO sizing for main model (MLO only)
     # Must happen after loop body stitched IPs so FINNLoop can be characterized
     if is_mlo(model):
         model = _execute_step(step_set_fifo_depths, model, cfg)
 
-    # Step 5: HW ipgen for main model
+    # Step 6: HW ipgen for main model
     model = _execute_step(step_hw_ipgen, model, cfg)
 
     return model

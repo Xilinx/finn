@@ -40,7 +40,7 @@ Decorate it with the existing markers. For example, `@pytest.mark.fpgadataflow`.
 
 ### Clean up scratch in a test
 
-Use FINN's `make_build_dir()` and tear it down with the `robust_rmtree()` helper.
+Do not write scratch into the current working directory. Use FINN's `make_build_dir()` and tear it down with the `robust_rmtree()` helper. Successful tests should remove disposable scratch, while failed tests can keep it for diagnosis.
 
 ### Add a new BNN parameter value
 
@@ -263,6 +263,6 @@ A site that offloads the heavy Xilinx tools to a compute farm (see "Running tool
 
 | Env var                  | What it sets                                                                                                                                        |
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FINN_TOOL_DIR_OVERRIDE` | Shim directory. `finn.util.basic.resolve_xilinx_tool()` resolves `vivado`/`v++`/`vitis_hls`/`vitis-run`/`xelab` to `<dir>/<tool>` when set.        |
+| `FINN_TOOL_DIR_OVERRIDE` | Shim directory. `finn.util.basic.resolve_xilinx_tool()` resolves `vivado`/`v++`/`vitis_hls`/`vitis-run`/`xelab`/`slashkit` to `<dir>/<tool>` when set.        |
 
 The wrapper's own variables are deployment-specific.

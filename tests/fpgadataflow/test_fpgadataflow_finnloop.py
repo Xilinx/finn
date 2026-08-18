@@ -76,8 +76,16 @@ def make_loop_modelwrapper(
     mvau_simd=2,
     mvau_th=1,
     helper_pe=2,
+    weight_bitwidth=None,
 ):
     is_float = eltw_param_dtype == "FLOAT32"
+
+    # Output dtype of adding two `dtype` values needs one extra bit
+    add_out_dtype = DataType[f"INT{dtype.bitwidth() + 1}"]
+
+    # weights default to the activation dtype, but can use a separate (e.g. wider)
+    # width to exercise the fetch-weights DDR path independently of the data path
+    wdtype = DataType[f"INT{weight_bitwidth}"] if weight_bitwidth is not None else dtype
 
     # Determine elementwise output dtype
     # HLS elementwise outputs FLOAT32 if parameter is FLOAT32, otherwise INT32
@@ -88,9 +96,9 @@ def make_loop_modelwrapper(
         elemwise_output_dtype = DataType["INT32"]
         thresholding_input_dtype = DataType["INT32"]
 
-    W0 = gen_finn_dt_tensor(dtype, (mw, mh))
-    W1 = gen_finn_dt_tensor(dtype, (mw, mh))
-    W2 = gen_finn_dt_tensor(dtype, (mh, mh))
+    W0 = gen_finn_dt_tensor(wdtype, (mw, mh))
+    W1 = gen_finn_dt_tensor(wdtype, (mw, mh))
+    W2 = gen_finn_dt_tensor(wdtype, (mh, mh))
     T0 = np.sort(
         generate_random_threshold_values(dtype, 1, dtype.get_num_possible_values() - 1), axis=1
     )
@@ -104,9 +112,11 @@ def make_loop_modelwrapper(
     T3 = np.sort(
         generate_random_threshold_values(T3_dtype, 1, dtype.get_num_possible_values() - 1), axis=1
     )
-    # RTL elementwise requires matching bitwidths for int/int path (lhs is INT9)
+    # RTL elementwise requires matching bitwidths for int/int path
     actual_eltw_param_dtype = (
-        "INT9" if (eltw_param_dtype == "INT8" and "rtl" in elemwise_optype) else eltw_param_dtype
+        add_out_dtype.name
+        if (eltw_param_dtype != "FLOAT32" and "rtl" in elemwise_optype)
+        else eltw_param_dtype
     )
     EltwParam = gen_finn_dt_tensor(DataType[actual_eltw_param_dtype], rhs_shape)
 
@@ -150,8 +160,8 @@ def make_loop_modelwrapper(
                 "SIMD": mvau_simd,
                 "PE": mvau_pe,
                 "TH": mvau_th,
-                "inputDataType": "INT8",
-                "weightDataType": "INT8",
+                "inputDataType": dtype.name,
+                "weightDataType": wdtype.name,
                 "outputDataType": "INT32",
                 "ActVal": 0,
                 "binaryXnorMode": 0,
@@ -184,8 +194,8 @@ def make_loop_modelwrapper(
                 "SIMD": mvau_simd,
                 "PE": mvau_pe,
                 "TH": mvau_th,
-                "inputDataType": "INT8",
-                "weightDataType": "INT8",
+                "inputDataType": dtype.name,
+                "weightDataType": wdtype.name,
                 "outputDataType": "INT32",
                 "ActVal": 0,
                 "binaryXnorMode": 0,
@@ -218,8 +228,8 @@ def make_loop_modelwrapper(
                 "SIMD": mvau_simd,
                 "PE": mvau_pe,
                 "TH": mvau_th,
-                "inputDataType": "INT8",
-                "weightDataType": "INT8",
+                "inputDataType": dtype.name,
+                "weightDataType": wdtype.name,
                 "outputDataType": "INT32",
                 "ActVal": 0,
                 "binaryXnorMode": 0,
@@ -252,7 +262,7 @@ def make_loop_modelwrapper(
                 "out_shape": [1, 3, 3, mh],
                 "lhs_dtype": dtype.name,
                 "rhs_dtype": dtype.name,
-                "out_dtype": "INT9",
+                "out_dtype": add_out_dtype.name,
                 "lhs_style": "input",
                 "rhs_style": "input",
                 "PE": helper_pe,
@@ -267,10 +277,10 @@ def make_loop_modelwrapper(
                 "lhs_shape": [1, 3, 3, mh],
                 "rhs_shape": rhs_shape,
                 "out_shape": [1, 3, 3, mh],
-                "lhs_dtype": "INT9",
+                "lhs_dtype": add_out_dtype.name,
                 # RTL elementwise requires matching bitwidths for int/int path
-                "rhs_dtype": "INT9"
-                if (eltw_param_dtype == "INT8" and "rtl" in elemwise_optype)
+                "rhs_dtype": add_out_dtype.name
+                if (eltw_param_dtype != "FLOAT32" and "rtl" in elemwise_optype)
                 else eltw_param_dtype,
                 "out_dtype": elemwise_output_dtype.name,
             },
@@ -386,6 +396,10 @@ def make_loop_modelwrapper(
     for tensor in tensors:
         loop_body_model.set_tensor_datatype(tensor, dtype)
 
+    # weights may use a different (wider) datatype than the activations
+    for w in (f"weights0{name_suffix}", f"weights1{name_suffix}", f"weights2{name_suffix}"):
+        loop_body_model.set_tensor_datatype(w, wdtype)
+
     loop_body_model.set_tensor_datatype(f"thresh3{name_suffix}", T3_dtype)
     loop_body_model.set_tensor_datatype(
         f"mul_param{name_suffix}", DataType[actual_eltw_param_dtype]
@@ -489,10 +503,12 @@ def create_chained_loop_bodies(
     elemwise_optype="ElementwiseMul_hls",
     rhs_shape=[1],
     eltw_param_dtype="INT8",
+    dtype=DataType["INT8"],
     mvau_pe=2,
     mvau_simd=2,
     mvau_th=1,
     helper_pe=2,
+    weight_bitwidth=None,
 ):
     loop_body_models = []
 
@@ -502,7 +518,7 @@ def create_chained_loop_bodies(
         loop_body_model = make_loop_modelwrapper(
             mw=mw,
             mh=mh,
-            dtype=DataType["INT8"],
+            dtype=dtype,
             elemwise_optype=elemwise_optype,
             rhs_shape=rhs_shape,
             eltw_param_dtype=eltw_param_dtype,
@@ -511,6 +527,7 @@ def create_chained_loop_bodies(
             mvau_simd=mvau_simd,
             mvau_th=mvau_th,
             helper_pe=helper_pe,
+            weight_bitwidth=weight_bitwidth,
         )
         loop_body_models.append(loop_body_model)
 
@@ -1003,6 +1020,198 @@ def test_finnloop_end2end_mlo_requant(mvau_cfg, iteration, per_channel):
     ctx_data = np.load(os.path.join(verif_dir, iteration_context_files[0]))
     iter_indices = set()
     for key in [k for k in ctx_data.files if k.startswith("iter_")]:
+        parts = key.split("_", 2)
+        if len(parts) >= 2:
+            iter_indices.add(int(parts[1]))
+    assert (
+        len(iter_indices) == iteration
+    ), f"Expected {iteration} iterations in context, found {len(iter_indices)}"
+
+
+@pytest.mark.parametrize(
+    "dim, simd, pe, bitwidth, weight_bitwidth",
+    [(16, 1, 1, 8, 8), (8, 8, 4, 3, 3)],
+)
+# iteration count, number of models chained together
+@pytest.mark.parametrize("iteration", [3])
+# elementwise operation
+@pytest.mark.parametrize("elemwise_optype", ["ElementwiseAdd_hls"])
+# elementwise shape
+@pytest.mark.parametrize("rhs_shape", [[1]])
+# tail node
+@pytest.mark.parametrize("tail_node", [True])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_finnloop_end2end_mlo_ddr(
+    dim,
+    simd,
+    pe,
+    iteration,
+    elemwise_optype,
+    rhs_shape,
+    bitwidth,
+    weight_bitwidth,
+    tail_node,
+    request,
+):
+    # End-to-end MLO+DDR flow parametrized by data/weight bitwidth and MVAU folding.
+    data_dtype = DataType[f"INT{bitwidth}"]
+    eltw_param_dtype = data_dtype.name
+    # output dtype of adding two `data_dtype` values needs one extra bit
+    add_out_dtype = DataType[f"INT{data_dtype.bitwidth() + 1}"]
+
+    # Check vivado version
+    vivado_path = os.environ.get("XILINX_VIVADO")
+    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
+    year, minor = int(match.group(1)), int(match.group(2))
+    if (year, minor) < (2024, 2):
+        pytest.skip("""At least Vivado version 2024.2 needed for MLO.""")
+    loop_body_models = create_chained_loop_bodies(
+        dim,
+        dim,
+        iteration,
+        elemwise_optype,
+        rhs_shape,
+        eltw_param_dtype,
+        dtype=data_dtype,
+        mvau_simd=simd,
+        mvau_pe=pe,
+        weight_bitwidth=weight_bitwidth,
+    )
+    nodes_per_body = len(loop_body_models[0].graph.node)
+    model = loop_body_models[0]
+    for m in loop_body_models[1:]:
+        model = model.transform(MergeONNXModels(m))
+
+    if tail_node:
+        tail_outp = create_tensor_info("tail_outp", [1, 3, 3, dim])
+        tr_node = create_node(
+            "ElementwiseAdd_hls",
+            [model.graph.output[0].name, "tail_add"],
+            ["tail_outp"],
+            "Add_tail",
+            {
+                "lhs_shape": [1, 3, 3, dim],
+                "rhs_shape": [1],
+                "out_shape": [1, 3, 3, dim],
+                "lhs_dtype": data_dtype.name,
+                "rhs_dtype": data_dtype.name,
+                "out_dtype": add_out_dtype.name,
+            },
+        )
+        model.graph.node.insert(len(model.graph.node), tr_node)
+        model.graph.value_info.append(model.graph.output[0])
+        model.graph.output.pop(0)
+        model.graph.output.append(tail_outp)
+        AddtailParam = gen_finn_dt_tensor(data_dtype, [1])
+        model.set_initializer("tail_add", AddtailParam)
+        model.set_tensor_datatype("tail_add", data_dtype)
+
+    # cleanup
+    model = model.transform(RemoveUnusedTensors())
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+
+    # Generate reference output
+    input_dtype = data_dtype
+    x = gen_finn_dt_tensor(input_dtype, (1, 3, 3, dim))
+    model_ref = model.transform(PrepareCppSim())
+    model_ref = model_ref.transform(CompileCppSim())
+    model_ref = model_ref.transform(SetExecMode("cppsim"))
+    io_dict = {model_ref.graph.input[0].name: x}
+    y_dict = oxe.execute_onnx(model_ref, io_dict)
+    y_ref = y_dict[model_ref.graph.output[0].name]
+
+    test_id = re.sub(r"[^0-9A-Za-z_]+", "_", request.node.name)
+    tmp_output_dir = make_build_dir(f"build_mlo_{test_id}_")
+
+    batch_size = 16
+    np.save(tmp_output_dir + "/input.npy", np.broadcast_to(x, (batch_size, 3, 3, dim)))
+    np.save(
+        tmp_output_dir + "/expected_output.npy",
+        np.broadcast_to(y_ref, (batch_size, 3, 3, dim)),
+    )
+
+    model.save(tmp_output_dir + "/mlo_model.onnx")
+
+    # Use phase-based pipeline
+    # Steps are adjusted because test model already has HLS and RTL layers
+    steps = [
+        "step_create_dataflow_partition",  # Fine-grained (model already specialized)
+        "phase_convert_to_hardware",  # Phase (includes loop rolling)
+        "phase_optimize_hardware",  # Phase (includes folding, bit-width, reports)
+        "phase_build_hardware",  # Phase (includes codegen, ipgen, FIFOs)
+        "phase_generate_outputs",  # Phase (stitched IP, bitfile synth, driver, deployment)
+    ]
+
+    cfg = build_cfg.DataflowBuildConfig(
+        output_dir=tmp_output_dir,
+        steps=steps,
+        synth_clk_period_ns=10.0,
+        board="AUP-ZU3_8GB",
+        shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
+        rtlsim_batch_size=100,
+        standalone_thresholds=True,
+        mlo=True,
+        fifosim_save_waveform=True,
+        loop_body_hierarchy=[["", "layers.0"]],
+        loop_body_range=(model.graph.node[0], model.graph.node[nodes_per_body - 1]),
+        verify_steps=verif_steps,
+        verify_input_npy=tmp_output_dir + "/input.npy",
+        verify_expected_output_npy=tmp_output_dir + "/expected_output.npy",
+        verify_save_full_context=True,  # Enable per-iteration context saving
+        generate_outputs=[
+            build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
+            build_cfg.DataflowOutputType.STITCHED_IP,
+            build_cfg.DataflowOutputType.BITFILE,
+            build_cfg.DataflowOutputType.PYNQ_DRIVER,
+            build_cfg.DataflowOutputType.DEPLOYMENT_PACKAGE,
+        ],
+    )
+    build.build_dataflow_cfg(tmp_output_dir + "/mlo_model.onnx", cfg)
+
+    # check if expected files are there
+    assert os.path.isfile(tmp_output_dir + "/loop-body-template.onnx")
+    report_dir = tmp_output_dir + "/report"
+    assert os.path.isfile(report_dir + "/estimate_layer_config_alternatives_FINNLoop_0.json")
+    assert os.path.isfile(report_dir + "/estimate_layer_config_alternatives.json")
+    assert os.path.isfile(report_dir + "/estimate_layer_cycles_FINNLoop_0.json")
+    assert os.path.isfile(report_dir + "/estimate_layer_cycles.json")
+    assert os.path.isfile(report_dir + "/estimate_layer_resources_FINNLoop_0.json")
+    assert os.path.isfile(report_dir + "/estimate_layer_resources.json")
+    assert os.path.isfile(report_dir + "/op_and_param_counts_FINNLoop_0.json")
+    assert os.path.isfile(report_dir + "/op_and_param_counts.json")
+    assert os.path.isfile(tmp_output_dir + "/stitched_ip/ip/component.xml")
+
+    verif_dir = tmp_output_dir + "/verification_output"
+    # With verify_save_full_context=True, cppsim and node_by_node_rtlsim save as .npz
+    # stitched_ip_rtlsim with MLO uses rtlsim_pre_hook so it saves as .npy
+    assert os.path.isfile(
+        verif_dir + "/verify_folded_hls_cppsim_0_SUCCESS.npz"
+    ), f"Check npz files in {verif_dir}"
+    assert os.path.isfile(
+        verif_dir + "/verify_node_by_node_rtlsim_0_SUCCESS.npz"
+    ), f"Check npz files in {verif_dir}"
+    assert os.path.isfile(
+        verif_dir + "/verify_stitched_ip_rtlsim_0_SUCCESS.npy"
+    ), f"Check npy files in {verif_dir}"
+
+    # Verify that the per-iteration context file was created for FINNLoop
+    iteration_context_files = [
+        f for f in os.listdir(verif_dir) if f.startswith("iteration_context_")
+    ]
+    assert len(iteration_context_files) > 0, f"No iteration context files found in {verif_dir}"
+
+    # Load and verify the iteration context file has expected structure
+    ctx_file = os.path.join(verif_dir, iteration_context_files[0])
+    ctx_data = np.load(ctx_file)
+    iter_keys = [k for k in ctx_data.files if k.startswith("iter_")]
+    assert len(iter_keys) > 0, "No iteration keys found in context file"
+
+    # Verify we have contexts for all iterations
+    iter_indices = set()
+    for key in iter_keys:
         parts = key.split("_", 2)
         if len(parts) >= 2:
             iter_indices.add(int(parts[1]))

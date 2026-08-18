@@ -264,7 +264,7 @@ module inner_shuffle #(
 	logic [1:0] WrJobsDone = 2'b00; // Bit vector tracking when writes have been completed to pages
 	logic CurrentPageRd = 0;     // 0 - reading from PAGE A, 1 - reading from PAGE B
 	uwire [$clog2(BANK_DEPTH)-1:0]  page_rd_offset;
-	uwire  rd_guard = !CurrentPageRd && !WrJobsDone[0] && !WrJobsDone[1];
+	uwire rd_guard = !WrJobsDone[CurrentPageRd];
 	uwire rd_inc = rd_req_en && rd_req_rdy_all;
 
 	// Counts reads across the columns

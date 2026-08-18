@@ -49,7 +49,7 @@ class InnerShuffle_rtl(InnerShuffle, RTLBackend):
         super().__init__(onnx_node, **kwargs)
 
         # check some constraints that it is a legal InnerShuffle
-        I_dim = self.get_nodeattr("in_shape")[-2]
+        I_dim = self.get_nodeattr("transpose_in_shape")[-2]
         SIMD = self.get_nodeattr("SIMD")
         if I_dim % SIMD != 0:
             new_simd = auto_size_simd(I_dim, SIMD)
@@ -81,10 +81,11 @@ class InnerShuffle_rtl(InnerShuffle, RTLBackend):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         dt = DataType[self.get_nodeattr("data_type")]
         simd = self.get_nodeattr("SIMD")
+        transpose_in_shape = self.get_nodeattr("transpose_in_shape")
         code_gen_dict = {
             "TOP_MODULE_NAME": self.get_verilog_top_module_name(),
-            "I": self.get_nodeattr("in_shape")[-2],
-            "J": self.get_nodeattr("in_shape")[-1],
+            "I": transpose_in_shape[-2],
+            "J": transpose_in_shape[-1],
             "SIMD": simd,
             "WIDTH": dt.bitwidth(),
             "STREAM_BITS": simd * dt.bitwidth(),
