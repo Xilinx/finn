@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /******************************************************************************
  * @brief	AXI stream wrapper for integer requantization with decoupled
- *		(streamed) scale/bias parameters.
+ *		(streamed) parameters.
  *
  * @description
  *	Like requant_axi.sv but the scale/bias are not embedded as module
- *	parameters. Instead two additional AXI-Stream slave ports deliver the
- *	fixed-point parameter words (one word per lane-parallel compute beat),
- *	produced by two memstreams. A compute beat is only issued when the input
- *	data and both parameter words are simultaneously available.
+ *	parameters. Instead a single additional AXI-Stream slave port delivers
+ *	the packed parameter words (one word per lane-parallel compute beat),
+ *	produced by a memstream. A compute beat is only issued when the input
+ *	data and the parameter word are simultaneously available.
  *****************************************************************************/
 
 module requant_axi_decoupled #(
@@ -28,15 +28,14 @@ module requant_axi_decoupled #(
 	                                    (VERSION==3? 24 : 18),
 	localparam int unsigned  X_WIDTH = (K <= (VERSION==3? 24 : 18))? K :
 	                                    ((VERSION==1? 25 : 27) < K? (VERSION==1? 25 : 27) : K),
-	localparam int unsigned  BIAS_W  = S_WIDTH + X_WIDTH,
+	localparam int unsigned  BIAS_WIDTH  = S_WIDTH + X_WIDTH,
 	localparam int unsigned  TAP_RANGE = TAP_MAX - TAP_MIN + 1,
-	localparam int unsigned  TAP_BITS  = (TAP_RANGE > 1)? $clog2(TAP_RANGE) : 1,
-	localparam int unsigned  SCALE_LANE_W = S_WIDTH + TAP_BITS,
+	localparam int unsigned  TAP_WIDTH  = (TAP_RANGE > 1)? $clog2(TAP_RANGE) : 1,
+	localparam int unsigned  PARAMS_LANE_WIDTH = S_WIDTH + TAP_WIDTH + BIAS_WIDTH,
 
 	localparam int unsigned  INPUT_STREAM_WIDTH  = ((PE*K+7)/8)*8,
 	localparam int unsigned  OUTPUT_STREAM_WIDTH = ((PE*N+7)/8)*8,
-	localparam int unsigned  SCALE_STREAM_WIDTH  = ((PE*SCALE_LANE_W+7)/8)*8,
-	localparam int unsigned  BIAS_STREAM_WIDTH   = ((PE*BIAS_W+7)/8)*8
+	localparam int unsigned  PARAMS_STREAM_WIDTH = ((PE*PARAMS_LANE_WIDTH+7)/8)*8
 )(
 	//- Global Control ------------------
 	input	logic  ap_clk,
@@ -47,15 +46,10 @@ module requant_axi_decoupled #(
 	input	logic  s_axis_tvalid,
 	input	logic [INPUT_STREAM_WIDTH-1:0]  s_axis_tdata,
 
-	//- AXI Stream - Scale Param Input --
-	output	logic  s_scale_tready,
-	input	logic  s_scale_tvalid,
-	input	logic [SCALE_STREAM_WIDTH-1:0]  s_scale_tdata,
-
-	//- AXI Stream - Bias Param Input ---
-	output	logic  s_bias_tready,
-	input	logic  s_bias_tvalid,
-	input	logic [BIAS_STREAM_WIDTH-1:0]  s_bias_tdata,
+	//- AXI Stream - Params Input -------
+	output	logic  s_params_tready,
+	input	logic  s_params_tvalid,
+	input	logic [PARAMS_STREAM_WIDTH-1:0]  s_params_tdata,
 
 	//- AXI Stream - Output -------------
 	input	logic  m_axis_tready,
@@ -80,23 +74,20 @@ module requant_axi_decoupled #(
 	logic signed [$clog2(CREDIT):0]  Credit = CREDIT-1; // CREDIT-1, ..., 1, 0, -1
 	uwire  have_cap = !Credit[$left(Credit)];
 
-	// Synchronized join: fire only when data and both param words are present
-	uwire  params_vld = s_scale_tvalid && s_bias_tvalid;
-	uwire  issue  = have_cap && s_axis_tvalid && params_vld;
+	// Synchronized join: fire only when data and params are present
+	uwire  issue  = have_cap && s_axis_tvalid && s_params_tvalid;
 	uwire  settle = m_axis_tvalid && m_axis_tready;
 	always @(posedge ap_clk) begin
 		if(rst)  Credit <= CREDIT-1;
 		else     Credit <= Credit + (issue == settle? 0 : settle? 1 : -1);
 	end
-	assign	s_axis_tready  = issue;
-	assign	s_scale_tready = issue;
-	assign	s_bias_tready  = issue;
+	assign	s_axis_tready   = issue;
+	assign	s_params_tready = issue;
 
 	//-----------------------------------------------------------------------
 	// Free-running decoupled requant compute core
 	uwire signed [PE-1:0][K-1:0]  core_idat = s_axis_tdata[0+:PE*K];
-	uwire [PE-1:0][SCALE_LANE_W-1:0]  core_sdat = s_scale_tdata[0+:PE*SCALE_LANE_W];
-	uwire [PE-1:0][BIAS_W-1:0]  core_bdat = s_bias_tdata[0+:PE*BIAS_W];
+	uwire [PE-1:0][PARAMS_LANE_WIDTH-1:0]  core_pdat = s_params_tdata[0+:PE*PARAMS_LANE_WIDTH];
 	uwire [PE-1:0][N-1:0]  core_odat;
 	uwire  core_ovld;
 	requant_decoupled #(
@@ -106,7 +97,7 @@ module requant_axi_decoupled #(
 	) impl (
 		.clk(ap_clk), .rst,
 		.idat(core_idat), .ivld(issue),
-		.sdat(core_sdat), .bdat(core_bdat),
+		.pdat(core_pdat),
 		.odat(core_odat), .ovld(core_ovld)
 	);
 

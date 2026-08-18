@@ -7,12 +7,11 @@
  *	Decoupled variant of the requant core. Instead of embedding the
  *	single-precision scale/bias as compile-time module parameters (which are
  *	constant-folded into fixed-point in requant.sv), this variant receives the
- *	*already decomposed* fixed-point parameters through two streams, one word
- *	per compute beat:
- *		- scale stream: per lane { T[TAP_BITS], SCALE[S_WIDTH] }
- *		    SCALE is the signed scale mantissa, T = tap - TAP_MIN.
- *		- bias  stream: per lane { BIAS[S_WIDTH+X_WIDTH] }
- *		    BIAS is the aligned signed bias (round constant folded in).
+ *	*already decomposed* fixed-point parameters through a single stream, one
+ *	word per compute beat.  Each PE lane carries a packed struct (LSB to MSB):
+ *		- SCALE [S_WIDTH]     — signed scale mantissa
+ *		- T     [TAP_WIDTH]   — tap - TAP_MIN (unsigned)
+ *		- BIAS  [BIAS_WIDTH]  — signed bias (round constant folded in)
  *	The Python codegen (Requant.decompose_params) performs the float32 ->
  *	fixed-point decomposition that requant.sv does at elaboration time via
  *	derive_PARAMS(). The datapath here is otherwise identical to requant.sv.
@@ -41,10 +40,10 @@ module requant_decoupled #(
 	                                    (VERSION==3? 24 : 18),
 	localparam int unsigned  X_WIDTH = (K <= (VERSION==3? 24 : 18))? K :
 	                                    ((VERSION==1? 25 : 27) < K? (VERSION==1? 25 : 27) : K),
-	localparam int unsigned  BIAS_W  = S_WIDTH + X_WIDTH,
+	localparam int unsigned  BIAS_WIDTH  = S_WIDTH + X_WIDTH,
 	localparam int unsigned  TAP_RANGE = TAP_MAX - TAP_MIN + 1,
-	localparam int unsigned  TAP_BITS  = (TAP_RANGE > 1)? $clog2(TAP_RANGE) : 1,
-	localparam int unsigned  SCALE_LANE_W = S_WIDTH + TAP_BITS
+	localparam int unsigned  TAP_WIDTH  = (TAP_RANGE > 1)? $clog2(TAP_RANGE) : 1,
+	localparam int unsigned  PARAMS_LANE_WIDTH = S_WIDTH + TAP_WIDTH + BIAS_WIDTH
 )(
 	input	logic  clk,
 	input	logic  rst,
@@ -53,10 +52,8 @@ module requant_decoupled #(
 	input	logic signed [PE-1:0][K-1:0]  idat,
 	input	logic  ivld,
 
-	// Scale parameter stream (per lane: { T, SCALE })
-	input	logic [PE-1:0][SCALE_LANE_W-1:0]  sdat,
-	// Bias parameter stream (per lane: BIAS)
-	input	logic [PE-1:0][BIAS_W-1:0]  bdat,
+	// Parameter stream (per lane: { BIAS, T, SCALE })
+	input	logic [PE-1:0][PARAMS_LANE_WIDTH-1:0]  pdat,
 
 	// Output data stream
 	output	logic [PE-1:0][N-1:0]  odat,
@@ -86,12 +83,12 @@ module requant_decoupled #(
 
 	// Instantiate individual compute lanes
 	for(genvar  pe = 0; pe < PE; pe++) begin : genPE
-		typedef logic [TAP_BITS-1:0]  tap_t;
+		typedef logic [TAP_WIDTH-1:0]  tap_t;
 
 		//- Stage #1: sample input + streamed parameters
 		logic signed [X_WIDTH-1:0]  X1 = 'x;
 		logic signed [S_WIDTH-1:0]  S1 = 'x;
-		logic signed [BIAS_W -1:0]  B1 = 'x;
+		logic signed [BIAS_WIDTH -1:0]  B1 = 'x;
 		tap_t  T1 = 'x;
 		always_ff @(posedge clk) begin
 			if(rst) begin
@@ -102,15 +99,15 @@ module requant_decoupled #(
 			end
 			else begin
 				X1 <= K > X_WIDTH? idat[pe][K-X_WIDTH+:X_WIDTH] : idat[pe];
-				S1 <= $signed(sdat[pe][0+:S_WIDTH]);
-				T1 <= sdat[pe][S_WIDTH+:TAP_BITS];
-				B1 <= $signed(bdat[pe][0+:BIAS_W]);
+				S1 <= $signed(pdat[pe][0+:S_WIDTH]);
+				T1 <= pdat[pe][S_WIDTH+:TAP_WIDTH];
+				B1 <= $signed(pdat[pe][S_WIDTH+TAP_WIDTH+:BIAS_WIDTH]);
 			end
 		end
 
 		//- Stage #2: multiply
-		logic signed [BIAS_W-1:0]  M2 = 'x;
-		logic signed [BIAS_W-1:0]  B2 = 'x;
+		logic signed [BIAS_WIDTH-1:0]  M2 = 'x;
+		logic signed [BIAS_WIDTH-1:0]  B2 = 'x;
 		tap_t  T2 = 'x;
 		always_ff @(posedge clk) begin
 			if(rst) begin
@@ -126,7 +123,7 @@ module requant_decoupled #(
 		end
 
 		//- Stage #3: add bias
-		logic signed [BIAS_W:0]  P3 = 'x;
+		logic signed [BIAS_WIDTH:0]  P3 = 'x;
 		tap_t  T3 = 'x;
 		always_ff @(posedge clk) begin
 			if(rst) begin

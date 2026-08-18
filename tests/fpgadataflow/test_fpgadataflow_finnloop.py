@@ -917,12 +917,12 @@ def create_chained_requant_loop_bodies(
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_finnloop_end2end_mlo_requant(mvau_cfg, iteration, per_channel):
-    """End-to-end MLO rtlsim for a Requant_rtl body node (two-param memstreams).
+    """End-to-end MLO rtlsim for a Requant_rtl body node (unified param memstream).
 
     A Requant inside the loop body is rolled up by LoopRolling; its scale and
-    bias become per-iteration PARAMETER inputs, each fed from its own memstream
-    (storing ``iteration`` sets) via a dedicated stream tap. Exercises the
-    N-taps-per-node generalization in finn_loop.py next to a single-tap MVAU.
+    bias become per-iteration PARAMETER inputs, packed into a single struct-based
+    memstream (storing ``iteration`` sets) via a dedicated stream tap. Exercises
+    the coupled scale+bias decomposition in finn_loop.py next to a single-tap MVAU.
     """
     dim, mvau_pe, mvau_simd, mvau_th, helper_pe = mvau_cfg
     # Vivado 2024.2+ required for MLO

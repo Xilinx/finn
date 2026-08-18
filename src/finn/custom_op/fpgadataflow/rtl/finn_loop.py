@@ -587,18 +587,17 @@ class FINNLoop(HWCustomOp, RTLBackend):
     def _generate_params_requant(self, model, path, loop_node, loop_body, param_node, fpgapart):
         """Generate per-iteration memstream init files for a Requant_rtl body node.
 
-        Requant is the first body op with two parameter inputs (scale=input[1],
-        bias=input[2]). Its fixed-point decomposition is *coupled*: the bias
-        alignment depends on the scale-derived per-channel tap of the SAME
-        iteration (see requant.py). Therefore both initializers must be set
-        together for each iteration before calling ``generate_params`` (the
-        generic one-param-per-pass flow would produce mismatched bias files).
+        Requant has two parameter inputs (scale=input[1], bias=input[2]) whose
+        fixed-point decomposition is *coupled*: the bias alignment depends on
+        the scale-derived per-channel tap of the SAME iteration. Therefore both
+        initializers must be set together for each iteration before calling
+        ``generate_params``.
 
-        Each iteration emits ``scale_memblock.dat``/``bias_memblock.dat``; these
-        are renamed per iteration, concatenated (set i at offset i*DEPTH) into
-        ``scale_memblock_id_{gid}.dat``/``bias_memblock_id_{gid}.dat``, and the
-        two memstream wrappers' ``$INIT_FILE$`` paths are rewritten to point at
-        the concatenated files.
+        Each iteration emits a single ``params_memblock.dat`` (unified struct
+        packing scale+tap+bias per PE lane); these are renamed per iteration,
+        then concatenated (set i at offset i*DEPTH) into
+        ``params_memblock_id_{gid}.dat``. The single memstream wrapper's
+        ``$INIT_FILE$`` path is rewritten to point at the concatenated file.
         """
         iteration = self.get_nodeattr("iteration")
         inst = getCustomOp(param_node)
@@ -608,11 +607,11 @@ class FINNLoop(HWCustomOp, RTLBackend):
         scale_tensor = param_node.input[1]
         bias_tensor = param_node.input[2]
         scale_gid = graph_input_names.index(scale_tensor)
-        bias_gid = graph_input_names.index(bias_tensor)
 
         # Stacked per-iteration params live on the matching FINNLoop inputs
         # (loop_node.input[k] corresponds positionally to graph.input[k]).
         scale_stack = model.get_initializer(loop_node.input[scale_gid])
+        bias_gid = graph_input_names.index(bias_tensor)
         bias_stack = model.get_initializer(loop_node.input[bias_gid])
         scale_dtype = model.get_tensor_datatype(loop_node.input[scale_gid])
         bias_dtype = model.get_tensor_datatype(loop_node.input[bias_gid])
@@ -626,36 +625,32 @@ class FINNLoop(HWCustomOp, RTLBackend):
             loop_body.set_initializer(bias_tensor, bias_stack[iter])
             loop_body.set_tensor_datatype(bias_tensor, bias_dtype)
             inst.generate_params(loop_body, path, fpgapart)
-            for kind in ["scale", "bias"]:
-                src = "{}/{}_memblock.dat".format(path, kind)
-                dst = "{}/{}_memblock_{}.dat".format(path, kind, iter)
-                shutil.move(src, dst)
+            src = "{}/params_memblock.dat".format(path)
+            dst = "{}/params_memblock_{}.dat".format(path, iter)
+            shutil.move(src, dst)
 
-        # Concatenate per-iteration files into one memblock per param stream.
-        concat_files = {}
-        for kind, gid in [("scale", scale_gid), ("bias", bias_gid)]:
-            concat_file = "{}/{}_memblock_id_{}.dat".format(path, kind, gid)
-            with open(concat_file, "w") as outfile:
-                for iter in range(iteration):
-                    memblock_file = "{}/{}_memblock_{}.dat".format(path, kind, iter)
-                    with open(memblock_file, "r") as infile:
-                        for line in infile:
-                            outfile.write(line)
-                    os.remove(memblock_file)
-            concat_files[kind] = concat_file
+        # Concatenate per-iteration files into one memblock for the param stream.
+        # Use scale_gid as the canonical graph-input id for the unified stream.
+        concat_file = "{}/params_memblock_id_{}.dat".format(path, scale_gid)
+        with open(concat_file, "w") as outfile:
+            for iter in range(iteration):
+                memblock_file = "{}/params_memblock_{}.dat".format(path, iter)
+                with open(memblock_file, "r") as infile:
+                    for line in infile:
+                        outfile.write(line)
+                os.remove(memblock_file)
 
-        # Rewrite the memstream wrappers' $INIT_FILE$ paths (Elementwise-style).
+        # Rewrite the memstream wrapper's $INIT_FILE$ path (Elementwise-style).
         ipgen_path = inst.get_nodeattr("code_gen_dir_ipgen")
         if ipgen_path is not None and os.path.isdir(ipgen_path):
             for dname, dirs, files in os.walk(ipgen_path):
                 for fname in files:
-                    if fname.endswith("_memstream_wrapper.v"):
+                    if fname.endswith("_params_memstream_wrapper.v"):
                         fpath = os.path.join(dname, fname)
                         with open(fpath, "r") as f:
                             s = f.read()
-                        for kind in ["scale", "bias"]:
-                            old = os.path.join(ipgen_path, "%s_memblock.dat" % kind)
-                            s = s.replace(old, concat_files[kind])
+                        old = os.path.join(ipgen_path, "params_memblock.dat")
+                        s = s.replace(old, concat_file)
                         with open(fpath, "w") as f:
                             f.write(s)
 
@@ -686,18 +681,21 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 ):
                     tap_rep = node_inst.calc_wmem_reps()
                 elif node.op_type == "Requant_rtl":
-                    # The decoupled Requant core consumes one scale + one bias
-                    # word per input beat, cycling through the CF stored words
-                    # (memstream DEPTH=CF). A multi-set memstream emits exactly
-                    # DEPTH words per set-select and does not auto-wrap, so the
-                    # set index must be replayed once per spatial position to
-                    # re-stream the CF-word block. folded_input_shape is
-                    # [*numInputVectors, CF, PE]; [:-2] drops CF and PE.
+                    # The decoupled Requant core consumes one packed param word
+                    # per input beat, cycling through CF stored words (memstream
+                    # DEPTH=CF). The set index must be replayed once per spatial
+                    # position to re-stream the CF-word block.
+                    # folded_input_shape is [*numInputVectors, CF, PE].
                     tap_rep = int(np.prod(node_inst.get_folded_input_shape(0)[:-2]))
                 # Emit one stream tap per parameter graph-input of this node.
-                # Single-param ops (MVAU/Thresholding/Elementwise) yield exactly
-                # one tap; multi-param ops (Requant: scale+bias) yield one each.
-                for pinp in node.input[1:]:
+                # Single-param ops (MVAU/Thresholding/Elementwise) yield one
+                # tap. Requant packs scale+bias into a single unified memstream
+                # driven by the tap for input[1]; input[2] (bias) is internal
+                # to the struct and does not get its own tap.
+                param_inputs = node.input[1:]
+                if node.op_type == "Requant_rtl":
+                    param_inputs = node.input[1:2]
+                for pinp in param_inputs:
                     if pinp not in graph_inputs:
                         continue
                     stname = "IN_%s" % graph_inputs.index(pinp)
