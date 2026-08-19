@@ -1,6 +1,6 @@
 /****************************************************************************
  * Copyright Advanced Micro Devices, Inc.
- * SPDX-License-Identifier: BSD-3-Clause
+ * SPDX-License-Identifier: MIT
  *
  * @brief	ONNX Where with input_gen-based broadcast expansion.
  * @author	Oliver Cassidy <oliver.cassidy@amd.com>
@@ -68,11 +68,10 @@ module where #(
 	output	logic  ovld,
 	input	logic  ordy
 );
-
-	// Input shapes are left-padded to NDIMS by the instantiator.
-	typedef int unsigned  ig_dims_t[NDIMS];
+`default_nettype none
 
 	//=== Static Parameter Validation =======================================
+	typedef int unsigned  ig_dims_t[NDIMS];
 	initial begin
 		if(DATA_WIDTH < 1) begin
 			$error("%m: DATA_WIDTH must be positive.");
@@ -91,10 +90,7 @@ module where #(
 			$finish;
 		end
 		for(int unsigned  i = 0; i < NDIMS; i++) begin
-			automatic int unsigned  cd = COND_SHAPE[i];
-			automatic int unsigned  xd = X_SHAPE[i];
-			automatic int unsigned  yd = Y_SHAPE[i];
-			automatic int unsigned  mx = cd;
+			automatic int unsigned  cd = COND_SHAPE[i], xd = X_SHAPE[i], yd = Y_SHAPE[i], mx = cd;
 			if(cd < 1 || xd < 1 || yd < 1 || OUT_SHAPE[i] < 1) begin
 				$error("%m: shape dimensions must be positive.");
 				$finish;
@@ -140,7 +136,7 @@ module where #(
 	//
 	// DIMS[k] = OUT_SHAPE[k] for outer dims, OUT_SHAPE[NDIMS-1]/PE for
 	// the folded innermost.  COEFS encode row-major stride into the
-	// operand's word space: 0 for broadcast dims (replay), else the
+	// operand's word space: 0 for broadcast dims that replay, else the
 	// product of operand word counts below that axis.
 	// FM_SIZE = total operand word count.
 
@@ -163,9 +159,7 @@ module where #(
 	function automatic ig_dims_t  INIT_COEFS(input ig_dims_t s);
 		automatic ig_dims_t  c;
 		for(int unsigned  k = 0; k < NDIMS; k++) begin
-			if(s[k] == 1) begin
-				c[k] = 0;
-			end
+			if(s[k] == 1 && OUT_DIMS[k] > 1)  c[k] = 0;  // Replay
 			else begin
 				automatic int unsigned  stride = 1;
 				for(int unsigned  j = k+1; j < NDIMS; j++)
@@ -260,4 +254,5 @@ module where #(
 	assign	odat = ODat;
 	assign	ovld = OVld;
 
+`default_nettype wire
 endmodule : where
