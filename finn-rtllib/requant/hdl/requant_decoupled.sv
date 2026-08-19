@@ -1,6 +1,8 @@
 /****************************************************************************
- * Copyright Advanced Micro Devices, Inc.
- * SPDX-License-Identifier: MIT
+ * Copyright (C) 2026, Advanced Micro Devices, Inc.
+ * All rights reserved.
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
  *
  * @author	Thomas B. Preußer <thomas.preusser@amd.com>
  * @brief	Integer requantization core with decoupled (streamed) parameters.
