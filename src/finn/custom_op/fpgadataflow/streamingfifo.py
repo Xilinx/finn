@@ -69,11 +69,9 @@ URAM288_SDP = ((72, 4096), (36, 8192), (18, 16384), (9, 32768))
 # style, both memory geometries, widths 1..256 and depths 2..262145; that is the range
 # the model is known good over. Tile counts are exact but for one config; LUT counts land
 # within a few percent.
-# Every fitted number is called out as fitted where it appears, and the comment there gives
-# the mechanism its shape points at; those mechanisms are consistent with the measurements
-# but are not read off a netlist. A number not marked fitted is exact, taken from the RTL
-# or from a primitive's datasheet. Every fitted term has been ablated against the next
-# simpler form and pays for itself.
+# A number marked fitted comes from those runs, and the comment gives the mechanism its
+# shape points at, consistent with the measurements but not read off a netlist. A number
+# not marked fitted is exact, taken from the RTL or from a primitive's datasheet.
 
 FifoCost = namedtuple("FifoCost", "bram uram lut")
 
@@ -110,10 +108,8 @@ def _hi_in_ram(rows, W):
     Read as a width: RAM wins from W >= (1024/rows)**2 up, i.e. the width needed to
     earn a RAM falls as the *square* of the depth. Depth counts twice because a LUTRAM
     past 64 rows pays for extra banks *and* for the mux tree between them, while a RAM
-    absorbs depth into the address port.
-
-    Fitted on the measured hi spaces, where a given (rows, W) always lands the same way,
-    so the outcome really is a function of these two alone."""
+    absorbs depth into the address port. A given (rows, W) always lands the same way in
+    the measurements, so the outcome really is a function of these two alone."""
     return rows * rows * W >= 2**20
 
 
@@ -122,8 +118,8 @@ def _hi_select_luts(W):
 
     Both the 18 intercept and the 3/7 slope are fitted: a pointer compare for the second
     space plus a W wide 2:1 multiplexer at a bit over two bits to a LUT6. The block and
-    ultra paths share this term, being the same mechanism, and fitting them separately
-    buys only 0.2pp of LUT error, a fifth of the tool's own run-to-run spread."""
+    ultra paths share this term, being the same mechanism; fitting them separately does
+    not pay for itself."""
     return 18 + 3 * W // 7
 
 
@@ -135,7 +131,7 @@ def _cascade_mux_luts(stages, W, versal):
     and packs two bits into one LUT6, anything wider takes a whole LUT per bit for every
     4:1 level. A LUT6 spends two inputs on the select, hence 4:1 and hence one level per
     three stages beyond the first. The intercept is fitted, small enough to be the top
-    select decode sharing the read pointer; dropping it costs 0.3pp on shift."""
+    select decode sharing the read pointer."""
     if not versal or stages < 2:
         return 0
     per_bit = 1 if stages > 2 else 0.5
@@ -147,18 +143,13 @@ def _lutram_luts(rows, W):
 
     A LUT6 in RAM32X2 mode stores 32 rows of 2 bits, so the ceil(rows/32) x ceil(W/2) of
     pure storage is exact. The fitted part is the extra quarter on top, the write address
-    decode and per-bank output selection Vivado builds around it.
+    decode and per-bank output selection Vivado builds around it. The per-bank cost is
+    depth-independent in the measurements, so that residual is a function of W alone; it
+    is not truly flat 5/4, since the overhead amortizes with width, but no closed form in
+    the obvious families fits better across the measured widths.
 
-    The row factor is exact (the measured per-bank cost is depth-independent over 64 to
-    1024 rows), so the fitted residual is a function of W alone. It is not truly flat 5/4,
-    since the overhead amortizes with width (1.33x storage at W=12 down to 1.156x at
-    W=128), but no closed form in the obvious families fits better across the measured
-    widths, so more widths at several depths is the next useful measurement, not another
-    term.
-
-    Fitted on `distributed` runs, but reused by the block/ultra branches for a hi space
-    in LUTRAM, where it holds to 7% unfitted. So it is the cost of a LUTRAM, not the
-    cost of a distributed FIFO."""
+    Fitted on `distributed` runs, but reused unfitted by the block/ultra branches for a
+    hi space in LUTRAM. So it is the cost of a LUTRAM, not of a distributed FIFO."""
     return math.ceil(rows / 32) * math.ceil(W / 2) * 5 // 4
 
 
@@ -175,9 +166,8 @@ def _bram18_plan(rows, W, versal=False):
     not split (the same 16384 x 32 measures 32 tiles), so its plan is the cheapest
     single configuration, ties going to the shallowest cascade.
 
-    The UltraScale+ search must be exhaustive: greedy widest-first misses the measured
-    tile count on 40 configs where this misses one, and a two-configuration partition
-    disagrees with this on 531 of 2560 grid points."""
+    The UltraScale+ search must stay exhaustive: both greedy widest-first and a
+    two-configuration partition miss measured tile counts this one gets."""
     if versal:
         return min(
             (math.ceil(rows / cfg_rows) * math.ceil(W / cfg_w), math.ceil(rows / cfg_rows))
@@ -268,20 +258,17 @@ def _fifo_cost(depth, W, style, versal=False):
     # up/down count, the full/empty compares and the maxcount running max each cost a
     # slice of logic per counter bit. The fitted slope is how many such per-bit users the
     # style keeps, the fitted negative intercept the low bits folding into a carry chain
-    # instead.
-    # The three fitted slopes (5 shift, 8 distributed, 6 ultra) cannot be shared: the best
-    # single term over all three, 7 * cw - 16, more than doubles the shift error. They
-    # differ because the styles keep different per-bit users: shift one up/down pointer,
-    # distributed separate read and write addresses, ultra those plus the credit counter
-    # fronting the URAM pipeline.
+    # instead. The three slopes (5 shift, 8 distributed, 6 ultra) cannot be shared, since
+    # the styles keep different per-bit users: shift one up/down pointer, distributed
+    # separate read and write addresses, ultra those plus the credit counter fronting the
+    # URAM pipeline.
     cw = _clog2(depth + 1) + 1
 
     if style == "shift":
         # SRLC32E holds 32 bits per LUT, so one LUT per bit lane per stage. This is the
-        # only exact storage term in the model, matching the measured srl column
-        # outright. The fitted mux and control terms land within 10% of lut_logic, nearly
-        # all the error at depth 2, where the fitted -7 intercept overshoots because that
-        # degenerate depth costs more control logic than depth 5 does.
+        # only exact storage term in the model, matching the measured srl column outright.
+        # Most of the branch's residual error sits at depth 2, where the fitted -7
+        # intercept overshoots: that degenerate depth costs more control logic than 5 does.
         # The output register holds one item; fifo.sv floors shift capacity at 5.
         depth_impl = depth - 1 if depth > 4 else 4
         stages = math.ceil(depth_impl / 32)
@@ -291,8 +278,7 @@ def _fifo_cost(depth, W, style, versal=False):
         rows = 2 ** _clog2(depth - 1)
         # a LUT6 pair gives 64 rows natively and F7 selects between two of them for
         # free, so the first 128 rows mux for nothing; each further 128 adds a LUT6
-        # selection level at a fitted two bits per LUT. That term and the fitted control
-        # term answer for lut_logic alone at 9%, and the measured srl column is 0
+        # selection level at a fitted two bits per LUT. The measured srl column is 0
         # throughout, so nothing here is a shift register being charged as logic.
         mux_luts = rows // 128 * (W // 2)
         return FifoCost(0, 0, _lutram_luts(rows, W) + mux_luts + 8 * cw - 15)
@@ -309,9 +295,7 @@ def _fifo_cost(depth, W, style, versal=False):
         # through the two memory terms. 3 per cascade level is the decode selecting that
         # level, not a data mux, hence no W scaling: the data rides the dedicated cascade
         # path. 2/5 per tile is each tile's enable, several of which pack into one LUT6.
-        # This branch charges no shift register and the measured srl column agrees, so
-        # the terms check out against lut_logic directly (8%, where the total sits too),
-        # with no compensating errors hiding under the sum.
+        # The branch charges no shift register and the measured srl column agrees.
         lut = 54 + 3 * groups + 2 * tiles // 5 + (_hi_select_luts(W) if hi else 0)
         if hi_in_lutram:
             lut += _lutram_luts(2**hi, W)
@@ -322,22 +306,15 @@ def _fifo_cost(depth, W, style, versal=False):
     if hi_in_lutram:
         # under URAM the LUTRAM read pipeline stops being absorbed: its output must be
         # delayed to meet the URAM read latency, and a delay of PIPE_DEPTH is one
-        # SRL16E, i.e. one LUT, per bit. Measured rather than fitted, since it is visible
-        # on its own: with the hi space in LUTRAM the srl column reads exactly 2W + 1,
-        # against W or W + 1 without.
+        # SRL16E, i.e. one LUT, per bit. Measured rather than fitted, since the srl
+        # column shows it on its own.
         lut += _lutram_luts(2**hi, W) + W
-    # The read path spans the URAM cascade: the 16-deep output queue costs a LUT per
-    # bit, and past eight tiles every further four spill one more, consistent with
-    # Vivado inserting a register stage per four cascaded tiles, each a shift of one LUT
-    # per bit. Keyed on the cascade rather than fifo.sv's PIPE_DEPTH, which tracks it on
-    # UltraScale+ but not on Versal, whose aspect ladder shortens the cascade without
-    # changing PIPE_DEPTH.
-    # Largest fitted term here. Subtracting every other term from srl + lut_logic gives
-    # a measured per-bit read path of 1 / 1 / 1 / 1 / 2.4 / 6.1 / 14.0 at cascades 1 to
-    # 64, against this term's 1 / 1 / 1 / 1 / 2 / 6 / 14, so the step sequence is
-    # measured, not fitted to a total. Only about half of it is really a shift register:
-    # the base output queue is srl outright, but past cascade eight each further stage
-    # splits about evenly between srl and lut_logic.
+    # The read path spans the URAM cascade: the 16-deep output queue costs a LUT per bit,
+    # and past eight tiles every further four spill one more, consistent with Vivado
+    # inserting a register stage per four cascaded tiles, each a shift of one LUT per bit.
+    # Fitted, and the largest fitted term in this branch. Keyed on the cascade rather than
+    # fifo.sv's PIPE_DEPTH, which tracks it on UltraScale+ but not on Versal, whose aspect
+    # ladder shortens the cascade without changing PIPE_DEPTH.
     lut += max(1, _uram_cascade(2**lo, W, versal) // 4 - 2) * W
     if versal:
         # URAM288E5 does not absorb its read pipeline the way URAM288E2 does
