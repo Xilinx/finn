@@ -29,7 +29,6 @@
 
 import pytest
 
-import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -98,7 +97,6 @@ def prepare_inputs(input_tensor, idt):
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_labelselect(idt, labels, fold, k, exec_mode, impl_style):
-    np.random.seed(0)
     if fold == -1:
         pe = 1
     else:
