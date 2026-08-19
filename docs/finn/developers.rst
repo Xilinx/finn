@@ -177,7 +177,7 @@ If you want to run tests in parallel (e.g. to take advantage of a multi-core CPU
 you can use:
 
 * pytest-parallel for any rtlsim tests, e.g. `pytest -k rtlsim --workers auto`
-* pytest-xdist for anything else, make sure to add `--dist=loadfile` if you have tests in the same file that have dependencies on each other e.g. `pytest -k mytest -n auto --dist=loadfile`
+* pytest-xdist for anything else, using `--dist=loadgroup`. e.g. `pytest -k mytest -n auto --dist=loadgroup`. Tests that exchange checkpoints must share an `xdist_group` marker so they stay on one worker.
 
 Finally, the full test suite with appropriate parallelization can be run inside the container by:
 

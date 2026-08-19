@@ -28,13 +28,17 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
+ * @brief	Verilog AXI-lite wrapper for MVU & VVU.
  *****************************************************************************/
+
+`define $EN_MLO$
 
 module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter	MW = $MW$,
 	parameter	MH = $MH$,
 	parameter	PE = $PE$,
 	parameter	SIMD = $SIMD$,
+    parameter   TH = $TH$,
     parameter   N_REPS = $N_REPS$,
 	parameter	WEIGHT_WIDTH = $WEIGHT_WIDTH$,
     parameter   N_LAYERS = $N_LAYERS$,
@@ -45,7 +49,10 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
     parameter   IDX_BITS = 16,
 
 	// Safely deducible parameters
-	parameter	WS_BITS_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8
+    parameter   IWSIMD = $IWSIMD$,
+    parameter   WSIMD = $WSIMD$,
+    parameter   DS_BITS_BA = (IWSIMD*WEIGHT_WIDTH+7)/8 * 8,
+	parameter	WS_BITS_BA = (WSIMD*WEIGHT_WIDTH+7)/8 * 8
 )(
 	// Global Control
 	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF axi_mm:in_idx0_V:out0_V, ASSOCIATED_RESET ap_rst_n" *)
@@ -95,10 +102,12 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
     output wire			                    axi_mm_bready,
     input  wire			                    axi_mm_bvalid,
 
+`ifdef EN_MLO
     // Index
     input  wire                                in_idx0_V_tvalid,
     output wire                                in_idx0_V_tready,
     input  wire[IDX_BITS-1:0]                  in_idx0_V_tdata,
+`endif
 
     // Stream
     output wire                                out0_V_tvalid,
@@ -106,15 +115,46 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
     output wire[WS_BITS_BA-1:0]                out0_V_tdata
 );
 
+`ifndef EN_MLO
+    wire in_idx0_V_tvalid;
+    wire in_idx0_V_tready;
+    wire [IDX_BITS-1:0] in_idx0_V_tdata;
+
+    assign in_idx0_V_tvalid = 1'b1;
+    assign in_idx0_V_tdata = 0;
+`endif
+
+// DMA <-> DWC internal wires
+wire axis_dma_tvalid;
+wire axis_dma_tready;
+wire [DATA_BITS-1:0] axis_dma_tdata;
+wire [DATA_BITS/8-1:0] axis_dma_tkeep;
+wire axis_dma_tlast;
+
+wire axis_dwc_tvalid;
+wire axis_dwc_tready;
+wire [DS_BITS_BA-1:0] axis_dwc_tdata;
+wire [(DS_BITS_BA)/8-1:0] axis_dwc_tkeep;
+wire axis_dwc_tlast;
+
+// Width converter
+$DWC_MODULE_NAME$ inst_dwc (
+    .aclk(ap_clk), .aresetn(ap_rst_n),
+    .s_axis_tvalid(axis_dma_tvalid), .s_axis_tready(axis_dma_tready), .s_axis_tdata(axis_dma_tdata), .s_axis_tkeep(axis_dma_tkeep), .s_axis_tlast(axis_dma_tlast),
+    .m_axis_tvalid(axis_dwc_tvalid), .m_axis_tready(axis_dwc_tready), .m_axis_tdata(axis_dwc_tdata), .m_axis_tkeep(axis_dwc_tkeep), .m_axis_tlast(axis_dwc_tlast)
+);
 
 fetch_weights #(
-    .PE(PE), .SIMD(SIMD), .MH(MH), .MW(MW), .N_REPS(N_REPS),
+    .PE(PE), .SIMD(SIMD), .TH(TH),
+    .MH(MH), .MW(MW), .N_REPS(N_REPS),
     .WEIGHT_WIDTH(WEIGHT_WIDTH),
+    .IWSIMD(IWSIMD), .OWSIMD(WSIMD),
     .ADDR_BITS(ADDR_BITS), .DATA_BITS(DATA_BITS), .LEN_BITS(LEN_BITS), .IDX_BITS(IDX_BITS),
     .N_LAYERS(N_LAYERS)
 ) inst (
     .aclk               (ap_clk),
     .aresetn            (ap_rst_n),
+    .m_done             (out_done),
 
     .m_axi_ddr_araddr   (axi_mm_araddr),
     .m_axi_ddr_arburst  (axi_mm_arburst),
@@ -155,6 +195,18 @@ fetch_weights #(
     .s_idx_tvalid       (in_idx0_V_tvalid),
     .s_idx_tready       (in_idx0_V_tready),
     .s_idx_tdata        (in_idx0_V_tdata),
+
+    .axis_dma_tvalid    (axis_dma_tvalid),
+    .axis_dma_tready    (axis_dma_tready),
+    .axis_dma_tdata     (axis_dma_tdata),
+    .axis_dma_tkeep     (axis_dma_tkeep),
+    .axis_dma_tlast     (axis_dma_tlast),
+
+    .axis_dwc_tvalid    (axis_dwc_tvalid),
+    .axis_dwc_tready    (axis_dwc_tready),
+    .axis_dwc_tdata     (axis_dwc_tdata),
+    .axis_dwc_tkeep     (axis_dwc_tkeep),
+    .axis_dwc_tlast     (axis_dwc_tlast),
 
     .m_axis_tvalid      (out0_V_tvalid),
     .m_axis_tready      (out0_V_tready),

@@ -151,7 +151,6 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             "PE": pe,
             "OP": op_name,
             "B_SCALE": 1.0,
-            "FORCE_BEHAVIORAL": 0,
             "A_FLOAT": 1 if lhs_float else 0,
             "B_FLOAT": 1 if rhs_float else 0,
             "A_WIDTH": a_width,
@@ -482,42 +481,25 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
                 weight_tensor, (1,) * (len(weight_tensor.shape) - 1) + (self.pe,)
             )
 
-        if weight_file_mode == "decoupled_verilog_dat":
-            num_w_reps = np.prod(self.calc_numInputVectors())
-            base_wmem = super().calc_wmem()
-            mlo = self.get_nodeattr("mlo_max_iter")
-            if mlo and base_wmem > 1:
-                # In MLO mode, tile only enough to match per-iteration
-                # consumption (num_w_reps entries).  base_wmem entries
-                # already exist, so tile by num_w_reps / base_wmem.
-                tile_factor = int(num_w_reps // base_wmem)
-            else:
-                tile_factor = int(num_w_reps)
-            weight_tensor = np.tile(
-                weight_tensor, (tile_factor,) + (1,) * (len(weight_tensor.shape) - 1)
-            )
+        # Reshape to compact 3D form for decoupled modes
+        weight_tensor = weight_tensor.reshape(1, -1, weight_tensor.shape[-1]).copy()
 
+        if weight_file_mode == "decoupled_npy":
+            np.save(weight_file_name, weight_tensor)
+            return
+
+        # decoupled_verilog_dat
         export_wdt = self.get_input_datatype(1)
         weight_width = self.get_instream_width(1)
         weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
 
-        if weight_file_mode == "decoupled_verilog_dat":
-            shape = weight_tensor.shape
-            weight_tensor_hex = pack_innermost_dim_as_hex_string(
-                weight_tensor.reshape(1, -1, shape[-1]),
-                export_wdt,
-                weight_width_padded,
-                reverse_inner=True,
-                prefix="",
-            )
-        else:
-            weight_tensor_hex = pack_innermost_dim_as_hex_string(
-                weight_tensor.reshape(1, -1, weight_tensor.shape[-1]),
-                export_wdt,
-                weight_width_padded,
-                reverse_inner=True,
-                prefix="",
-            )
+        weight_tensor_hex = pack_innermost_dim_as_hex_string(
+            weight_tensor,
+            export_wdt,
+            weight_width_padded,
+            reverse_inner=True,
+            prefix="",
+        )
 
         weight_stream = weight_tensor_hex.flatten()
         with open(weight_file_name, "w") as f:
@@ -525,12 +507,28 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
                 f.write(val + "\n")
 
     def calc_wmem(self):
-        base_wmem = super().calc_wmem()
-        num_w_reps = np.prod(self.calc_numInputVectors())
-        mlo = self.get_nodeattr("mlo_max_iter")
-        if mlo:
-            return int(num_w_reps)
-        return int(base_wmem * num_w_reps)
+        return int(super().calc_wmem())
+
+    def calc_wmem_reps(self):
+        """Return how many times the compact parameter stream is replayed.
+
+        Elementwise constants often broadcast across non-channel axes, for
+        example a [C] scale applied to [N, T, C]. The memstream only needs to
+        store the compact [C] stream; regular single-set memstreams cycle on
+        their own, and FINNLoop multi-set memstreams use this value as the
+        stream-tap repetition count for each loop iteration.
+        """
+
+        base_wmem = int(super().calc_wmem())
+        num_w_reps = int(np.prod(self.calc_numInputVectors()))
+        if base_wmem <= 0:
+            raise RuntimeError(f"{self.onnx_node.name}: invalid const stream length {base_wmem}")
+        if num_w_reps % base_wmem != 0:
+            raise RuntimeError(
+                f"{self.onnx_node.name}: const stream length {base_wmem} "
+                f"does not divide output stream length {num_w_reps}"
+            )
+        return int(num_w_reps // base_wmem)
 
     def calc_numInputVectors(self):
         folded_lhs = self.get_folded_input_shape(0)
