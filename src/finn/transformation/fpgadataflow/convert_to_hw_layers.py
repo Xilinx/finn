@@ -43,10 +43,9 @@ from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import get_by_name
 from qonnx.util.onnx import nchw_to_nhwc
 
-from finn.transformation.general import AssertNoAmbiguousMaxPoolCeilMode
-
 # Module containing specializations of elementwise binary operations
 import finn.custom_op.fpgadataflow.elementwise_binary as elementwise_binary
+from finn.transformation.general import AssertNoAmbiguousMaxPoolCeilMode
 
 
 class InferConvInpGen(Transformation):
