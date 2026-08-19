@@ -89,7 +89,7 @@ module requant_axi #(
 	end
 
 	fifo #(
-		.DEPTH(CREDIT+1),
+		.DEPTH(CREDIT),
 		.DATA_WIDTH(PE*N),
 		.RAM_STYLE("shift")
 	) outq (

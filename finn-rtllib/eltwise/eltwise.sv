@@ -208,8 +208,7 @@ module eltwise #(
 
 	//=== Credit-backing Elastic Output Queue ==============================
 	uwire  rrdy;
-	// DEPTH=CREDIT+1: fifo.sv:178 makes usable capacity DEPTH-1, so +1 keeps all CREDIT slots
-	fifo #(.DATA_WIDTH($bits(o_vec_t)), .DEPTH(CREDIT + 1), .RAM_STYLE("shift")) obuf (
+	fifo #(.DATA_WIDTH($bits(o_vec_t)), .DEPTH(CREDIT), .RAM_STYLE("shift")) obuf (
 		.clk, .rst,
 		.idat(r), .ivld(rvld), .irdy(rrdy),
 		.odat, .ovld, .ordy
