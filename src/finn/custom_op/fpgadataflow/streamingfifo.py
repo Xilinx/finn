@@ -27,9 +27,399 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import math
 import warnings
+from collections import namedtuple
+from functools import lru_cache
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import is_versal, part_has_uram
+
+# a URAM288 holds as much as 16 RAMB18, the BRAM -> URAM switchover in _resolve()
+BRAM18_PER_URAM = 16
+
+# RAMB18 per URAM288 at which the hi memory space stops being worth its own BRAM
+# and joins the URAM the lo space already occupies. Below the capacity ratio above
+# because the two spaces then share one read path -- measured, see _fifo_cost().
+HI_URAM_RATIO = 7
+
+# Flat LUT cost of the URAM read path on Versal, which UltraScale+ does not pay.
+# Flat in both width and depth, so it looks like a fixed control block -- the read
+# enable and pipeline valid chain -- rather than anything charged per bit.
+VERSAL_URAM_LUTS = 20
+
+# RAMB18 SDP configurations as (width, rows), widest first. RAMB36 needs no entry
+# of its own: at every width it holds exactly two RAMB18 worth of bits, only at a
+# coarser depth granularity, so counting in RAMB18 covers both.
+RAMB18_SDP = ((36, 512), (18, 1024), (9, 2048), (4, 4096), (2, 8192), (1, 16384))
+
+# Versal's RAMB18E5 stops at 9 bits: it has no 4/2/1 bit SDP configuration, so a
+# narrow word cannot be traded for depth as far there as it can on UltraScale+.
+RAMB18E5_SDP = ((36, 512), (18, 1024), (9, 2048))
+
+# URAM288 SDP configurations as (width, rows), widest first. UltraScale+ offers only
+# the first; Versal's URAM288E5 offers all four. Vivado never splits a word across
+# URAM configurations -- it picks the narrowest entry that holds the whole word -- so
+# a 37 bit word costs the same as a 72 bit one.
+# Both ladders are selected by the same `versal` flag, since they are two properties
+# of one part family; it reaches the estimators as the is_versal node attribute.
+URAM288_SDP = ((72, 4096), (36, 8192), (18, 16384), (9, 32768))
+
+# The model below mirrors finn-rtllib/fifo/hdl/fifo.sv, so that the style decision
+# and the estimators share one description of it. W is the padded stream width.
+# The terms fifo.sv leaves to synthesis -- the hi memory space and the control
+# logic -- are fitted against 315 out-of-context runs (Vivado 2026.1; 134 on
+# xczu7ev and 181 on xcvc1902) covering every style, both memory geometries, widths
+# from 1 to 256 bits and depths from 2 to 262145. Over those the tile counts are
+# exact but for one config, and the LUT counts land within a few percent.
+# Where a term is fitted, the comment gives the mechanism its shape points at. The
+# slopes are measured and the mechanisms are consistent with them, but they are not
+# read off a netlist -- the runs record the utilization summary, not the primitive
+# breakdown, so treat them as the reason to expect the term rather than a proof.
+# The summary does split the LUT total, though: lut = lut_logic + lut_mem and
+# lut_mem = lutram + srl, on all 339 runs -- the 315 above plus the 24 noise
+# re-syntheses, which are usable for this even though they are not scored. That
+# is enough to test a term against the column it claims rather than against the
+# total, which a term can match for the wrong reason, and what that per-column
+# check says is recorded at each term. Enough of it
+# survives that check to be worth stating up front: the shift storage term is
+# exact, the LUTRAM term holds on a style it was not fitted on, the URAM read
+# path's step sequence is measured rather than inferred from a total, and the one
+# decision that is genuinely a guess -- which memory a hi space lands in -- is
+# confirmed against a column it is never fitted to.
+# Every term below has been ablated -- replaced by the next simpler form and
+# rescored -- and each one pays for itself, the cheapest to lose costing 0.8pp of
+# LUT error and the most expensive 832pp.
+# The simplifications that survived the ablation are already taken: one selection
+# term shared between the block and ultra paths rather than fitted twice. The ones
+# that did not are recorded where the term is, so that they are not re-proposed.
+
+FifoCost = namedtuple("FifoCost", "bram uram lut")
+
+
+def _clog2(x):
+    """$clog2() as SystemVerilog defines it: 0 for x <= 1."""
+    return max(x - 1, 0).bit_length()
+
+
+def _geometry(depth, is_uram):
+    """Address bits of the lo/hi memory spaces, mirroring INIT_ABITS().
+
+    Returns (lo, hi); hi is 0 if the depth needs only one memory space."""
+    min_abits, qdepth = (12, 16) if is_uram else (9, 0)
+    # one slot lives in the output register, QDEPTH more in the URAM queue
+    depth_req = max(depth - qdepth - 1, 1)
+    lo = _clog2(depth_req)
+    hi = 0
+    if lo > min_abits:
+        hi_abits = _clog2(depth_req - 2 ** (lo - 1))
+        if hi_abits < lo - 1:
+            lo -= 1
+            hi = max(hi_abits, 1)
+    return lo, hi
+
+
+def _hi_in_ram(rows, W):
+    """Whether Vivado backs a rows x W hi memory space with RAM or with LUTRAM.
+
+    fifo.sv:383 relaxes a hi space too shallow for the chosen primitive back to
+    RAM_STYLE="auto" and leaves the choice to synthesis, so this is the one
+    decision FINN cannot read off the RTL.
+
+    Read the boundary as a width: RAM wins from W >= (1024/rows)**2 up, so the
+    width it takes to earn a RAM falls as the *square* of the depth and reaches
+    one bit at 1024 rows. Three measured transitions bracket it, two of them
+    landing exactly on the predicted width -- 64 rows switch between W=192 and
+    W=256, 128 rows between 48 and 72, 256 rows between 14 and 16. Depth
+    counting twice is why: a LUTRAM past 64 rows pays both for extra banks and
+    for the mux tree selecting between them, while a RAM absorbs depth into the
+    address port.
+
+    The predicate is fitted against the RAMB18 and URAM columns, but it can be
+    checked against a column nothing is fitted to: a hi space in LUTRAM shows up
+    in `lutram` and one in RAM does not. Over the 169 measured hi spaces the two
+    readings agree 168 times, and the exception is the same 6161 x 1 run -- so
+    the boundary is not an artifact of how tiles are counted.
+
+    That reading also says what the outcome depends on. Deduplicated the 169 are
+    111 distinct (rows, W) pairs, and no pair ever lands differently in two runs
+    -- not across `block` and `ultra`, not across the two part families, not
+    across the depths that produced the same geometry. So the outcome really is
+    a function of these two variables, and the 111 points are a ground truth a
+    candidate can be swept against at its own best threshold rather than an
+    inherited one. Neither variable survives being dropped: the best `rows`
+    alone misses 7 and the best `W` alone 42. Nor does either exponent -- the
+    best `rows * W`, the total bit count, misses 6 and the best `rows**3 * W`
+    misses 3, against 1 here. The one miss is a 1 bit wide FIFO whose hi space
+    Vivado puts in LUTRAM at 2048 rows having put it in RAM at 1024. The 2**20
+    is not tuned either; sweeping every threshold this shape can take picks it."""
+    return rows * rows * W >= 2**20
+
+
+def _hi_select_luts(W):
+    """LUTs the selection between the lo and hi memory spaces costs.
+
+    A pointer compare for the second space plus a W wide 2:1 multiplexer at
+    a bit over two bits to a LUT6. The block and ultra paths share this because
+    it is the same mechanism in both, and the constants are fitted over the two
+    of them together rather than either one alone. Fitting the two paths
+    separately, as an earlier version did, is worth 0.2pp of LUT error; two more
+    constants for a fifth of the tool's own run-to-run spread is not a trade
+    worth making."""
+    return 18 + 3 * W // 7
+
+
+def _cascade_mux_luts(stages, W, versal):
+    """LUTs the multiplexer over an SRL cascade costs.
+
+    None on UltraScale+, where the F7/F8 wide multiplexers absorb it. The Versal
+    CLB has no such multiplexers, so it is built from LUT6: a 2:1 selection needs
+    three inputs and packs two bits into one LUT6, anything wider takes a whole
+    LUT per bit for every 4:1 level. A LUT6 spends two inputs on the select, hence
+    4:1 and hence one level per three stages beyond the first. The intercept is
+    fitted and small enough to be the top select decode sharing the read pointer;
+    dropping it is free on the combined score but costs 0.3pp on shift alone, and
+    buys nothing structurally, since the half step and the level spacing are
+    fitted either way."""
+    if not versal or stages < 2:
+        return 0
+    per_bit = 1 if stages > 2 else 0.5
+    return math.ceil(W * per_bit * math.ceil((stages - 1) / 3)) - 2
+
+
+def _lutram_luts(rows, W):
+    """LUTs a rows x W LUTRAM costs: 5 per 4 bits of each 32-row bank.
+
+    A LUT6 in RAM32X2 mode stores 32 rows of 2 bits, which is the ceil(rows/32) x
+    ceil(W/2) of pure storage. The extra quarter on top is the write address decode
+    and per-bank output selection Vivado builds around it.
+
+    The product shape is measured rather than assumed: dividing the `lutram`
+    column by ceil(rows/32) gives the same per-bank cost at every depth, for all
+    12 measured widths over 64 to 1024 rows. So the row factor is exact and
+    everything unexplained here is a function of W alone. That function is not
+    the flat 5/4 -- the measured overhead amortizes with width, from 1.33x
+    storage at W=12 down to 1.156x at W=128, with 5/4 the mid-range value. No
+    closed form in the obvious families (a*W/b + c, ceil(W/2) + W/d) comes within
+    two of the 12 widths, and the two widths that break monotonicity rest on a
+    single run each, so the next useful measurement is more widths at several
+    depths rather than another term here.
+
+    It is fitted on the `distributed` runs, but the `block` and `ultra` branches
+    reuse it for a hi space that lands in LUTRAM, and the `lutram` column measures
+    that directly. Over those 61 runs -- a different style, a row count two orders
+    of magnitude smaller, nothing fitted -- it holds to 7%, so the term is the cost
+    of a LUTRAM rather than the cost of a distributed FIFO."""
+    return math.ceil(rows / 32) * math.ceil(W / 2) * 5 // 4
+
+
+@lru_cache(maxsize=None)
+def _bram18_plan(rows, W, versal=False):
+    """Returns (tiles, groups) for a rows x W memory backed by RAMB18.
+
+    groups is the deepest cascade in the plan, i.e. how far the output
+    multiplexer has to reach.
+
+    On UltraScale+ Vivado does not push the whole word through one
+    configuration: it splits the word across several, so 16384 x 32 becomes
+    18b x 2048 + 9b x 4096 + 4b x 8192 + 1b x 16384 -- 29 tiles -- rather than
+    two 18-bit halves at 32 tiles. This picks the cheapest such partition.
+
+    Versal does not split, exactly as it does not for URAM: the same 16384 x 32
+    measures 32 tiles there. So its plan is the cheapest single configuration,
+    and a tie goes to the shallowest cascade.
+
+    The UltraScale+ search has to be exhaustive. Taking the widest configuration
+    that fits and recursing is cheaper to write and scores the same LUT error,
+    which makes it look free, but it misses the measured tile count on 40 configs
+    where this misses one; a partition limited to two configurations disagrees
+    with this on 531 of 2560 grid points."""
+    if versal:
+        return min(
+            (math.ceil(rows / cfg_rows) * math.ceil(W / cfg_w), math.ceil(rows / cfg_rows))
+            for cfg_w, cfg_rows in RAMB18E5_SDP
+        )
+    tiles = [0] + [None] * W
+    groups = [0] * (W + 1)
+    for w in range(1, W + 1):
+        for cfg_w, cfg_rows in RAMB18_SDP:
+            t = math.ceil(rows / cfg_rows)
+            rest = max(w - cfg_w, 0)
+            cand = (t + tiles[rest], max(t, groups[rest]))
+            # the ladder is widest first, so a tie keeps the widest configuration
+            if tiles[w] is None or cand[0] < tiles[w]:
+                tiles[w], groups[w] = cand
+    return tiles[W], groups[W]
+
+
+def _bram_plan(depth, W, versal=False):
+    """Returns (tiles, groups) for a BRAM-backed FIFO, over both memory spaces."""
+    lo, hi = _geometry(depth, False)
+    tiles, groups = _bram18_plan(2**lo, W, versal)
+    if hi and _hi_in_ram(2**hi, W):
+        hi_tiles, hi_groups = _bram18_plan(2**hi, W, versal)
+        tiles, groups = tiles + hi_tiles, max(groups, hi_groups)
+    return tiles, groups
+
+
+def _bram_tiles(depth, W, versal=False):
+    """Returns the RAMB18 tiles a BRAM-backed FIFO of this depth costs."""
+    return _bram_plan(depth, W, versal)[0]
+
+
+def _uram_aspect(W, versal):
+    """The URAM288 configuration a W-bit word is stored in, as (width, rows).
+
+    A word is never split across URAM configurations, so this is simply the
+    narrowest one holding it whole. UltraScale+'s URAM288E2 has only the 72-bit
+    one; versal selects the URAM288E5 ladder."""
+    if versal:
+        for cfg in reversed(URAM288_SDP):
+            if cfg[0] >= W:
+                return cfg
+    return URAM288_SDP[0]
+
+
+def _uram_tiles(rows, W, versal=False):
+    """URAM288 tiles for a rows x W memory; one URAM288 is 4096 x 72."""
+    cfg_w, cfg_rows = _uram_aspect(W, versal)
+    return math.ceil(rows / cfg_rows) * math.ceil(W / cfg_w)
+
+
+def _uram_cascade(rows, W, versal=False):
+    """URAM288 tiles stacked in the address direction, i.e. the read path depth."""
+    return math.ceil(rows / _uram_aspect(W, versal)[1])
+
+
+def _resolve(depth, W, requested, has_uram, versal=False):
+    """Returns the concrete storage style, mirroring the RAM_STYLE_EFF ladder."""
+    if depth <= 33:
+        # a shift register whatever the RAM_STYLE, so anything else only warns
+        style = "shift"
+    elif requested != "auto":
+        style = requested
+    elif depth <= 64 and W < 12:
+        # the LUTRAM pointer overhead (~27 LUTs) does not amortize yet
+        style = "shift"
+    elif depth <= 257:
+        # 256-entry LUTRAM + 1 output register, i.e. 4x RAM64M8 per byte
+        style = "distributed"
+    else:
+        # unlike the RTL ladder, switch on cost rather than depth alone: at
+        # depth 2029 and 8 bits that would spend a URAM288 on one RAMB18
+        style = "ultra" if _bram_tiles(depth, W, versal) >= BRAM18_PER_URAM else "block"
+    return "block" if style == "ultra" and not has_uram else style
+
+
+def _fifo_cost(depth, W, style, versal=False):
+    """Returns the FifoCost of a depth x W fifo.sv instance in the given style."""
+    if depth < 2:
+        # set_fifo_depths makes depth-0 FIFOs for MLO parameter inputs and estimation
+        # may still see them; they hold nothing, so zero is honest. fifo.sv will not
+        # build one -- StreamingFIFO_rtl.generate_hdl() asserts on that.
+        return FifoCost(0, 0, 0)
+    # Everything scales with the occupancy counters, sized as in fifo.sv. This is
+    # why the control cost below is linear in cw and not in depth: the up/down
+    # count, the full and empty compares and the maxcount running max are each one
+    # slice of logic per counter bit. The slope is how many such per-bit users the
+    # style keeps, the negative intercept the low bits of them that fold into a
+    # carry chain instead of costing a LUT of their own.
+    # The three slopes below (5 shift, 8 distributed, 6 ultra) look like one
+    # constant asking to be shared, and are not: the best single shared term over
+    # all three is 7 * cw - 16, which more than doubles the shift error, and the
+    # best over shift and distributed alone doubles the distributed error. They
+    # differ because the styles keep different per-bit users -- shift carries one
+    # up/down pointer, distributed a separate read and write address, ultra those
+    # plus the credit counter fronting the URAM pipeline.
+    cw = _clog2(depth + 1) + 1
+
+    if style == "shift":
+        # SRLC32E holds 32 bits per LUT, so one LUT per bit lane per stage -- the
+        # only exact storage term in the model, and confirmed as such: it equals the
+        # measured srl column on all 49 shift runs. That leaves the mux and control
+        # terms testable against lut_logic on their own, where they land within 10%,
+        # nearly all of it at depth 2 -- which costs more control logic than depth 5
+        # does, so the -7 intercept overshoots at the one degenerate depth.
+        # The output register holds one item.
+        depth_impl = depth - 1 if depth > 4 else 4
+        stages = math.ceil(depth_impl / 32)
+        mux = _cascade_mux_luts(stages, W, versal)
+        return FifoCost(0, 0, stages * W + mux + 5 * cw - 7)
+    if style == "distributed":
+        rows = 2 ** _clog2(depth - 1)
+        # a LUT6 pair gives 64 rows natively and F7 selects between two of them for
+        # free, so the first 128 rows mux for nothing; each further 128 adds a
+        # selection level built from LUT6, which takes about two bits per LUT.
+        # The storage is its own column, so these two terms answer for lut_logic
+        # alone, at 9% -- and the srl column is 0 on all 34 runs, so nothing here
+        # is a shift register that the model is charging as logic.
+        mux_luts = rows // 128 * (W // 2)
+        return FifoCost(0, 0, _lutram_luts(rows, W) + mux_luts + 8 * cw - 15)
+
+    is_uram = style == "ultra"
+    lo, hi = _geometry(depth, is_uram)
+    hi_in_lutram = bool(hi) and not _hi_in_ram(2**hi, W)
+
+    if not is_uram:
+        tiles, groups = _bram_plan(depth, W, versal)
+        # 54 is the size independent part -- handshake, output register bypass and
+        # counters -- and is why no cw term appears here: a BRAM address port takes
+        # the pointer bits directly, so depth reaches the LUTs only through the two
+        # memory terms. 3 per cascade level is the decode selecting that level, not
+        # a data mux, which is why it does not scale with W: the data rides the
+        # dedicated cascade path. 2/5 per tile is each tile's enable, several of
+        # which pack into one LUT6.
+        # This branch charges no shift register anywhere, and the srl column agrees
+        # on all 136 block runs, so these terms are testable against lut_logic with
+        # only the LUTRAM hi space taken out: 8%, which is where the total sits too.
+        # No pair of compensating errors is hiding under the sum here, unlike the
+        # ultra read path below.
+        lut = 54 + 3 * groups + 2 * tiles // 5 + (_hi_select_luts(W) if hi else 0)
+        if hi_in_lutram:
+            lut += _lutram_luts(2**hi, W)
+        return FifoCost(tiles, 0, lut)
+
+    # a second memory space doubles the read path and the pointer arithmetic
+    lut = 6 * cw + (_hi_select_luts(W) if hi else 0)
+    if hi_in_lutram:
+        # in LUTRAM, and under URAM its read pipeline stops being absorbed: the
+        # LUTRAM output has to be delayed to meet the URAM read latency, and a
+        # delay of PIPE_DEPTH is one SRL16E, i.e. one LUT, per bit. A delay line
+        # is an SRL, so this term is visible on its own: wherever the hi space is
+        # in LUTRAM the srl column reads exactly 2W + 1, against W or W + 1 on the
+        # runs that have none, on all 10 widths measured both ways.
+        lut += _lutram_luts(2**hi, W) + W
+    # The read path spans the URAM cascade: the 16-deep output queue costs a LUT
+    # per bit, and past eight tiles every further four spill one more, which is
+    # consistent with Vivado inserting one register stage per four cascaded tiles
+    # and each stage being a shift of one LUT per bit. Keyed on the cascade rather
+    # than on fifo.sv:240's PIPE_DEPTH, which tracks it exactly on UltraScale+ but
+    # not on Versal, whose aspect ladder shortens the cascade without changing
+    # PIPE_DEPTH -- measured; test_uram_read_path_scales_with_cascade_not_pipe_depth
+    # pins the case that separates the two.
+    # This is the largest fitted term here, so it is worth saying what it is fitted
+    # against. Subtracting every other term above from srl + lut_logic leaves the
+    # read path measured per bit, and it comes out 1 / 1 / 1 / 1 / 2.4 / 6.1 / 14.0
+    # at cascades 1 to 64 against this term's 1 / 1 / 1 / 1 / 2 / 6 / 14 -- the step
+    # sequence is measured, not fitted to a total. It does not all land in srl,
+    # though: the base is the output queue and is srl outright, while past cascade
+    # eight each further stage splits about evenly between srl and lut_logic, so
+    # only about half of it is a shift register.
+    lut += max(1, _uram_cascade(2**lo, W, versal) // 4 - 2) * W
+    if versal:
+        # URAM288E5 does not absorb its read pipeline the way URAM288E2 does
+        lut += VERSAL_URAM_LUTS
+    uram = _uram_tiles(2**lo, W, versal)
+    bram = 0
+    if hi and _hi_in_ram(2**hi, W):
+        tiles = _bram18_plan(2**hi, W, versal)[0]
+        # the hi space moves into the URAM the lo space already occupies once it
+        # fills a URAM288's depth outright, or once BRAM would spend more than
+        # HI_URAM_RATIO tiles per URAM288 the same space would take
+        if 2**hi >= URAM288_SDP[0][1] or tiles >= HI_URAM_RATIO * _uram_tiles(2**hi, W, versal):
+            uram += _uram_tiles(2**hi, W, versal)
+        else:
+            bram = tiles
+    return FifoCost(bram, uram, lut)
 
 
 class StreamingFIFO(HWCustomOp):
@@ -48,18 +438,26 @@ class StreamingFIFO(HWCustomOp):
                 "normal_shape": ("ints", True, []),
                 # FINN DataTypes for inputs/outputs
                 "dataType": ("s", True, ""),
-                # FPGA resource type for FIFOs when impl_style is vivado
-                # auto -- let Vivado decide
+                # requested FPGA resource type for the FIFO storage
+                # auto -- let FINN decide, see resolve_ram_style()
+                # shift -- use an SRL shift register
                 # block -- use BRAM
                 # distributed -- use LUTRAM
-                # ultra -- use URAM (on UltraScale+)
+                # ultra -- use URAM (on UltraScale+ and Versal)
                 "ram_style": (
                     "s",
                     False,
                     "auto",
-                    {"auto", "block", "distributed", "ultra"},
+                    {"auto", "shift", "block", "distributed", "ultra"},
                 ),
-                # whether depth monitoring is enabled (impl_style=rtl only)
+                # concrete storage style resolved from ram_style, written by
+                # generate_hdl() and read back by the resource estimators
+                "ram_style_resolved": ("s", False, ""),
+                # whether the target is a Versal part, which has its own BRAM and
+                # URAM aspect ladders. Recorded alongside ram_style_resolved for the
+                # same reason: the estimators are called without an fpgapart
+                "is_versal": ("i", False, 0),
+                # whether the maxcount occupancy output is exposed on the wrapper
                 "depth_monitor": ("i", False, 0),
                 # the FIFO does not need its own FIFOs
                 "inFIFODepths": ("ints", False, [0]),
@@ -69,6 +467,47 @@ class StreamingFIFO(HWCustomOp):
         )
 
         return my_attrs
+
+    def resolve_ram_style(self, fpgapart=None):
+        """Resolves ram_style into one of shift/distributed/block/ultra.
+
+        FINN decides here rather than leaving RAM_STYLE="auto" to fifo.sv: only
+        here is the target device known, and only a decision taken here reaches
+        resource estimation, the build report and the folding config. fpgapart
+        may be None before ipgen, in which case URAM is not selected."""
+        requested = self.get_nodeattr("ram_style")
+        depth = self.get_nodeattr("depth")
+        W = self.get_instream_width_padded()
+        style = _resolve(
+            depth,
+            W,
+            requested,
+            part_has_uram(fpgapart),
+            bool(fpgapart) and is_versal(fpgapart),
+        )
+        # an explicit request is returned verbatim, so this can only be the clamp
+        if style == "block" and requested == "ultra" and fpgapart is not None:
+            warnings.warn(
+                "%s: ram_style=ultra requested but %s provides no URAM, using BRAM instead"
+                % (self.onnx_node.name, fpgapart)
+            )
+        # the shallow-depth downgrade, warned about here as fifo.sv warns about it.
+        # "distributed" is excluded there and here: an SRL is a strict improvement
+        # on a LUTRAM this shallow, so asking for LUTRAM is not asking for a memory
+        if style == "shift" and requested in ("block", "ultra"):
+            warnings.warn(
+                "%s: ram_style=%s requested but depth %d is built as a shift register"
+                % (self.onnx_node.name, requested, depth)
+            )
+        # shift is never auto-selected past 257, so a deeper one is an explicit
+        # request -- most likely large_fifo_mem_style, whose name suggests a memory.
+        if style == "shift" and depth > 257:
+            warnings.warn(
+                "%s: ram_style=shift at depth %d costs roughly %d LUTs of shift "
+                "register; consider distributed/block/ultra instead"
+                % (self.onnx_node.name, depth, _fifo_cost(depth, W, "shift").lut)
+            )
+        return style
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
@@ -84,33 +523,8 @@ class StreamingFIFO(HWCustomOp):
         # data type stays the same
         model.set_tensor_datatype(node.output[0], idt)
 
-    def get_verilog_top_module_intf_names(self):
-        ret = super().get_verilog_top_module_intf_names()
-        try:
-            is_rtl = self.get_nodeattr("impl_style") == "rtl"
-        except AttributeError:
-            raise Exception(
-                self.onnx_node.name
-                + """ is still in hw abstraction format,
-                Please run SpecializeLayers() before proceeding."""
-            )
-        is_depth_monitor = self.get_nodeattr("depth_monitor") == 1
-        if is_rtl and is_depth_monitor:
-            ret["ap_none"] = ["maxcount"]
-        return ret
-
     def get_normal_input_shape(self, ind=0):
-        try:
-            depth = self.get_adjusted_depth()
-        except AttributeError:
-            depth = self.get_nodeattr("depth")
-        assert depth >= 1, """Depth is too low"""
-        try:
-            impl_style = self.get_nodeattr("impl_style") == "rtl"
-        except AttributeError:
-            impl_style = ""
-        if depth > 256 and impl_style == "rtl":
-            warnings.warn("Depth is high, set between 2 and 256 for efficient SRL implementation")
+        assert self.get_nodeattr("depth") >= 1, """Depth is too low"""
         return self.get_nodeattr("normal_shape")
 
     def get_normal_output_shape(self, ind=0):
@@ -144,116 +558,48 @@ class StreamingFIFO(HWCustomOp):
         node = self.onnx_node
         context[node.output[0]] = context[node.input[0]]
 
+    def get_ram_style(self):
+        """Returns the concrete storage style this FIFO is built with.
+
+        Prefers what generate_hdl() recorded, so estimates agree with the RTL."""
+        style = self.get_nodeattr("ram_style_resolved")
+        if style == "":
+            style = self.resolve_ram_style()
+        return style
+
+    def get_fifo_cost(self):
+        """Returns the FifoCost of this node as fifo.sv implements it."""
+        return _fifo_cost(
+            self.get_nodeattr("depth"),
+            self.get_instream_width_padded(),
+            self.get_ram_style(),
+            self.get_nodeattr("is_versal") == 1,
+        )
+
     def bram_estimation(self):
         """Calculates resource estimation for BRAM"""
-        try:
-            impl = self.get_nodeattr("impl_style")
-        except AttributeError:
-            raise Exception(
-                self.onnx_node.name
-                + """ is still in hw abstraction format,
-                Please run SpecializeLayers() before proceeding."""
-            )
-
-        ram_type = self.get_nodeattr("ram_style")
-        try:
-            depth = self.get_adjusted_depth()
-        except AttributeError:
-            depth = self.get_nodeattr("depth")
-        W = self.get_instream_width()
-
-        if impl == "rtl" or (impl == "vivado" and ram_type != "block"):
-            # Non-BRAM based implementation
-            return 0
-
-        if W == 1:
-            return math.ceil(depth / 16384)
-        elif W == 2:
-            return math.ceil(depth / 8192)
-        elif W <= 4:
-            return (math.ceil(depth / 4096)) * (math.ceil(W / 4))
-        elif W <= 9:
-            return (math.ceil(depth / 2048)) * (math.ceil(W / 9))
-        elif W <= 18 or depth > 512:
-            return (math.ceil(depth / 1024)) * (math.ceil(W / 18))
-        else:
-            return (math.ceil(depth / 512)) * (math.ceil(W / 36))
+        return self.get_fifo_cost().bram
 
     def uram_estimation(self):
         """Calculates resource estimation for URAM"""
-
-        try:
-            impl = self.get_nodeattr("impl_style")
-        except AttributeError:
-            raise Exception(
-                self.onnx_node.name
-                + """ is still in hw abstraction format,
-                Please run SpecializeLayers() before proceeding."""
-            )
-        ram_type = self.get_nodeattr("ram_style")
-        try:
-            depth = self.get_adjusted_depth()
-        except AttributeError:
-            depth = self.get_nodeattr("depth")
-        W = self.get_instream_width()
-
-        if impl == "rtl" or (impl == "vivado" and ram_type != "ultra"):
-            # Non-BRAM based implementation
-            return 0
-        else:
-            return (math.ceil(depth / 4096)) * (math.ceil(W / 72))
-
-    def bram_efficiency_estimation(self):
-        try:
-            depth = self.get_adjusted_depth()
-        except AttributeError:
-            depth = self.get_nodeattr("depth")
-        W = self.get_instream_width()
-        bram16_est = self.bram_estimation()
-        if bram16_est == 0:
-            return 1
-        wbits = W * depth
-        bram16_est_capacity = bram16_est * 36 * 512
-        return wbits / bram16_est_capacity
-
-    def uram_efficiency_estimation(self):
-        # TODO: Versal URAM supports flexible bit widths (9/18/36/72) unlike
-        # UltraScale+ which only supports 72-bit. This could improve efficiency
-        # for narrow data types on Versal devices.
-        try:
-            depth = self.get_adjusted_depth()
-        except AttributeError:
-            depth = self.get_nodeattr("depth")
-        W = self.get_instream_width()
-        uram_est = self.uram_estimation()
-        if uram_est == 0:
-            return 1
-        wbits = W * depth
-        uram_est_capacity = uram_est * 72 * 4096
-        return wbits / uram_est_capacity
+        return self.get_fifo_cost().uram
 
     def lut_estimation(self):
         """Calculates resource estimations for LUTs"""
-        try:
-            impl = self.get_nodeattr("impl_style")
-        except AttributeError:
-            raise Exception(
-                self.onnx_node.name
-                + """ is still in hw abstraction format,
-                Please run SpecializeLayers() before proceeding."""
-            )
-        ram_type = self.get_nodeattr("ram_style")
-        try:
-            depth = self.get_adjusted_depth()
-        except AttributeError:
-            depth = self.get_nodeattr("depth")
-        W = self.get_instream_width()
+        return self.get_fifo_cost().lut
 
-        address_luts = 2 * math.ceil(math.log(depth, 2))
+    def bram_efficiency_estimation(self):
+        bram_est = self.bram_estimation()
+        if bram_est == 0:
+            return 1
+        wbits = self.get_instream_width_padded() * self.get_nodeattr("depth")
+        return wbits / (bram_est * 18 * 1024)
 
-        if impl == "rtl" or (impl == "vivado" and ram_type == "distributed"):
-            ram_luts = (math.ceil(depth / 32)) * (math.ceil(W / 2))
-        else:
-            ram_luts = 0
-
-        return int(address_luts + ram_luts)
+    def uram_efficiency_estimation(self):
+        # every URAM288 aspect holds 288 Kib, so this capacity is correct on the
+        # Versal ladder too -- narrow words show up as a smaller uram_estimation()
+        uram_est = self.uram_estimation()
+        if uram_est == 0:
+            return 1
+        wbits = self.get_instream_width_padded() * self.get_nodeattr("depth")
+        return wbits / (uram_est * 72 * 4096)

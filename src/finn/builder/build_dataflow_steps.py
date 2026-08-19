@@ -46,6 +46,7 @@ must use the phases, since the loop-body orchestration lives there.
 
 import json
 import numpy as np
+import onnx
 import os
 import shutil
 from copy import deepcopy
@@ -136,7 +137,6 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import (
     InsertAndSetFIFODepths,
     RemoveShallowFIFOs,
-    SplitLargeFIFOs,
     xsi_fifosim,
 )
 from finn.transformation.fpgadataflow.set_folding import SetFolding
@@ -155,7 +155,11 @@ from finn.transformation.qonnx.quant_act_to_multithreshold import (
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import get_liveness_threshold_cycles, get_rtlsim_trace_depth
+from finn.util.basic import (
+    get_liveness_threshold_cycles,
+    get_rtlsim_trace_depth,
+    is_versal,
+)
 from finn.util.config import (
     extract_model_config_consolidate_shuffles,
     extract_model_config_to_json,
@@ -177,6 +181,18 @@ def _maybe_enable_verify_behavioral(cfg):
 
 def _fifo_debug_live_dir(cfg):
     return cfg.output_dir + "/debug/fifo_logs/_live"
+
+
+def _refresh_fifo_ram_style(graph, fpgapart):
+    """Re-resolve ram_style_resolved on every FIFO against its final depth."""
+    for node in graph.node:
+        for attr in node.attribute:
+            if attr.type == onnx.AttributeProto.GRAPH:
+                _refresh_fifo_ram_style(attr.g, fpgapart)
+        if node.op_type == "StreamingFIFO_rtl":
+            inst = getCustomOp(node)
+            inst.set_nodeattr("ram_style_resolved", inst.resolve_ram_style(fpgapart))
+            inst.set_nodeattr("is_versal", int(is_versal(fpgapart)))
 
 
 def snapshot_fifo_logs(cfg, phase_name, loop_context=None):
@@ -315,33 +331,6 @@ def verify_step(
 
 
 def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
-    if not cfg.rtlsim_use_vivado_comps:
-        need_restitch = False
-        # switch impl_style=vivado components to rtl
-        # StreamingFIFO must have impl_style=rtl
-        for fifo_layer in verify_model.get_nodes_by_op_type("StreamingFIFO_rtl"):
-            inst = getCustomOp(fifo_layer)
-            if inst.get_nodeattr("impl_style") != "rtl":
-                inst.set_nodeattr("impl_style", "rtl")
-                inst.set_nodeattr("code_gen_dir_ipgen", "")
-                inst.set_nodeattr("ipgen_path", "")
-                need_restitch = True
-        # if we've made alterations to the model, need to do some re-prep
-        if need_restitch:
-            print("Need to regen/re-stitch some IP for STITCHED_IP_RTLSIM")
-            verify_model = verify_model.transform(
-                PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
-            )
-            verify_model = verify_model.transform(HLSSynthIP(cfg._resolve_fpga_part()))
-            verify_model = verify_model.transform(
-                CreateStitchedIP(
-                    cfg._resolve_fpga_part(),
-                    cfg.synth_clk_period_ns,
-                )
-            )
-    else:
-        print("rtlsim_use_vivado_comps is enabled, may yield incorrect results")
-
     # set top-level prop for stitched-ip rtlsim and launch
     verify_model.set_metadata_prop("exec_mode", "rtlsim")
     # TODO make configurable
@@ -983,8 +972,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
             model = model.transform(DeriveFIFOSizes())
             model = model.transform(
                 InsertFIFO(
-                    vivado_ram_style=cfg.large_fifo_mem_style,
-                    max_qsrl_depth=256,
+                    ram_style=cfg.large_fifo_mem_style,
                     create_shallow_fifos=True,
                 )
             )
@@ -1022,7 +1010,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     cfg._resolve_fpga_part(),
                     cfg._resolve_hls_clk_period(),
                     swg_exception=cfg.default_swg_exception,
-                    vivado_ram_style=cfg.large_fifo_mem_style,
+                    large_fifo_ram_style=cfg.large_fifo_mem_style,
                     fifosim_input_throttle=cfg.fifosim_input_throttle,
                     cfg_n_inferences=cfg.fifosim_n_inferences,
                     debug_log_dir=(_fifo_debug_live_dir(cfg) if cfg.debug_fifo else None),
@@ -1055,12 +1043,16 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         if cfg.folding_config_file is not None:
             model = model.transform(ApplyConfig(cfg.folding_config_file))
 
+    _refresh_fifo_ram_style(model.graph, cfg._resolve_fpga_part())
+
     # extract the final configuration and save it as json
     hw_attrs = [
         "PE",
         "SIMD",
         "parallel_window",
         "ram_style",
+        # names the primitive actually built, rather than "auto"
+        "ram_style_resolved",
         "depth",
         "impl_style",
         "resType",
@@ -1081,11 +1073,9 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     else:
         extract_model_config_to_json(model, cfg.output_dir + "/final_hw_config.json", hw_attrs)
 
-    # perform FIFO splitting and shallow FIFO removal only after the final config
-    # json file has been written. otherwise, since these transforms may add/remove
-    # FIFOs, we get name mismatch problems when trying to reuse the final config.
-    if cfg.split_large_fifos:
-        model = model.transform(SplitLargeFIFOs())
+    # perform shallow FIFO removal only after the final config json file has been
+    # written. otherwise, since this transform removes FIFOs, we get name mismatch
+    # problems when trying to reuse the final config.
     model = model.transform(RemoveShallowFIFOs())
 
     # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again
@@ -1455,7 +1445,7 @@ def step_loop_body_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig
             cfg._resolve_fpga_part(),
             cfg._resolve_hls_clk_period(),
             swg_exception=cfg.default_swg_exception,
-            vivado_ram_style=cfg.large_fifo_mem_style,
+            large_fifo_ram_style=cfg.large_fifo_mem_style,
             fifosim_input_throttle=cfg.fifosim_input_throttle,
             debug_log_dir=(_fifo_debug_live_dir(cfg) if cfg.debug_fifo else None),
             debug_log_prefix=(loop_context + "_") if loop_context else "",
@@ -1463,7 +1453,6 @@ def step_loop_body_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig
     )
     # snapshot per-FIFO debug logs for this loop body before the live dir is reused
     snapshot_fifo_logs(cfg, "fifo_sizing", loop_context=loop_context)
-    model = model.transform(SplitLargeFIFOs())
     model = model.transform(RemoveShallowFIFOs())
     # Re-apply the enclosing FINNLoop name as a prefix so loop-body node (and
     # hence IP/module) names stay unique across the whole design. Without this

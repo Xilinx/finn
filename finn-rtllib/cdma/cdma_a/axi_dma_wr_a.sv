@@ -260,20 +260,21 @@ inst_burst_cntr (
   .is_zero    ( wlast           )
 );
 
-Q_srl #(
-    .depth(MAX_OUTSTANDING),
-    .width(LOG_BURST_LEN)
+fifo #(
+    .DEPTH(MAX_OUTSTANDING),
+    .DATA_WIDTH(LOG_BURST_LEN),
+    .RAM_STYLE("shift")
 ) inst_q_wr_req (
-    .clock(aclk),
-    .reset(!aresetn),
+    .clk(aclk),
+    .rst(!aresetn),
     .count(),
     .maxcount(),
-    .i_d(awlen[0+:LOG_BURST_LEN]),
-    .i_v(awxfer),
-    .i_r(burst_ready_snk),
-    .o_d(burst_len),
-    .o_v(burst_ready_src),
-    .o_r(burst_load)
+    .idat(awlen[0+:LOG_BURST_LEN]),
+    .ivld(awxfer),
+    .irdy(burst_ready_snk),
+    .odat(burst_len),
+    .ovld(burst_ready_src),
+    .ordy(burst_load)
 );
 
 /////////////////////////////////////////////////////////////////////////////
@@ -282,20 +283,21 @@ Q_srl #(
 assign bready = 1'b1;
 assign bxfer = bready & bvalid;
 
-Q_srl #(
-    .depth(MAX_OUTSTANDING),
-    .width(1)
+fifo #(
+    .DEPTH(MAX_OUTSTANDING),
+    .DATA_WIDTH(1),
+    .RAM_STYLE("shift")
 ) inst_q_wr_rsp (
-    .clock(aclk),
-    .reset(!aresetn),
+    .clk(aclk),
+    .rst(!aresetn),
     .count(),
     .maxcount(),
-    .i_d(ctl_r & aw_final_transaction),
-    .i_v(awxfer),
-    .i_r(b_ready_snk),
-    .o_d(b_final_transaction),
-    .o_v(),
-    .o_r(bxfer)
+    .idat(ctl_r & aw_final_transaction),
+    .ivld(awxfer),
+    .irdy(b_ready_snk),
+    .odat(b_final_transaction),
+    .ovld(),
+    .ordy(bxfer)
 );
 
 /////////////////////////////////////////////////////////////////////////////

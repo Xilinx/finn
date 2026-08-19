@@ -181,7 +181,6 @@ class MVAU_rtl(MVAU, RTLBackend):
         if theight > 1:
             rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu_tiled/")
             sourcefiles = [
-                "../fifo/hdl/Q_srl.v",
                 "../skid/skid.sv",
                 "../mvu/mvu_pkg.sv",
                 "../mvu/add_multi.sv",
@@ -425,7 +424,6 @@ class MVAU_rtl(MVAU, RTLBackend):
 
         if self.get_nodeattr("TH") > 1:
             verilog_files = [
-                "../fifo/hdl/Q_srl.v",
                 "../skid/skid.sv",
                 "../mvu/mvu_pkg.sv",
                 "../mvu/add_multi.sv",

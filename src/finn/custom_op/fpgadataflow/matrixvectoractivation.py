@@ -41,7 +41,7 @@ from qonnx.util.basic import (
 )
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
-from finn.util.basic import is_versal
+from finn.util.basic import fifo_rtl_files, is_versal
 from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation:
@@ -1110,7 +1110,6 @@ class MVAU(HWCustomOp):
 
                     # instantiate a fetch weights component and connect it to the IP
                     reg_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/skid/")
-                    que_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/fifo/hdl/")
                     fwg_rtllib_dir = os.path.join(
                         os.environ["FINN_ROOT"], "finn-rtllib/fetch_weights/"
                     )
@@ -1121,10 +1120,9 @@ class MVAU(HWCustomOp):
                         if fname.endswith(file_suffix):
                             strm_tmpl = fname
                     strm_tmpl_name = strm_tmpl[:-2]
-                    sourcefiles = [
+                    sourcefiles = fifo_rtl_files() + [
                         os.path.join(code_gen_dir, strm_tmpl),
                         reg_rtllib_dir + "skid.sv",
-                        que_rtllib_dir + "Q_srl.v",
                         fwg_rtllib_dir + "fetch_weights.sv",
                         fwg_rtllib_dir + "local_weight_buffer.sv",
                     ]

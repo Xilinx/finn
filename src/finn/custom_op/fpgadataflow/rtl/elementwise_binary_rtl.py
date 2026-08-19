@@ -15,7 +15,7 @@ from finn.custom_op.fpgadataflow import elementwise_binary
 from finn.custom_op.fpgadataflow.elementwise_binary import ElementwiseBinaryOperation
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.transformation.fpgadataflow.loop_rolling import LoopBodyInputType
-from finn.util.basic import roundup_to_integer_multiple
+from finn.util.basic import fifo_rtl_files, roundup_to_integer_multiple
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     pack_innermost_dim_as_hex_string,
@@ -176,7 +176,7 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
         if has_const or mlo:
             self.generate_hdl_memstream(fpgapart)
 
-        sv_files = ["eltwise.sv", "binopf.sv", "binopi.sv", "int_to_fp32.sv", "queue.sv"]
+        sv_files = ["eltwise.sv", "binopf.sv", "binopi.sv", "int_to_fp32.sv"]
         for sv_file in sv_files:
             shutil.copy(f"{rtlsrc}/{sv_file}", code_gen_dir)
         self.set_nodeattr("ipgen_path", code_gen_dir)
@@ -191,14 +191,16 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             rtllib_dir = ""
 
         top_module = self.get_nodeattr("gen_top_module")
-        return [
-            f"{rtllib_dir}eltwise.sv",
-            f"{rtllib_dir}binopf.sv",
-            f"{rtllib_dir}binopi.sv",
-            f"{rtllib_dir}int_to_fp32.sv",
-            f"{rtllib_dir}queue.sv",
-            f"{code_gen_dir}{top_module}.v",
-        ]
+        return (
+            [
+                f"{rtllib_dir}eltwise.sv",
+                f"{rtllib_dir}binopf.sv",
+                f"{rtllib_dir}binopi.sv",
+                f"{rtllib_dir}int_to_fp32.sv",
+            ]
+            + fifo_rtl_files(abspath)
+            + [f"{code_gen_dir}{top_module}.v"]
+        )
 
     def get_verilog_top_module_intf_names(self):
         """

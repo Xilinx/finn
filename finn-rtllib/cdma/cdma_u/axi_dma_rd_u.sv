@@ -184,20 +184,21 @@ uwire [AXI_ADDR_WIDTH-1:0] addr_plus_max_burst = addr_reg + AXI_MAX_BURST_SIZE;
 uwire [AXI_ADDR_WIDTH-1:0] addr_plus_count = addr_reg + op_word_count_reg;
 
 // Outstanding queue
-Q_srl #(
-    .depth(8),
-    .width($bits(cdma_rd_cmd_t))
+fifo #(
+    .DEPTH(8),
+    .DATA_WIDTH($bits(cdma_rd_cmd_t)),
+    .RAM_STYLE("shift")
 ) inst_q_rd (
-    .clock(aclk),
-    .reset(!aresetn),
+    .clk(aclk),
+    .rst(!aresetn),
     .count(),
     .maxcount(),
-    .i_d(ost_snk_data),
-    .i_v(ost_snk_valid),
-    .i_r(ost_snk_ready),
-    .o_d(ost_src_data),
-    .o_v(ost_src_valid),
-    .o_r(ost_src_ready)
+    .idat(ost_snk_data),
+    .ivld(ost_snk_valid),
+    .irdy(ost_snk_ready),
+    .odat(ost_src_data),
+    .ovld(ost_src_valid),
+    .ordy(ost_src_ready)
 );
 
 // NSL Requests

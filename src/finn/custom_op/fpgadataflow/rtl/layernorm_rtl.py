@@ -17,6 +17,7 @@ import shutil
 
 from finn.custom_op.fpgadataflow.layernorm import LayerNorm
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
+from finn.util.basic import fifo_rtl_files
 
 
 class LayerNorm_rtl(LayerNorm, RTLBackend):
@@ -66,7 +67,7 @@ class LayerNorm_rtl(LayerNorm, RTLBackend):
         ) as f:
             f.write(template)
 
-        sv_files = ["layernorm.sv", "queue.sv", "accuf.sv", "binopf.sv", "rsqrtf.sv"]
+        sv_files = ["layernorm.sv", "accuf.sv", "binopf.sv", "rsqrtf.sv"]
         for sv_file in sv_files:
             shutil.copy(rtllib_dir + sv_file, code_gen_dir)
         # set ipgen_path and ip_path so that HLS-Synth transformation
@@ -82,9 +83,9 @@ class LayerNorm_rtl(LayerNorm, RTLBackend):
             code_gen_dir = ""
             rtllib_dir = ""
 
-        verilog_files = [
-            rtllib_dir + "layernorm.sv",
-            rtllib_dir + "queue.sv",
+        verilog_files = [rtllib_dir + "layernorm.sv"]
+        verilog_files += fifo_rtl_files(abspath)
+        verilog_files += [
             rtllib_dir + "accuf.sv",
             rtllib_dir + "binopf.sv",
             rtllib_dir + "rsqrtf.sv",
@@ -97,7 +98,6 @@ class LayerNorm_rtl(LayerNorm, RTLBackend):
 
         sourcefiles = [
             "layernorm.sv",
-            "queue.sv",
             "accuf.sv",
             "binopf.sv",
             "rsqrtf.sv",
@@ -105,7 +105,7 @@ class LayerNorm_rtl(LayerNorm, RTLBackend):
 
         sourcefiles.append(self.get_nodeattr("gen_top_module") + ".v")
 
-        sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
+        sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles] + fifo_rtl_files()
 
         cmd = []
         for f in sourcefiles:

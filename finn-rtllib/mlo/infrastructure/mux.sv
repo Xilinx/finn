@@ -142,13 +142,13 @@ always_comb begin: DP_GEN
     endcase
 end
 
-Q_srl #(
-    .depth(2), .width(ILEN_BITS)
+fifo #(
+    .DEPTH(2), .DATA_WIDTH(ILEN_BITS), .RAM_STYLE("shift")
 ) inst_queue_gend (
-    .clock(aclk), .reset(!aresetn),
+    .clk(aclk), .rst(!aresetn),
     .count(), .maxcount(),
-    .i_d(axis_fs_tdata), .i_v(axis_fs_tvalid), .i_r(axis_fs_tready),
-    .o_d(axis_fs_tdata_q), .o_v(axis_fs_tvalid_q), .o_r(axis_fs_tready_q)
+    .idat(axis_fs_tdata), .ivld(axis_fs_tvalid), .irdy(axis_fs_tready),
+    .odat(axis_fs_tdata_q), .ovld(axis_fs_tvalid_q), .ordy(axis_fs_tready_q)
 );
 
 //
@@ -235,13 +235,13 @@ always_comb begin: DP_CTRL
     endcase
 end
 
-Q_srl #(
-    .depth(QDEPTH), .width(1)
+fifo #(
+    .DEPTH(QDEPTH), .DATA_WIDTH(1), .RAM_STYLE("shift")
 ) inst_queue_seq (
-    .clock(aclk), .reset(!aresetn),
+    .clk(aclk), .rst(!aresetn),
     .count(), .maxcount(),
-    .i_d(seq_C), .i_v(val_seq_C), .i_r(seq_tready),
-    .o_d(seq_out_tdata), .o_v(seq_out_tvalid), .o_r(seq_out_tready)
+    .idat(seq_C), .ivld(val_seq_C), .irdy(seq_tready),
+    .odat(seq_out_tdata), .ovld(seq_out_tvalid), .ordy(seq_out_tready)
 );
 
 assign m_idx_tvalid = val_idx_C;
