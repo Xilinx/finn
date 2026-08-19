@@ -10,6 +10,7 @@ from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
+from finn.transformation.general import maxpool_ceil_mode_output_dims
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 
 
@@ -74,6 +75,22 @@ def create_maxpool(ifm_dim, ifm_ch, kernel_shape, pads, strides, ceil_mode, idt)
 # input datatype
 @pytest.mark.parametrize("idt", [DataType["INT4"]])
 def test_maxpool_nhwc(ifm_dim, ifm_ch, kernel_shape, pads, strides, ceil_mode, idt):
+    # ceil_mode=1 with a trailing-pad window has an ambiguous output size:
+    # QONNX shape inference uses the naive-ceil formula while onnxruntime>=1.21
+    # applies the drop-window rule, so the reference and transformed models
+    # disagree. These models are rejected by the compiler (see
+    # AssertNoAmbiguousMaxPoolCeilMode); mark the divergent case as xfail here.
+    if ceil_mode == 1:
+        for ax in range(2):
+            naive, drop = maxpool_ceil_mode_output_dims(
+                ifm_dim[ax], kernel_shape[ax], strides[ax], pads[ax], pads[ax + 2]
+            )
+            if naive != drop:
+                pytest.xfail(
+                    "ambiguous ceil_mode=1 output size (naive-ceil %d != drop-rule %d)"
+                    % (naive, drop)
+                )
+
     # create MaxPool node
     maxpool_model = create_maxpool(ifm_dim, ifm_ch, kernel_shape, pads, strides, ceil_mode, idt)
 

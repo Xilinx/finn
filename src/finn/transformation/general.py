@@ -13,12 +13,83 @@
 # abb9eb12e0248014a805f505aacfaeb14d42409a/src/qonnx/transformation/general.py
 
 import json
+import numpy as np
 import warnings
 
 # Protobuf onnx graph node type
 from onnx import AttributeProto
 from qonnx.custom_op.registry import getCustomOp, is_custom_op
 from qonnx.transformation.base import Transformation
+from qonnx.util.basic import get_by_name
+
+
+def maxpool_ceil_mode_output_dims(ifm_dim, k, stride, pad_begin, pad_end):
+    """Return the ``(naive_ceil, drop_rule)`` output sizes for a single spatial
+    dimension of a ``ceil_mode=1`` pooling op.
+
+    ``naive_ceil`` is the ONNX-spec formula, also used by
+    ``onnx.shape_inference`` and QONNX's ``compute_pool_output_dim``.
+    ``drop_rule`` additionally discards any pooling window that would start
+    entirely inside the trailing padding - the behaviour of PyTorch/cuDNN
+    (always) and onnxruntime (>=1.21). The two disagree only for degenerate
+    geometry where the last window begins in the end padding; when they agree
+    the ``ceil_mode=1`` op is equivalent to ``ceil_mode=0`` in both shape and
+    values."""
+    naive = int(np.ceil((ifm_dim + pad_begin + pad_end - k) / stride)) + 1
+    drop = naive
+    while drop > 1 and (drop - 1) * stride >= ifm_dim + pad_begin:
+        drop -= 1
+    return naive, drop
+
+
+class AssertNoAmbiguousMaxPoolCeilMode(Transformation):
+    """Reject MaxPool/MaxPoolNHWC nodes with ``ceil_mode=1`` whose output size
+    is ambiguous, i.e. where the ONNX-spec naive-ceil formula and the
+    drop-window rule (PyTorch/cuDNN, onnxruntime>=1.21) disagree for the actual
+    input dimensions.
+
+    Such models produce different output shapes/values depending on the runtime
+    used, so FINN cannot compile them safely. ``ceil_mode=1`` nodes whose
+    naive-ceil and drop-rule outputs match are left untouched, since they are
+    provably equivalent to ``ceil_mode=0`` for the given dimensions."""
+
+    def apply(self, model):
+        for node in model.graph.node:
+            if node.op_type not in ("MaxPool", "MaxPoolNHWC"):
+                continue
+            ceil_mode = get_by_name(node.attribute, "ceil_mode")
+            if ceil_mode is None or ceil_mode.i != 1:
+                continue
+            kernel_shape = get_by_name(node.attribute, "kernel_shape")
+            strides = get_by_name(node.attribute, "strides")
+            if kernel_shape is None or strides is None:
+                continue
+            kernel_shape = list(kernel_shape.ints)
+            strides = list(strides.ints)
+            pads = get_by_name(node.attribute, "pads")
+            pads = list(pads.ints) if pads is not None else [0] * (2 * len(kernel_shape))
+            ishape = model.get_tensor_shape(node.input[0])
+            if ishape is None or len(ishape) != 4:
+                continue
+            # MaxPool is NCHW, MaxPoolNHWC is NHWC - pick the spatial dims
+            spatial = list(ishape[1:3]) if node.op_type == "MaxPoolNHWC" else list(ishape[2:4])
+            n_sp = len(spatial)
+            for ax, ifm_dim in enumerate(spatial):
+                naive, drop = maxpool_ceil_mode_output_dims(
+                    ifm_dim, kernel_shape[ax], strides[ax], pads[ax], pads[ax + n_sp]
+                )
+                if naive != drop:
+                    raise RuntimeError(
+                        "MaxPool node '%s' uses ceil_mode=1 with an ambiguous output "
+                        "size along spatial axis %d: the ONNX-spec naive-ceil formula "
+                        "yields %d while the drop-window rule (PyTorch/cuDNN, "
+                        "onnxruntime>=1.21) yields %d. FINN cannot compile this model "
+                        "because different runtimes produce different output shapes. "
+                        "Re-export with ceil_mode=0 or adjust padding/kernel/stride so "
+                        "the last pooling window does not start inside the trailing "
+                        "padding." % (node.name, ax, naive, drop)
+                    )
+        return (model, False)
 
 
 class ApplyConfig(Transformation):
