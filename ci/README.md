@@ -73,7 +73,7 @@ The above table is unit tested for drift against the actual stage tables. Bitstr
 
 ### Debug one stage
 
-Trigger a build with the matching `STAGES` value and use `STAGE_FILTER` in the GUI to match via substring to the shard's display name, for example, `STAGE_FILTER=BNN U250`.
+Trigger a build with the matching `STAGES` value and use `STAGE_FILTER` in the GUI to match via substring to the shard's display name, for example, `STAGE_FILTER=BNN U55C`.
 
 ### Pin a test to a specific shard
 
@@ -193,7 +193,7 @@ The `.READY` marker is the build-to-HW handshake. It is touched only after the a
 A `STAGES` row that produces these zips declares a `zipArtifacts` nested key:
 
 ```python
-"zipArtifacts": {"hwTestType": "bnn_build_full", "boards": ["U250"]}
+"zipArtifacts": {"hwTestType": "bnn_build_full", "boards": ["U55C"]}
 ```
 
 `hwTestType` (today `bnn_build_sanity` or `bnn_build_full`) selects which HW pipeline category the zip feeds. `boards` lists the board zips the row produces. The nested shape means the pair is either present or absent.

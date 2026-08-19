@@ -40,7 +40,7 @@ def delete_file(file_path):
 
 
 def get_platform(board_str):
-    return "vitis-xrt" if "U250" in board_str else "zynq-iodma"
+    return "vitis-xrt" if "U55C" in board_str else "zynq-iodma"
 
 
 def get_full_parameterized_test_list(marker, test_dir_list, batch_size_list, platform_list):
@@ -77,7 +77,7 @@ def pytest_generate_tests(metafunc):
     test_dirs = remove_cache_dirs(test_dirs)
 
     for marker in all_markers_used:
-        if "Pynq" in marker or "U250" in marker or "ZCU104" in marker or "KV260_SOM" in marker:
+        if "Pynq" in marker or "U55C" in marker or "ZCU104" in marker or "KV260_SOM" in marker:
             platform = get_platform(marker)
             scenarios.extend(
                 get_full_parameterized_test_list(
@@ -90,7 +90,7 @@ def pytest_generate_tests(metafunc):
             # There is a known Pynq/XRT issue with larger sets of weights on Alveo.
             # Accesses to address spaces over 16KB do NOT work as intended.
             # Disabling Alveo lfc HW test until resolved.
-            if scenario[0] == "U250_bnn_w1_a1_lfc_batchSize-1_platform-alveo":
+            if scenario[0] == "U55C_bnn_w1_a1_lfc_batchSize-1_platform-alveo":
                 continue
             idlist.append(scenario[0])
             items = scenario[1].items()
@@ -100,7 +100,7 @@ def pytest_generate_tests(metafunc):
 
 
 @pytest.mark.Pynq
-@pytest.mark.U250
+@pytest.mark.U55C
 @pytest.mark.ZCU104
 @pytest.mark.KV260_SOM
 class TestBnn:

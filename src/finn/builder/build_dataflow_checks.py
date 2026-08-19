@@ -15,7 +15,13 @@ from finn.builder.build_dataflow_config import (
     DataflowOutputType,
     ShellFlowType,
 )
-from finn.util.basic import get_vivado_version, part_map, pynq_part_map, vitis_part_map
+from finn.util.basic import (
+    get_vivado_version,
+    part_map,
+    pynq_part_map,
+    retired_pynq_boards,
+    vitis_part_map,
+)
 
 
 class Severity(Enum):
@@ -130,6 +136,36 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
             )
         )
 
+    if cfg.board in retired_pynq_boards:
+        checks.append(
+            _check(
+                "zynq7000_retired",
+                Severity.ERROR,
+                False,
+                f"Board '{cfg.board}' (Zynq-7000) was retired from official FINN "
+                "support with the move to Vivado 2024.2.",
+                "The build flow is unchanged and Vivado 2024.2 still supports the "
+                "xc7z020 part, so you can re-enable this board by removing it from "
+                "retired_pynq_boards in finn.util.basic. The AUP-ZU3_8GB "
+                "(Zynq UltraScale+) board is the recommended supported replacement.",
+            )
+        )
+
+    if cfg.shell_flow_type == ShellFlowType.VITIS_ALVEO and cfg.board is not None:
+        checks.append(
+            _check(
+                "alveo_board_supported",
+                Severity.ERROR,
+                cfg.board in alveo_boards,
+                f"Alveo board '{cfg.board}' is not a supported Alveo target. Support for "
+                "some boards (e.g. U280) was dropped with the move to Vitis 2024.2",
+                f"Valid Alveo boards: {', '.join(sorted(alveo_boards))}. To keep using a "
+                "dropped board (e.g. U280) you can build with Vitis 2022.2 and re-add its "
+                "part/platform entries to vitis_part_map/vitis_default_platform (and the "
+                "matching Platform class in util/platforms.py).",
+            )
+        )
+
     if has_bitfile:
         is_v80 = cfg.board == "V80" or (cfg.fpga_part and cfg.fpga_part.startswith("xcv80"))
         is_slash = cfg.shell_flow_type == ShellFlowType.SLASH_ALVEO
@@ -212,7 +248,7 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                 "BITFILE generation with VIVADO_ZYNQ requires 'board' to be set. "
                 "ZynqBuild needs the board name and will fail in step_synthesize_bitfile "
                 "if missing",
-                "Set board to a valid Zynq board name (e.g., 'Pynq-Z1', 'ZCU104')",
+                "Set board to a valid Zynq board name (e.g., 'AUP-ZU3_8GB', 'ZCU104')",
             )
         )
 

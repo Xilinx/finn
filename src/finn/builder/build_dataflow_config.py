@@ -246,7 +246,7 @@ class DataflowBuildConfig:
 
     #: Target board, only needed for generating full bitfiles where the FINN
     #: design is integrated into a shell.
-    #: e.g. "Pynq-Z1" or "U250"
+    #: e.g. "AUP-ZU3_8GB" or "U55C"
     board: Optional[str] = None
 
     #: Target shell flow, only needed for generating full bitfiles where the FINN

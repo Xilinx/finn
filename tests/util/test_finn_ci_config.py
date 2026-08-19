@@ -27,12 +27,12 @@ _PLAN_STAGES = [
     {"param": "sanity", "stage": "Sanity Build", "marker": "sanity_bnn", "shards": 1, "workers": 1},
     {
         "param": "end2end",
-        "stage": "BNN U250",
-        "marker": "bnn_u250",
+        "stage": "BNN U55C",
+        "marker": "bnn_u55c",
         "shards": 2,
         "workers": 2,
         "coverage": True,
-        "zipArtifacts": {"hwTestType": "bnn_build_full", "boards": ["U250", "ZCU104"]},
+        "zipArtifacts": {"hwTestType": "bnn_build_full", "boards": ["U55C", "ZCU104"]},
     },
 ]
 
@@ -40,31 +40,31 @@ _PLAN_STAGES = [
 def test_shard_plan_expands_rows_into_per_shard_entries():
     plan = config.shard_plan("full", stages=_PLAN_STAGES)
     stages = [s["stage"] for s in plan["shards"]]
-    assert stages == ["Sanity Build", "BNN U250 (1/2)", "BNN U250 (2/2)"]
+    assert stages == ["Sanity Build", "BNN U55C (1/2)", "BNN U55C (2/2)"]
     # single-shard row keeps the bare display name and stash
     sanity = plan["shards"][0]
     assert sanity["stash"] == "sanity_build"
     assert "coverageFile" not in sanity
     # multi-shard row carries shardId, coverageFile, zipArtifacts
-    u250_b = plan["shards"][2]
-    assert u250_b["shardId"] == 1
-    assert u250_b["numShards"] == 2
-    assert u250_b["stash"] == "bnn_u250_2"
-    assert u250_b["coverageFile"] == "bnn_u250_2.coverage"
-    assert u250_b["zipArtifacts"]["hwTestType"] == "bnn_build_full"
+    u55c_b = plan["shards"][2]
+    assert u55c_b["shardId"] == 1
+    assert u55c_b["numShards"] == 2
+    assert u55c_b["stash"] == "bnn_u55c_2"
+    assert u55c_b["coverageFile"] == "bnn_u55c_2.coverage"
+    assert u55c_b["zipArtifacts"]["hwTestType"] == "bnn_build_full"
 
 
 def test_shard_plan_filters_by_substring_but_keeps_candidates():
-    plan = config.shard_plan("full", stage_filter="U250", stages=_PLAN_STAGES)
-    assert [s["stage"] for s in plan["shards"]] == ["BNN U250 (1/2)", "BNN U250 (2/2)"]
+    plan = config.shard_plan("full", stage_filter="U55C", stages=_PLAN_STAGES)
+    assert [s["stage"] for s in plan["shards"]] == ["BNN U55C (1/2)", "BNN U55C (2/2)"]
     # candidates is the unfiltered active-row display list for the error path
-    assert plan["candidates"] == ["Sanity Build", "BNN U250"]
+    assert plan["candidates"] == ["Sanity Build", "BNN U55C"]
 
 
 def test_shard_plan_filter_miss_yields_empty_shards_with_candidates():
     plan = config.shard_plan("full", stage_filter="does-not-match", stages=_PLAN_STAGES)
     assert plan["shards"] == []
-    assert plan["candidates"] == ["Sanity Build", "BNN U250"]
+    assert plan["candidates"] == ["Sanity Build", "BNN U55C"]
 
 
 def test_shard_plan_zip_artifacts_flatten_per_row_per_board_not_per_shard():
@@ -72,8 +72,8 @@ def test_shard_plan_zip_artifacts_flatten_per_row_per_board_not_per_shard():
     # one entry per (active row, board), so the 2-shard row contributes once
     # per board, not once per shard
     assert plan["zipArtifacts"] == [
-        {"stage": "BNN U250", "hwTestType": "bnn_build_full", "board": "U250"},
-        {"stage": "BNN U250", "hwTestType": "bnn_build_full", "board": "ZCU104"},
+        {"stage": "BNN U55C", "hwTestType": "bnn_build_full", "board": "U55C"},
+        {"stage": "BNN U55C", "hwTestType": "bnn_build_full", "board": "ZCU104"},
     ]
 
 
