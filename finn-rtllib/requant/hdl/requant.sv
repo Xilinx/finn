@@ -1,8 +1,6 @@
 /****************************************************************************
- * Copyright (C) 2026, Advanced Micro Devices, Inc.
- * All rights reserved.
- *
- * SPDX-License-Identifier: BSD-3-Clause
+ * Copyright Advanced Micro Devices, Inc.
+ * SPDX-License-Identifier: MIT
  *
  * @author	Thomas B. Preußer <thomas.preusser@amd.com>
  * @brief	Integer requantization from K to N bits by clip(round(x*scale+bias)).
@@ -12,6 +10,26 @@
  *		round(x*scale+bias)
  *	The used single-precision floating-point scale and bias parameters are
  *	rotated round-robin through the list of C channel-specific values.
+ *
+ *	The floating-point scale and bias are decomposed into fixed-point
+ *	representations at elaboration time (derive_PARAMS). The scale
+ *	mantissa is captured in S_WIDTH-1 magnitude bits (+ sign). When
+ *	K <= DSP port width, S_WIDTH=25 and all 24 IEEE 754 significand
+ *	bits are preserved exactly. When K exceeds the DSP port width,
+ *	S_WIDTH < 25 and the mantissa is rounded to fewer bits.
+ *
+ *	The integer multiply (x * scale_fixed) is exact within the product
+ *	datapath — unlike a single-precision floating-point multiply, which
+ *	rounds its result to 24 significant bits. Consequently, for
+ *	non-power-of-two scales (dense mantissa fractions), the hardware
+ *	result may differ by ±1 from a single-precision evaluation of
+ *	round(scale*x+bias). Power-of-two scales (zero mantissa fraction)
+ *	produce bit-exact agreement with the floating-point specification.
+ *
+ *	Similarly, the bias mantissa is aligned into the product datapath
+ *	by shifting. When the bias exponent is small relative to the tap
+ *	position, right-shifting truncates least-significant mantissa bits,
+ *	which can also contribute to ±1 deviations at rounding boundaries.
  ***************************************************************************/
 
 module requant #(
@@ -36,6 +54,7 @@ module requant #(
 	output	logic [PE-1:0][N-1:0]  odat,
 	output	logic  ovld
 );
+`default_nettype none
 	localparam int unsigned  CF = C/PE;  // Channel fold
 
 	// Parameter Constraints Checking
@@ -148,7 +167,17 @@ module requant #(
 	endfunction : derive_PARAMS
 	localparam params_mat_t  PARAMS = derive_PARAMS();
 	initial begin
-		void'(derive_PARAMS());
+		for(int unsigned  pe = 0; pe < PE; pe++) begin
+			for(int unsigned  cf = 0; cf < CF; cf++) begin
+				automatic bit [31:0]  s = $shortrealtobits(SCALES[pe][cf]);
+				if(s[22:0] != 0 && 25 > MUL_WIDTHS.s) begin
+					// Dense mantissa with S_WIDTH < 25: check for actual bit loss
+					automatic bit [24:0]  sm = { 1'b1, s[0+:23], 1'b0 };
+					if(sm[0+:25-MUL_WIDTHS.s] != 0)
+						$warning("%m: SCALES[%0d][%0d] scale mantissa truncated (%0d to %0d bits).", pe, cf, 25, MUL_WIDTHS.s);
+				end
+			end
+		end
 	end
 	typedef struct {
 		int unsigned  min;
@@ -273,4 +302,5 @@ module requant #(
 		assign	odat[pe] = R4;
 	end : genPE
 
+`default_nettype wire
 endmodule : requant

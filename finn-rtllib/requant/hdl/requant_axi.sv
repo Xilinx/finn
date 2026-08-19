@@ -1,12 +1,10 @@
-/******************************************************************************
- * Copyright (C) 2026, Advanced Micro Devices, Inc.
- * All rights reserved.
- *
- * SPDX-License-Identifier: BSD-3-Clause
+/****************************************************************************
+ * Copyright Advanced Micro Devices, Inc.
+ * SPDX-License-Identifier: MIT
  *
  * @author	Thomas B. Preußer <thomas.preusser@amd.com>
  * @brief	AXI stream wrapper for integer requantization.
- *****************************************************************************/
+ ***************************************************************************/
 
 module requant_axi #(
 	int unsigned  VERSION = 1,  // DSP Version
@@ -38,6 +36,7 @@ module requant_axi #(
 	output	logic  m_axis_tvalid,
 	output	logic [OUTPUT_STREAM_WIDTH-1:0]  m_axis_tdata
 );
+`default_nettype none
 	localparam int unsigned  CF = C/PE;  // Channel fold
 
 	uwire  rst = !ap_rst_n;
@@ -57,7 +56,7 @@ module requant_axi #(
 	uwire  have_cap = !Credit[$left(Credit)];
 	uwire  issue  = s_axis_tvalid && s_axis_tready;
 	uwire  settle = m_axis_tvalid && m_axis_tready;
-	always @(posedge ap_clk) begin
+	always_ff @(posedge ap_clk) begin
 		if(rst)  Credit <= CREDIT-1;
 		else     Credit <= Credit + (issue == settle? 0 : settle? 1 : -1);
 	end
@@ -103,4 +102,5 @@ module requant_axi #(
 	assign	m_axis_tvalid = q_ovld;
 	assign	m_axis_tdata = { {(OUTPUT_STREAM_WIDTH-PE*N){1'b0}}, q_odat };
 
+`default_nettype wire
 endmodule : requant_axi

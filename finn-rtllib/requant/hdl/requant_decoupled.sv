@@ -1,6 +1,8 @@
-// Copyright Advanced Micro Devices, Inc.
-// SPDX-License-Identifier: BSD-3-Clause
 /****************************************************************************
+ * Copyright Advanced Micro Devices, Inc.
+ * SPDX-License-Identifier: MIT
+ *
+ * @author	Thomas B. Preußer <thomas.preusser@amd.com>
  * @brief	Integer requantization core with decoupled (streamed) parameters.
  *
  * @description
@@ -12,16 +14,13 @@
  *		- SCALE [S_WIDTH]     — signed scale mantissa
  *		- T     [TAP_WIDTH]   — tap - TAP_MIN (unsigned)
  *		- BIAS  [BIAS_WIDTH]  — signed bias (round constant folded in)
- *	The Python codegen (Requant.decompose_params) performs the float32 ->
- *	fixed-point decomposition that requant.sv does at elaboration time via
- *	derive_PARAMS(). The datapath here is otherwise identical to requant.sv.
  *
- *	The parameter words are expected to arrive in lockstep with the input
- *	beats, cycling through the CF channel-fold entries in order (0..CF-1).
- *	The memstream feeding these ports provides exactly this ordering. The
- *	Stage-4 output window is sized from the worst-case TAP_MIN/TAP_MAX span
- *	(computed in Python) rather than the per-PE derive_TAP_MINMAX() used in the
- *	embedded core, because the individual taps are not known at elaboration.
+ *	The fixed-point precision considerations documented in requant.sv apply
+ *	equally here: the exact integer multiply may produce results differing
+ *	by ±1 from a single-precision floating-point evaluation of
+ *	round(scale*x+bias) when the scale has a dense (non-power-of-two)
+ *	mantissa. The external parameter decomposition feeding the pdat stream
+ *	must follow the same fixed-point format as requant.sv::derive_PARAMS.
  ***************************************************************************/
 
 module requant_decoupled #(
@@ -61,6 +60,7 @@ module requant_decoupled #(
 	output	logic [PE-1:0][N-1:0]  odat,
 	output	logic  ovld
 );
+`default_nettype none
 	localparam int unsigned  CF = C/PE;  // Channel fold
 
 	// Parameter Constraints Checking
@@ -173,4 +173,5 @@ module requant_decoupled #(
 		assign	odat[pe] = R4;
 	end : genPE
 
+`default_nettype wire
 endmodule : requant_decoupled
