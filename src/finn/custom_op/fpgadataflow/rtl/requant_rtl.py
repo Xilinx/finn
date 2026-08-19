@@ -550,8 +550,7 @@ class Requant_rtl(Requant, RTLBackend):
         )
         cmd.append(
             "connect_bd_intf_net [get_bd_intf_pins %s/%s/m_axis_0] "
-            "[get_bd_intf_pins %s/%s/%s]"
-            % (node_name, strm_inst, node_name, node_name, core_port)
+            "[get_bd_intf_pins %s/%s/%s]" % (node_name, strm_inst, node_name, node_name, core_port)
         )
         if mlo:
             cmd.append(
