@@ -56,9 +56,7 @@ from finn.transformation.streamline.reorder import MoveScalarLinearPastInvariant
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
-def get_multithreshold_rand_params(channels, num_of_thres, seed=None):
-    if seed is not None:
-        np.random.seed(seed)
+def get_multithreshold_rand_params(channels, num_of_thres):
     steps = np.random.rand(channels, 1) * 30
     bias = np.random.rand(channels, 1) * -10
     thres = [np.arange(num_of_thres) for chn in range(channels)]
@@ -83,7 +81,6 @@ def get_multithreshold_rand_params(channels, num_of_thres, seed=None):
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_convert_to_hw_conv_fc_transition(conv_config, depthwise, use_reshape):
-    np.random.seed(0)
     idt = DataType["UINT4"]
     odt = DataType["UINT4"]
     conv_weight_dt = DataType["INT4"]
@@ -173,8 +170,8 @@ def test_convert_to_hw_conv_fc_transition(conv_config, depthwise, use_reshape):
     model.set_tensor_datatype("thres2_param", DataType["INT32"])
 
     model.set_initializer("conv_param", gen_finn_dt_tensor(conv_weight_dt, conv_param_shape))
-    model.set_initializer("thres1_param", get_multithreshold_rand_params(out_chn, 15, seed=0))
-    model.set_initializer("thres2_param", get_multithreshold_rand_params(fc_filters, 15, seed=0))
+    model.set_initializer("thres1_param", get_multithreshold_rand_params(out_chn, 15))
+    model.set_initializer("thres2_param", get_multithreshold_rand_params(fc_filters, 15))
     model.set_initializer("matmul_param", gen_finn_dt_tensor(fc_weight_dt, fc_param_shape))
     model.set_initializer("reshape_shape", np.array([1, -1], dtype=np.int64))
 
@@ -197,7 +194,7 @@ def test_convert_to_hw_conv_fc_transition(conv_config, depthwise, use_reshape):
     new_model = new_model.transform(to_hw.InferQuantizedMatrixVectorActivation())
     new_model = new_model.transform(to_hw.InferThresholdingLayer())
     new_model = new_model.transform(to_hw.InferConvInpGen())
-    new_model = new_model.transform(to_hw.InferStreamingMaxPool())
+    new_model = new_model.transform(to_hw.InferPool())
     new_model = new_model.transform(RemoveCNVtoFCFlatten())
     new_model = new_model.transform(absorb.AbsorbConsecutiveTransposes())
     for node in new_model.graph.node:
@@ -215,7 +212,7 @@ def test_convert_to_hw_conv_fc_transition(conv_config, depthwise, use_reshape):
 
     # check for correct execution
     x = gen_finn_dt_tensor(idt, input_shape)
-    inp_dict = {model.graph.input[0].name: x}
+    inp_dict = {model.get_first_global_in(): x}
     assert oxe.compare_execution(model, new_model, inp_dict)
 
     num_transpose = len(new_model.get_nodes_by_op_type("Transpose"))

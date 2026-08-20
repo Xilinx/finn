@@ -85,14 +85,7 @@ class DuplicateStreams(HWCustomOp):
         return self.get_folded_input_shape()
 
     def make_shape_compatible_op(self, model):
-        exp_ishape = self.get_normal_input_shape()
-        ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == exp_ishape, "Unexpected input shape."
-        num_out = self.get_num_output_streams()
-        assert len(self.onnx_node.output) == num_out, "Unexpected number of outputs"
-
-        oshape = self.get_normal_output_shape()
-        ret = super().make_const_shape_op(oshape)
+        ret = super().make_shape_compatible_op(model)
         ret.output[:] = self.onnx_node.output
         return ret
 
@@ -110,9 +103,6 @@ class DuplicateStreams(HWCustomOp):
         odt = self.get_output_datatype()
         for my_out in self.onnx_node.output:
             model.set_tensor_datatype(my_out, odt)
-
-    def verify_node(self):
-        pass
 
     def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
@@ -137,7 +127,10 @@ class DuplicateStreams(HWCustomOp):
         return out_width
 
     def get_number_output_values(self):
-        return self.get_num_output_streams() * np.prod(self.get_folded_output_shape()[1:-1])
+        out_val = {}
+        for i in range(len(self.onnx_node.output)):
+            out_val["out%s" % i] = np.prod(self.get_folded_output_shape(i)[1:-1])
+        return out_val
 
     def get_exp_cycles(self):
         # Channels/PE * batch size * fmdim * fmdim
@@ -154,17 +147,6 @@ class DuplicateStreams(HWCustomOp):
         output = np.asarray([output], dtype=np.float32).reshape(*exp_shape)
         for outp in node.output:
             context[outp] = output
-
-    def get_verilog_top_module_intf_names(self):
-        intf_names = super().get_verilog_top_module_intf_names()
-        n_outputs = self.get_num_output_streams()
-        sname = self.hls_sname()
-        intf_names["m_axis"] = []
-        for i in range(n_outputs):
-            intf_names["m_axis"].append(
-                ("out%d_%s" % (i, sname), self.get_outstream_width_padded())
-            )
-        return intf_names
 
     def derive_characteristic_fxns(self, period):
         n_inps = np.prod(self.get_folded_input_shape()[:-1])

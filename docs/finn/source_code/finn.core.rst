@@ -61,11 +61,3 @@ finn.core.rtlsim\_exec
    :members:
    :undoc-members:
    :show-inheritance:
-
-finn.core.throughput\_test
----------------------------------
-
-.. automodule:: finn.core.throughput_test
-   :members:
-   :undoc-members:
-   :show-inheritance:
