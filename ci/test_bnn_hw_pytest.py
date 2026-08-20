@@ -1,3 +1,6 @@
+# Copyright Advanced Micro Devices, Inc.
+# SPDX-License-Identifier: BSD-3-Clause
+
 import pytest
 
 import itertools
@@ -17,14 +20,27 @@ throughput_results_formatted_file = "throughput_metrics_formatted.txt"
 logger = logging.getLogger(__name__)
 
 
-def remove_cache_dirs(dir_list):
-    tmp_list = list(dir_list)
-    for i in range(len(tmp_list) - 1, -1, -1):
-        if ".pytest_cache" in tmp_list[i]:
-            del tmp_list[i]
-        elif "__pycache__" in tmp_list[i]:
-            del tmp_list[i]
-    return tmp_list
+# A real model directory ships the driver the test runs and the input it feeds it.
+model_dir_markers = ("driver.py", "input.npy")
+
+# Leads the skip reason for a model the build packaged without the files its test
+# needs. Report aggregation keys on it to tell those skips from any other, so it
+# must stay in step with finn_ci.hw.PACKAGING_SKIP_PREFIX.
+packaging_skip_prefix = "incomplete deployment package:"
+
+
+def find_model_dirs(parent_dir):
+    # Maps each model directory to the markers it lacks, empty when it is whole.
+    # A directory carrying none of them is a cache, or anything else the unpacked
+    # board zip happens to contain, and was never a test.
+    dirs = {}
+    for name in os.listdir(parent_dir):
+        missing = [
+            m for m in model_dir_markers if not os.path.isfile(os.path.join(parent_dir, name, m))
+        ]
+        if len(missing) < len(model_dir_markers):
+            dirs[name] = missing
+    return dirs
 
 
 def delete_file(file_path):
@@ -71,17 +87,17 @@ def pytest_generate_tests(metafunc):
     # This allows a user to select multiple markers
     all_markers_used = metafunc.config.getoption("-m").split(" ")
     current_dir = os.getcwd()
-    test_dirs = [
-        name for name in os.listdir(current_dir) if os.path.isdir(os.path.join(current_dir, name))
-    ]
-    test_dirs = remove_cache_dirs(test_dirs)
+    test_dirs = find_model_dirs(current_dir)
 
     for marker in all_markers_used:
         if "Pynq" in marker or "U250" in marker or "ZCU104" in marker or "KV260_SOM" in marker:
             platform = get_platform(marker)
             scenarios.extend(
                 get_full_parameterized_test_list(
-                    marker, test_dir_list=test_dirs, batch_size_list=[1], platform_list=[platform]
+                    marker,
+                    test_dir_list=list(test_dirs),
+                    batch_size_list=[1],
+                    platform_list=[platform],
                 )
             )
 
@@ -95,7 +111,24 @@ def pytest_generate_tests(metafunc):
             idlist.append(scenario[0])
             items = scenario[1].items()
             argnames = [x[0] for x in items]
-            argvalues.append([x[1] for x in items])
+            values = [x[1] for x in items]
+            # An incomplete model is still collected, so a build that stopped
+            # packaging one shows up as a named skip in the report instead of as
+            # a test count that quietly drops.
+            missing = test_dirs[scenario[1]["test_dir"]]
+            if missing:
+                values = pytest.param(
+                    *values,
+                    marks=pytest.mark.skip(
+                        reason="%s %s is missing %s"
+                        % (
+                            packaging_skip_prefix,
+                            scenario[1]["test_dir"],
+                            ", ".join(missing),
+                        )
+                    ),
+                )
+            argvalues.append(values)
         metafunc.parametrize(argnames, argvalues, ids=idlist, scope="class")
 
 
