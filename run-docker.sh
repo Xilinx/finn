@@ -92,8 +92,14 @@ if [ "$1" = "print-tag" ]; then
   exit 0
 fi
 
-# Default to interactive runs, for non-interactive set DOCKER_INTERACTIVE=""
-: "${DOCKER_INTERACTIVE="-it"}"
+# Default to -it only when attached to a TTY; otherwise (e.g. Jenkins) drop -t so
+# "docker run" does not fail with "the input device is not a TTY". An explicit
+# DOCKER_INTERACTIVE still wins.
+if [ -t 0 ] && [ -t 1 ]; then
+  : "${DOCKER_INTERACTIVE="-it"}"
+else
+  : "${DOCKER_INTERACTIVE=""}"
+fi
 
 # Catch FINN_DOCKER_EXTRA options being passed in without a trailing space
 FINN_DOCKER_EXTRA+=" "
