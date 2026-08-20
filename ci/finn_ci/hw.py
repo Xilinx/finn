@@ -1,6 +1,4 @@
-# Copyright (C) 2026, Advanced Micro Devices, Inc.
-# All rights reserved.
-#
+# Copyright Advanced Micro Devices, Inc.
 # SPDX-License-Identifier: BSD-3-Clause
 
 """Build-to-HW handoff resolver and the HW pipeline's config projection.
