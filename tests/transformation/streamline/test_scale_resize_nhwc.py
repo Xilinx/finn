@@ -252,10 +252,8 @@ def check_transform(model):
 @pytest.mark.parametrize("ifm_ch", [3])
 # scales
 @pytest.mark.parametrize("scales", [[1, 1, i, j] for i in range(2, 5) for j in range(2, 5)])
-# sizes
-@pytest.mark.parametrize(
-    "sizes", [[1, 3, 2**i, 2**j] for i in range(6, 7) for j in range(6, 7)]
-)
+# sizes (must be integer multiples of every parametrized ifm_dim)
+@pytest.mark.parametrize("sizes", [[1, 3, 64, 64], [1, 3, 64, 96]])
 # mode
 @pytest.mark.parametrize("mode", ["nearest"])
 # input datatype
