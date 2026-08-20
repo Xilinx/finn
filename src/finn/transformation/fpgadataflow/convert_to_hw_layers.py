@@ -45,6 +45,7 @@ from qonnx.util.onnx import nchw_to_nhwc
 
 # Module containing specializations of elementwise binary operations
 import finn.custom_op.fpgadataflow.elementwise_binary as elementwise_binary
+from finn.util.basic import resolve_resize_param_input
 
 
 class InferConvInpGen(Transformation):
@@ -543,36 +544,24 @@ class InferUpsample(Transformation):
             if n.op_type == "Upsample" or n.op_type == "Resize":
                 # Extract mode and scales and input shape
                 mode = get_by_name(n.attribute, "mode").s.decode("ascii")
+                in_shape = model.get_tensor_shape(n.input[0])
                 if n.op_type == "Upsample":
                     scales = model.get_initializer(n.input[1])
                 else:
-                    if len(n.input) == 2:
-                        # Resize version 10
-                        scales = model.get_initializer(n.input[1])
-                    elif len(n.input) == 3:
-                        # Resize version 11 and up (no size input)
-                        scales = model.get_initializer(n.input[2])
-                    elif len(n.input) == 4:
-                        # Resize version 11 and up
-                        scales_exists = (model.get_initializer(n.input[2]) is not None) and (
-                            len(model.get_initializer(n.input[2])) != 0
+                    param_ind, is_sizes = resolve_resize_param_input(model, n)
+                    if is_sizes:
+                        # Convert target output sizes to equivalent scales. Only
+                        # integer-multiple upsampling is supported (see the scales
+                        # asserts below), so require sizes to divide the input
+                        # shape cleanly rather than silently rounding later.
+                        sizes = model.get_initializer(n.input[param_ind])
+                        assert (sizes % in_shape == 0).all(), (
+                            "%s: target sizes must be an integer multiple of the "
+                            "input shape (only integer upsampling is supported)." % n.name
                         )
-                        sizes_exists = (model.get_initializer(n.input[3]) is not None) and (
-                            len(model.get_initializer(n.input[3])) != 0
-                        )
-                        assert scales_exists ^ sizes_exists, (
-                            "%s: Either scales or the target output size must "
-                            "be specified. Specifying both is prohibited." % n.name
-                        )
-                        if scales_exists:
-                            # Scales input
-                            scales = model.get_initializer(n.input[2])
-                        else:
-                            # Convert sizes to scales
-                            sizes = model.get_initializer(n.input[3])
-                            data_input_size = model.get_tensor_shape(n.input[0])
-                            scales = sizes / data_input_size
-                in_shape = model.get_tensor_shape(n.input[0])
+                        scales = sizes / in_shape
+                    else:
+                        scales = model.get_initializer(n.input[param_ind])
 
                 dt = model.get_tensor_datatype(n.input[0])
                 if not dt.is_integer():

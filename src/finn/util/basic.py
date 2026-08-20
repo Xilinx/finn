@@ -493,3 +493,38 @@ def get_driver_shapes(model: ModelWrapper) -> Dict:
         "oshape_folded": oshape_folded,
         "oshape_packed": oshape_packed,
     }
+
+
+def resolve_resize_param_input(model, node):
+    """Identify which input of an ONNX Resize node carries the resampling
+    parameter, across the different opset input signatures, and whether that
+    parameter is a target output size (``sizes``) rather than ``scales``.
+
+    Returns a ``(param_index, is_sizes)`` tuple where ``param_index`` is the
+    index into ``node.input`` and ``is_sizes`` is True if the parameter is a
+    ``sizes`` input. Handles:
+
+    * ``(X, scales)`` (Resize-10)                  -> ``(1, False)``
+    * ``(X, roi, scales)`` (Resize-11+, no sizes)  -> ``(2, False)``
+    * ``(X, roi, scales, sizes)`` (Resize-11+)     -> ``(2, False)`` or ``(3, True)``
+    """
+    num_inputs = len(node.input)
+    if num_inputs == 2:
+        # Resize-10: (X, scales)
+        return 1, False
+    elif num_inputs == 3:
+        # Resize-11+: (X, roi, scales), no sizes input
+        return 2, False
+    elif num_inputs == 4:
+        # Resize-11+: (X, roi, scales, sizes); exactly one of scales/sizes is set
+        scales_init = model.get_initializer(node.input[2])
+        sizes_init = model.get_initializer(node.input[3])
+        scales_exists = scales_init is not None and len(scales_init) != 0
+        sizes_exists = sizes_init is not None and len(sizes_init) != 0
+        assert scales_exists ^ sizes_exists, (
+            "%s: Either scales or the target output size must be specified. "
+            "Specifying both is prohibited." % node.name
+        )
+        return (2, False) if scales_exists else (3, True)
+    else:
+        raise ValueError("%s: Unsupported number of Resize inputs (%d)." % (node.name, num_inputs))
