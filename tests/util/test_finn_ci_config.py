@@ -237,7 +237,7 @@ def test_validate_config_rejects_orphan_zipartifact_board_via_helper():
     "zip_art,match",
     [
         ({}, "non-empty hwTestType"),
-        ({"hwTestType": "", "boards": ["U250"]}, "non-empty hwTestType"),
+        ({"hwTestType": "", "boards": ["U55C"]}, "non-empty hwTestType"),
         ({"hwTestType": "t"}, "non-empty boards list"),
         ({"hwTestType": "t", "boards": []}, "non-empty boards list"),
         ({"hwTestType": "t", "boards": [""]}, "non-empty boards list"),
@@ -281,7 +281,7 @@ def test_validate_config_rejects_hw_test_type_without_label(monkeypatch):
             "marker": "sanity_bnn",
             "shards": 1,
             "workers": 1,
-            "zipArtifacts": {"hwTestType": "bnn_build_unlabelled", "boards": ["U250"]},
+            "zipArtifacts": {"hwTestType": "bnn_build_unlabelled", "boards": ["U55C"]},
         }
     ]
     monkeypatch.setattr(config, "STAGES", bad_stages)
