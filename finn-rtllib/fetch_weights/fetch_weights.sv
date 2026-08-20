@@ -87,15 +87,11 @@ module fetch_weights #(
 	output logic                     axis_dma_tvalid,
 	input  logic                     axis_dma_tready,
 	output logic[DATA_BITS-1:0]      axis_dma_tdata,
-	output logic[DATA_BITS/8-1:0]    axis_dma_tkeep,
-	output logic                     axis_dma_tlast,
 
 	// DWC stream in (from external width converter)
 	input  logic                     axis_dwc_tvalid,
 	output logic                     axis_dwc_tready,
 	input  logic[DS_BITS_BA-1:0]     axis_dwc_tdata,
-	input  logic[(DS_BITS_BA)/8-1:0] axis_dwc_tkeep,
-	input  logic                     axis_dwc_tlast,
 
 	// Stream
 	output logic                     m_axis_tvalid,
@@ -276,8 +272,8 @@ module fetch_weights #(
 		.m_axis_ddr_tvalid(axis_dma_tvalid),
 		.m_axis_ddr_tready(axis_dma_tready),
 		.m_axis_ddr_tdata(axis_dma_tdata),
-		.m_axis_ddr_tkeep(axis_dma_tkeep),
-		.m_axis_ddr_tlast(axis_dma_tlast)
+		.m_axis_ddr_tkeep(),
+		.m_axis_ddr_tlast()
 	);
 
 	//=== Local Weight Buffer ===============================================

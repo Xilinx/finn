@@ -398,7 +398,6 @@ class HWCustomOp(CustomOp):
                 "$N_LAYERS$": [str(n_max_layers)],
                 "$TH$": [str(theight)],
                 "$EN_MLO$": [en_mlo],
-                "$DWC_MODULE_NAME$": [mname + "_dwc"],
                 "$ADDRESS_OFFSET$": [str(self.get_nodeattr("address_offset"))],
             }
             # apply code generation to template

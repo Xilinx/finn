@@ -1121,34 +1121,17 @@ class MVAU(HWCustomOp):
                         if fname.endswith(file_suffix):
                             strm_tmpl = fname
                     strm_tmpl_name = strm_tmpl[:-2]
+                    dwc_rtllib_dir = os.path.join(
+                        os.environ["FINN_ROOT"], "finn-rtllib/dwc/hdl/"
+                    )
                     sourcefiles = [
                         os.path.join(code_gen_dir, strm_tmpl),
                         reg_rtllib_dir + "skid.sv",
                         que_rtllib_dir + "Q_srl.v",
                         fwg_rtllib_dir + "fetch_weights.sv",
                         fwg_rtllib_dir + "local_weight_buffer.sv",
-                    ]
-                    # Create Vivado axis_dwidth_converter IP
-                    theight = self.get_nodeattr("TH")
-                    wdt = self.get_input_datatype(1)
-                    if theight > 1:
-                        iwsimd = (self.get_nodeattr("PE") * self.get_nodeattr("SIMD")) // theight
-                    else:
-                        iwsimd = self.get_nodeattr("SIMD")
-                    ds_bits_ba = ((iwsimd * wdt.bitwidth() + 7) // 8) * 8
-                    dwc_ip_name = node_name + "_dwc"
-                    s_bytes = 256 // 8
-                    m_bytes = ds_bits_ba // 8
-                    cmd += [
-                        "create_ip -name axis_dwidth_converter -vendor xilinx.com "
-                        "-library ip -version 1.1 -module_name %s" % dwc_ip_name,
-                        "set_property -dict [list "
-                        "CONFIG.S_TDATA_NUM_BYTES {%d} "
-                        "CONFIG.M_TDATA_NUM_BYTES {%d} "
-                        "CONFIG.HAS_TLAST {1} "
-                        "CONFIG.HAS_TKEEP {1} "
-                        "] [get_ips %s]" % (s_bytes, m_bytes, dwc_ip_name),
-                        "generate_target all [get_ips %s]" % dwc_ip_name,
+                        dwc_rtllib_dir + "vpc.sv",
+                        dwc_rtllib_dir + "dwc_axi.sv",
                     ]
 
                     # add files from cdma dir

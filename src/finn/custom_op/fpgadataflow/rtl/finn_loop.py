@@ -624,46 +624,6 @@ class FINNLoop(HWCustomOp, RTLBackend):
 
         cmd = []
 
-        # Create Vivado axis_dwidth_converter IPs for intermediate_frames DWCs
-        olen_bits = self.get_outstream_width(0)
-        ilen_bits = self.get_instream_width(0)
-        data_bits = 256
-        # Intermediate frames pad each element to a whole number of bytes, so the
-        # DWCs must be sized on the byte-aligned widths (OLEN_BITS_BA/ILEN_BITS_BA
-        # in intermediate_frames.sv), matching the per-element FM_SIZE layout.
-        elem_bits = self.get_input_datatype(0).bitwidth()
-        elem_bytes = (elem_bits + 7) // 8
-        oelem = olen_bits // elem_bits
-        ielem = ilen_bits // elem_bits
-        # DWC write path: byte-aligned body output width -> DMA width (256)
-        dwc_sink_s_bytes = oelem * elem_bytes
-        dwc_sink_m_bytes = data_bits // 8
-        cmd += [
-            "create_ip -name axis_dwidth_converter -vendor xilinx.com "
-            "-library ip -version 1.1 -module_name if_dwc_sink",
-            "set_property -dict [list "
-            "CONFIG.S_TDATA_NUM_BYTES {%d} "
-            "CONFIG.M_TDATA_NUM_BYTES {%d} "
-            "CONFIG.HAS_TLAST {1} "
-            "CONFIG.HAS_TKEEP {1} "
-            "] [get_ips if_dwc_sink]" % (dwc_sink_s_bytes, dwc_sink_m_bytes),
-            "generate_target all [get_ips if_dwc_sink]",
-        ]
-        # DWC read path: DMA width (256) -> byte-aligned body input width
-        dwc_source_s_bytes = data_bits // 8
-        dwc_source_m_bytes = ielem * elem_bytes
-        cmd += [
-            "create_ip -name axis_dwidth_converter -vendor xilinx.com "
-            "-library ip -version 1.1 -module_name if_dwc_source",
-            "set_property -dict [list "
-            "CONFIG.S_TDATA_NUM_BYTES {%d} "
-            "CONFIG.M_TDATA_NUM_BYTES {%d} "
-            "CONFIG.HAS_TLAST {1} "
-            "CONFIG.HAS_TKEEP {1} "
-            "] [get_ips if_dwc_source]" % (dwc_source_s_bytes, dwc_source_m_bytes),
-            "generate_target all [get_ips if_dwc_source]",
-        ]
-
         # add all the generated IP dirs to ip_repo_paths
         ip_dirs = ["list"]
         # add RTL streamer IP
@@ -787,7 +747,12 @@ class FINNLoop(HWCustomOp, RTLBackend):
             if fname.endswith(file_suffix):
                 st_verilog_files.append(os.path.join(code_gen_dir, fname))
                 st_tmpl_names.append(fname[:-2])
-        sourcefiles = st_verilog_files + [stream_tap_dir + "stream_tap.sv", skid_file]
+        dwc_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/dwc/hdl/")
+        sourcefiles = st_verilog_files + [
+            stream_tap_dir + "stream_tap.sv",
+            skid_file,
+            dwc_rtllib_dir + "vpc.sv",
+        ]
         for f in sourcefiles:
             cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
 

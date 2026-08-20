@@ -125,8 +125,7 @@ localparam int unsigned  IELEM        = ILEN_BITS / ELEM_BITS;
 localparam int unsigned  OLEN_BITS_BA = OELEM * EBYTES * 8;
 localparam int unsigned  ILEN_BITS_BA = IELEM * EBYTES * 8;
 
-localparam int unsigned  FM_BEATS_IN      = FM_SIZE/(OLEN_BITS_BA/8);
-localparam int unsigned  FM_BEATS_IN_BITS = (FM_BEATS_IN == 1)? 1 : $clog2(FM_BEATS_IN);
+localparam int unsigned  FM_BEATS_IN  = FM_SIZE/(OLEN_BITS_BA/8);
 
 //
 // Write side
@@ -330,13 +329,9 @@ end
 
 logic axis_dma_rd_tvalid, axis_dma_rd_tready;
 logic [DATA_BITS-1:0] axis_dma_rd_tdata;
-logic [DATA_BITS/8-1:0] axis_dma_rd_tkeep;
-logic axis_dma_rd_tlast;
 
 logic axis_dma_wr_tvalid, axis_dma_wr_tready;
 logic [DATA_BITS-1:0] axis_dma_wr_tdata;
-logic [DATA_BITS/8-1:0] axis_dma_wr_tkeep;
-logic axis_dma_wr_tlast;
 
 cdma_u #(
     .ADDR_BITS(ADDR_BITS),
@@ -396,14 +391,14 @@ cdma_u #(
     .m_axis_ddr_tvalid(axis_dma_rd_tvalid),
     .m_axis_ddr_tready(axis_dma_rd_tready),
     .m_axis_ddr_tdata (axis_dma_rd_tdata),
-    .m_axis_ddr_tkeep (axis_dma_rd_tkeep),
-    .m_axis_ddr_tlast (axis_dma_rd_tlast),
+    .m_axis_ddr_tkeep (),
+    .m_axis_ddr_tlast (),
 
     .s_axis_ddr_tvalid(axis_dma_wr_tvalid),
     .s_axis_ddr_tready(axis_dma_wr_tready),
     .s_axis_ddr_tdata (axis_dma_wr_tdata),
-    .s_axis_ddr_tkeep (axis_dma_wr_tkeep),
-    .s_axis_ddr_tlast (axis_dma_wr_tlast)
+    .s_axis_ddr_tkeep ('1),
+    .s_axis_ddr_tlast ('0)
 );
 
 // DWC
@@ -432,28 +427,22 @@ for(genvar e = 0; e < IELEM; e++) begin : gen_rd_byte_align
         m_axis_ba_tdata[e*EBYTES*8 +: ELEM_BITS];
 end
 
-logic [FM_BEATS_IN_BITS-1:0] cnt_dwc_C = '0;
-always_ff @(posedge aclk) begin
-    if(~aresetn) cnt_dwc_C <= '0;
-    else cnt_dwc_C <= (s_axis_int_tvalid && s_axis_int_tready) ? ((cnt_dwc_C == FM_BEATS_IN-1) ? 0 : cnt_dwc_C + 1) : cnt_dwc_C;
-end
-
-logic last_dwc_in;
-assign last_dwc_in = (cnt_dwc_C == FM_BEATS_IN-1);
-
-
-// DWC write: OLEN_BITS_BA -> DATA_BITS (byte-aligned body output -> DMA)
-if_dwc_sink inst_dwc_wr (
-    .aclk(aclk), .aresetn(aresetn),
-    .s_axis_tvalid(s_axis_ba_tvalid), .s_axis_tready(s_axis_ba_tready), .s_axis_tdata(s_axis_ba_tdata), .s_axis_tkeep({(OLEN_BITS_BA/8){1'b1}}), .s_axis_tlast(last_dwc_in),
-    .m_axis_tvalid(axis_dma_wr_tvalid), .m_axis_tready(axis_dma_wr_tready), .m_axis_tdata(axis_dma_wr_tdata), .m_axis_tkeep(axis_dma_wr_tkeep), .m_axis_tlast(axis_dma_wr_tlast)
+// VPC write: OLEN_BITS_BA -> DATA_BITS (byte-aligned body output -> DMA)
+vpc #(.W(OLEN_BITS_BA), .N(FM_BEATS_IN), .PI(1), .PO(DATA_BITS/OLEN_BITS_BA)) inst_dwc_wr (
+    .clk(aclk), .rst(!aresetn),
+    .ivld(s_axis_ba_tvalid), .irdy(s_axis_ba_tready),
+    .idat(s_axis_ba_tdata),
+    .ovld(axis_dma_wr_tvalid), .ordy(axis_dma_wr_tready),
+    .odat(axis_dma_wr_tdata)
 );
 
-// DWC read: DATA_BITS -> ILEN_BITS_BA (DMA -> byte-aligned body input)
-if_dwc_source inst_dwc_rd (
-    .aclk(aclk), .aresetn(aresetn),
-    .s_axis_tvalid(axis_dma_rd_tvalid), .s_axis_tready(axis_dma_rd_tready), .s_axis_tdata(axis_dma_rd_tdata), .s_axis_tkeep(axis_dma_rd_tkeep), .s_axis_tlast(axis_dma_rd_tlast),
-    .m_axis_tvalid(m_axis_ba_tvalid), .m_axis_tready(m_axis_ba_tready), .m_axis_tdata(m_axis_ba_tdata), .m_axis_tkeep(), .m_axis_tlast()
+// VPC read: DATA_BITS -> ILEN_BITS_BA (DMA -> byte-aligned body input)
+vpc #(.W(ILEN_BITS_BA), .N(DATA_BITS/ILEN_BITS_BA), .PI(DATA_BITS/ILEN_BITS_BA), .PO(1)) inst_dwc_rd (
+    .clk(aclk), .rst(!aresetn),
+    .ivld(axis_dma_rd_tvalid), .irdy(axis_dma_rd_tready),
+    .idat(axis_dma_rd_tdata),
+    .ovld(m_axis_ba_tvalid), .ordy(m_axis_ba_tready),
+    .odat(m_axis_ba_tdata)
 );
 
 // REG
