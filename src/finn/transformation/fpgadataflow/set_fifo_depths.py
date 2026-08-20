@@ -52,10 +52,6 @@ def reset_implementation(node):
     node.set_nodeattr("code_gen_dir_ipgen", "")
     node.set_nodeattr("ipgen_path", "")
     node.set_nodeattr("ip_path", "")
-    # generate_hdl() resolved this against the depth it saw, which is about to
-    # change; clearing it keeps the attr either accurate or absent, never stale
-    if "ram_style_resolved" in node.get_nodeattr_types():
-        node.set_nodeattr("ram_style_resolved", "")
 
 
 def set_signal(sim, keyw, value):

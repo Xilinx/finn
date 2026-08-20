@@ -29,7 +29,7 @@ module fifo_tb;
 		34, 50, 65, 257,   // distributed: 34 lower, 50 mid (MEM_SIZE>MEM_DEPTH),
 		                   //   65 tight (MEM_SIZE==MEM_DEPTH), 257 upper (256+oreg)
 		258, 750,          // block: 258 lower (single), 750 split
-		2100, 4113, 4200   // ultra: 2100/4200 split, 4113 single
+		2100, 4113, 4200   // ultra: 4200 split, 2100/4113 single
 	};
 
 	bit [TEST_COUNT-1:0]  done = '0;

@@ -404,25 +404,6 @@ def is_versal(fpgapart):
     ]
 
 
-def part_has_uram(fpgapart):
-    """Returns whether the target device provides UltraRAM (URAM288). On Zynq
-    UltraScale+ this is per-device, not per-family: ZU3EG and ZU9EG have none.
-    Only parts FINN targets are classified, anything else falls back to BRAM."""
-    if fpgapart is None:
-        return False
-    part = fpgapart.lower()
-    if is_versal(part):
-        return True
-    # Zynq US+ MPSoC/RFSoC: per DS891 the EV and DR devices have URAM, CG and EG do not
-    zu = re.match(r"^xczu\d+([a-z]*)", part)
-    if zu:
-        return zu.group(1).startswith(("ev", "dr"))
-    if part.startswith("xck26"):  # KV260 SOM, a ZU5EV
-        return True
-    # Alveo, and Kintex US+ where the 'p' marks UltraScale+
-    return bool(re.match(r"^xcu\d+|^xcku\d+p", part))
-
-
 def get_dsp_block(fpgapart):
     if is_versal(fpgapart):
         return "DSP58"

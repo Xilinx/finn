@@ -76,8 +76,10 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
         # fifo.sv may implement more capacity than requested. shift is never
         # smaller then four stages, the memory path rounds up to whole primitives.
         count_width = depth.bit_length() + 1
-        ram_style = self.resolve_ram_style(fpgapart)
-        self.set_nodeattr("ram_style_resolved", ram_style)
+        # fifo.sv's RAM_STYLE_EFF ladder is the decision, so the request goes to it
+        # untouched; resolve_ram_style() only predicts what it will pick, for the
+        # estimators and the build report
+        self.set_nodeattr("ram_style_resolved", self.resolve_ram_style())
         self.set_nodeattr("is_versal", int(is_versal(fpgapart)))
         code_gen_dict["$COUNT_WIDTH$"] = f"{count_width}"
         code_gen_dict["$COUNT_RANGE$"] = "[{}:0]".format(count_width - 1)
@@ -85,7 +87,7 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
         code_gen_dict["$OUT_RANGE$"] = "[{}:0]".format(in_width - 1)
         code_gen_dict["$WIDTH$"] = str(in_width)
         code_gen_dict["$DEPTH$"] = str(depth)
-        code_gen_dict["$RAM_STYLE$"] = ram_style
+        code_gen_dict["$RAM_STYLE$"] = self.get_nodeattr("ram_style")
         code_gen_dict["$DATA_LOGFILE$"] = self.get_nodeattr("debug_log_path")
         # apply code generation to templates
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")

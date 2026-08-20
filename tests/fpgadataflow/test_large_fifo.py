@@ -65,8 +65,10 @@ def get_folding_cfg(depth=DEPTH, ram_style="auto"):
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.fpgadataflow
-# "ultra" only on the boards that have URAM: Pynq-Z1 is a Zynq-7000, where
-# resolve_ram_style() clamps it back to "block".
+# "ultra" only on the boards that have URAM. Pynq-Z1 is a Zynq-7000 and is left at
+# "auto": fifo.sv would still elaborate the ultra branch at this depth, but Vivado
+# drops the attribute (Synth 8-12187) and backs the array with BRAM, so asking for it
+# explicitly would test nothing the other two boards do not.
 @pytest.mark.parametrize(
     "board, ram_style", [("Pynq-Z1", "auto"), ("ZCU104", "ultra"), ("VEK280", "ultra")]
 )

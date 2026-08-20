@@ -184,14 +184,16 @@ def _fifo_debug_live_dir(cfg):
 
 
 def _refresh_fifo_ram_style(graph, fpgapart):
-    """Re-resolve ram_style_resolved on every FIFO against its final depth."""
+    """Refresh the reported ram_style_resolved/is_versal on every FIFO.
+
+    Only the report reads these; the estimators derive the style on demand."""
     for node in graph.node:
         for attr in node.attribute:
             if attr.type == onnx.AttributeProto.GRAPH:
                 _refresh_fifo_ram_style(attr.g, fpgapart)
         if node.op_type == "StreamingFIFO_rtl":
             inst = getCustomOp(node)
-            inst.set_nodeattr("ram_style_resolved", inst.resolve_ram_style(fpgapart))
+            inst.set_nodeattr("ram_style_resolved", inst.resolve_ram_style())
             inst.set_nodeattr("is_versal", int(is_versal(fpgapart)))
 
 
