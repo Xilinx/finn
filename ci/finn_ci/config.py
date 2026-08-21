@@ -89,6 +89,10 @@ HW_TEST_TYPE_LABELS = {
     "bnn_build_full": "end2end",
 }
 
+# The HW pipeline keys its resolved-zip map on "<hwTestType>::<board>", so neither
+# name may contain the separator or the key would split two ways.
+HW_KEY_SEPARATOR = "::"
+
 
 # Per-row CI matrix. Fields:
 #   param:        Jenkins STAGES choice that activates this row
@@ -215,6 +219,11 @@ def _validate_zip_artifact(stage, zip_art):
     hw_test_type = zip_art.get("hwTestType")
     if not isinstance(hw_test_type, str) or not hw_test_type:
         raise ValueError("STAGES row %r has zipArtifacts without a non-empty hwTestType" % stage)
+    if HW_KEY_SEPARATOR in hw_test_type:
+        raise ValueError(
+            "STAGES row %r has hwTestType %r containing %r, which separates the halves of "
+            "the HW pipeline's per-pair map key" % (stage, hw_test_type, HW_KEY_SEPARATOR)
+        )
     boards = zip_art.get("boards")
     if (
         not isinstance(boards, list)
@@ -228,6 +237,11 @@ def validate_board_row(board, row):
     """Sanity-check one BOARDS row consumed by the CI HW pipeline."""
     if not isinstance(row, dict):
         raise ValueError("BOARDS row %r must be a dict, got %r" % (board, row))
+    if HW_KEY_SEPARATOR in board:
+        raise ValueError(
+            "BOARDS row %r must not contain %r, which separates the halves of the HW "
+            "pipeline's per-pair map key" % (board, HW_KEY_SEPARATOR)
+        )
     required = (
         "agentLabel",
         "credentialsId",
