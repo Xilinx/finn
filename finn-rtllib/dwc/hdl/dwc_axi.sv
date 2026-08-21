@@ -59,8 +59,6 @@ module dwc_axi #(
 		.idat(s_axis_tdata[IBITS-1:0]), .ivld(s_axis_tvalid), .irdy(s_axis_tready),
 		.odat(m_axis_tdata[OBITS-1:0]), .ovld(m_axis_tvalid), .ordy(m_axis_tready)
 	);
-	if(OBITS < AXI_OBITS) begin
-		assign	m_axis_tdata[AXI_OBITS-1:OBITS] = '0;
-	end
+	if(OBITS < AXI_OBITS)  assign  m_axis_tdata[AXI_OBITS-1:OBITS] = '0;
 
 endmodule : dwc_axi

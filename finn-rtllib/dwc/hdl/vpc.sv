@@ -65,7 +65,7 @@ module vpc #(
 `default_nettype none
 
 	//=======================================================================
-	// Parameter Validation & Normalization
+	// Parameter Validation
 	initial begin
 		if((W == 0) || (N == 0) || (PI == 0) || (PO == 0)) begin
 			$error("%m: W, N, PI, and PO must all be non-zero.");
@@ -73,108 +73,119 @@ module vpc #(
 		end
 	end
 
-	// Extract GCD from in- and output paralelism and map to data path width
-	function int unsigned gcd(input int unsigned a, input int unsigned b);
-		return (b == 0)? a : gcd(b, a % b);
-	endfunction
-	localparam int unsigned  GCD = gcd(PI, PO);
-	localparam int unsigned  W0  = GCD * W;			// normalized element width
-	localparam int unsigned  PI0 = PI / GCD;		// normalized input parallelism
-	localparam int unsigned  PO0 = PO / GCD;		// normalized output parallelism
-	localparam int unsigned  N0  = 1 + (N-1)/GCD;	// normalized vector length
+	if(PI == PO) begin : genTrivial
 
-	//=======================================================================
-	// Derived Parameters
-	localparam int unsigned  TRNI  = 1 + (N0-1)/PI0;	// input transactions per vector
-	localparam int unsigned  TRNO  = 1 + (N0-1)/PO0;	// output transactions per vector
-	localparam int unsigned  CAP   = PI0 + PO0;			// internal buffer capacity
-	localparam int unsigned  CAP_W = $clog2(CAP+1);
+		// No conversion needed: wire input directly to output.
+		assign	odat = idat;
+		assign	ovld = ivld;
+		assign	irdy = ordy;
 
-	//=======================================================================
-	// Vector Progress Counters
-	logic signed [$clog2(TRNI):0]  ITrn = TRNI-1;	// TRNI-1, .., 0, -1 (done)
-	logic signed [$clog2(TRNO):0]  OTrn = TRNO-1;	// TRNO-1, .., 0, -1 (done)
-	uwire  idone = ITrn[$left(ITrn)];
-	uwire  odone = OTrn[$left(OTrn)];
-	uwire  itrn = ivld && irdy;
-	uwire  otrn = ovld && ordy;
+	end : genTrivial
+	else begin : genConvert
 
-	//=======================================================================
-	// Internal Buffer
-	//  ICap (input capacity):   ICap += PO0 on pop, -= PI0 on push.  Sign bit 0 → room for PI0.
-	//  ORdy (output readiness): ORdy -= PO0 on pop, += PI0 on push.  Sign bit 0 → full beat.
-	logic [W0-1:0]  Buf[CAP];
-	logic signed [$clog2(CAP):0]  ICap = PO0;	// PO0 (empty), .., 0, .., -PI0; >= 0: room
-	logic signed [$clog2(CAP):0]  ORdy = -PO0;	// -PO0 (empty), .., 0, .., PI0; >= 0: ready
+		// Extract GCD from in- and output parallelism and map to data path width
+		function int unsigned gcd(input int unsigned a, input int unsigned b);
+			return (b == 0)? a : gcd(b, a % b);
+		endfunction
+		localparam int unsigned  GCD = gcd(PI, PO);
+		localparam int unsigned  W0  = GCD * W;			// normalized element width
+		localparam int unsigned  PI0 = PI / GCD;		// normalized input parallelism
+		localparam int unsigned  PO0 = PO / GCD;		// normalized output parallelism
+		localparam int unsigned  N0  = 1 + (N-1)/GCD;	// normalized vector length
 
-	//=======================================================================
-	// Sequential State Update (two-phase: otrn first, then itrn)
-	always_ff @(posedge clk) begin
-		if(rst) begin
-			Buf <= '{ default: 'x };
-			ICap <= PO0;
-			ORdy <= -PO0;
-			ITrn <= TRNI-1;
-			OTrn <= TRNO-1;
+		//=======================================================================
+		// Derived Parameters
+		localparam int unsigned  TRNI  = 1 + (N0-1)/PI0;	// input transactions per vector
+		localparam int unsigned  TRNO  = 1 + (N0-1)/PO0;	// output transactions per vector
+		localparam int unsigned  CAP   = PI0 + PO0;     	// internal buffer capacity
+
+		//=======================================================================
+		// Vector Progress Counters
+		logic signed [$clog2(TRNI):0]  ITrn = TRNI-1;	// TRNI-1, .., 0, -1 (done)
+		logic signed [$clog2(TRNO):0]  OTrn = TRNO-1;	// TRNO-1, .., 0, -1 (done)
+		uwire  idone = ITrn[$left(ITrn)];
+		uwire  odone = OTrn[$left(OTrn)];
+		uwire  itrn = ivld && irdy;
+		uwire  otrn = ovld && ordy;
+
+		//=======================================================================
+		// Internal Buffer
+		//  ICap (input capacity):   ICap += PO0 on pop, -= PI0 on push.  Sign bit 0 → room for PI0.
+		//  ORdy (output readiness): ORdy -= PO0 on pop, += PI0 on push.  Sign bit 0 → full beat.
+		logic [W0-1:0]  Buf[CAP];
+		logic signed [$clog2(CAP):0]  ICap = PO0;	// PO0 (empty), .., 0, .., -PI0; >= 0: room
+		logic signed [$clog2(CAP):0]  ORdy = -PO0;	// -PO0 (empty), .., 0, .., PI0; >= 0: ready
+
+		//=======================================================================
+		// Sequential State Update (two-phase: otrn first, then itrn)
+		always_ff @(posedge clk) begin
+			if(rst) begin
+				Buf <= '{ default: 'x };
+				ICap <= PO0;
+				ORdy <= -PO0;
+				ITrn <= TRNI-1;
+				OTrn <= TRNO-1;
+			end
+			else begin
+				automatic logic [W0-1:0]  n_buf[CAP];
+				automatic logic signed [$clog2(CAP):0]   n_icap;
+				automatic logic signed [$clog2(CAP):0]   n_ordy;
+				automatic logic signed [$clog2(TRNI):0]  n_itrn;
+				automatic logic signed [$clog2(TRNO):0]  n_otrn;
+
+				n_buf  = Buf;
+				n_icap = ICap;
+				n_ordy = ORdy;
+				n_itrn = ITrn;
+				n_otrn = OTrn;
+
+				// Phase 1: retire PO0 elements from buffer head.
+				if(otrn) begin
+					n_buf[0 +: CAP-PO0] = n_buf[PO0 +: CAP-PO0];
+					n_icap += PO0;
+					n_ordy -= PO0;
+					n_otrn--;
+				end
+
+				// Phase 2: append PI0 input elements at buffer tail.
+				if(itrn) begin
+					automatic int unsigned  ofs = ORdy + (otrn? 0 : $signed(PO0));
+					for(int unsigned  p = 0; p < PI0; p++)
+						n_buf[ofs + p] = idat[p*GCD +: GCD];
+					n_icap -= PI0;
+					n_ordy += PI0;
+					n_itrn--;
+				end
+
+				// When both input and output vectors are complete, start next vector.
+				if(n_itrn[$left(n_itrn)] && n_otrn[$left(n_otrn)]) begin
+					n_itrn = TRNI-1;
+					n_otrn = TRNO-1;
+					n_icap =  PO0;
+					n_ordy = -PO0;
+				end
+
+				Buf <= n_buf;
+				ITrn <= n_itrn;
+				OTrn <= n_otrn;
+				ICap <= n_icap;
+				ORdy <= n_ordy;
+			end
 		end
-		else begin
-			automatic logic [W0-1:0]  n_buf[CAP];
-			automatic logic signed [$clog2(CAP):0]   n_icap;
-			automatic logic signed [$clog2(CAP):0]   n_ordy;
-			automatic logic signed [$clog2(TRNI):0]  n_itrn;
-			automatic logic signed [$clog2(TRNO):0]  n_otrn;
 
-			n_buf  = Buf;
-			n_icap = ICap;
-			n_ordy = ORdy;
-			n_itrn = ITrn;
-			n_otrn = OTrn;
+		//=======================================================================
+		// Ultimate Module Outputs
 
-			// Phase 1: retire PO0 elements from buffer head.
-			if(otrn) begin
-				n_buf[0 +: CAP-PO0] = n_buf[PO0 +: CAP-PO0];
-				n_icap += PO0;
-				n_ordy -= PO0;
-				n_otrn--;
-			end
+		// Accept input: vector not complete and buffer has capacity.
+		assign  irdy = !idone && !ICap[$left(ICap)];
 
-			// Phase 2: append PI0 input elements at buffer tail.
-			if(itrn) begin
-				automatic int unsigned  ofs = ORdy + (otrn? 0 : $signed(PO0));
-				for(int unsigned  p = 0; p < PI0; p++)
-					n_buf[ofs + p] = idat[p*GCD +: GCD];
-				n_icap -= PI0;
-				n_ordy += PI0;
-				n_itrn--;
-			end
+		// Emit output: full beat available, or input done with residual data.
+		assign  ovld = !odone && (!ORdy[$left(ORdy)] || idone);
 
-			// When both input and output vectors are complete, start next vector.
-			if(n_itrn[$left(n_itrn)] && n_otrn[$left(n_otrn)]) begin
-				n_itrn = TRNI-1;
-				n_otrn = TRNO-1;
-				n_icap =  PO0;
-				n_ordy = -PO0;
-			end
+		// Output: low PO0 buffer elements driven unconditionally.
+		for(genvar  p = 0; p < PO0; p++)  assign  odat[p*GCD +: GCD] = Buf[p];
 
-			Buf <= n_buf;
-			ITrn <= n_itrn;
-			OTrn <= n_otrn;
-			ICap <= n_icap;
-			ORdy <= n_ordy;
-		end
-	end
-
-	//=======================================================================
-	// Ultimate Module Outputs
-
-	// Accept input: vector not complete and buffer has capacity.
-	assign  irdy = !idone && !ICap[$left(ICap)];
-
-	// Emit output: full beat available, or input done with residual data.
-	assign  ovld = !odone && (!ORdy[$left(ORdy)] || idone);
-
-	// Output: low PO0 buffer elements driven unconditionally.
-	for(genvar  p = 0; p < PO0; p++)  assign  odat[p*GCD+:GCD] = Buf[p];
+	end : genConvert
 
 `default_nettype wire
 endmodule : vpc
