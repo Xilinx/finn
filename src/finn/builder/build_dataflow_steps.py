@@ -703,14 +703,40 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
 
     target_cycles_per_frame = cfg._resolve_cycles_per_frame()
     if target_cycles_per_frame is not None:
-        model = model.transform(
-            SetFolding(
-                target_cycles_per_frame,
-                mvau_wwidth_max=cfg.mvau_wwidth_max,
-                two_pass_relaxation=cfg.folding_two_pass_relaxation,
-            ),
-            apply_to_subgraphs=True,
+        folder = SetFolding(
+            target_cycles_per_frame,
+            mvau_wwidth_max=cfg.mvau_wwidth_max,
+            two_pass_relaxation=cfg.folding_two_pass_relaxation,
+            style=cfg.folding_style,
+            folding_maximum_padding=cfg.folding_maximum_padding,
+            enable_folding_dwc_heuristic=cfg.enable_folding_dwc_heuristic,
+            enable_folding_fifo_heuristic=cfg.enable_folding_fifo_heuristic,
+            folding_effort=cfg.folding_effort,
+            folding_max_attempts=cfg.folding_max_attempts,
+            folding_pad_io_nodes=cfg.folding_pad_io_nodes,
+            prefer_memory=cfg.folding_prefer_memory,
+            prefer_compute=cfg.folding_prefer_compute,
+            platform=cfg.board,
+            auto_fifo_strategy=cfg.auto_fifo_strategy,
+            strict_budget=cfg.folding_strict_budget,
+            allow_uram_weights=cfg.folding_allow_uram_weights,
         )
+        model = model.transform(folder, apply_to_subgraphs=True)
+        # say whether the chosen folding actually fits the device. SetFolding
+        # itself warns (or raises under strict_budget); this puts the verdict in
+        # the build log next to the folding it describes.
+        report = getattr(folder, "last_search_report", None)
+        if report is not None:
+            if report["fits_budget"]:
+                print(
+                    "Folding fits the %s resource budget (%d cycles/frame)."
+                    % (cfg.board, report["achieved_cycles_per_frame"])
+                )
+            else:
+                print(
+                    "WARNING: folding does NOT fit the %s resource budget: %s"
+                    % (cfg.board, report["over_budget"])
+                )
         model = model.transform(GiveUniqueNodeNames())
         loop_nodes = model.get_nodes_by_op_type("FINNLoop")
         for node in loop_nodes:
