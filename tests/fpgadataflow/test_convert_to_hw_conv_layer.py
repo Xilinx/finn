@@ -64,7 +64,6 @@ from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 @pytest.mark.vivado
 def test_convert_to_hw_conv_layer(conv_config, depthwise, exec_mode):
     kernel_size, stride, pad = conv_config
-    np.random.seed(0)
     idt = DataType["UINT4"]
 
     in_feature_dim = 7
