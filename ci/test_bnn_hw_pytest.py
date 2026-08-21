@@ -90,7 +90,7 @@ def pytest_generate_tests(metafunc):
     test_dirs = find_model_dirs(current_dir)
 
     for marker in all_markers_used:
-        if "Pynq" in marker or "U55C" in marker or "ZCU104" in marker or "KV260_SOM" in marker:
+        if "AUP_ZU3" in marker or "U55C" in marker or "ZCU104" in marker or "KV260_SOM" in marker:
             platform = get_platform(marker)
             scenarios.extend(
                 get_full_parameterized_test_list(
@@ -132,7 +132,7 @@ def pytest_generate_tests(metafunc):
         metafunc.parametrize(argnames, argvalues, ids=idlist, scope="class")
 
 
-@pytest.mark.Pynq
+@pytest.mark.AUP_ZU3
 @pytest.mark.U55C
 @pytest.mark.ZCU104
 @pytest.mark.KV260_SOM
