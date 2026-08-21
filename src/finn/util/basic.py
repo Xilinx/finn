@@ -152,15 +152,23 @@ def get_vivado_version() -> Optional[Tuple[int, int]]:
     return (int(match.group(1)), int(match.group(2))) if match else None
 
 
-def get_liveness_threshold_cycles(cycles_estimate=None):
-    """Return the number of no-output cycles rtlsim will wait before assuming
-    the simulation is not finishing and throwing an exception. If an estimate
-    is supplied, ``LIVENESS_THRESHOLD`` can only increase it."""
+def get_liveness_threshold_cycles():
+    """Return the ``LIVENESS_THRESHOLD`` environment override (in cycles) for the
+    rtlsim watchdog. Defaults to 10000 if unset."""
 
-    configured_threshold = int(os.getenv("LIVENESS_THRESHOLD", 10000))
+    return int(os.getenv("LIVENESS_THRESHOLD", 10000))
+
+
+def get_watchdog_timeout_cycles(cycles_estimate=None):
+    """Return the effective number of no-output cycles rtlsim will wait before
+    assuming the simulation is not finishing and throwing an exception. This is
+    the derived cycle estimate raised to at least the ``LIVENESS_THRESHOLD``
+    override; with no estimate, the override alone is used."""
+
+    override = get_liveness_threshold_cycles()
     if cycles_estimate is None:
-        return configured_threshold
-    return max(int(cycles_estimate), configured_threshold)
+        return override
+    return max(int(cycles_estimate), override)
 
 
 def get_rtlsim_timeout_error_message(threshold, cycles_estimate=None):
