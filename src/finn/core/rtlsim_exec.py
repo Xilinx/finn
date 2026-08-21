@@ -34,8 +34,9 @@ from qonnx.custom_op.registry import getCustomOp
 from finn import xsi
 from finn.util.basic import (
     get_finn_root,
-    get_liveness_threshold_cycles,
+    get_rtlsim_timeout_error_message,
     get_vivado_root,
+    get_watchdog_timeout_cycles,
     launch_process_helper,
     make_build_dir,
 )
@@ -148,14 +149,15 @@ def rtlsim_exec_cppxsi(
             "<tensor_name>" : <np.ndarray>
         }
 
-    If timeout_cycles is not None, the default value from get_liveness_threshold_cycles
-    will be used.
+    If timeout_cycles is None, the LIVENESS_THRESHOLD override alone is used.
+    Otherwise, timeout_cycles is treated as the derived estimate and
+    LIVENESS_THRESHOLD can only increase it.
     throttle_cycles will be used to pause the input stream every time an input frame is finished.
     """
     # TODO: support running functional rtlsim with real I/O data
     # TODO: support running with multiple inputs/outputs
-    if timeout_cycles is None:
-        timeout_cycles = get_liveness_threshold_cycles()
+    timeout_estimate = timeout_cycles
+    timeout_cycles = get_watchdog_timeout_cycles(timeout_estimate)
 
     assert dummy_data_mode, "Only dummy_data_mode=True is supported for now"
 
@@ -319,7 +321,10 @@ def rtlsim_exec_cppxsi(
         key, val = result_line.split("\t")
         ret_dict[key] = int(val)
     if "TIMEOUT" in ret_dict.keys():
-        assert ret_dict["TIMEOUT"] == 0, f"XSI C++ simulation timed out, see {results_filename}"
+        assert ret_dict["TIMEOUT"] == 0, (
+            get_rtlsim_timeout_error_message(timeout_cycles, timeout_estimate)
+            + f" See {results_filename} for simulation details."
+        )
     return ret_dict
 
 
@@ -388,12 +393,19 @@ def rtlsim_exec_finnxsi(model, execution_context, pre_hook=None, post_hook=None)
 
     if pre_hook is not None:
         pre_hook(sim)
+    liveness_estimate = model.get_metadata_prop("rtlsim_liveness_estimate")
+    if liveness_estimate is not None:
+        liveness_estimate = int(liveness_estimate)
+    liveness_threshold = get_watchdog_timeout_cycles(liveness_estimate) * batchsize
+    if liveness_estimate is not None:
+        liveness_estimate *= batchsize
     n_cycles = finnxsi.rtlsim_multi_io(
         sim,
         io_dict,
         num_out_values,
         sname="",
-        liveness_threshold=get_liveness_threshold_cycles() * batchsize,
+        liveness_threshold=liveness_threshold,
+        liveness_estimate=liveness_estimate,
     )
     if post_hook is not None:
         post_hook(sim)

@@ -153,10 +153,35 @@ def get_vivado_version() -> Optional[Tuple[int, int]]:
 
 
 def get_liveness_threshold_cycles():
-    """Return the number of no-output cycles rtlsim will wait before assuming
-    the simulation is not finishing and throwing an exception."""
+    """Return the ``LIVENESS_THRESHOLD`` environment override (in cycles) for the
+    rtlsim watchdog. Defaults to 10000 if unset."""
 
-    return int(os.getenv("LIVENESS_THRESHOLD", 1000000))
+    return int(os.getenv("LIVENESS_THRESHOLD", 10000))
+
+
+def get_watchdog_timeout_cycles(cycles_estimate=None):
+    """Return the effective number of no-output cycles rtlsim will wait before
+    assuming the simulation is not finishing and throwing an exception. This is
+    the derived cycle estimate raised to at least the ``LIVENESS_THRESHOLD``
+    override; with no estimate, the override alone is used."""
+
+    override = get_liveness_threshold_cycles()
+    if cycles_estimate is None:
+        return override
+    return max(int(cycles_estimate), override)
+
+
+def get_rtlsim_timeout_error_message(threshold, cycles_estimate=None):
+    """Return an actionable RTL simulation timeout error message."""
+
+    message = f"RTL simulation timed out after {int(threshold)} cycles"
+    if cycles_estimate is not None:
+        message += f" (derived estimate: {int(cycles_estimate)})"
+    return (
+        message
+        + ". If your model requires more cycles, set LIVENESS_THRESHOLD "
+        + "to a higher value."
+    )
 
 
 def make_build_dir(prefix=""):
