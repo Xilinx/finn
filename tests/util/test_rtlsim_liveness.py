@@ -1,6 +1,8 @@
 # Copyright Advanced Micro Devices, Inc.
 # SPDX-License-Identifier: BSD-3-Clause
 
+import pytest
+
 from finn.util.basic import (
     get_liveness_threshold_cycles,
     get_rtlsim_timeout_error_message,
@@ -8,6 +10,7 @@ from finn.util.basic import (
 )
 
 
+@pytest.mark.util
 def test_liveness_threshold_default_and_estimate(monkeypatch):
     monkeypatch.delenv("LIVENESS_THRESHOLD", raising=False)
 
@@ -17,6 +20,7 @@ def test_liveness_threshold_default_and_estimate(monkeypatch):
     assert get_watchdog_timeout_cycles(20000) == 20000
 
 
+@pytest.mark.util
 def test_liveness_threshold_env_can_only_raise_estimate(monkeypatch):
     monkeypatch.setenv("LIVENESS_THRESHOLD", "5000")
     assert get_watchdog_timeout_cycles(12000) == 12000
@@ -25,6 +29,7 @@ def test_liveness_threshold_env_can_only_raise_estimate(monkeypatch):
     assert get_watchdog_timeout_cycles(12000) == 20000
 
 
+@pytest.mark.util
 def test_rtlsim_timeout_error_message_is_actionable():
     message = get_rtlsim_timeout_error_message(20000, 12000)
 
