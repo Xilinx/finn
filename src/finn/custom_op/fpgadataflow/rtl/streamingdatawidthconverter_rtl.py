@@ -45,24 +45,6 @@ class StreamingDataWidthConverter_rtl(StreamingDataWidthConverter, RTLBackend):
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
 
-    def check_divisible_iowidths(self):
-        iwidth = self.get_nodeattr("inWidth")
-        owidth = self.get_nodeattr("outWidth")
-        # the rtl module only supports
-        # stream widths that are divisible by
-        # integer width ratios
-        iwidth_d = iwidth % owidth == 0
-        owidth_d = owidth % iwidth == 0
-        assert (
-            iwidth_d or owidth_d
-        ), """RTL implementation of DWC requires
-        stream widths that are integer width ratios
-        from each other. Input width is set to %s
-        and output width is set to %s """ % (
-            iwidth,
-            owidth,
-        )
-
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         if mode == "cppsim":

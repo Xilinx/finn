@@ -41,6 +41,16 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
     """Class that corresponds to finn-hlslib StreamingDataWidthConverter_Batch
     function."""
 
+    def get_iowidth_lcm(self):
+        iwidth = self.get_nodeattr("inWidth")
+        owidth = self.get_nodeattr("outWidth")
+        return int(np.lcm(iwidth, owidth))
+
+    def needs_lcm(self):
+        iwidth = self.get_nodeattr("inWidth")
+        owidth = self.get_nodeattr("outWidth")
+        return max(iwidth, owidth) % min(iwidth, owidth) != 0
+
     def _needs_element_width_split(self):
         return self.needs_lcm() and self.get_iowidth_lcm() > 8191
 

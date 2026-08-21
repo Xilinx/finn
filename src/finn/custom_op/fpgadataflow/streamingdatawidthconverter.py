@@ -69,21 +69,6 @@ class StreamingDataWidthConverter(HWCustomOp):
         oshape = self.get_nodeattr("shape")
         return oshape
 
-    def get_iowidth_lcm(self):
-        iwidth = self.get_nodeattr("inWidth")
-        owidth = self.get_nodeattr("outWidth")
-        return int(np.lcm(iwidth, owidth))
-
-    def needs_lcm(self):
-        iwidth = self.get_nodeattr("inWidth")
-        owidth = self.get_nodeattr("outWidth")
-        maxwidth = max(iwidth, owidth)
-        minwidth = min(iwidth, owidth)
-        return maxwidth % minwidth != 0
-
-    def check_divisible_iowidths(self):
-        pass
-
     def _folded_shape_for_width(self, width):
         shape = self.get_normal_input_shape()
         bits = self.get_input_datatype().bitwidth()
@@ -103,12 +88,10 @@ class StreamingDataWidthConverter(HWCustomOp):
         return (int(total_elems // elems), elems)
 
     def get_folded_input_shape(self, ind=0):
-        self.check_divisible_iowidths()
         iwidth = self.get_nodeattr("inWidth")
         return self._folded_shape_for_width(iwidth)
 
     def get_folded_output_shape(self, ind=0):
-        self.check_divisible_iowidths()
         owidth = self.get_nodeattr("outWidth")
         return self._folded_shape_for_width(owidth)
 
