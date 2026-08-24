@@ -31,7 +31,6 @@ import math
 import numpy as np
 import os
 import shutil
-import subprocess
 from pathlib import Path
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -45,7 +44,7 @@ from finn.custom_op.fpgadataflow import templates
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
-from finn.util.basic import make_build_dir, resolve_xilinx_tool
+from finn.util.basic import launch_process_helper, make_build_dir, resolve_xilinx_tool
 from finn.util.create import adjacency_list
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 from finn.util.rtlsim import dat_file_to_numpy_array, mlo_prehook_func_factory
@@ -1234,8 +1233,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
             f.write("{} -mode batch -source make_loop_ip.tcl\n".format(vivado_cmd))
             f.write("cd {}\n".format(working_dir))
         bash_command = ["bash", make_project_sh]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
+        launch_process_helper(bash_command, check=True)
         assert os.path.isfile(wrapper_filename), "IPGen failed: %s not found" % (wrapper_filename)
         self.set_nodeattr("ipgen_path", wrapper_filename)
         self.set_nodeattr("ip_path", vivado_stitch_proj_dir + "/ip")

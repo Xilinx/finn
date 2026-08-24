@@ -29,7 +29,6 @@
 
 import multiprocessing as mp
 import os
-import subprocess
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
@@ -50,6 +49,7 @@ from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import (
+    launch_process_helper,
     make_build_dir,
     pynq_native_port_width,
     pynq_part_map,
@@ -277,8 +277,7 @@ class MakeZYNQProject(Transformation):
 
         # call the synthesis script
         bash_command = ["bash", synth_project_sh]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
+        launch_process_helper(bash_command, check=True)
         bitfile_name = vivado_pynq_proj_dir + "/finn_zynq_link.runs/impl_1/top_wrapper.bit"
         if not os.path.isfile(bitfile_name):
             raise Exception(

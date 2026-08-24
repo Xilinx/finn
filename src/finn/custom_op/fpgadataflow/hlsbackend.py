@@ -30,14 +30,13 @@ import glob
 import numpy as np
 import os
 import re
-import subprocess
 import warnings
 from abc import ABC, abstractmethod
 from qonnx.core.datatype import DataType
 
 from finn import xsi
 from finn.custom_op.fpgadataflow import templates
-from finn.util.basic import CppBuilder, make_build_dir
+from finn.util.basic import CppBuilder, launch_process_helper, make_build_dir
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 from finn.util.hls import CallHLS
 
@@ -303,8 +302,7 @@ Found no executable for this node, did you run the codegen and
 compilation transformations?
             """
             )
-        process_execute = subprocess.Popen(executable_path, stdout=subprocess.PIPE)
-        process_execute.communicate()
+        launch_process_helper(executable_path, check=True)
 
     def fold_input_for_npy(self, inp_val, ind):
         """Lay an input tensor out into the folded shape written to the npy that
