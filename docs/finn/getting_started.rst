@@ -250,7 +250,7 @@ On the host side:
 
 Slash-based Alveo first-time setup
 ***********************************
-The Slash toolchain targets Versal-based Alveo cards such as the V80 using the V80++
+The Slash toolchain targets Versal-based Alveo cards such as the V80 using the ``slashkit``
 linker. We use *host* to refer to the PC running the FINN Docker environment, which will
 build the accelerator and package it up, and *target* to refer to the PC where the V80
 card is installed. These two can be the same PC, or connected over the network.

@@ -738,7 +738,11 @@ class TestEnd2End:
         perf_est = model.analysis(dataflow_performance)
         # Run with 2 frames to get valid steady-state throughput
         batchsize = max(2, 2 * n_nodes)
-        ret = xsi_fifosim(model, n_inferences=batchsize)
+        # derive the rtlsim watchdog timeout from the latency estimate (mirrors the
+        # FIFO-sizing and perf-report steps); the flat liveness default is too low
+        # for the pipeline-fill latency of a full model
+        max_iters = perf_est["critical_path_cycles"] * 1.1 + 50
+        ret = xsi_fifosim(model, n_inferences=batchsize, max_iters=max_iters)
         ret = annotate_rtlsim_performance(ret, batchsize, target_clk_ns)
         # Check that steady-state throughput is valid and close to estimate
         assert ret["stable_throughput_valid"] is True
