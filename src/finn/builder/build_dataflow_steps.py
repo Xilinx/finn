@@ -161,7 +161,11 @@ from finn.util.config import (
     extract_model_config_to_json,
 )
 from finn.util.fpgadataflow import is_mlo, warn_hls_rtl_dsp_conflict
-from finn.util.rtlsim import annotate_rtlsim_performance, mlo_prehook_func_factory
+from finn.util.rtlsim import (
+    annotate_rtlsim_performance,
+    mlo_prehook_func_factory,
+    run_parallel_mlo_rtlsim,
+)
 from finn.util.test import execute_parent
 from finn.util.vivado import parse_ooc_synth_results
 
@@ -1184,7 +1188,10 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
             if cfg.verify_rtlsim_behavioral:
                 verify_model.set_metadata_prop("rtlsim_behavioral", "1")
             if is_mlo(model):
-                verify_mlo(verify_model, cfg, "stitched_ip_rtlsim")
+                if cfg.mlo_parallel_rtlsim:
+                    run_parallel_mlo_rtlsim(verify_model, cfg)
+                else:
+                    verify_mlo(verify_model, cfg, "stitched_ip_rtlsim")
                 for loop_node in verify_model.get_nodes_by_op_type("FINNLoop"):
                     snapshot_fifo_logs(cfg, "stitched_ip_rtlsim", loop_context=loop_node.name)
                 snapshot_fifo_logs(cfg, "stitched_ip_rtlsim")

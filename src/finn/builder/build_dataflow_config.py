@@ -384,6 +384,10 @@ class DataflowBuildConfig:
     #: loop_body_hierarchy and loop_body_range
     mlo: Optional[bool] = False
 
+    #: If set to True, MLO stitched-IP rtlsim verification uses the parallel
+    #: "stream tap + body" path that simulates all loop iterations concurrently
+    mlo_parallel_rtlsim: Optional[bool] = False
+
     #: A List of strings that specify the PyTorch metadata hierarchy to
     #: be used for the loop body hierarchy. Each item in the list should
     #: be a string that represents a level in the hierarchy.
