@@ -25,10 +25,10 @@ class Crop(HWCustomOp):
             "DataType": ("s", True, ""),
             "ImgDim": ("ints", True, []),  # [h, w]
             "NumChannels": ("i", True, 0),
-            "CropNorth": ("i", True, []),
-            "CropSouth": ("i", True, []),
-            "CropWest": ("i", True, []),
-            "CropEast": ("i", True, []),
+            "CropNorth": ("i", True, 0),
+            "CropSouth": ("i", True, 0),
+            "CropWest": ("i", True, 0),
+            "CropEast": ("i", True, 0),
             "SIMD": ("i", False, 1),
             "numInputVectors": ("ints", False, []),
         }

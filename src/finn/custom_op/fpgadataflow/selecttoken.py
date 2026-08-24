@@ -93,6 +93,3 @@ class SelectToken(HWCustomOp):
         context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(
             self.get_normal_output_shape()
         )
-
-    def lut_estimation(self):
-        return 200

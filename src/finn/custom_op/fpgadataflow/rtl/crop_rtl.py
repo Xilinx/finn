@@ -17,22 +17,17 @@ class Crop_rtl(Crop, RTLBackend):
     def get_nodeattr_types(self):
         return Crop.get_nodeattr_types(self) | RTLBackend.get_nodeattr_types(self)
 
-    def generate_hdl(self, model, fpgapart, clk):
+    def _get_template_param_dict(self):
+        """Return the crop-core template parameters for this node. Subclasses
+        that reuse the crop core (e.g. SelectToken_rtl) override this to map
+        their own geometry onto the crop parameters."""
         height, width = self.get_nodeattr("ImgDim")
         if height == 0:
             height = 1
         channels = self.get_nodeattr("NumChannels")
         simd = self.get_nodeattr("SIMD")
         assert channels % simd == 0, "SIMD must divide NumChannels"
-
-        rtlsrc = _rtlsrc_dir()
-        with open(os.path.join(rtlsrc, "crop_template.v"), "r") as f:
-            template = f.read()
-
-        topname = self.get_verilog_top_module_name()
-        self.set_nodeattr("gen_top_module", topname)
-        code_gen_dict = {
-            "TOP_MODULE_NAME": topname,
+        return {
             "H": height,
             "W": width,
             "CF": channels // simd,
@@ -42,6 +37,16 @@ class Crop_rtl(Crop, RTLBackend):
             "CROP_S": self.get_nodeattr("CropSouth"),
             "CROP_W": self.get_nodeattr("CropWest"),
         }
+
+    def generate_hdl(self, model, fpgapart, clk):
+        rtlsrc = _rtlsrc_dir()
+        with open(os.path.join(rtlsrc, "crop_template.v"), "r") as f:
+            template = f.read()
+
+        topname = self.get_verilog_top_module_name()
+        self.set_nodeattr("gen_top_module", topname)
+        code_gen_dict = self._get_template_param_dict()
+        code_gen_dict["TOP_MODULE_NAME"] = topname
         for key, value in code_gen_dict.items():
             template = template.replace("$%s$" % key, str(value))
 
