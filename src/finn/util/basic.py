@@ -45,8 +45,8 @@ from finn.util.data_packing import finnpy_to_packed_bytearray
 pynq_part_map = dict()
 pynq_part_map["Ultra96"] = "xczu3eg-sbva484-1-e"
 pynq_part_map["Ultra96-V2"] = "xczu3eg-sbva484-1-i"
-pynq_part_map["Pynq-Z1"] = "xc7z020clg400-1"
-pynq_part_map["Pynq-Z2"] = "xc7z020clg400-1"
+pynq_part_map["Pynq-Z1"] = "xc7z020clg400-1"  # retired, see retired_pynq_boards
+pynq_part_map["Pynq-Z2"] = "xc7z020clg400-1"  # retired, see retired_pynq_boards
 pynq_part_map["ZCU102"] = "xczu9eg-ffvb1156-2-e"
 pynq_part_map["ZCU104"] = "xczu7ev-ffvc1156-2-e"
 pynq_part_map["ZCU111"] = "xczu28dr-ffvg1517-2-e"
@@ -54,6 +54,13 @@ pynq_part_map["RFSoC2x2"] = "xczu28dr-ffvg1517-2-e"
 pynq_part_map["RFSoC4x2"] = "xczu48dr-ffvg1517-2-e"
 pynq_part_map["KV260_SOM"] = "xck26-sfvc784-2LV-c"
 pynq_part_map["AUP-ZU3_8GB"] = "xczu3eg-sfvc784-2-e"
+
+# Zynq-7000 boards (Pynq-Z1/Z2) retired from official support with the move to
+# Vivado 2024.2. The build flow itself is unchanged and Vivado 2024.2 still
+# supports the xc7z020 part, so these remain in the maps above and the builder
+# only blocks them at config-check time. To re-enable a build for one of these
+# boards, remove it from this set (see finn.builder.build_dataflow_checks).
+retired_pynq_boards = {"Pynq-Z1", "Pynq-Z2"}
 
 
 # native AXI HP port width (in bits) for PYNQ boards
@@ -75,14 +82,15 @@ vitis_part_map = dict()
 vitis_part_map["U50"] = "xcu50-fsvh2104-2L-e"
 vitis_part_map["U200"] = "xcu200-fsgd2104-2-e"
 vitis_part_map["U250"] = "xcu250-figd2104-2L-e"
-vitis_part_map["U280"] = "xcu280-fsvh2892-2L-e"
 vitis_part_map["U55C"] = "xcu55c-fsvh2892-2L-e"
 
 vitis_default_platform = dict()
 vitis_default_platform["U50"] = "xilinx_u50_gen3x16_xdma_5_202210_1"
 vitis_default_platform["U200"] = "xilinx_u200_gen3x16_xdma_2_202110_1"
-vitis_default_platform["U250"] = "xilinx_u250_gen3x16_xdma_2_1_202010_1"
-vitis_default_platform["U280"] = "xilinx_u280_gen3x16_xdma_1_202211_1"
+# 2024.2 shell (bumped from 2_1_202010_1). The lfc BNN design hits a
+# [VPL 18-1000] routing crash (partially-conflicted nets) on this newer U250
+# shell, so the Alveo BNN CI tests run on U55C instead.
+vitis_default_platform["U250"] = "xilinx_u250_gen3x16_xdma_4_1_202210_1"
 vitis_default_platform["U55C"] = "xilinx_u55c_gen3x16_xdma_3_202210_1"
 
 # Slash device mappings
@@ -97,7 +105,7 @@ part_map["VCK190"] = "xcvc1902-vsva2197-2MP-e-S"
 # Boards that expose HBM. Note that U50 has only HBM (no DDR), while the other
 # entries have HBM in addition to DDR. All boards not listed here are assumed to
 # be DDR-only (this includes U200/U250 and all Zynq/RFSoC boards).
-hbm_boards = {"U50", "U280", "U55C", "V80"}
+hbm_boards = {"U50", "U55C", "V80"}
 
 
 def get_rtlsim_trace_depth():

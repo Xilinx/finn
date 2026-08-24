@@ -147,7 +147,7 @@ def test_end2end_cybsec_mlp_export():
 
 
 # board
-@pytest.mark.parametrize("build_board", ["Pynq-Z1", "AUP-ZU3_8GB"])
+@pytest.mark.parametrize("build_board", ["AUP-ZU3_8GB"])
 @pytest.mark.xdist_group(name="end2end_cybsec")
 @pytest.mark.slow
 @pytest.mark.vivado

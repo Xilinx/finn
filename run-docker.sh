@@ -63,7 +63,7 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${NUM_DEFAULT_WORKERS=4}
 : ${FINN_SSH_KEY_DIR="$SCRIPTPATH/ssh_keys"}
 : ${PLATFORM_REPO_PATHS="/opt/xilinx/platforms"}
-: ${XRT_DEB_VERSION="xrt_202220.2.14.354_22.04-amd64-xrt"}
+: ${XRT_DEB_VERSION="xrt_202420.2.18.179_22.04-amd64-xrt"}
 : ${SLASHKIT_DEB_PACKAGE=""}
 : ${FINN_HOST_BUILD_DIR="/tmp/$DOCKER_INST_NAME"}
 : ${FINN_DOCKER_TAG="xilinx/finn:$(OLD_PWD=$(pwd); cd $SCRIPTPATH; git describe --always --tags --dirty --abbrev=12; cd $OLD_PWD).$XRT_DEB_VERSION"}

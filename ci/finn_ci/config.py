@@ -42,13 +42,19 @@ VALID_BOARD_SETUP_SCRIPTS = ("alveo", "pynq")
 # TEST_BOARDS derives from BOARDS and is what tests/end2end
 # parametrises against. Reordering the keys reorders the test matrix.
 BOARDS = {
-    "Pynq-Z1": {
+    # AUP-ZU3 replaces the retired Pynq-Z1 as the supported academic Zynq
+    # board. The on-board HW half (agentLabel/credentialsId/restartPrep) is a
+    # placeholder pending the physical AUP-ZU3 agent setup: it reuses the
+    # finn-pynq node label and carries no credentials, so the HW test stage
+    # stays dormant while the build-side matrix (bnnMarker) is exercised. When
+    # the board is provisioned, set restartPrep=True and a real credentialsId.
+    "AUP-ZU3_8GB": {
         "agentLabel": "finn-pynq",
-        "credentialsId": "pynq-z1-credentials",
-        "restartPrep": True,
+        "credentialsId": None,
+        "restartPrep": False,
         "setupScript": "pynq",
-        "marker": "Pynq",
-        "bnnMarker": "bnn_pynq",
+        "marker": "AUP_ZU3",
+        "bnnMarker": "bnn_aup_zu3",
     },
     "KV260_SOM": {
         "agentLabel": "finn-kv260",
@@ -66,13 +72,13 @@ BOARDS = {
         "marker": "ZCU104",
         "bnnMarker": "bnn_zcu104",
     },
-    "U250": {
-        "agentLabel": "finn-u250",
+    "U55C": {
+        "agentLabel": "finn-u55c",
         "credentialsId": None,
         "restartPrep": False,
         "setupScript": "alveo",
-        "marker": "U250",
-        "bnnMarker": "bnn_u250",
+        "marker": "U55C",
+        "bnnMarker": "bnn_u55c",
     },
 }
 
@@ -144,19 +150,19 @@ STAGES = [
     },
     {
         "param": "end2end",
-        "stage": "BNN U250",
-        "marker": "bnn_u250",
+        "stage": "BNN U55C",
+        "marker": "bnn_u55c",
         "shards": 2,
         "workers": 2,
-        "zipArtifacts": {"hwTestType": "bnn_build_full", "boards": ["U250"]},
+        "zipArtifacts": {"hwTestType": "bnn_build_full", "boards": ["U55C"]},
     },
     {
         "param": "end2end",
-        "stage": "BNN Pynq-Z1",
-        "marker": "bnn_pynq",
+        "stage": "BNN AUP-ZU3",
+        "marker": "bnn_aup_zu3",
         "shards": 3,
         "workers": 2,
-        "zipArtifacts": {"hwTestType": "bnn_build_full", "boards": ["Pynq-Z1"]},
+        "zipArtifacts": {"hwTestType": "bnn_build_full", "boards": ["AUP-ZU3_8GB"]},
     },
     {
         "param": "end2end",
