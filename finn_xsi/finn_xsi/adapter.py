@@ -169,6 +169,13 @@ def close_rtlsim(sim):
     if sim_finish is not None:
         sim_finish.set(1).write_back()
         sim.cycle({})
+    # Explicitly finalize the design (calls xsi_close -> flushes+closes the .wdb)
+    # instead of relying on GC of sim.top. Port back-refs and the pybind use_map
+    # can keep the Design alive past `del sim`, so without this the waveform can
+    # be left unflushed on a timeout/pdb exit, corrupting its trace tail.
+    close = getattr(sim.top, "close", None)
+    if close is not None:
+        close()
     del sim
 
 
