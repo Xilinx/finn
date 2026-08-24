@@ -742,12 +742,10 @@ def test_finnloop_end2end_mlo(
 
     model.save(tmp_output_dir + "/mlo_model.onnx")
 
-    # Use phase-based pipeline.
-    # phase_convert_to_hardware already runs step_create_dataflow_partition
-    # internally, so it must NOT be listed separately here: doing so partitions
-    # twice, and the second partition (fed the child, whose non-HW parent nodes
-    # have already been split off) re-derives and overwrites dataflow_parent.onnx
-    # with a parent that has lost those non-HW nodes.
+    # Use phase-based pipeline. phase_convert_to_hardware already partitions
+    # internally, so step_create_dataflow_partition must not be listed separately:
+    # a second partition would re-derive dataflow_parent.onnx off the child and
+    # drop the non-HW parent nodes.
     steps = [
         "phase_convert_to_hardware",  # Phase (includes partition + loop rolling)
         "phase_optimize_hardware",  # Phase (includes folding, bit-width, reports)
@@ -1000,11 +998,10 @@ def test_finnloop_end2end_mlo_ddr(
 
     model.save(tmp_output_dir + "/mlo_model.onnx")
 
-    # Use phase-based pipeline
-    # Steps are adjusted because test model already has HLS and RTL layers
+    # Use phase-based pipeline. phase_convert_to_hardware already partitions
+    # internally, so step_create_dataflow_partition must not be listed separately.
     steps = [
-        "step_create_dataflow_partition",  # Fine-grained (model already specialized)
-        "phase_convert_to_hardware",  # Phase (includes loop rolling)
+        "phase_convert_to_hardware",  # Phase (includes partition + loop rolling)
         "phase_optimize_hardware",  # Phase (includes folding, bit-width, reports)
         "phase_build_hardware",  # Phase (includes codegen, ipgen, FIFOs)
         "phase_generate_outputs",  # Phase (stitched IP, bitfile synth, driver, deployment)
