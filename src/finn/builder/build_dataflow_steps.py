@@ -155,7 +155,7 @@ from finn.transformation.qonnx.quant_act_to_multithreshold import (
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import get_liveness_threshold_cycles, get_rtlsim_trace_depth
+from finn.util.basic import get_rtlsim_trace_depth
 from finn.util.config import (
     extract_model_config_consolidate_shuffles,
     extract_model_config_to_json,
@@ -1169,9 +1169,11 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
             # (very conservative)
             verify_model = verify_model.transform(AnnotateCycles())
             estimate_network_performance = verify_model.analysis(dataflow_performance)
-            prev_liveness = get_liveness_threshold_cycles()
-            os.environ["LIVENESS_THRESHOLD"] = str(
-                int(estimate_network_performance["critical_path_cycles"] * 1.1 + 50)
+            stitched_liveness_estimate = int(
+                estimate_network_performance["critical_path_cycles"] * 1.1 + 50
+            )
+            verify_model.set_metadata_prop(
+                "rtlsim_liveness_estimate", str(stitched_liveness_estimate)
             )
             if cfg.verify_save_rtlsim_waveforms:
                 verify_out_dir = cfg.output_dir + "/verification_output"
@@ -1189,7 +1191,6 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
             else:
                 verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
                 snapshot_fifo_logs(cfg, "stitched_ip_rtlsim")
-            os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
     return model
 
 

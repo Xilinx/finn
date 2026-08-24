@@ -7,6 +7,7 @@ from dataclasses import replace
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import RemoveUnusedTensors
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
@@ -534,6 +535,41 @@ def create_chained_loop_bodies(
     return loop_body_models
 
 
+def assert_finnloop_cycle_estimate(build_dir, x, rtol=0.35, atol=50):
+    """Compare FINNLoop.get_exp_cycles() against the measured rtlsim cycle count.
+
+    Reuses the loop-body IP already built by an MLO end-to-end build (no extra
+    synthesis): loads the node-by-node rtlsim child model saved by the build,
+    re-runs rtlsim on the single FINNLoop node (which populates its
+    ``cycles_rtlsim`` nodeattr, see HWCustomOp.rtlsim_multi_io) and asserts the
+    estimate is close to the measured value, mirroring the FMPadding cycle check.
+    """
+    child_fn = build_dir + "/intermediate_models/verify_node_by_node_rtlsim.onnx"
+    assert os.path.isfile(child_fn), f"missing node-by-node rtlsim model {child_fn}"
+    # child was saved by the build with exec_mode=rtlsim and rtlsim prepared; the
+    # loop params are baked as initializers, so only the activation input is needed
+    child = ModelWrapper(child_fn)
+    loop_nodes = child.get_nodes_by_op_type("FINNLoop")
+    assert len(loop_nodes) == 1, f"expected exactly one FINNLoop, got {len(loop_nodes)}"
+    inst = getCustomOp(loop_nodes[0])
+    in_name = child.graph.input[0].name
+    ishape = tuple(child.get_tensor_shape(in_name))
+    x_single = x.reshape((1,) + ishape[1:])
+    oxe.execute_onnx(child, {in_name: x_single})
+    cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
+    exp_cycles = inst.get_exp_cycles()
+    assert exp_cycles != 0
+    # The FINNLoop estimate is a conservative liveness bound and tends to slightly
+    # over-count (measured ~2928 vs ~2310 rtlsim, i.e. ~27% high, for the canonical
+    # config), which is the safe direction for the watchdog. A relative tolerance is
+    # used because the per-iteration overhead heuristic makes the error scale with
+    # the iteration count.
+    assert np.isclose(exp_cycles, cycles_rtlsim, rtol=rtol, atol=atol), (
+        f"FINNLoop cycle estimate {exp_cycles} not close to rtlsim {cycles_rtlsim} "
+        f"(rtol={rtol}, atol={atol})"
+    )
+
+
 # MVAU folding as a jointly-valid tuple (dim, mvau_pe, mvau_simd, mvau_th, helper_pe).
 # TH=1 selects the standard MVAU; TH>1 selects the tiled MVAU (Versal DSP58).
 # The dimensions must satisfy the tiling constraints: MW % SIMD == 0, MH % PE == 0
@@ -731,6 +767,12 @@ def test_finnloop_end2end_mlo(
     assert (
         len(iter_indices) == iteration
     ), f"Expected {iteration} iterations in context, found {len(iter_indices)}"
+
+    # Cycle-count verification for the FINNLoop: compare get_exp_cycles() against the
+    # measured rtlsim cycles (FMPadding-style). Gated to the single canonical config so
+    # it reuses the already-built loop-body IP with just one extra rtlsim run.
+    if run_fifo_debug:
+        assert_finnloop_cycle_estimate(tmp_output_dir, x)
 
     # debug_fifo snapshots per-FIFO sizing logs. For MLO the loop-body FIFO sizing
     # tags each log with its enclosing FINNLoop name and stores them under a subdir

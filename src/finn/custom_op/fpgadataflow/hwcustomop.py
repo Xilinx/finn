@@ -34,7 +34,7 @@ from qonnx.custom_op.base import CustomOp
 from qonnx.util.basic import get_by_name, roundup_to_integer_multiple
 
 from finn import xsi
-from finn.util.basic import get_liveness_threshold_cycles, is_versal
+from finn.util.basic import get_watchdog_timeout_cycles, is_versal
 
 finnxsi = xsi if xsi.is_available() else None
 
@@ -226,16 +226,16 @@ class HWCustomOp(CustomOp):
     def rtlsim_multi_io(self, sim, io_dict, sname="_V"):
         "Run rtlsim for this node, supports multiple i/o streams."
         num_out_values = self.get_number_output_values()
-        # Use the larger of expected cycles or liveness threshold
+        # LIVENESS_THRESHOLD can only increase the expected cycle count.
         exp_cycles = self.get_exp_cycles()
-        liveness_threshold = get_liveness_threshold_cycles()
-        effective_threshold = max(exp_cycles, liveness_threshold)
+        effective_threshold = get_watchdog_timeout_cycles(exp_cycles)
         total_cycle_count = finnxsi.rtlsim_multi_io(
             sim,
             io_dict,
             num_out_values,
             sname=sname,
             liveness_threshold=effective_threshold,
+            liveness_estimate=exp_cycles,
         )
 
         self.set_nodeattr("cycles_rtlsim", total_cycle_count)

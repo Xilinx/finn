@@ -43,7 +43,7 @@ from finn.transformation.fpgadataflow.transpose_decomposition import (
     InferInnerOuterShuffles,
     ShuffleDecomposition,
 )
-from finn.util.basic import get_liveness_threshold_cycles, make_build_dir, robust_rmtree
+from finn.util.basic import get_watchdog_timeout_cycles, make_build_dir, robust_rmtree
 from finn.util.config import extract_model_config_consolidate_shuffles
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
@@ -792,7 +792,7 @@ def test_inner_shuffle_rtl_bursty(throttle, monkeypatch):
     hex_in = map(lambda v: f"{v:0x}", packed_in)
 
     sim = inst.get_rtlsim()
-    liveness = max(inst.get_exp_cycles(), get_liveness_threshold_cycles())
+    liveness = get_watchdog_timeout_cycles(inst.get_exp_cycles())
     try:
         inst.reset_rtlsim(sim)
         sim.stream_input("in0_V", hex_in, throttle=throttle)
