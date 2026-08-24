@@ -92,7 +92,6 @@ from finn.builder.build_dataflow_config import (
     VerificationStepType,
 )
 from finn.core.onnx_exec import execute_onnx
-from finn.core.rtlsim_exec import rtlsim_exec
 from finn.transformation.fpgadataflow.absorb_into_requant import (
     AbsorbElementwiseOpsIntoRequant,
 )
@@ -161,7 +160,7 @@ from finn.util.config import (
     extract_model_config_to_json,
 )
 from finn.util.fpgadataflow import is_mlo, warn_hls_rtl_dsp_conflict
-from finn.util.rtlsim import annotate_rtlsim_performance, mlo_prehook_func_factory
+from finn.util.rtlsim import annotate_rtlsim_performance
 from finn.util.test import execute_parent
 from finn.util.vivado import parse_ooc_synth_results
 
@@ -205,7 +204,6 @@ def verify_step(
     cfg: DataflowBuildConfig,
     step_name: str,
     need_parent: bool,
-    rtlsim_pre_hook=None,
     batched: bool = False,
 ):
     print("Running verification for " + step_name)
@@ -256,12 +254,8 @@ def verify_step(
                 print("Attempting to force model shape on verification input")
                 in_npy = in_npy.reshape(target_ishape)
             inp_dict = {inp_tensor_name: in_npy}
-            if rtlsim_pre_hook is not None:
-                rtlsim_exec(model, inp_dict, pre_hook=rtlsim_pre_hook)
-                out_npy = inp_dict[out_tensor_name]
-            else:
-                out_dict = execute_onnx(model, inp_dict, True)
-                out_npy = out_dict[out_tensor_name]
+            out_dict = execute_onnx(model, inp_dict, True)
+            out_npy = out_dict[out_tensor_name]
         exp_oshape = exp_out_npy.shape
         if out_npy.shape != exp_oshape:
             print(
@@ -279,7 +273,7 @@ def verify_step(
         all_res = all_res and res
         res_to_str = {True: "SUCCESS", False: "FAIL"}
         res_str = res_to_str[res]
-        if cfg.verify_save_full_context and (rtlsim_pre_hook is None):
+        if cfg.verify_save_full_context:
             verification_output_fn = verify_out_dir + "/verify_%s_%d_%s.npz" % (
                 step_name,
                 index,
@@ -287,8 +281,6 @@ def verify_step(
             )
             np.savez(verification_output_fn, **out_dict)
         else:
-            if cfg.verify_save_full_context:
-                print("Warning: Unable to save the full context when using MLO")
             verification_output_fn = verify_out_dir + "/verify_%s_%d_%s.npy" % (
                 step_name,
                 index,
@@ -1095,20 +1087,6 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
-def verify_mlo(model: ModelWrapper, cfg: DataflowBuildConfig, step: str):
-    finn_loop = model.get_nodes_by_op_type("FINNLoop")
-    # TODO: allow for multiple FINNLoops
-    mlo_prehook = mlo_prehook_func_factory(finn_loop[0])
-    verify_step(
-        model,
-        cfg,
-        "stitched_ip_rtlsim",
-        need_parent=False,
-        rtlsim_pre_hook=mlo_prehook,
-        batched=True,
-    )
-
-
 def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Create stitched IP for a graph after all HLS IP blocks have been generated.
     Depends on the DataflowOutputType.STITCHED_IP output product."""
@@ -1183,14 +1161,19 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
                 verify_model.set_metadata_prop("rtlsim_trace", abspath + "/verify_rtlsim.wdb")
             if cfg.verify_rtlsim_behavioral:
                 verify_model.set_metadata_prop("rtlsim_behavioral", "1")
+            # MLO verification uses batched=True; the stitched child self-derives its
+            # FINNLoop memory-init pre-hook, so both paths route through the parent.
+            verify_step(
+                verify_model,
+                cfg,
+                "stitched_ip_rtlsim",
+                need_parent=True,
+                batched=is_mlo(model),
+            )
             if is_mlo(model):
-                verify_mlo(verify_model, cfg, "stitched_ip_rtlsim")
                 for loop_node in verify_model.get_nodes_by_op_type("FINNLoop"):
                     snapshot_fifo_logs(cfg, "stitched_ip_rtlsim", loop_context=loop_node.name)
-                snapshot_fifo_logs(cfg, "stitched_ip_rtlsim")
-            else:
-                verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
-                snapshot_fifo_logs(cfg, "stitched_ip_rtlsim")
+            snapshot_fifo_logs(cfg, "stitched_ip_rtlsim")
     return model
 
 
