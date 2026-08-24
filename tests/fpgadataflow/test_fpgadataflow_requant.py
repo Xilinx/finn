@@ -357,7 +357,6 @@ def make_quant_test_model(
     else:
         q_attr_shp = (1,)
     attrshp_str = str(list(q_attr_shp))
-    np.random.seed(0)
     if need_extraction_scale:
         scale = np.random.rand(*q_attr_shp).astype(np.float32)
     else:

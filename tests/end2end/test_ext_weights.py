@@ -126,7 +126,7 @@ def test_end2end_ext_weights_build(topology):
     assert os.path.isfile(output_dir + "/deploy/bitfile/finn-accel.bit")
     assert os.path.isfile(output_dir + "/deploy/bitfile/finn-accel.hwh")
     assert os.path.isfile(output_dir + "/deploy/driver/driver.py")
-    runtime_weights_dir = output_dir + "/deploy/driver/runtime_weights/"
+    runtime_weights_dir = output_dir + "/deploy/driver/weights/runtime_weights/"
     verify_runtime_weights(folding_config_file, runtime_weights_dir)
     if os.path.isdir(get_checkpoint_name("build", topology)):
         shutil.rmtree(get_checkpoint_name("build", topology))

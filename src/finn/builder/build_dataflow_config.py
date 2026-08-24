@@ -35,7 +35,7 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
 from finn.transformation.fpgadataflow.alveo_build import VitisOptStrategy
-from finn.util.basic import part_map, vitis_default_platform
+from finn.util.basic import hbm_boards, part_map, vitis_default_platform
 
 
 class AutoFIFOSizingMethod(str, Enum):
@@ -246,7 +246,7 @@ class DataflowBuildConfig:
 
     #: Target board, only needed for generating full bitfiles where the FINN
     #: design is integrated into a shell.
-    #: e.g. "Pynq-Z1" or "U250"
+    #: e.g. "AUP-ZU3_8GB" or "U55C"
     board: Optional[str] = None
 
     #: Target shell flow, only needed for generating full bitfiles where the FINN
@@ -448,6 +448,12 @@ class DataflowBuildConfig:
         else:
             # return as-is when explicitly specified
             return self.fpga_part
+
+    def _resolve_mem_type(self):
+        """Resolve the memory type used to stream weights from the memories
+        available on the target board. When a board exposes more than one memory
+        type, HBM takes precedence over DDR."""
+        return "HBM" if self.board in hbm_boards else "DDR"
 
     def _resolve_cycles_per_frame(self):
         if self.target_fps is None:

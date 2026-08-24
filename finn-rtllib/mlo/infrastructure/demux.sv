@@ -35,6 +35,7 @@ module demux #(
     int unsigned                        IDX_BITS,
     int unsigned                        FM_SIZE,
 
+    int unsigned                        ELEM_BITS,
     int unsigned                        OLEN_BITS,
 
     int unsigned                        QDEPTH = 8,
@@ -64,7 +65,9 @@ module demux #(
     output logic [OLEN_BITS-1:0]         m_axis_se_tdata
 );
 
-localparam int unsigned FM_BEATS = FM_SIZE / (OLEN_BITS/8);
+localparam int unsigned EBYTES = (ELEM_BITS + 7)/8;
+localparam int unsigned OELEM  = OLEN_BITS / ELEM_BITS;
+localparam int unsigned FM_BEATS = FM_SIZE / (OELEM*EBYTES);
 localparam int unsigned FM_BEATS_BITS = (FM_BEATS == 1) ? 1 : $clog2(FM_BEATS);
 
 //

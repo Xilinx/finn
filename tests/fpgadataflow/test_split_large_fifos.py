@@ -75,7 +75,7 @@ def test_split_large_fifos(depth):
         folding_config_file=tmp_output_dir + "/folding_config.json",
         target_fps=10000,
         synth_clk_period_ns=10.0,
-        board="Pynq-Z1",
+        board="AUP-ZU3_8GB",
         rtlsim_batch_size=100,
         shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
         generate_outputs=[
