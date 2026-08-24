@@ -2453,8 +2453,62 @@ def elements_are_consecutive(indices):
     if indices.size == 1:
         return True
     else:
-        indices.sort()
-        return np.all(np.diff(indices) == 1)
+        return np.all(np.diff(np.sort(indices)) == 1)
+
+
+class InferSelectTokenLayer(Transformation):
+    """Convert a scalar Gather on the token axis into SelectToken."""
+
+    def apply(self, model):
+        graph = model.graph
+        graph_modified = False
+        for node_ind, node in enumerate(list(graph.node)):
+            if node.op_type != "Gather" or len(node.input) != 2:
+                continue
+            axis_attr = get_by_name(node.attribute, "axis")
+            axis = axis_attr.i if axis_attr is not None else 0
+            seq_shape = model.get_tensor_shape(node.input[0])
+            if seq_shape is None or len(seq_shape) != 3:
+                continue
+            if axis < 0:
+                axis += len(seq_shape)
+            if axis != 1 or seq_shape[0] != 1:
+                continue
+
+            indices = model.get_initializer(node.input[1])
+            if indices is None or indices.ndim != 0 or not np.issubdtype(indices.dtype, np.integer):
+                continue
+            token_index = int(indices.item())
+            num_tokens = int(seq_shape[1])
+            if not -num_tokens <= token_index < num_tokens:
+                continue
+
+            idt = model.get_tensor_datatype(node.input[0])
+            odt = model.get_tensor_datatype(node.output[0])
+            if idt is None or (odt is not None and odt != idt):
+                continue
+            new_node = helper.make_node(
+                "SelectToken",
+                [node.input[0]],
+                node.output,
+                domain="finn.custom_op.fpgadataflow",
+                backend="fpgadataflow",
+                name="SelectToken_" + node.name,
+                NumTokens=num_tokens,
+                NumChannels=int(seq_shape[2]),
+                TokenIndex=token_index,
+                SIMD=1,
+                inputDataType=idt.name,
+                outputDataType=idt.name,
+            )
+            graph.node.insert(node_ind, new_node)
+            graph.node.remove(node)
+            graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
 
 
 class InferCrop(Transformation):
@@ -2462,9 +2516,6 @@ class InferCrop(Transformation):
     Find gather layers that can be converted into a Crop layer
     and replace them with a Crop layer
     """
-
-    def __init__(self):
-        super().__init__()
 
     def apply(self, model):
         graph = model.graph

@@ -557,7 +557,12 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
         model, ["GlobalAveragePool"], to_hw.InferGlobalAccPoolLayer(), "global pooling"
     )
 
-    # Lookup layers
+    # Gather-derived layers. SelectToken must run first because scalar Gather
+    # removes the selected axis, whereas the generic Crop keeps it.
+    model = apply_if_relevant(
+        model, ["Gather"], to_hw.InferSelectTokenLayer(), "token selection layers"
+    )
+    model = apply_if_relevant(model, ["Gather"], to_hw.InferCrop(), "crop layers")
     model = apply_if_relevant(model, ["Gather"], to_hw.InferLookupLayer(), "lookup layers")
 
     # Activation functions
@@ -567,9 +572,6 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = apply_if_relevant(
         model, ["LayerNormalization"], to_hw.InferLayerNorm(), "layer normalization"
     )
-
-    # Cropping layers
-    model = apply_if_relevant(model, ["Crop"], to_hw.InferCrop(), "crop layers")
 
     # Graph topology transformations (always check - not based on op_type)
     # DuplicateStreams: detects forks where tensors have multiple consumers
