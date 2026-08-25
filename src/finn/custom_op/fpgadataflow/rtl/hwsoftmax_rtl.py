@@ -99,9 +99,8 @@ class HWSoftmax_rtl(HWSoftmax, RTLBackend):
             rtllib_dir = ""
 
         verilog_files = [rtllib_dir + f for f in self._rtllib_files()]
-        verilog_files += fifo_rtl_files(abspath)
         verilog_files.append(code_gen_dir + self.get_nodeattr("gen_top_module") + ".v")
-        return verilog_files
+        return verilog_files + fifo_rtl_files(abspath)
 
     def code_generation_ipi(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")

@@ -83,15 +83,13 @@ class LayerNorm_rtl(LayerNorm, RTLBackend):
             code_gen_dir = ""
             rtllib_dir = ""
 
-        verilog_files = [rtllib_dir + "layernorm.sv"]
-        verilog_files += fifo_rtl_files(abspath)
-        verilog_files += [
+        return [
+            rtllib_dir + "layernorm.sv",
             rtllib_dir + "accuf.sv",
             rtllib_dir + "binopf.sv",
             rtllib_dir + "rsqrtf.sv",
             code_gen_dir + self.get_nodeattr("gen_top_module") + ".v",
-        ]
-        return verilog_files
+        ] + fifo_rtl_files(abspath)
 
     def code_generation_ipi(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")

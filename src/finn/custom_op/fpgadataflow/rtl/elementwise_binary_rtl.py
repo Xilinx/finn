@@ -191,16 +191,13 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             rtllib_dir = ""
 
         top_module = self.get_nodeattr("gen_top_module")
-        return (
-            [
-                f"{rtllib_dir}eltwise.sv",
-                f"{rtllib_dir}binopf.sv",
-                f"{rtllib_dir}binopi.sv",
-                f"{rtllib_dir}int_to_fp32.sv",
-            ]
-            + fifo_rtl_files(abspath)
-            + [f"{code_gen_dir}{top_module}.v"]
-        )
+        return [
+            f"{rtllib_dir}eltwise.sv",
+            f"{rtllib_dir}binopf.sv",
+            f"{rtllib_dir}binopi.sv",
+            f"{rtllib_dir}int_to_fp32.sv",
+            f"{code_gen_dir}{top_module}.v",
+        ] + fifo_rtl_files(abspath)
 
     def get_verilog_top_module_intf_names(self):
         """

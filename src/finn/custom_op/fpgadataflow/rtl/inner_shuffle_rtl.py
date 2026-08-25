@@ -119,15 +119,12 @@ class InnerShuffle_rtl(InnerShuffle, RTLBackend):
             rtllib_dir = ""
 
         top_module = self.get_nodeattr("gen_top_module")
-        return (
-            [
-                f"{rtllib_dir}/inner_shuffle.sv",
-                f"{rtllib_dir}/skid.sv",
-                f"{rtllib_dir}/elasticmem.sv",
-            ]
-            + fifo_rtl_files(abspath)
-            + [f"{code_gen_dir}{top_module}.v"]
-        )
+        return [
+            f"{rtllib_dir}/inner_shuffle.sv",
+            f"{rtllib_dir}/skid.sv",
+            f"{rtllib_dir}/elasticmem.sv",
+            f"{code_gen_dir}{top_module}.v",
+        ] + fifo_rtl_files(abspath)
 
     def code_generation_ipi(self):
         """Constructs and returns the TCL for node instantiation in Vivado IPI."""
