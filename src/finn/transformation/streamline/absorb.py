@@ -38,6 +38,8 @@ from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import get_by_name
 
+from finn.util.basic import resolve_resize_param_input
+
 
 class AbsorbScalarBiasIntoMultiThreshold(Transformation):
     """Absorb a scalar bias following a MultiThreshold (as a downstream Add)
@@ -707,21 +709,24 @@ class AbsorbTransposeIntoResize(Transformation):
                         # skip if mode is not nearest
                         if mode != "nearest":
                             continue
-                        # if sizes specified, turn into scales
-                        if len(mt_cand.input) > 3:
-                            sizes = model.get_initializer(mt_cand.input[3])
-                        else:
-                            sizes = None
-                        if sizes is not None:
+                        # locate the resampling parameter across opset signatures
+                        param_ind, is_sizes = resolve_resize_param_input(model, mt_cand)
+                        if is_sizes:
+                            # turn sizes into scales, write them into the scales
+                            # input (index 2) and drop the sizes input
+                            sizes = model.get_initializer(mt_cand.input[param_ind])
                             ishape = model.get_tensor_shape(mt_cand.input[0])
                             ns, cs, hs, ws = sizes / np.asarray(ishape)
                             model.set_initializer(mt_cand.input[2], np.asarray([ns, cs, hs, ws]))
-                            mt_cand.input.remove(mt_cand.input[3])
+                            mt_cand.input.remove(mt_cand.input[param_ind])
+                            param_ind = 2
                         # scales already specified, transpose indices to NHWC
-                        scales = model.get_initializer(mt_cand.input[2])
+                        scales = model.get_initializer(mt_cand.input[param_ind])
                         assert scales is not None
                         ns, cs, hs, ws = scales
-                        model.set_initializer(mt_cand.input[2], np.asarray([ns, hs, ws, cs]))
+                        model.set_initializer(
+                            mt_cand.input[param_ind], np.asarray([ns, hs, ws, cs])
+                        )
                         # get rid of first tranpose node
                         mt_cand.input[0] = node.input[0]
                         graph.node.remove(node)

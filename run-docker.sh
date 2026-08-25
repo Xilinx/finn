@@ -63,7 +63,7 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${NUM_DEFAULT_WORKERS=4}
 : ${FINN_SSH_KEY_DIR="$SCRIPTPATH/ssh_keys"}
 : ${PLATFORM_REPO_PATHS="/opt/xilinx/platforms"}
-: ${XRT_DEB_VERSION="xrt_202220.2.14.354_22.04-amd64-xrt"}
+: ${XRT_DEB_VERSION="xrt_202420.2.18.179_22.04-amd64-xrt"}
 : ${SLASHKIT_DEB_PACKAGE=""}
 : ${FINN_HOST_BUILD_DIR="/tmp/$DOCKER_INST_NAME"}
 : ${FINN_DOCKER_TAG="xilinx/finn:$(OLD_PWD=$(pwd); cd $SCRIPTPATH; git describe --always --tags --dirty --abbrev=12; cd $OLD_PWD).$XRT_DEB_VERSION"}
@@ -92,8 +92,14 @@ if [ "$1" = "print-tag" ]; then
   exit 0
 fi
 
-# Default to interactive runs, for non-interactive set DOCKER_INTERACTIVE=""
-: "${DOCKER_INTERACTIVE="-it"}"
+# Default to -it only when attached to a TTY; otherwise (e.g. Jenkins) drop -t so
+# "docker run" does not fail with "the input device is not a TTY". An explicit
+# DOCKER_INTERACTIVE still wins.
+if [ -t 0 ] && [ -t 1 ]; then
+  : "${DOCKER_INTERACTIVE="-it"}"
+else
+  : "${DOCKER_INTERACTIVE=""}"
+fi
 
 # Catch FINN_DOCKER_EXTRA options being passed in without a trailing space
 FINN_DOCKER_EXTRA+=" "

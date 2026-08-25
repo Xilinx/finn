@@ -93,7 +93,6 @@ from finn.builder.build_dataflow_config import (
     VerificationStepType,
 )
 from finn.core.onnx_exec import execute_onnx
-from finn.core.rtlsim_exec import rtlsim_exec
 from finn.transformation.fpgadataflow.absorb_into_requant import (
     AbsorbElementwiseOpsIntoRequant,
 )
@@ -155,17 +154,13 @@ from finn.transformation.qonnx.quant_act_to_multithreshold import (
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import (
-    get_liveness_threshold_cycles,
-    get_rtlsim_trace_depth,
-    is_versal,
-)
+from finn.util.basic import get_rtlsim_trace_depth, is_versal
 from finn.util.config import (
     extract_model_config_consolidate_shuffles,
     extract_model_config_to_json,
 )
 from finn.util.fpgadataflow import is_mlo, warn_hls_rtl_dsp_conflict
-from finn.util.rtlsim import annotate_rtlsim_performance, mlo_prehook_func_factory
+from finn.util.rtlsim import annotate_rtlsim_performance
 from finn.util.test import execute_parent
 from finn.util.vivado import parse_ooc_synth_results
 
@@ -223,8 +218,6 @@ def verify_step(
     cfg: DataflowBuildConfig,
     step_name: str,
     need_parent: bool,
-    rtlsim_pre_hook=None,
-    batched: bool = False,
 ):
     print("Running verification for " + step_name)
     verify_out_dir = cfg.output_dir + "/verification_output"
@@ -235,13 +228,13 @@ def verify_step(
     bsize_out = exp_out_npy_all.shape[0]
     assert bsize_in == bsize_out, "Batch sizes don't match for verification IO pair"
     all_res = True
-    if batched:
-        chunks = [(in_npy_all, exp_out_npy_all, 0)]
-    else:
-        chunks = [
-            (np.expand_dims(in_npy_all[b], axis=0), np.expand_dims(exp_out_npy_all[b], axis=0), b)
-            for b in range(bsize_in)
-        ]
+    # Verification runs one frame at a time (execute_onnx only accepts a single
+    # frame), so split the batched IO array into single-frame chunks. Batched
+    # multi-frame rtlsim is still possible by calling rtlsim_exec directly.
+    chunks = [
+        (np.expand_dims(in_npy_all[b], axis=0), np.expand_dims(exp_out_npy_all[b], axis=0), b)
+        for b in range(bsize_in)
+    ]
     for in_npy, exp_out_npy, index in chunks:
         if need_parent:
             assert cfg.save_intermediate_models, "Enable save_intermediate_models for verification"
@@ -274,12 +267,8 @@ def verify_step(
                 print("Attempting to force model shape on verification input")
                 in_npy = in_npy.reshape(target_ishape)
             inp_dict = {inp_tensor_name: in_npy}
-            if rtlsim_pre_hook is not None:
-                rtlsim_exec(model, inp_dict, pre_hook=rtlsim_pre_hook)
-                out_npy = inp_dict[out_tensor_name]
-            else:
-                out_dict = execute_onnx(model, inp_dict, True)
-                out_npy = out_dict[out_tensor_name]
+            out_dict = execute_onnx(model, inp_dict, True)
+            out_npy = out_dict[out_tensor_name]
         exp_oshape = exp_out_npy.shape
         if out_npy.shape != exp_oshape:
             print(
@@ -297,7 +286,7 @@ def verify_step(
         all_res = all_res and res
         res_to_str = {True: "SUCCESS", False: "FAIL"}
         res_str = res_to_str[res]
-        if cfg.verify_save_full_context and (rtlsim_pre_hook is None):
+        if cfg.verify_save_full_context:
             verification_output_fn = verify_out_dir + "/verify_%s_%d_%s.npz" % (
                 step_name,
                 index,
@@ -305,8 +294,6 @@ def verify_step(
             )
             np.savez(verification_output_fn, **out_dict)
         else:
-            if cfg.verify_save_full_context:
-                print("Warning: Unable to save the full context when using MLO")
             verification_output_fn = verify_out_dir + "/verify_%s_%d_%s.npy" % (
                 step_name,
                 index,
@@ -548,7 +535,12 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
         model, ["GlobalAveragePool"], to_hw.InferGlobalAccPoolLayer(), "global pooling"
     )
 
-    # Lookup layers
+    # Gather-derived layers. SelectToken must run first because scalar Gather
+    # removes the selected axis, whereas the generic Crop keeps it.
+    model = apply_if_relevant(
+        model, ["Gather"], to_hw.InferSelectTokenLayer(), "token selection layers"
+    )
+    model = apply_if_relevant(model, ["Gather"], to_hw.InferCrop(), "crop layers")
     model = apply_if_relevant(model, ["Gather"], to_hw.InferLookupLayer(), "lookup layers")
 
     # Activation functions
@@ -558,9 +550,6 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = apply_if_relevant(
         model, ["LayerNormalization"], to_hw.InferLayerNorm(), "layer normalization"
     )
-
-    # Cropping layers
-    model = apply_if_relevant(model, ["Crop"], to_hw.InferCrop(), "crop layers")
 
     # Graph topology transformations (always check - not based on op_type)
     # DuplicateStreams: detects forks where tensors have multiple consumers
@@ -1087,20 +1076,6 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
-def verify_mlo(model: ModelWrapper, cfg: DataflowBuildConfig, step: str):
-    finn_loop = model.get_nodes_by_op_type("FINNLoop")
-    # TODO: allow for multiple FINNLoops
-    mlo_prehook = mlo_prehook_func_factory(finn_loop[0])
-    verify_step(
-        model,
-        cfg,
-        "stitched_ip_rtlsim",
-        need_parent=False,
-        rtlsim_pre_hook=mlo_prehook,
-        batched=True,
-    )
-
-
 def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Create stitched IP for a graph after all HLS IP blocks have been generated.
     Depends on the DataflowOutputType.STITCHED_IP output product."""
@@ -1161,9 +1136,11 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
             # (very conservative)
             verify_model = verify_model.transform(AnnotateCycles())
             estimate_network_performance = verify_model.analysis(dataflow_performance)
-            prev_liveness = get_liveness_threshold_cycles()
-            os.environ["LIVENESS_THRESHOLD"] = str(
-                int(estimate_network_performance["critical_path_cycles"] * 1.1 + 50)
+            stitched_liveness_estimate = int(
+                estimate_network_performance["critical_path_cycles"] * 1.1 + 50
+            )
+            verify_model.set_metadata_prop(
+                "rtlsim_liveness_estimate", str(stitched_liveness_estimate)
             )
             if cfg.verify_save_rtlsim_waveforms:
                 verify_out_dir = cfg.output_dir + "/verification_output"
@@ -1173,15 +1150,18 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
                 verify_model.set_metadata_prop("rtlsim_trace", abspath + "/verify_rtlsim.wdb")
             if cfg.verify_rtlsim_behavioral:
                 verify_model.set_metadata_prop("rtlsim_behavioral", "1")
+            # MLO and non-MLO both route through the parent (need_parent=True); the
+            # stitched child self-derives its FINNLoop memory-init pre-hook.
+            verify_step(
+                verify_model,
+                cfg,
+                "stitched_ip_rtlsim",
+                need_parent=True,
+            )
             if is_mlo(model):
-                verify_mlo(verify_model, cfg, "stitched_ip_rtlsim")
                 for loop_node in verify_model.get_nodes_by_op_type("FINNLoop"):
                     snapshot_fifo_logs(cfg, "stitched_ip_rtlsim", loop_context=loop_node.name)
-                snapshot_fifo_logs(cfg, "stitched_ip_rtlsim")
-            else:
-                verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
-                snapshot_fifo_logs(cfg, "stitched_ip_rtlsim")
-            os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
+            snapshot_fifo_logs(cfg, "stitched_ip_rtlsim")
     return model
 
 

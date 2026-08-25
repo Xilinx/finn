@@ -64,7 +64,6 @@ def get_brev_model_and_sample_inputs(model_name, wbits, abits):
         brev_model = get_test_model_trained(model_name, wbits, abits)
     elif model_name == "mobilenet":
         in_shape = (1, 3, 224, 224)
-        np.random.seed(42)
         input_tensor = np.random.normal(size=in_shape).astype(dtype=np.float32)
         brev_model = get_test_model_trained(model_name, 4, 4)
     else:

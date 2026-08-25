@@ -71,6 +71,7 @@ from finn.custom_op.fpgadataflow.outer_shuffle import OuterShuffle
 from finn.custom_op.fpgadataflow.pad1d import Pad1D
 from finn.custom_op.fpgadataflow.pool import Pool
 from finn.custom_op.fpgadataflow.requant import Requant
+from finn.custom_op.fpgadataflow.selecttoken import SelectToken
 from finn.custom_op.fpgadataflow.shuffle import Shuffle
 from finn.custom_op.fpgadataflow.split import StreamingSplit
 from finn.custom_op.fpgadataflow.streamingdataflowpartition import (
@@ -112,3 +113,4 @@ custom_op["StreamingDataWidthConverter"] = StreamingDataWidthConverter
 custom_op["UpsampleNearestNeighbour"] = UpsampleNearestNeighbour
 custom_op["HWSoftmax"] = HWSoftmax
 custom_op["Requant"] = Requant
+custom_op["SelectToken"] = SelectToken

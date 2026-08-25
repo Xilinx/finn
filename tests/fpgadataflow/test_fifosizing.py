@@ -70,7 +70,7 @@ def test_fifosizing_linear(method, topology):
         auto_fifo_strategy=method,
         target_fps=10000 if topology == "tfc" else 1000,
         synth_clk_period_ns=10.0,
-        board="Pynq-Z1",
+        board="AUP-ZU3_8GB",
         rtlsim_batch_size=100 if topology == "tfc" else 2,
         generate_outputs=[
             build_cfg.DataflowOutputType.ESTIMATE_REPORTS,

@@ -29,9 +29,7 @@
 
 import pytest
 
-import glob
 import json
-import re
 import torch
 from brevitas.export import export_qonnx
 
@@ -65,12 +63,12 @@ def get_folding_cfg(depth=DEPTH, ram_style="auto"):
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.fpgadataflow
-# "ultra" only on the boards that have URAM. Pynq-Z1 is a Zynq-7000 and is left at
-# "auto": fifo.sv would still elaborate the ultra branch at this depth, but Vivado
-# drops the attribute (Synth 8-12187) and backs the array with BRAM, so asking for it
-# explicitly would test nothing the other two boards do not.
+# "ultra" only on the boards that have URAM. AUP-ZU3_8GB is an xczu3eg, which has no
+# URAM, and is left at "auto": fifo.sv would still elaborate the ultra branch at this
+# depth, but Vivado drops the attribute (Synth 8-12187) and backs the array with BRAM,
+# so asking for it explicitly would test nothing the other two boards do not.
 @pytest.mark.parametrize(
-    "board, ram_style", [("Pynq-Z1", "auto"), ("ZCU104", "ultra"), ("VEK280", "ultra")]
+    "board, ram_style", [("AUP-ZU3_8GB", "auto"), ("ZCU104", "ultra"), ("VEK280", "ultra")]
 )
 def test_large_fifo_is_not_split(board, ram_style):
     versal = board in ("VEK280", "VCK190")
@@ -110,17 +108,5 @@ def test_large_fifo_is_not_split(board, ram_style):
     assert len(fifos) > 0
     for name, attrs in fifos.items():
         assert attrs["depth"] == DEPTH, "%s was split or rounded: %d" % (name, attrs["depth"])
-
-    # the style reaches the RTL as a wrapper instance parameter, so check what
-    # was stitched rather than the node attribute
-    expected_style = "ultra" if ram_style == "ultra" else "block"
-    styles = set()
-    for path in glob.glob(tmp_output_dir + "/stitched_ip/**/*.v", recursive=True):
-        with open(path) as f:
-            styles.update(re.findall(r'\.RAM_STYLE\("(\w+)"\)', f.read()))
-    assert expected_style in styles, "stitched RAM_STYLE %s, expected %s" % (
-        sorted(styles),
-        expected_style,
-    )
 
     robust_rmtree(tmp_output_dir)

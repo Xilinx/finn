@@ -28,9 +28,9 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 FROM ubuntu:jammy-20230126
-LABEL maintainer="Jakoba Petri-Koenig <jakoba.petri-koenig@amd.com>, Yaman Umuroglu <yaman.umuroglu@amd.com>"
+LABEL maintainer="Jakoba Petri-Koenig <jakoba.petri-koenig@amd.com>, Thomas Preusser <thomas.preusser@amd.com>"
 
-ARG XRT_DEB_VERSION="xrt_202220.2.14.354_22.04-amd64-xrt"
+ARG XRT_DEB_VERSION="xrt_202420.2.18.179_22.04-amd64-xrt"
 ARG SKIP_XRT
 ARG LOCAL_XRT
 ARG SLASHKIT_DEB_PACKAGE
@@ -92,7 +92,7 @@ RUN if [ -f /tmp/slashkit.deb ]; then apt-get update && apt-get install -y /tmp/
 
 # install XRT
 RUN if [ -z "$LOCAL_XRT" ] && [ -z "$SKIP_XRT" ];then \
-    wget -U 'Mozilla/5.0 (X11; Linux i686) AppleWebKit/537.17 (KHTML, like Gecko) Chrome/24.0.1312.27 Safari/537.17' "https://www.xilinx.com/bin/public/openDownload?filename=$XRT_DEB_VERSION.deb" -O /tmp/$XRT_DEB_VERSION.deb; fi
+    wget -U 'Mozilla/5.0 (X11; Linux i686) AppleWebKit/537.17 (KHTML, like Gecko) Chrome/24.0.1312.27 Safari/537.17' "https://download.amd.com/opendownload/xrt/$XRT_DEB_VERSION.deb" -O /tmp/$XRT_DEB_VERSION.deb; fi
 
 COPY requirements.txt $XRT_DEB_VERSION.* /tmp/
 
