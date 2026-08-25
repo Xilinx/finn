@@ -204,7 +204,6 @@ def verify_step(
     cfg: DataflowBuildConfig,
     step_name: str,
     need_parent: bool,
-    batched: bool = False,
 ):
     print("Running verification for " + step_name)
     verify_out_dir = cfg.output_dir + "/verification_output"
@@ -215,13 +214,13 @@ def verify_step(
     bsize_out = exp_out_npy_all.shape[0]
     assert bsize_in == bsize_out, "Batch sizes don't match for verification IO pair"
     all_res = True
-    if batched:
-        chunks = [(in_npy_all, exp_out_npy_all, 0)]
-    else:
-        chunks = [
-            (np.expand_dims(in_npy_all[b], axis=0), np.expand_dims(exp_out_npy_all[b], axis=0), b)
-            for b in range(bsize_in)
-        ]
+    # Verification runs one frame at a time (execute_onnx only accepts a single
+    # frame), so split the batched IO array into single-frame chunks. Batched
+    # multi-frame rtlsim is still possible by calling rtlsim_exec directly.
+    chunks = [
+        (np.expand_dims(in_npy_all[b], axis=0), np.expand_dims(exp_out_npy_all[b], axis=0), b)
+        for b in range(bsize_in)
+    ]
     for in_npy, exp_out_npy, index in chunks:
         if need_parent:
             assert cfg.save_intermediate_models, "Enable save_intermediate_models for verification"
@@ -1163,14 +1162,13 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
                 verify_model.set_metadata_prop("rtlsim_trace", abspath + "/verify_rtlsim.wdb")
             if cfg.verify_rtlsim_behavioral:
                 verify_model.set_metadata_prop("rtlsim_behavioral", "1")
-            # MLO verification uses batched=True; the stitched child self-derives its
-            # FINNLoop memory-init pre-hook, so both paths route through the parent.
+            # MLO and non-MLO both route through the parent (need_parent=True); the
+            # stitched child self-derives its FINNLoop memory-init pre-hook.
             verify_step(
                 verify_model,
                 cfg,
                 "stitched_ip_rtlsim",
                 need_parent=True,
-                batched=is_mlo(model),
             )
             if is_mlo(model):
                 for loop_node in verify_model.get_nodes_by_op_type("FINNLoop"):

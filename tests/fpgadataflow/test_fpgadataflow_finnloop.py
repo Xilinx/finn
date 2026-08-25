@@ -989,12 +989,8 @@ def test_finnloop_end2end_mlo_ddr(
     test_id = re.sub(r"[^0-9A-Za-z_]+", "_", request.node.name)
     tmp_output_dir = make_build_dir(f"build_mlo_{test_id}_")
 
-    batch_size = 16
-    np.save(tmp_output_dir + "/input.npy", np.broadcast_to(x, (batch_size, 3, 3, dim)))
-    np.save(
-        tmp_output_dir + "/expected_output.npy",
-        np.broadcast_to(y_ref, (batch_size, 3, 3, dim)),
-    )
+    np.save(tmp_output_dir + "/input.npy", x)
+    np.save(tmp_output_dir + "/expected_output.npy", y_ref)
 
     model.save(tmp_output_dir + "/mlo_model.onnx")
 
