@@ -140,7 +140,7 @@ module fetch_weights #(
 		logic  q_idx_rdy;
 		uwire [IDX_BITS-1:0]  q_idx_dat;
 
-		fifo #(.DEPTH(QDEPTH), .DATA_WIDTH(IDX_BITS), .RAM_STYLE("shift")) inst_queue_in (
+		fifo #(.DEPTH(QDEPTH), .DATA_WIDTH(IDX_BITS)) inst_queue_in (
 			.clk(aclk), .rst(!aresetn),
 			.count(), .maxcount(),
 			.idat(s_idx_tdata), .ivld(s_idx_tvalid), .irdy(s_idx_tready),
@@ -211,7 +211,7 @@ module fetch_weights #(
 
 		uwire [IDX_BITS-1:0]  q_idx_dat;
 
-		fifo #(.DEPTH(QDEPTH), .DATA_WIDTH(IDX_BITS), .RAM_STYLE("shift")) inst_idx_queue (
+		fifo #(.DEPTH(QDEPTH), .DATA_WIDTH(IDX_BITS)) inst_idx_queue (
 			.clk(aclk), .rst(!aresetn),
 			.count(), .maxcount(),
 			.idat(s_idx_tdata), .ivld(s_idx_tvalid), .irdy(s_idx_tready),

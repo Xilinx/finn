@@ -26,9 +26,9 @@ module acc_stage #(
 	localparam int unsigned  TREE_DEPTH = $clog2(CHAINLEN);
 	localparam int unsigned  ADD_LAT    = TREE_DEPTH + 1;
 
-	uwire [PE-1:0][ACCU_WIDTH-1:0]  Acc;
+	uwire [PE-1:0][ACCU_WIDTH-1:0]  acc;
 	logic [PE-1:0][ACCU_WIDTH-1:0]  DatInt;
-	uwire [PE-1:0][ACCU_WIDTH-1:0]  Sum;
+	uwire [PE-1:0][ACCU_WIDTH-1:0]  sum;
 
 	for(genvar  i = 0; i < PE; i++) begin : genAdd
 		// Tree reduction of CHAINLEN DSP partial products
@@ -45,10 +45,10 @@ module acc_stage #(
 		);
 
 		// Accumulator add (1 registered stage)
-		assign  Sum[i] = tree_sum[ACCU_WIDTH-1:0] + Acc[i];
+		assign  sum[i] = tree_sum[ACCU_WIDTH-1:0] + acc[i];
 		always_ff @(posedge clk) begin
 			if(rst)       DatInt[i] <= 'x;
-			else if(en)   DatInt[i] <= Sum[i];
+			else if(en)   DatInt[i] <= sum[i];
 		end
 	end : genAdd
 
@@ -81,10 +81,9 @@ module acc_stage #(
 	//=== Accumulation Delay Line ===========================================
 	//	Rotates TH partial sums rather than queueing them. Advances on the
 	//	accumulator read (inc_acc), one cycle ahead of the registered DatInt,
-	//	so it shifts in the combinational Sum. Unreset, to infer SRLs: the
+	//	so it shifts in the combinational sum. Unreset, to infer SRLs: the
 	//	first TH reads are forced to the zero the accumulation starts from.
 	uwire  acc_shift = en && inc_acc;
-	uwire [PE-1:0][ACCU_WIDTH-1:0]  acc_din = Last[ADD_LAT-1]? '0 : Sum;
 
 	logic signed [$clog2(TH):0]  CntPrep = -TH;
 	uwire  prep = CntPrep[$left(CntPrep)];
@@ -96,11 +95,11 @@ module acc_stage #(
 	(* SHREG_EXTRACT = "yes" *) logic [PE-1:0][ACCU_WIDTH-1:0]  AccLine[TH];
 	always_ff @(posedge clk) begin
 		if(acc_shift) begin
-			AccLine[0] <= acc_din;
+			AccLine[0] <= Last[ADD_LAT-1]? 0 : sum;
 			for(int  i = 1; i < TH; i++)  AccLine[i] <= AccLine[i-1];
 		end
 	end
-	assign  Acc = prep? '0 : AccLine[TH-1];
+	assign  acc = prep? 0 : AccLine[TH-1];
 
 	//=== Output Stage ======================================================
 	always_ff @(posedge clk) begin

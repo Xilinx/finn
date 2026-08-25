@@ -311,7 +311,7 @@ module pwpolyf #(
 
 	//=== Credit-backing Elastic Output Queue =================================
 	uwire  rrdy;
-	fifo #(.DATA_WIDTH($bits(fp_vec_t)), .DEPTH(CREDIT), .RAM_STYLE("shift")) obuf (
+	fifo #(.DATA_WIDTH($bits(fp_vec_t)), .DEPTH(CREDIT)) obuf (
 		.clk, .rst,
 		.idat(r), .ivld(rvld), .irdy(rrdy),
 		.odat(ydat), .ovld(yvld), .ordy(yrdy)

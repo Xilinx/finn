@@ -157,7 +157,7 @@ always_comb begin: DP_CTRL
 end
 
 fifo #(
-    .DEPTH(QDEPTH), .DATA_WIDTH(1), .RAM_STYLE("shift")
+    .DEPTH(QDEPTH), .DATA_WIDTH(1)
 ) inst_queue_seq (
     .clk(aclk), .rst(!aresetn),
     .count(), .maxcount(),

@@ -137,8 +137,7 @@ logic idx_in_tvalid, idx_in_tready;
 logic [IDX_BITS-1:0] idx_in_tdata;
 
 fifo #(
-    .DEPTH(QDEPTH), .DATA_WIDTH(IDX_BITS), .RAM_STYLE("shift")
-) inst_queue_seq (
+    .DEPTH(QDEPTH), .DATA_WIDTH(IDX_BITS)) inst_queue_seq (
     .clk(aclk), .rst(!aresetn),
     .count(), .maxcount(),
     .idat(s_idx_tdata), .ivld(s_idx_tvalid), .irdy(s_idx_tready),
@@ -150,8 +149,7 @@ logic wr_sent, wr_rdy;
 logic rd_done;
 
 fifo #(
-    .DEPTH(N_OUTSTANDING_DMAS), .DATA_WIDTH(1), .RAM_STYLE("shift")
-) inst_queue_outstanding (
+    .DEPTH(N_OUTSTANDING_DMAS), .DATA_WIDTH(1)) inst_queue_outstanding (
     .clk(aclk), .rst(!aresetn),
     .count(), .maxcount(),
     .idat(1'b1), .ivld(wr_sent), .irdy(wr_rdy),
@@ -170,8 +168,7 @@ logic s0_dma_out_tvalid, s0_dma_out_tready;
 logic [ADDR_BITS-1:0] s0_dma_out_tdata;
 
 fifo #(
-    .DEPTH(QDEPTH), .DATA_WIDTH(ADDR_BITS), .RAM_STYLE("shift")
-) inst_queue_s0_dma (
+    .DEPTH(QDEPTH), .DATA_WIDTH(ADDR_BITS)) inst_queue_s0_dma (
     .clk(aclk), .rst(!aresetn),
     .count(), .maxcount(),
     .idat(s0_dma_in_tdata), .ivld(s0_dma_in_tvalid), .irdy(s0_dma_in_tready),
@@ -245,8 +242,7 @@ logic done_wr_in, done_wr_out;
 logic rd_start;
 
 fifo #(
-    .DEPTH(N_OUTSTANDING_DMAS), .DATA_WIDTH(1), .RAM_STYLE("shift")
-) inst_queue_done (
+    .DEPTH(N_OUTSTANDING_DMAS), .DATA_WIDTH(1)) inst_queue_done (
     .clk(aclk), .rst(!aresetn),
     .count(), .maxcount(),
     .idat(1'b1), .ivld(done_wr_in), .irdy(),
@@ -268,8 +264,7 @@ logic s1_dma_out_tvalid, s1_dma_out_tready;
 logic [ADDR_BITS-1:0] s1_dma_out_tdata;
 
 fifo #(
-    .DEPTH(QDEPTH), .DATA_WIDTH(ADDR_BITS), .RAM_STYLE("shift")
-) inst_queue_s1_dma (
+    .DEPTH(QDEPTH), .DATA_WIDTH(ADDR_BITS)) inst_queue_s1_dma (
     .clk(aclk), .rst(!aresetn),
     .count(), .maxcount(),
     .idat(s1_dma_in_tdata), .ivld(s1_dma_in_tvalid), .irdy(s1_dma_in_tready),

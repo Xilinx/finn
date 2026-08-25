@@ -95,7 +95,7 @@ module layernorm #(
 		//-------------------------------------------------------------------
 		// Value bypass Queue
 		uwire vedge_t  bypass;
-		fifo #(.DATA_WIDTH(SIMD*32), .DEPTH(VALUE_QUEUE_LEN), .RAM_STYLE("shift")) bypass_queue (
+		fifo #(.DATA_WIDTH(SIMD*32), .DEPTH(VALUE_QUEUE_LEN)) bypass_queue (
 			.clk, .rst,
 			.idat(vedge[step].dat), .ivld(vedge[step].vld), .irdy(vedge[step].rdy),
 			.odat(bypass     .dat), .ovld(bypass     .vld), .ordy(bypass     .rdy)
@@ -226,7 +226,7 @@ module layernorm #(
 			uwire  norm0_rdy;
 			if(1) begin : blkMeanCatcher
 				uwire  norm_rdy;
-				fifo #(.DATA_WIDTH(32), .DEPTH(STATS_QUEUE_LEN), .RAM_STYLE("shift")) catcher (
+				fifo #(.DATA_WIDTH(32), .DEPTH(STATS_QUEUE_LEN)) catcher (
 					.clk, .rst,
 					.idat(norm .dat), .ivld(norm .vld), .irdy(norm_rdy),
 					.odat(norm0.dat), .ovld(norm0.vld), .ordy(norm0_rdy)
@@ -281,7 +281,7 @@ module layernorm #(
 
 			// Output Queue
 			uwire  rrdy;
-			fifo #(.DATA_WIDTH(SIMD * 32), .DEPTH(CREDIT), .RAM_STYLE("shift")) decouple (
+			fifo #(.DATA_WIDTH(SIMD * 32), .DEPTH(CREDIT)) decouple (
 				.clk, .rst,
 				.idat(rdat), .ivld(rvld), .irdy(rrdy),
 				.odat(vedge[step+1].dat), .ovld(vedge[step+1].vld), .ordy(vedge[step+1].rdy)

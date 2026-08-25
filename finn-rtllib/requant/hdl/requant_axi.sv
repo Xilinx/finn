@@ -90,8 +90,7 @@ module requant_axi #(
 
 	fifo #(
 		.DEPTH(CREDIT),
-		.DATA_WIDTH(PE*N),
-		.RAM_STYLE("shift")
+		.DATA_WIDTH(PE*N)
 	) outq (
 		.clk(ap_clk), .rst,
 		.count(), .maxcount(),

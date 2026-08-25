@@ -86,8 +86,7 @@ logic wr_done_int;
 
 fifo #(
     .DEPTH(DCPL_DEPTH),
-    .DATA_WIDTH(ADDR_BITS+LEN_BITS),
-    .RAM_STYLE("shift")
+    .DATA_WIDTH(ADDR_BITS+LEN_BITS)
 ) inst_q_wr (
     .clk(aclk),
     .rst(!aresetn),

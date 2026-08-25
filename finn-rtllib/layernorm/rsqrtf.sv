@@ -192,7 +192,7 @@ module rsqrtf #(
 	uwire  xxvld;
 	uwire  xxrdy;
 	if(STABLE_READINESS && (1 < SUSTAINABLE_INTERVAL) && (SUSTAINABLE_INTERVAL < 9)) begin : genSkid
-		fifo #(.DATA_WIDTH(32), .DEPTH(2), .RAM_STYLE("shift")) input_queue (
+		fifo #(.DATA_WIDTH(32), .DEPTH(2)) input_queue (
 			.clk, .rst,
 			.idat(x), .ivld(xvld), .irdy(xrdy),
 			.odat(xx), .ovld(xxvld), .ordy(xxrdy)
