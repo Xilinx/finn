@@ -9,7 +9,8 @@ module acc_stage #(
 	int unsigned  PE,
 	int unsigned  ACCU_WIDTH,
 	int unsigned  TH,
-	int unsigned  TH_MAX = 2*TH
+	int unsigned  TH_MAX = 2*TH,
+	bit  TARGET = 0   // 1 = Versal; 0 = 7-series/UltraScale (add_multi compressor path)
 )(
 	input  logic  clk,
 	input  logic  rst,
@@ -38,7 +39,7 @@ module acc_stage #(
 
 		localparam int unsigned  SUM_WIDTH = $clog2(CHAINLEN) + ACCU_WIDTH;
 		uwire [SUM_WIDTH-1:0]  tree_sum;
-		add_multi #(.N(CHAINLEN), .DEPTH(TREE_DEPTH), .ARG_WIDTH(ACCU_WIDTH)) inst_add (
+		add_multi #(.N(CHAINLEN), .DEPTH(TREE_DEPTH), .ARG_WIDTH(ACCU_WIDTH), .TARGET(TARGET)) inst_add (
 			.clk(clk), .rst(rst), .en(en),
 			.arg(add_arg),
 			.sum(tree_sum)

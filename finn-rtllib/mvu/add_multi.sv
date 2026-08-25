@@ -39,8 +39,7 @@ module add_multi import mvu_pkg::*; #(
 	int  ARG_LO = 0,
 	int  ARG_HI = 0,
 	bit  RESET_ZERO = 1,
-	bit  TARGET = 0,   // 0 = Versal; 1 = 7-series/UltraScale (compressor path only)
-
+	bit  TARGET = 0,   // 1 = Versal; 0 = 7-series/UltraScale (compressor path only)
 	localparam int unsigned  SUM_WIDTH = sumwidth(N, ARG_WIDTH, ARG_LO, ARG_HI)
 )(
 	input	logic  clk,

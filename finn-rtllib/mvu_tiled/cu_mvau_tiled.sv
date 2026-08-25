@@ -12,6 +12,7 @@ module cu_mvau_tiled #(
 	int unsigned  ACCU_WIDTH,
 
 	bit  SIGNED_ACTIVATIONS = 1,
+	bit  TARGET = 0,   // 1 = Versal; 0 = 7-series/UltraScale (add_multi compressor path)
 	localparam int unsigned  WEIGHT_ELEMENTS = PE*SIMD
 )(
 	input   logic  clk,
@@ -243,7 +244,7 @@ module cu_mvau_tiled #(
 	end : genPE
 
 	//=== Accumulation ======================================================
-	acc_stage #(.CHAINLEN(CHAINLEN), .PE(PE), .ACCU_WIDTH(ACCU_WIDTH), .TH(TH)) inst_acc_stage (
+	acc_stage #(.CHAINLEN(CHAINLEN), .PE(PE), .ACCU_WIDTH(ACCU_WIDTH), .TH(TH), .TARGET(TARGET)) inst_acc_stage (
 		.clk(clk),
 		.rst(rst),
 		.en(en),
