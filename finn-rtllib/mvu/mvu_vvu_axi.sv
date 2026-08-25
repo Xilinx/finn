@@ -43,7 +43,7 @@
  *	 - Full unfolding along MH (PE=MH) results in no replay buffer instantiated
  *****************************************************************************/
 
-module $MVU_CORE_NAME$ #(
+module mvu_vvu_axi #(
 	bit IS_MVU,
 	int unsigned  VERSION,	// Allowed versions - 1: DSP48E1, 2: DSP48E2, 3: DSP58
 
@@ -141,25 +141,29 @@ module $MVU_CORE_NAME$ #(
 
 	//- LUT-compressor schedule / pipeline depth ----------------------------
 	// Re-derive the compressor's last->vld latency (PIPE) from the same
-	// schedule the core builds at elaboration; a hierarchical ref into the
-	// core is not a constant expression. DSP path clamps the inputs cheap.
-	localparam int unsigned  SCHED_SIMD       = USE_COMPRESSOR? SIMD             : 1;
+	// schedule the core builds at elaboration.
+	localparam int unsigned  EFFECTIVE_SIMD = SIMD_UNEVEN && PUMPED_COMPUTE? SIMD+1 : SIMD;
+	localparam int unsigned  DSP_SIMD       = EFFECTIVE_SIMD/(PUMPED_COMPUTE+1);
+
+	localparam bit           TARGET           = (VERSION == 3);  // DSP58 => Versal
+	localparam int unsigned  SCHED_SIMD       = USE_COMPRESSOR? DSP_SIMD         : 1;
 	localparam int unsigned  SCHED_WW         = USE_COMPRESSOR? WEIGHT_WIDTH     : 1;
 	localparam int unsigned  SCHED_AW         = USE_COMPRESSOR? ACTIVATION_WIDTH : 1;
 	localparam int unsigned  SCHED_ACCU       = USE_COMPRESSOR? ACCU_WIDTH       : 2;
 	localparam bit           SCHED_SACT       = SIGNED_ACTIVATIONS;
-	localparam bit           SCHED_SWT        = 1'b1;                        // FINN weights signed
-	localparam bit           TARGET           = (VERSION == 3)? 1'b0 : 1'b1; // VERSION 3 = Versal
-	localparam int unsigned  SCHED_COMB_DEPTH = 1;
+	localparam bit           SCHED_SWT        = 1'b1;   // FINN weights signed
+	localparam int unsigned  SCHED_COMB_DEPTH = COMP_PIPELINE_DEPTH;
 	localparam bit           SCHED_ACC        = 1'b1;
+	localparam int           SCHED_ACC_KIND   = -1;     // auto-select from TARGET/COMB_DEPTH/ACC
 	localparam bit           SCHED_EN         = 1'b1;
-	localparam int unsigned  SCHED_TERMINAL_KIND = 0;   // quaternary (accumulating path)
-	localparam int           SCHED_ACC_KIND      = 0;   // 0 = fused loop adder, 1 = split "2-row"
 	localparam int           SCHED_BUDGET     = USE_COMPRESSOR? CYCLE_BUDGET : 0;
-	localparam bit           SCHED_FORCE_BOOTH  = 1'b0;
-	localparam bit           SCHED_FORCE_RADIX2 = 1'b0;
 
+	// Only PIPE is consumed here, so skip the schedule chunk build. The macro is
+	// compilation-unit scoped and must be undefined again so it does not also
+	// strip the chunks from compress_dotp, which does need them.
+`define SCHED_META_ONLY
 	`include "compress_dotp_sched.svh"   // -> R, PIPE (last->vld latency)
+`undef SCHED_META_ONLY
 
 	//- Replay to Accommodate Neuron Fold -----------------------------------
 	typedef logic [(IS_MVU? 1:PE)*SIMD-1:0][ACTIVATION_WIDTH-1:0]  mvu_flatin_t;
@@ -212,8 +216,6 @@ module $MVU_CORE_NAME$ #(
 	uwire  ovld;
 	uwire dsp_p_t  odat;
 	if(1) begin : blkDsp
-		localparam int unsigned  EFFECTIVE_SIMD = SIMD_UNEVEN && PUMPED_COMPUTE ? SIMD+1 : SIMD;
-		localparam int unsigned  DSP_SIMD = EFFECTIVE_SIMD/(PUMPED_COMPUTE+1);
 		typedef logic [PE    -1:0][DSP_SIMD-1:0][WEIGHT_WIDTH    -1:0]  dsp_w_t;
 		typedef logic [ACT_PE-1:0][DSP_SIMD-1:0][ACTIVATION_WIDTH-1:0]  dsp_a_t;
 
@@ -345,10 +347,12 @@ module $MVU_CORE_NAME$ #(
 
 		if(USE_COMPRESSOR) begin : genCompressor
 			compress_dotp #(
-				.PE(PE), .SIMD(DSP_SIMD),
-				.WEIGHT_WIDTH(WEIGHT_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .ACCU_WIDTH(ACCU_WIDTH),
-				.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .SIGNED_WEIGHTS(1'b1), .TARGET(TARGET),
-				.CYCLE_BUDGET(SCHED_BUDGET)
+				.PE(PE), .SIMD(SCHED_SIMD),
+				.WEIGHT_WIDTH(SCHED_WW), .ACTIVATION_WIDTH(SCHED_AW), .ACCU_WIDTH(SCHED_ACCU),
+				.SIGNED_ACTIVATIONS(SCHED_SACT), .SIGNED_WEIGHTS(SCHED_SWT), .TARGET(TARGET),
+				.COMB_DEPTH(SCHED_COMB_DEPTH), .ACCUMULATE(SCHED_ACC), .ACC_KIND(SCHED_ACC_KIND),
+				.ENABLE(SCHED_EN), .CYCLE_BUDGET(SCHED_BUDGET),
+				.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
 			) core (
 				.clk(ap_clk), .rst, .en('1),
 				.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
@@ -443,4 +447,4 @@ module $MVU_CORE_NAME$ #(
 
 	end : blkOutput
 
-endmodule : $MVU_CORE_NAME$
+endmodule : mvu_vvu_axi

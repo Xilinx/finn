@@ -78,7 +78,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	input	out0_V_TREADY
 );
 
-$MVU_CORE_NAME$ #(
+mvu_vvu_axi #(
 `ifdef FINN_SIMULATION
 	.FORCE_BEHAVIORAL(1),
 `endif

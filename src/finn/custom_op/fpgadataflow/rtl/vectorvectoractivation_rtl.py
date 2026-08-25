@@ -146,21 +146,19 @@ class VVAU_rtl(VVAU, RTLBackend):
 
     def _collect_rtl_sourcefiles(self, code_gen_dir, rtllib_dir):
         """Ordered RTL source list for this VVU node. `code_gen_dir` holds the
-        per-node copies, `rtllib_dir` the shared cores. Both args carry their own
+        generated wrapper, `rtllib_dir` the shared cores. Both args carry their own
         trailing separator (or are empty for relative paths)."""
         rtllib_files = [
             "mvu_pkg.sv",
             "replay_buffer.sv",
             "mvu.sv",
             "mvu_vvu_8sx9_dsp58.sv",
+            "add_multi.sv",  # FINN wrapper over add_multi_sv
+            "mvu_vvu_axi.sv",
         ]
         return (
             [
                 os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"),
-                os.path.join(
-                    code_gen_dir, "mvu_vvu_axi.sv"
-                ),  # local copy w/ substituted placeholder
-                os.path.join(code_gen_dir, "add_multi.sv"),  # FINN wrapper over add_multi_sv
             ]
             + [rtllib_dir + _ for _ in rtllib_files]
             + self._get_compressor_hdl_files()
@@ -214,10 +212,6 @@ class VVAU_rtl(VVAU, RTLBackend):
         code_gen_dict["$NARROW_WEIGHTS$"] = str(narrow_weights)
         # add general parameters to dictionary
         code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [self.get_verilog_top_module_name()]
-        # Unique per-node mvu_vvu_axi core name so per-node copies don't collide in
-        # flat-namespace whole-design xsi sim (matches MVAU_rtl convention).
-        mvu_core_name = "mvu_vvu_axi_" + self.get_verilog_top_module_name()
-        code_gen_dict["$MVU_CORE_NAME$"] = [mvu_core_name]
         # save top module name so we can refer to it after this node has been renamed
         # (e.g. by GiveUniqueNodeNames(prefix) during MakeZynqProject)
         self.set_nodeattr("gen_top_module", self.get_verilog_top_module_name())
@@ -234,20 +228,6 @@ class VVAU_rtl(VVAU, RTLBackend):
             "w",
         ) as f:
             f.write(template_wrapper)
-
-        # Substitute the unique core name into the local mvu_vvu_axi.sv copy.
-        rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
-        with open(os.path.join(rtllib_dir, "mvu_vvu_axi.sv"), "r") as f:
-            mvu_vvu_axi_content = f.read()
-        mvu_vvu_axi_content = mvu_vvu_axi_content.replace("$MVU_CORE_NAME$", mvu_core_name)
-        with open(os.path.join(code_gen_dir, "mvu_vvu_axi.sv"), "w") as f:
-            f.write(mvu_vvu_axi_content)
-
-        # Stage add_multi.sv into code_gen_dir (referenced from _collect_rtl_sourcefiles).
-        with open(os.path.join(rtllib_dir, "add_multi.sv"), "r") as f:
-            add_multi_content = f.read()
-        with open(os.path.join(code_gen_dir, "add_multi.sv"), "w") as f:
-            f.write(add_multi_content)
 
         if self.get_nodeattr("mem_mode") == "internal_decoupled":
             if self.get_nodeattr("ram_style") == "ultra" and not is_versal(fpgapart):
