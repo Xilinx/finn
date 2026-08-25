@@ -28,12 +28,12 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 FROM ubuntu:jammy-20230126
-LABEL maintainer="Jakoba Petri-Koenig <jakoba.petri-koenig@amd.com>, Yaman Umuroglu <yaman.umuroglu@amd.com>"
+LABEL maintainer="Jakoba Petri-Koenig <jakoba.petri-koenig@amd.com>, Thomas Preusser <thomas.preusser@amd.com>"
 
-ARG XRT_DEB_VERSION="xrt_202220.2.14.354_22.04-amd64-xrt"
+ARG XRT_DEB_VERSION="xrt_202420.2.18.179_22.04-amd64-xrt"
 ARG SKIP_XRT
 ARG LOCAL_XRT
-ARG V80PP_DEB_PACKAGE
+ARG SLASHKIT_DEB_PACKAGE
 
 WORKDIR /workspace
 
@@ -85,14 +85,14 @@ RUN apt-get update && \
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 RUN locale-gen "en_US.UTF-8"
 
-# Install v80++. If the package isn't provided, this is a no-op
+# Install slashkit. If the package isn't provided, this is a no-op
 # The wildcard pattern ensures COPY doesn't fail if the file doesn't exist
-COPY v80pp.de[b] /tmp/
-RUN if [ -f /tmp/v80pp.deb ]; then apt-get install -y /tmp/v80pp.deb && rm /tmp/v80pp.deb; fi
+COPY slashkit.de[b] /tmp/
+RUN if [ -f /tmp/slashkit.deb ]; then apt-get update && apt-get install -y /tmp/slashkit.deb && rm /tmp/slashkit.deb; fi
 
 # install XRT
 RUN if [ -z "$LOCAL_XRT" ] && [ -z "$SKIP_XRT" ];then \
-    wget -U 'Mozilla/5.0 (X11; Linux i686) AppleWebKit/537.17 (KHTML, like Gecko) Chrome/24.0.1312.27 Safari/537.17' "https://www.xilinx.com/bin/public/openDownload?filename=$XRT_DEB_VERSION.deb" -O /tmp/$XRT_DEB_VERSION.deb; fi
+    wget -U 'Mozilla/5.0 (X11; Linux i686) AppleWebKit/537.17 (KHTML, like Gecko) Chrome/24.0.1312.27 Safari/537.17' "https://download.amd.com/opendownload/xrt/$XRT_DEB_VERSION.deb" -O /tmp/$XRT_DEB_VERSION.deb; fi
 
 COPY requirements.txt $XRT_DEB_VERSION.* /tmp/
 
@@ -166,6 +166,6 @@ COPY docker/finn_entrypoint.sh /usr/local/bin/
 COPY docker/quicktest.sh /usr/local/bin/
 RUN chmod 755 /usr/local/bin/finn_entrypoint.sh
 RUN chmod 755 /usr/local/bin/quicktest.sh
-USER USERNAME
+USER $USERNAME
 ENTRYPOINT ["finn_entrypoint.sh"]
 CMD ["bash"]

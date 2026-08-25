@@ -5,10 +5,26 @@ Custom Op - fpgadataflow.rtl
 RTL Custom Op Nodes
 ===================
 
+finn.custom\_op.fpgadataflow.rtl.pad1d\_rtl
+--------------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.rtl.pad1d_rtl
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.custom\_op.fpgadataflow.convolutioninputgenerator\_rtl
 ------------------------------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.rtl.convolutioninputgenerator_rtl
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+finn.custom\_op.fpgadataflow.crop\_rtl
+----------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.rtl.crop_rtl
    :members:
    :undoc-members:
    :show-inheritance:
@@ -25,6 +41,14 @@ finn.custom\_op.fpgadataflow.matrixvectoractivation\_rtl
 ---------------------------------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.rtl.matrixvectoractivation_rtl
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+finn.custom\_op.fpgadataflow.selecttoken\_rtl
+-----------------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.rtl.selecttoken_rtl
    :members:
    :undoc-members:
    :show-inheritance:

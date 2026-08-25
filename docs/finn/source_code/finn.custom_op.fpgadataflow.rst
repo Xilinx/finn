@@ -39,6 +39,14 @@ RTLBackend
    :undoc-members:
    :show-inheritance:
 
+finn.custom\_op.fpgadataflow.pad1d
+-----------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.pad1d
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.custom\_op.fpgadataflow.concat
 -------------------------------------
 
@@ -51,6 +59,14 @@ finn.custom\_op.fpgadataflow.convolutioninputgenerator
 --------------------------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.convolutioninputgenerator
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+finn.custom\_op.fpgadataflow.crop
+-----------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.crop
    :members:
    :undoc-members:
    :show-inheritance:
@@ -99,6 +115,14 @@ finn.custom\_op.fpgadataflow.where
 -----------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.where
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+finn.custom\_op.fpgadataflow.selecttoken
+------------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.selecttoken
    :members:
    :undoc-members:
    :show-inheritance:

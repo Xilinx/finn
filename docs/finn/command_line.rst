@@ -62,8 +62,8 @@ as it goes through the build phases:
 .. code-block:: none
 
   Building dataflow accelerator from build_dataflow/model.onnx
-  Outputs will be generated at output_tfc_w1a1_Pynq-Z1
-  Build log is at output_tfc_w1a1_Pynq-Z1/build_dataflow.log
+  Outputs will be generated at output_tfc_w1a1_AUP-ZU3_8GB
+  Build log is at output_tfc_w1a1_AUP-ZU3_8GB/build_dataflow.log
   Running step: phase_prepare_model [1/6]
   Running step: phase_optimize_model [2/6]
   Running step: phase_convert_to_hardware [3/6]

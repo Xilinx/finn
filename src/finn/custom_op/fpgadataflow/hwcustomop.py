@@ -31,10 +31,10 @@ import os
 import warnings
 from abc import abstractmethod
 from qonnx.custom_op.base import CustomOp
-from qonnx.util.basic import roundup_to_integer_multiple
+from qonnx.util.basic import get_by_name, roundup_to_integer_multiple
 
 from finn import xsi
-from finn.util.basic import get_liveness_threshold_cycles, is_versal
+from finn.util.basic import get_watchdog_timeout_cycles, is_versal
 
 finnxsi = xsi if xsi.is_available() else None
 
@@ -98,6 +98,7 @@ class HWCustomOp(CustomOp):
             "io_chrc_pads_in": ("ints", False, []),
             "io_chrc_pads_out": ("ints", False, []),
             "mlo_max_iter": ("i", False, 0),
+            "address_offset": ("i", False, 0),
         }
 
     def make_shape_compatible_op(self, model):
@@ -225,16 +226,16 @@ class HWCustomOp(CustomOp):
     def rtlsim_multi_io(self, sim, io_dict, sname="_V"):
         "Run rtlsim for this node, supports multiple i/o streams."
         num_out_values = self.get_number_output_values()
-        # Use the larger of expected cycles or liveness threshold
+        # LIVENESS_THRESHOLD can only increase the expected cycle count.
         exp_cycles = self.get_exp_cycles()
-        liveness_threshold = get_liveness_threshold_cycles()
-        effective_threshold = max(exp_cycles, liveness_threshold)
+        effective_threshold = get_watchdog_timeout_cycles(exp_cycles)
         total_cycle_count = finnxsi.rtlsim_multi_io(
             sim,
             io_dict,
             num_out_values,
             sname=sname,
             liveness_threshold=effective_threshold,
+            liveness_estimate=exp_cycles,
         )
 
         self.set_nodeattr("cycles_rtlsim", total_cycle_count)
@@ -386,18 +387,6 @@ class HWCustomOp(CustomOp):
             n_max_layers = 64
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
-            # Compute IWSIMD and WSIMD for the fetch_weights wrapper
-            if self.onnx_node.op_type in ops:
-                if theight > 1:
-                    iwsimd = (pe * simd) // theight
-                    wsimd = (pe * simd) // theight
-                else:
-                    iwsimd = simd
-                    wsimd = (pe * simd) // theight
-            else:
-                iwsimd = simd
-                wsimd = (pe * simd) // theight
-
             code_gen_dict = {
                 "$MODULE_NAME_AXI_WRAPPER$": [mname + "_fetch_weights_wrapper"],
                 "$MW$": [str(mw)],
@@ -408,10 +397,9 @@ class HWCustomOp(CustomOp):
                 "$WEIGHT_WIDTH$": [str(wdt.bitwidth())],
                 "$N_LAYERS$": [str(n_max_layers)],
                 "$TH$": [str(theight)],
-                "$IWSIMD$": [str(iwsimd)],
-                "$WSIMD$": [str(wsimd)],
                 "$EN_MLO$": [en_mlo],
                 "$DWC_MODULE_NAME$": [mname + "_dwc"],
+                "$ADDRESS_OFFSET$": [str(self.get_nodeattr("address_offset"))],
             }
             # apply code generation to template
             with open(template_path, "r") as f:
@@ -420,6 +408,10 @@ class HWCustomOp(CustomOp):
                 # transform list into long string separated by '\n'
                 code_gen_line = "\n".join(value)
                 template_wrapper = template_wrapper.replace(key, code_gen_line)
+            # DDR exposes a runtime base_address port; HBM leaves the macro undefined
+            # so the port is dropped and the streamer reads from address 0.
+            if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
+                template_wrapper = "`define HAS_BASE_ADDRESS\n" + template_wrapper
             with open(
                 os.path.join(code_gen_dir, mname + "_fetch_weights_wrapper.v"),
                 "w",

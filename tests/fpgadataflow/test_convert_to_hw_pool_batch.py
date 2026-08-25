@@ -143,7 +143,6 @@ def test_convert_to_hw_pool(idt, odt, pool_config, ifm_ch, pe, op_type, exec_mod
     if pad != 0 and idt.signed():
         pytest.skip("No support for pal_val != 0. Skipping")
 
-    np.random.seed(0)
     ofm_dim = int(((ifm_dim + 2 * pad - k) / stride) + 1)
 
     ishape = (1, ifm_ch, ifm_dim, ifm_dim)

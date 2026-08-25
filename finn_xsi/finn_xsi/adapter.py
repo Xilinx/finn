@@ -16,7 +16,11 @@ from finn_xsi.sim_engine import SimEngine
 from finn_xsi.srcutil import order_pkg_first
 from typing import Optional
 
-from finn.util.basic import launch_process_helper, resolve_xilinx_tool
+from finn.util.basic import (
+    get_rtlsim_timeout_error_message,
+    launch_process_helper,
+    resolve_xilinx_tool,
+)
 
 
 def locate_glbl() -> Optional[str]:
@@ -174,6 +178,7 @@ def rtlsim_multi_io(
     num_out_values,
     sname="_V_V",
     liveness_threshold=10000,
+    liveness_estimate=None,
 ):
     if len(io_dict["outputs"]) > 1:
         assert isinstance(
@@ -208,7 +213,10 @@ def rtlsim_multi_io(
     start_ticks = sim.ticks
     ret = sim.run()
     if len(ret) > 0:
-        assert False, f"RTL simulation watchdogs {str(ret)} timed out. Check rtlsim_trace if any."
+        assert False, (
+            get_rtlsim_timeout_error_message(liveness_threshold, liveness_estimate)
+            + f" Triggered watchdogs: {str(ret)}. Check rtlsim_trace if any."
+        )
     end_ticks = sim.ticks
     for out in io_dict["outputs"]:
         io_dict["outputs"][out] = list(map(lambda var: int(var, base=16), hex_output_streams[out]))

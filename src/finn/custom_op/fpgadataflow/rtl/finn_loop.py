@@ -48,7 +48,7 @@ from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.util.basic import make_build_dir, resolve_xilinx_tool
 from finn.util.create import adjacency_list
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
-from finn.util.rtlsim import mlo_prehook_func_factory
+from finn.util.rtlsim import dat_file_to_numpy_array, mlo_prehook_func_factory
 
 finnxsi = xsi if xsi.is_available() else None
 
@@ -91,6 +91,10 @@ class FINNLoop(HWCustomOp, RTLBackend):
             # Path to save per-iteration execution context (cppsim only).
             # If non-empty, each iteration's full context is saved to this path.
             "iteration_context_path": ("s", False, ""),
+            # Memory type used to stream this loop's weights when running MLO.
+            # "DDR" enables DDR address offset assignment, any other value skips it.
+            # Empty means it is resolved from the target board at build
+            "mem_type": ("s", False, ""),
         }
         my_attrs.update(HWCustomOp.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
@@ -254,9 +258,11 @@ class FINNLoop(HWCustomOp, RTLBackend):
             loop_body = loop_body.transform(AnnotateCycles())
 
         iteration = self.get_nodeattr("iteration")
-        body_cycles = loop_body.analysis(dataflow_performance)["critical_path_cycles"]
+        perf = loop_body.analysis(dataflow_performance)
+        body_latency = perf["critical_path_cycles"]
+        body_throughput = perf["max_cycles"]
         overhead_per_iter = 40
-        return (body_cycles + overhead_per_iter) * iteration
+        return body_latency + (iteration - 1) * body_throughput + overhead_per_iter * iteration
 
     def get_outstream_width(self, ind=0):
         loop_body = self.get_nodeattr("body")
@@ -371,13 +377,18 @@ class FINNLoop(HWCustomOp, RTLBackend):
         code_gen_dict["$LOOP_CONTROL_WRAPPER_NAME$"] = [f"{self.onnx_node.name}_loop_cont_wrapper"]
         code_gen_dict["$N_MAX_LAYERS$"] = (str(self.get_nodeattr("iteration")),)
         code_gen_dict["$N_LAYERS$"] = [str(self.get_nodeattr("iteration"))]
+        code_gen_dict["$ELEM_BITS$"] = [str(self.get_input_datatype(0).bitwidth())]
         code_gen_dict["$ILEN_BITS$"] = [str(self.get_instream_width(0))]
         code_gen_dict["$OLEN_BITS$"] = [str(self.get_outstream_width(0))]
+        # Intermediate frame address offset
+        code_gen_dict["$ADDRESS_OFFSET$"] = [str(self.get_nodeattr("address_offset"))]
 
-        input_elements = np.prod(self.get_normal_input_shape(0))
-        input_bytes = (input_elements * self.get_input_datatype(0).bitwidth() + 8 - 1) // 8
-        output_elements = np.prod(self.get_normal_output_shape(0))
-        output_bytes = (output_elements * self.get_output_datatype(0).bitwidth() + 8 - 1) // 8
+        input_elem_bytes = (self.get_input_datatype(0).bitwidth() + 7) // 8
+        output_elem_bytes = (self.get_output_datatype(0).bitwidth() + 7) // 8
+        input_elements = int(np.prod(self.get_normal_input_shape(0)))
+        input_bytes = input_elements * input_elem_bytes
+        output_elements = int(np.prod(self.get_normal_output_shape(0)))
+        output_bytes = output_elements * output_elem_bytes
         code_gen_dict["$INPUT_BYTES$"] = [str(input_bytes)]
         code_gen_dict["$OUTPUT_BYTES$"] = [str(output_bytes)]
 
@@ -394,11 +405,22 @@ class FINNLoop(HWCustomOp, RTLBackend):
             # transform list into long string separated by '\n'
             code_gen_line = "\n".join(value)
             template_wrapper = template_wrapper.replace(key, code_gen_line)
+        if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
+            template_wrapper = "`define HAS_BASE_ADDRESS\n" + template_wrapper
         with open(
             os.path.join(code_gen_dir, self.onnx_node.name + "_wrapper.v"),
             "w",
         ) as f:
             f.write(template_wrapper)
+
+        if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
+            ac_template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mlo/address_config_wrapper.v"
+            ac_module_name = self.onnx_node.name + "_address_config_wrapper"
+            with open(ac_template_path, "r") as f:
+                ac_wrapper = f.read()
+            ac_wrapper = ac_wrapper.replace("$MODULE_NAME_AXI_WRAPPER$", ac_module_name)
+            with open(os.path.join(code_gen_dir, ac_module_name + ".v"), "w") as f:
+                f.write(ac_wrapper)
 
     def generate_params(self, model, path):
         iteration = self.get_nodeattr("iteration")
@@ -449,10 +471,28 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 else:
                     raise Exception
 
-            if param_node.op_type.startswith("MVAU") or param_node.op_type.startswith(
-                "Elementwise"
-            ):
-                # concatinate all .dat files together
+            if param_node.op_type.startswith("MVAU"):
+                # Concatenate the per-iteration weights, padding each layer up to the
+                # AXI-bus offset (LAYER_OFFS in fetch_weights.sv) so that the DDR
+                # image built from this .dat reads layer i from i*LAYER_OFFS. The
+                # rtlsim memory model (mlo_sim.py) and the driver's DDR upload
+                # (make_driver.py) consume this file as-is. Written one hex byte per
+                # line.
+                param_file = "{}/memblock_{}_id_{}.dat".format(path, param_node.op_type, i + 1)
+                layer_bytes, layer_offs = getCustomOp(param_node).get_weight_mem_bytes()
+                padded = np.zeros(iteration * layer_offs, dtype=np.uint8)
+                for iter in range(iteration):
+                    memblock_file = "{}/{}_memblock_{}.dat".format(path, param_node.op_type, iter)
+                    layer = dat_file_to_numpy_array(memblock_file)
+                    padded[iter * layer_offs : iter * layer_offs + layer_bytes] = layer
+                    os.remove(memblock_file)
+                with open(param_file, "w") as outfile:
+                    outfile.write("\n".join("%02x" % b for b in padded))
+                    outfile.write("\n")
+            elif param_node.op_type.startswith("Elementwise"):
+                # Concatenate the per-iteration .dat files back-to-back into the
+                # single memblock the memstream reads (no DDR padding here, unlike
+                # the MVAU path above).
                 param_file = "{}/memblock_{}_id_{}.dat".format(path, param_node.op_type, i + 1)
                 with open(param_file, "w") as outfile:
                     for iter in range(iteration):
@@ -463,27 +503,26 @@ class FINNLoop(HWCustomOp, RTLBackend):
                             for line in infile:
                                 outfile.write(line)
                         os.remove(memblock_file)
-                # Replace the path for the dat files in the ipgen files if Eltwise
+                # Point the ipgen memstream wrapper at the concatenated .dat file.
                 # Adapted from transformations.fpgadataflow.replace_verilog_relpaths
-                if param_node.op_type.startswith("Elementwise"):
-                    param_customop = getCustomOp(param_node)
-                    ipgen_path = param_customop.get_nodeattr("code_gen_dir_ipgen")
-                    if ipgen_path is not None and os.path.isdir(ipgen_path):
-                        for dname, dirs, files in os.walk(ipgen_path):
-                            for fname in files:
-                                if fname.endswith("_memstream_wrapper.v"):
-                                    fpath = os.path.join(dname, fname)
-                                    with open(fpath, "r") as f:
-                                        s = f.read()
-                                    old = "%s/memblock.dat" % ipgen_path
-                                    new = "%s/memblock_%s_id_%s.dat" % (
-                                        path,
-                                        param_node.op_type,
-                                        i + 1,
-                                    )
-                                    s = s.replace(old, new)
-                                    with open(fpath, "w") as f:
-                                        f.write(s)
+                param_customop = getCustomOp(param_node)
+                ipgen_path = param_customop.get_nodeattr("code_gen_dir_ipgen")
+                if ipgen_path is not None and os.path.isdir(ipgen_path):
+                    for dname, dirs, files in os.walk(ipgen_path):
+                        for fname in files:
+                            if fname.endswith("_memstream_wrapper.v"):
+                                fpath = os.path.join(dname, fname)
+                                with open(fpath, "r") as f:
+                                    s = f.read()
+                                old = "%s/memblock.dat" % ipgen_path
+                                new = "%s/memblock_%s_id_%s.dat" % (
+                                    path,
+                                    param_node.op_type,
+                                    i + 1,
+                                )
+                                s = s.replace(old, new)
+                                with open(fpath, "w") as f:
+                                    f.write(s)
             elif param_node.op_type.startswith("Thresholding"):
                 # concatinate all .dat files together
                 pe = inst.get_nodeattr("PE")
@@ -591,8 +630,15 @@ class FINNLoop(HWCustomOp, RTLBackend):
         olen_bits = self.get_outstream_width(0)
         ilen_bits = self.get_instream_width(0)
         data_bits = 256
-        # DWC write path: body output width -> DMA width (256)
-        dwc_sink_s_bytes = (olen_bits + 7) // 8
+        # Intermediate frames pad each element to a whole number of bytes, so the
+        # DWCs must be sized on the byte-aligned widths (OLEN_BITS_BA/ILEN_BITS_BA
+        # in intermediate_frames.sv), matching the per-element FM_SIZE layout.
+        elem_bits = self.get_input_datatype(0).bitwidth()
+        elem_bytes = (elem_bits + 7) // 8
+        oelem = olen_bits // elem_bits
+        ielem = ilen_bits // elem_bits
+        # DWC write path: byte-aligned body output width -> DMA width (256)
+        dwc_sink_s_bytes = oelem * elem_bytes
         dwc_sink_m_bytes = data_bits // 8
         cmd += [
             "create_ip -name axis_dwidth_converter -vendor xilinx.com "
@@ -605,9 +651,9 @@ class FINNLoop(HWCustomOp, RTLBackend):
             "] [get_ips if_dwc_sink]" % (dwc_sink_s_bytes, dwc_sink_m_bytes),
             "generate_target all [get_ips if_dwc_sink]",
         ]
-        # DWC read path: DMA width (256) -> body input width
+        # DWC read path: DMA width (256) -> byte-aligned body input width
         dwc_source_s_bytes = data_bits // 8
-        dwc_source_m_bytes = (ilen_bits + 7) // 8
+        dwc_source_m_bytes = ielem * elem_bytes
         cmd += [
             "create_ip -name axis_dwidth_converter -vendor xilinx.com "
             "-library ip -version 1.1 -module_name if_dwc_source",
@@ -686,7 +732,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
             % (self.onnx_node.name, clk_name, loop_shell_name, clk_name)
         )
         # "externalize" some of the loop shell signals
-        ext_intf_signals = ["in0_V", "out0_V", "m_axi_hbm"]
+        ext_intf_signals = ["in0_V", "out0_V", "m_axi_intermediate_frame"]
         ext_signals = ["done_if"]
         for sig in ext_intf_signals:
             cmd.append(
@@ -1024,6 +1070,39 @@ class FINNLoop(HWCustomOp, RTLBackend):
             "connect_bd_net [get_bd_pins %s/sim_finish] [get_bd_pins %s/sim_finish]"
             % (self.onnx_node.name, finn_ip_name)
         )
+
+        if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
+            ac_module_name = self.onnx_node.name + "_address_config_wrapper"
+            ac_inst_name = f"{self.onnx_node.name}/address_config"
+            cmd.append("add_files -norecurse %s/%s.v" % (code_gen_dir, ac_module_name))
+            cmd.append(
+                "create_bd_cell -type module -reference %s %s" % (ac_module_name, ac_inst_name)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
+                % (self.onnx_node.name, rst_name, ac_inst_name, rst_name)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
+                % (self.onnx_node.name, clk_name, ac_inst_name, clk_name)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/base_address] [get_bd_pins %s/base_address]"
+                % (ac_inst_name, finn_ip_name)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/base_address] [get_bd_pins %s/base_address]"
+                % (ac_inst_name, loop_shell_name)
+            )
+            cmd.append(
+                "create_bd_intf_pin -mode Slave "
+                "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/s_axilite" % self.onnx_node.name
+            )
+            cmd.append(
+                "connect_bd_intf_net [get_bd_intf_pins %s/s_axilite] "
+                "[get_bd_intf_pins %s/s_axilite]" % (self.onnx_node.name, ac_inst_name)
+            )
+
         # "externalize" some of the loop shell signals
         ext_signals = loop_body_intf_names["aximm"]
         for sig in ext_signals:
@@ -1063,9 +1142,14 @@ class FINNLoop(HWCustomOp, RTLBackend):
         cmd.append("set_property name ap_clk [get_bd_ports ap_clk_0]")
         cmd.append("set_property name ap_rst_n [get_bd_ports ap_rst_n_0]")
         cmd.append("set_property name out0_V [get_bd_intf_ports out0_V_0]")
-        cmd.append("set_property name m_axi_hbm [get_bd_intf_ports m_axi_hbm_0]")
+        cmd.append(
+            "set_property name m_axi_intermediate_frame "
+            "[get_bd_intf_ports m_axi_intermediate_frame_0]"
+        )
         cmd.append("set_property name done_if [get_bd_ports done_if_0]")
         cmd.append("set_property name sim_finish [get_bd_ports sim_finish_0]")
+        if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
+            cmd.append("set_property name s_axilite [get_bd_intf_ports s_axilite_0]")
         # set property name for aximm interfaces
         ext_signals = loop_body_intf_names["aximm"]
         for sig in ext_signals:
@@ -1106,10 +1190,14 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # in some cases, the IP packager seems to infer an aperture of 64K or 4G,
         # preventing address assignment of the DDR_LOW and/or DDR_HIGH segments
         # the following is a hotfix to remove this aperture during IODMA packaging
-        cmd.append(
-            "ipx::remove_segment -quiet m_axi_gmem0:APERTURE_0 "
-            "[ipx::get_address_spaces m_axi_gmem0 -of_objects [ipx::current_core]]"
-        )
+        # Also used for MLO in the context of Zynq
+        loop_aximm_names = ["m_axi_intermediate_frame"] + [sig[0] for sig in ext_signals]
+        for aximm_name in loop_aximm_names:
+            cmd.append(
+                "ipx::remove_segment -quiet %s:APERTURE_0 "
+                "[ipx::get_address_spaces %s -of_objects [ipx::current_core]]"
+                % (aximm_name, aximm_name)
+            )
         cmd.append("set_property core_revision 2 [ipx::find_open_core %s]" % block_vlnv)
         cmd.append("ipx::create_xgui_files [ipx::find_open_core %s]" % block_vlnv)
         # mark bus interface params as user-resolvable to avoid FREQ_MHZ mismatches
@@ -1174,9 +1262,9 @@ class FINNLoop(HWCustomOp, RTLBackend):
 
         intf_names["aximm"] = []
         # AXI4 master interface for intermediate buffering between layers
-        # TODO: rename because it might not be hbm?
-        intf_names["aximm"].append(["m_axi_hbm", str(addr_bits)])
-        intf_names["axilite"] = []
+        intf_names["aximm"].append(["m_axi_intermediate_frame", str(addr_bits)])
+        offset_attr = get_by_name(self.onnx_node.attribute, "address_offset") is not None
+        intf_names["axilite"] = ["s_axilite"] if offset_attr else []
 
         # using ap_none field to add control signals
         intf_names["ap_none"] = []
@@ -1212,3 +1300,10 @@ class FINNLoop(HWCustomOp, RTLBackend):
 
     def get_rtl_file_list(self, abspath=False):
         pass
+
+    def intermediate_frame_bytes(self):
+        N_OUTSTANDING_DMAS = 128  # Currently hard-coded in intermediate_frames.sv
+        input_elem_bytes = (self.get_input_datatype(0).bitwidth() + 7) // 8
+        input_elements = int(np.prod(self.get_normal_input_shape(0)))
+        input_bytes = input_elements * input_elem_bytes
+        return N_OUTSTANDING_DMAS * input_bytes

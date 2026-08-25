@@ -136,39 +136,26 @@ def mlo_prehook_func_factory(node) -> Callable[[SimEngine], None]:
 
     finnloop_body = finnloop_op.get_nodeattr("body")
 
-    mvau_hbm_weights = {}
+    mvau_mlo_weights = {}
     extern_idx = 0
     for idx, lb_inp in enumerate(finnloop_body.graph.input):
         downstream = finnloop_body.find_consumer(lb_inp.name)
         if downstream.op_type.startswith("MVAU"):
-            mvau_hbm_weights[idx] = {}
-            mvau_hbm_weights[idx]["name"] = lb_inp.name
+            mvau_mlo_weights[idx] = {}
+            mvau_mlo_weights[idx]["name"] = lb_inp.name
             code_gen_dir = finnloop_op.get_nodeattr("code_gen_dir_ipgen")
             datfile = f"{code_gen_dir}/memblock_MVAU_rtl_id_{idx}.dat"
-            # memblock.dat holds the per-layer weights back-to-back, byte-aligned
-            # per IWSIMD group. fetch_weights.sv places layer i at i*LAYER_OFFS,
-            # where LAYER_OFFS rounds the layer size up to the AXI bus width, so
-            # pad each layer to that boundary to reproduce the external memory image.
+            # memblock.dat already holds the per-layer weights padded to LAYER_OFFS
             weight_bytes = dat_file_to_numpy_array(datfile)
-            iteration = finnloop_op.get_nodeattr("iteration")
-            layer_bytes = len(weight_bytes) // iteration
-            axi_bytes = 32  # AXI bus width (256 bits), matches RTL LAYER_OFFS
-            layer_offs = (layer_bytes + axi_bytes - 1) & ~(axi_bytes - 1)
-            if layer_offs != layer_bytes:
-                padded = np.zeros(iteration * layer_offs, dtype=weight_bytes.dtype)
-                for it in range(iteration):
-                    padded[it * layer_offs : it * layer_offs + layer_bytes] = weight_bytes[
-                        it * layer_bytes : (it + 1) * layer_bytes
-                    ]
-                weight_bytes = padded
-            mvau_hbm_weights[idx]["value"] = weight_bytes
-            mvau_hbm_weights[idx]["extern_idx"] = extern_idx
-            mvau_hbm_weights[idx]["extern_name"] = f"m_axi_MVAU_id_{idx}"
+            mvau_mlo_weights[idx]["value"] = weight_bytes
+            mvau_mlo_weights[idx]["extern_idx"] = extern_idx
+            mvau_mlo_weights[idx]["extern_name"] = f"m_axi_MVAU_id_{idx}"
+            mvau_mlo_weights[idx]["offset"] = getCustomOp(downstream).get_nodeattr("address_offset")
             extern_idx += 1
 
     def mlo_rtlsim_prehook(sim):
-        sim.aximm_queue("m_axi_hbm")
-        for name, intf in mvau_hbm_weights.items():
-            sim.aximm_ro_image(intf["extern_name"], 0, intf["value"].flatten())
+        sim.aximm_queue("m_axi_intermediate_frame")
+        for name, intf in mvau_mlo_weights.items():
+            sim.aximm_ro_image(intf["extern_name"], intf["offset"], intf["value"].flatten())
 
     return mlo_rtlsim_prehook

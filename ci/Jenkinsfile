@@ -1,4 +1,4 @@
-// FINN build pipeline.
+// FINN build pipeline. The board-tethered HW tests live in Jenkinsfile_HW.
 //
 // The shard matrix, timing helpers, and the STAGES/BOARDS tables live in
 // the ci/finn_ci package. Validate calls `python3 -m finn_ci validate-config`
@@ -84,9 +84,9 @@ int finnCiMinFreeGB() {
 
 // Agent label every non-board stage runs on. Static-final so declarative
 // `agent { label "${FINN_BUILD_LABEL}" }` blocks can read it at pipeline-
-// construction time. A relabel is a one-line edit here. Cannot be
-// env-overridden: `env` is not bound during @Field initialisation under
-// Jenkins CPS.
+// construction time. A relabel is a one-line edit here and a matching
+// edit in Jenkinsfile_HW. Cannot be env-overridden: `env` is not bound
+// during @Field initialisation under Jenkins CPS.
 @Field
 static final String FINN_BUILD_LABEL = 'finn-build'
 
