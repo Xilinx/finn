@@ -56,11 +56,22 @@ def test_brevitas_quant_identity_export(abits, ishape, narrow, quant):
 
 @pytest.mark.brevitas_export
 @pytest.mark.parametrize("abits", [2, 4, 8])
-@pytest.mark.parametrize("ishape", [(1, 15, 4, 4), (1, 32, 1, 1)])
+# The per-channel scale shape decides the channel axis (and thus the derived
+# MultiThreshold data layout), so cover channels-first and channels-last in
+# both 3D and 4D as well as the 2D-collapsed case.
+@pytest.mark.parametrize(
+    "ishape, channel_shape",
+    [
+        pytest.param((1, 8, 4, 4), (1, 8, 1, 1), id="nchw"),
+        pytest.param((1, 4, 4, 8), (1, 1, 1, 8), id="nhwc"),
+        pytest.param((1, 4, 8), (1, 1, 8), id="nwc"),
+        pytest.param((1, 8, 4), (1, 8, 1), id="ncw"),
+        pytest.param((1, 32, 1, 1), (1, 32, 1, 1), id="nchw-singleton"),
+    ],
+)
 @pytest.mark.parametrize("narrow", [True, False])
 @pytest.mark.parametrize("quant", [Int8ActPerTensorFloat, Uint8ActPerTensorFloat])
-def test_brevitas_quant_identity_export_per_channel(abits, ishape, narrow, quant):
-    ch = ishape[1]
+def test_brevitas_quant_identity_export_per_channel(abits, ishape, channel_shape, narrow, quant):
     build_dir = make_build_dir("test_brevitas_quant_identity_export_per_channel_")
     export_path = os.path.join(build_dir, "quant_identity.onnx")
     b_act = QuantIdentity(
@@ -69,9 +80,9 @@ def test_brevitas_quant_identity_export_per_channel(abits, ishape, narrow, quant
         narrow_range=narrow,
         min_val=-6.0,
         max_val=6.0,
-        scaling_impl_type=ScalingImplType.CONST,
+        scaling_impl_type=ScalingImplType.PARAMETER,
         scaling_per_output_channel=True,
-        per_channel_broadcastable_shape=(1, ch, 1, 1),
+        per_channel_broadcastable_shape=channel_shape,
     )
 
     export_qonnx(
@@ -82,6 +93,15 @@ def test_brevitas_quant_identity_export_per_channel(abits, ishape, narrow, quant
     )
     qonnx_cleanup(export_path, out_file=export_path)
     model = ModelWrapper(export_path)
+    # brevitas must export the per-channel scale with the intended (broadcast)
+    # shape, otherwise this layout case would not actually exercise the target
+    # channel axis in the Quant op
+    quant_scale = model.get_initializer(model.get_nodes_by_op_type("Quant")[0].input[1])
+    padded_scale_shape = (1,) * (len(ishape) - quant_scale.ndim) + tuple(quant_scale.shape)
+    assert padded_scale_shape == tuple(channel_shape), (
+        "brevitas did not preserve the per-channel scale shape in the Quant node: "
+        f"{quant_scale.shape} vs expected {channel_shape}"
+    )
     model = model.transform(ConvertQONNXtoFINN())
 
     inp_tensor = np.random.uniform(low=-10.0, high=10.0, size=ishape).astype(np.float32)
