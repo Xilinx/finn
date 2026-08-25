@@ -69,13 +69,7 @@ def get_signal(sim, keyw):
 
 
 def optimize_depth(depth):
-    if depth <= 2:
-        # a depth-2 FIFO is a deliberate decoupling register, leave it alone
-        return 2
-    if depth <= 33:
-        # one SRLC32E per bit up to 33 whatever the depth, so the slack is free
-        return 33
-    return int(depth)
+    return max(2, int(depth))
 
 
 class RemoveShallowFIFOs(Transformation):
