@@ -186,8 +186,7 @@ uwire [AXI_ADDR_WIDTH-1:0] addr_plus_count = addr_reg + op_word_count_reg;
 // Outstanding queue
 fifo #(
     .DEPTH(8),
-    .DATA_WIDTH($bits(cdma_rd_cmd_t)),
-    .RAM_STYLE("shift")
+    .DATA_WIDTH($bits(cdma_rd_cmd_t))
 ) inst_q_rd (
     .clk(aclk),
     .rst(!aresetn),

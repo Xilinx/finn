@@ -143,7 +143,7 @@ always_comb begin: DP_GEN
 end
 
 fifo #(
-    .DEPTH(2), .DATA_WIDTH(ILEN_BITS), .RAM_STYLE("shift")
+    .DEPTH(2), .DATA_WIDTH(ILEN_BITS)
 ) inst_queue_gend (
     .clk(aclk), .rst(!aresetn),
     .count(), .maxcount(),
@@ -236,7 +236,7 @@ always_comb begin: DP_CTRL
 end
 
 fifo #(
-    .DEPTH(QDEPTH), .DATA_WIDTH(1), .RAM_STYLE("shift")
+    .DEPTH(QDEPTH), .DATA_WIDTH(1)
 ) inst_queue_seq (
     .clk(aclk), .rst(!aresetn),
     .count(), .maxcount(),

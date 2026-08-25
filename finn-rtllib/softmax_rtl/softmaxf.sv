@@ -259,8 +259,7 @@ module softmaxf_max #(
 	//---------------------------------------------------------------------------
 	fifo #(
 		.DATA_WIDTH(SIMD * TI_WIDTH),
-		.DEPTH(BEATS + TREE_LAT + 4),
-		.RAM_STYLE("shift")
+		.DEPTH(BEATS + TREE_LAT + 4)
 	) replay (
 		.clk, .rst,
 		.idat(xdat), .ivld(take), .irdy(vec_irdy),
@@ -375,8 +374,7 @@ module softmaxf_max #(
 
 	fifo #(
 		.DATA_WIDTH(33),
-		.DEPTH(4),
-		.RAM_STYLE("shift")
+		.DEPTH(4)
 	) max_q (
 		.clk, .rst,
 		.idat({emit_has_infty, new_max}),
@@ -715,8 +713,7 @@ module softmaxf_exp #(
 	uwire  y_irdy;
 	fifo #(
 		.DATA_WIDTH(SIMD * EXP_W),
-		.DEPTH(CREDIT_Y),
-		.RAM_STYLE("shift")
+		.DEPTH(CREDIT_Y)
 	) y_obuf (
 		.clk, .rst,
 		.idat(beat_y), .ivld(out_vld), .irdy(y_irdy),
@@ -824,8 +821,7 @@ module softmaxf_exp #(
 	uwire  s_irdy;
 	fifo #(
 		.DATA_WIDTH(SUM_W),
-		.DEPTH(CREDIT_S),
-		.RAM_STYLE("shift")
+		.DEPTH(CREDIT_S)
 	) sum_q (
 		.clk, .rst,
 		.idat(new_sum), .ivld(emit_sum), .irdy(s_irdy),
@@ -1009,8 +1005,7 @@ module softmaxf_recip #(
 	uwire  obuf_irdy;
 	fifo #(
 		.DATA_WIDTH(32),
-		.DEPTH(CREDIT),
-		.RAM_STYLE("shift")
+		.DEPTH(CREDIT)
 	) obuf (
 		.clk, .rst,
 		.idat(out_dat), .ivld(out_vld), .irdy(obuf_irdy),
@@ -1205,8 +1200,7 @@ module softmaxf_div #(
 	uwire  obuf_irdy;
 	fifo #(
 		.DATA_WIDTH(SIMD * 32),
-		.DEPTH(CREDIT),
-		.RAM_STYLE("shift")
+		.DEPTH(CREDIT)
 	) obuf (
 		.clk, .rst,
 		.idat(prod), .ivld(out_vld), .irdy(obuf_irdy),

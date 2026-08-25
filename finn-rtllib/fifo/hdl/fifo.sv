@@ -85,7 +85,7 @@ module fifo #(
 		DEPTH <= 33?                      "shift" :
 		RAM_STYLE != "auto"?              RAM_STYLE :
 		DEPTH <=   64 && DATA_WIDTH < 12? "shift" :
-		DEPTH <=  257?                    "distributed" :
+		DEPTH <=  257 || DATA_WIDTH <  5? "distributed" :
 		DEPTH <= 2028?                    "block" :
 		/* else */                        "ultra";
 	initial begin
@@ -423,7 +423,7 @@ module fifo #(
 		end : genOutDirect
 		else begin : genOutQ
 			uwire  irdy;
-			fifo #(.DEPTH(QDEPTH+1), .DATA_WIDTH(DATA_WIDTH), .RAM_STYLE("shift")) outq (
+			fifo #(.DEPTH(QDEPTH+1), .DATA_WIDTH(DATA_WIDTH)) outq (
 				.clk, .rst,
 				.idat(mem_odat), .ivld(mem_ovld), .irdy,
 				.odat, .ovld, .ordy,

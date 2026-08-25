@@ -225,8 +225,7 @@ assign rxfer = rready & rvalid;
 
 fifo #(
     .DEPTH(MAX_OUTSTANDING),
-    .DATA_WIDTH(1),
-    .RAM_STYLE("shift")
+    .DATA_WIDTH(1)
 ) inst_q_rd (
     .clk(aclk),
     .rst(!aresetn),

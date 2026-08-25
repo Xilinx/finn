@@ -262,8 +262,7 @@ inst_burst_cntr (
 
 fifo #(
     .DEPTH(MAX_OUTSTANDING),
-    .DATA_WIDTH(LOG_BURST_LEN),
-    .RAM_STYLE("shift")
+    .DATA_WIDTH(LOG_BURST_LEN)
 ) inst_q_wr_req (
     .clk(aclk),
     .rst(!aresetn),
@@ -285,8 +284,7 @@ assign bxfer = bready & bvalid;
 
 fifo #(
     .DEPTH(MAX_OUTSTANDING),
-    .DATA_WIDTH(1),
-    .RAM_STYLE("shift")
+    .DATA_WIDTH(1)
 ) inst_q_wr_rsp (
     .clk(aclk),
     .rst(!aresetn),

@@ -120,8 +120,7 @@ logic rd_done_int;
 
 fifo #(
     .DEPTH(DCPL_DEPTH),
-    .DATA_WIDTH(ADDR_BITS+LEN_BITS),
-    .RAM_STYLE("shift")
+    .DATA_WIDTH(ADDR_BITS+LEN_BITS)
 ) inst_q_rd (
     .clk(aclk),
     .rst(!aresetn),
@@ -150,8 +149,7 @@ logic wr_done_int;
 
 fifo #(
     .DEPTH(DCPL_DEPTH),
-    .DATA_WIDTH(ADDR_BITS+LEN_BITS),
-    .RAM_STYLE("shift")
+    .DATA_WIDTH(ADDR_BITS+LEN_BITS)
 ) inst_q_wr (
     .clk(aclk),
     .rst(!aresetn),
