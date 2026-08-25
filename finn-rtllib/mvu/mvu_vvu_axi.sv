@@ -146,6 +146,7 @@ module mvu_vvu_axi #(
 	localparam int unsigned  DSP_SIMD       = EFFECTIVE_SIMD/(PUMPED_COMPUTE+1);
 
 	localparam bit           TARGET           = (VERSION == 3);  // DSP58 => Versal
+	// Matches dsp_w_t/dsp_a_t; _is_dotp_comp_eligible rejects pumping, so here DSP_SIMD == EFFECTIVE_SIMD == SIMD.
 	localparam int unsigned  SCHED_SIMD       = USE_COMPRESSOR? DSP_SIMD         : 1;
 	localparam int unsigned  SCHED_WW         = USE_COMPRESSOR? WEIGHT_WIDTH     : 1;
 	localparam int unsigned  SCHED_AW         = USE_COMPRESSOR? ACTIVATION_WIDTH : 1;
@@ -153,7 +154,8 @@ module mvu_vvu_axi #(
 	localparam bit           SCHED_SACT       = SIGNED_ACTIVATIONS;
 	localparam bit           SCHED_SWT        = 1'b1;   // FINN weights signed
 	localparam int unsigned  SCHED_COMB_DEPTH = COMP_PIPELINE_DEPTH;
-	localparam bit           SCHED_ACC        = 1'b1;
+	// SF == 1 folds the whole row in one cycle, so nothing accumulates across
+	localparam bit           SCHED_ACC        = (MW/SIMD) > 1;
 	localparam int           SCHED_ACC_KIND   = -1;     // auto-select from TARGET/COMB_DEPTH/ACC
 	localparam bit           SCHED_EN         = 1'b1;
 	localparam int           SCHED_BUDGET     = USE_COMPRESSOR? CYCLE_BUDGET : 0;
