@@ -365,30 +365,6 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
             )
         )
 
-    if cfg.mlo and cfg.generate_outputs:
-        if DataflowOutputType.ESTIMATE_REPORTS in cfg.generate_outputs:
-            checks.append(
-                _check(
-                    "mlo_estimates",
-                    Severity.WARNING,
-                    False,
-                    "MLO enabled with ESTIMATE_REPORTS: Network performance cannot be "
-                    "estimated for MLO models. Individual layer estimates will still be "
-                    "generated",
-                )
-            )
-        if DataflowOutputType.RTLSIM_PERFORMANCE in cfg.generate_outputs:
-            checks.append(
-                _check(
-                    "mlo_rtlsim",
-                    Severity.WARNING,
-                    False,
-                    "MLO enabled with RTLSIM_PERFORMANCE: RTL simulation performance "
-                    "measurement is skipped for MLO models",
-                    "Remove RTLSIM_PERFORMANCE from generate_outputs or disable MLO",
-                )
-            )
-
     if cfg.mlo and cfg.verify_save_full_context:
         checks.append(
             _check(

@@ -168,6 +168,9 @@ class DataflowBuildConfig:
     #: (Optional) Target inference performance in frames per second.
     #: Note that target may not be achievable due to specific layer constraints,
     #: or due to resource limitations of the FPGA.
+    #: When board/fpga_part information is available, automatic folding uses
+    #: analytical resource estimates to minimize resource usage for the requested
+    #: throughput, or to maximize valid board utilization if the target is too high.
     #: If parallelization attributes are specified as part of folding_config_file
     #: that will override the target_fps setting here.
     target_fps: Optional[int] = None

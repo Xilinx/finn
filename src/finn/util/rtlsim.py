@@ -110,6 +110,151 @@ def annotate_rtlsim_performance(rtlsim_stats, batch_size, clock_period_ns):
     return rtlsim_stats
 
 
+def annotate_rtlsim_mlo_capacity(rtlsim_stats, loop_iterations, overhead_per_iteration=0):
+    """Convert a FINNLoop body pass rate into external-frame service capacity.
+
+    FINNLoop may keep several frames in flight, so adjacent top-level outputs
+    can be a burst and their raw spacing is not the long-run image rate. Every
+    completed external frame nevertheless consumes ``loop_iterations`` body
+    passes. A multi-frame body RTLSIM therefore gives the work-normalized
+    external interval without confusing output burst spacing with capacity.
+    Body output intervals can alternate as reorder buffers move through their
+    ping-pong phases. Use an odd number of at least three body frames so the
+    first-to-last span contains an even number of intervals, then use that
+    periodic average rather than either member of the alternating pair.
+    """
+
+    loop_iterations = int(loop_iterations)
+    overhead_per_iteration = int(overhead_per_iteration)
+    assert loop_iterations > 0, "FINNLoop iteration count must be >0"
+    assert overhead_per_iteration >= 0, "FINNLoop iteration overhead must be >=0"
+
+    interval_valid = bool(rtlsim_stats.get("interval_is_steady_state", False))
+    completed_frames = int(rtlsim_stats.get("completed_output_frames", 0))
+    body_interval_cycles = int(rtlsim_stats.get("interval_cycles", 0))
+    steady_state_frames = int(rtlsim_stats.get("steady_state_frames", 0))
+    body_steady_state_cycles = int(rtlsim_stats.get("steady_state_cycles", 0))
+    body_average_interval_cycles = (
+        body_steady_state_cycles / steady_state_frames if steady_state_frames > 0 else None
+    )
+    if (
+        body_average_interval_cycles is not None
+        and float(body_average_interval_cycles).is_integer()
+    ):
+        body_average_interval_cycles = int(body_average_interval_cycles)
+    rtlsim_stats["measurement_scope"] = "finnloop_body_capacity"
+    rtlsim_stats["loop_iterations"] = loop_iterations
+    rtlsim_stats["loop_iteration_overhead_cycles"] = overhead_per_iteration
+    rtlsim_stats["body_interval_cycles"] = body_interval_cycles
+    rtlsim_stats["body_interval_is_steady_state"] = interval_valid
+    rtlsim_stats["body_fps_from_interval"] = rtlsim_stats.get("fps_from_interval")
+    rtlsim_stats["body_cycles"] = rtlsim_stats.get("cycles")
+    rtlsim_stats["body_latency_cycles"] = rtlsim_stats.get("latency_cycles")
+    rtlsim_stats["body_throughput[images/s]"] = rtlsim_stats.get("throughput[images/s]")
+    rtlsim_stats["body_stable_throughput_valid"] = rtlsim_stats.get("stable_throughput_valid")
+    rtlsim_stats["body_stable_throughput[images/s]"] = rtlsim_stats.get(
+        "stable_throughput[images/s]"
+    )
+    rtlsim_stats["body_average_interval_cycles"] = body_average_interval_cycles
+
+    if (
+        not interval_valid
+        or completed_frames < 3
+        or completed_frames % 2 == 0
+        or body_interval_cycles <= 0
+        or steady_state_frames <= 0
+        or body_steady_state_cycles <= 0
+    ):
+        rtlsim_stats["effective_interval_cycles"] = None
+        rtlsim_stats["effective_interval_is_steady_state"] = False
+        rtlsim_stats["effective_fps_from_interval"] = None
+        rtlsim_stats["interval_is_steady_state"] = False
+        rtlsim_stats["fps_from_interval"] = None
+        rtlsim_stats["throughput[images/s]"] = None
+        rtlsim_stats["stable_throughput_valid"] = False
+        rtlsim_stats["stable_throughput[images/s]"] = None
+        return rtlsim_stats
+
+    effective_interval_cycles = loop_iterations * (
+        body_average_interval_cycles + overhead_per_iteration
+    )
+    if float(effective_interval_cycles).is_integer():
+        effective_interval_cycles = int(effective_interval_cycles)
+    fclk_mhz = float(rtlsim_stats["fclk[mhz]"])
+    effective_fps = fclk_mhz * 1.0e6 / effective_interval_cycles
+    rtlsim_stats["effective_interval_cycles"] = effective_interval_cycles
+    rtlsim_stats["effective_interval_is_steady_state"] = True
+    rtlsim_stats["effective_fps_from_interval"] = effective_fps
+    # Keep standard network-throughput fields useful to existing report
+    # consumers while retaining every raw body quantity under a body_* key.
+    rtlsim_stats["interval_cycles"] = effective_interval_cycles
+    rtlsim_stats["interval_is_steady_state"] = True
+    rtlsim_stats["fps_from_interval"] = effective_fps
+    rtlsim_stats["throughput[images/s]"] = effective_fps
+    effective_steady_state_cycles = effective_interval_cycles * steady_state_frames
+    rtlsim_stats["body_steady_state_cycles"] = body_steady_state_cycles
+    rtlsim_stats["steady_state_cycles"] = effective_steady_state_cycles
+    rtlsim_stats["stable_throughput_valid"] = True
+    rtlsim_stats["stable_throughput[images/s]"] = (
+        steady_state_frames * fclk_mhz * 1.0e6 / effective_steady_state_cycles
+    )
+    return rtlsim_stats
+
+
+def annotate_rtlsim_estimate_comparison(rtlsim_stats, estimated_interval_cycles):
+    """Compare an analytical initiation interval against a valid RTLSIM interval.
+
+    Ordinary streaming graphs use the raw output-to-output interval. Rolled
+    MLO graphs use ``effective_interval_cycles`` when body RTLSIM has converted
+    pass rate into work-normalized external-frame capacity. Invalid or
+    single-frame RTLSIM runs retain the estimate but do not report an error.
+    """
+
+    estimated_interval_cycles = int(estimated_interval_cycles)
+    assert estimated_interval_cycles > 0, "estimated interval must be >0"
+    rtlsim_stats["estimated_interval_cycles"] = estimated_interval_cycles
+
+    clock_period_ns = float(rtlsim_stats["fclk[mhz]"])
+    clock_period_ns = 1000.0 / clock_period_ns
+    estimated_fps = 1.0e9 / (clock_period_ns * estimated_interval_cycles)
+    rtlsim_stats["estimated_throughput[images/s]"] = estimated_fps
+
+    is_mlo_capacity = rtlsim_stats.get("measurement_scope") == "finnloop_body_capacity"
+    effective_interval = rtlsim_stats.get("effective_interval_cycles")
+    if is_mlo_capacity:
+        rtlsim_stats["estimate_comparison_interval_source"] = "effective_interval_cycles"
+        comparison_valid = bool(
+            effective_interval is not None
+            and rtlsim_stats.get("effective_interval_is_steady_state", False)
+        )
+        measured_interval_cycles = float(effective_interval or 0)
+        measured_fps = float(rtlsim_stats.get("effective_fps_from_interval") or 0)
+    else:
+        measured_interval_cycles = float(rtlsim_stats.get("interval_cycles", 0))
+        measured_fps_value = rtlsim_stats.get("fps_from_interval")
+        measured_fps = float(measured_fps_value) if measured_fps_value is not None else 0.0
+        comparison_valid = bool(rtlsim_stats.get("interval_is_steady_state", False))
+        rtlsim_stats["estimate_comparison_interval_source"] = "interval_cycles"
+
+    if not comparison_valid:
+        rtlsim_stats["estimate_vs_rtlsim_cycles"] = None
+        rtlsim_stats["estimate_vs_rtlsim_cycles[%]"] = None
+        rtlsim_stats["estimate_vs_rtlsim_cycles_abs[%]"] = None
+        rtlsim_stats["estimate_vs_rtlsim_throughput[%]"] = None
+        return rtlsim_stats
+
+    cycle_delta = estimated_interval_cycles - measured_interval_cycles
+    if float(cycle_delta).is_integer():
+        cycle_delta = int(cycle_delta)
+    cycle_error_pct = 100.0 * cycle_delta / measured_interval_cycles
+    throughput_error_pct = 100.0 * (estimated_fps - measured_fps) / measured_fps
+    rtlsim_stats["estimate_vs_rtlsim_cycles"] = cycle_delta
+    rtlsim_stats["estimate_vs_rtlsim_cycles[%]"] = cycle_error_pct
+    rtlsim_stats["estimate_vs_rtlsim_cycles_abs[%]"] = abs(cycle_error_pct)
+    rtlsim_stats["estimate_vs_rtlsim_throughput[%]"] = throughput_error_pct
+    return rtlsim_stats
+
+
 def dat_file_to_numpy_array(file_path):
     byte_values = []
 

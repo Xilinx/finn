@@ -70,7 +70,11 @@ from shutil import copy
 
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
-from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
+from finn.analysis.fpgadataflow.dataflow_performance import (
+    FINNLOOP_ITERATION_OVERHEAD_CYCLES,
+    dataflow_performance,
+    folding_performance,
+)
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.analysis.fpgadataflow.op_and_param_counts import (
@@ -81,6 +85,7 @@ from finn.analysis.fpgadataflow.post_synth_res import post_synth_res
 from finn.analysis.fpgadataflow.res_estimation import (
     res_estimation,
     res_estimation_complete,
+    res_estimation_recursive,
 )
 from finn.analysis.fpgadataflow.validate_dataflow_conversion import (
     validate_dataflow_conversion,
@@ -161,7 +166,12 @@ from finn.util.config import (
     extract_model_config_to_json,
 )
 from finn.util.fpgadataflow import is_mlo, warn_hls_rtl_dsp_conflict
-from finn.util.rtlsim import annotate_rtlsim_performance, mlo_prehook_func_factory
+from finn.util.rtlsim import (
+    annotate_rtlsim_estimate_comparison,
+    annotate_rtlsim_mlo_capacity,
+    annotate_rtlsim_performance,
+    mlo_prehook_func_factory,
+)
 from finn.util.test import execute_parent
 from finn.util.vivado import parse_ooc_synth_results
 
@@ -705,13 +715,22 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
 
     target_cycles_per_frame = cfg._resolve_cycles_per_frame()
     if target_cycles_per_frame is not None:
+        fpgapart = None
+        if cfg.fpga_part is not None or cfg.board is not None:
+            fpgapart = cfg._resolve_fpga_part()
+        folding = SetFolding(
+            target_cycles_per_frame,
+            mvau_wwidth_max=cfg.mvau_wwidth_max,
+            two_pass_relaxation=cfg.folding_two_pass_relaxation,
+            fpgapart=fpgapart,
+            board=cfg.board,
+        )
         model = model.transform(
-            SetFolding(
-                target_cycles_per_frame,
-                mvau_wwidth_max=cfg.mvau_wwidth_max,
-                two_pass_relaxation=cfg.folding_two_pass_relaxation,
-            ),
-            apply_to_subgraphs=True,
+            folding,
+            # Resource-aware folding owns the full FINNLoop hierarchy so that
+            # all nodes share one target and one board budget. The legacy pass
+            # still needs ModelWrapper to visit subgraphs separately.
+            apply_to_subgraphs=not folding.resource_aware,
         )
         model = model.transform(GiveUniqueNodeNames())
         loop_nodes = model.get_nodes_by_op_type("FINNLoop")
@@ -731,6 +750,7 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
             "runtime_writeable_weights",
             "depth_trigger_uram",
             "depth_trigger_bram",
+            "pumpedCompute",
         ]
         extract_model_config_to_json(model, cfg.output_dir + "/auto_folding_config.json", hw_attrs)
 
@@ -759,6 +779,16 @@ def step_apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
+def _write_estimate_layer_resources(model: ModelWrapper, cfg: DataflowBuildConfig, filename: str):
+    report_dir = cfg.output_dir + "/report"
+    os.makedirs(report_dir, exist_ok=True)
+    estimate_layer_resources = res_estimation_recursive(model, cfg._resolve_fpga_part())
+    estimate_layer_resources["total"] = aggregate_dict_keys(estimate_layer_resources)
+    with open(report_dir + "/" + filename, "w") as f:
+        json.dump(estimate_layer_resources, f, indent=2)
+    return estimate_layer_resources
+
+
 def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig):
     "Generate per-layer resource and cycle estimates using analytical models."
 
@@ -771,12 +801,7 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
         estimate_layer_cycles = model.analysis(exp_cycles_per_layer)
         with open(report_dir + "/estimate_layer_cycles.json", "w") as f:
             json.dump(estimate_layer_cycles, f, indent=2)
-        estimate_layer_resources = model.analysis(
-            partial(res_estimation, fpgapart=cfg._resolve_fpga_part())
-        )
-        estimate_layer_resources["total"] = aggregate_dict_keys(estimate_layer_resources)
-        with open(report_dir + "/estimate_layer_resources.json", "w") as f:
-            json.dump(estimate_layer_resources, f, indent=2)
+        _write_estimate_layer_resources(model, cfg, "estimate_layer_resources.json")
         estimate_layer_resources_complete = model.analysis(
             partial(res_estimation_complete, fpgapart=cfg._resolve_fpga_part())
         )
@@ -808,22 +833,23 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
             ) as f:
                 json.dump(estimate_layer_resources_complete, f, indent=2)
 
-        if not is_mlo(model):
-            # need to call AnnotateCycles before dataflow_performance
-            model = model.transform(AnnotateCycles())
-            estimate_network_performance = model.analysis(dataflow_performance)
-            # add some more metrics to estimated performance
-            n_clock_cycles_per_sec = (10**9) / cfg.synth_clk_period_ns
-            est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
-            estimate_network_performance["estimated_throughput_fps"] = est_fps
-            est_latency_ns = (
-                estimate_network_performance["critical_path_cycles"] * cfg.synth_clk_period_ns
-            )
-            estimate_network_performance["estimated_latency_ns"] = est_latency_ns
-            with open(report_dir + "/estimate_network_performance.json", "w") as f:
-                json.dump(estimate_network_performance, f, indent=2)
-        else:
-            print("Model contains MLO, currently network performance can't be estimated for this.")
+        # Annotated get_exp_cycles values remain useful for the pessimistic
+        # latency estimate. MLO throughput uses the streaming FINNLoop model
+        # instead of multiplying body latency by the iteration count.
+        model = model.transform(AnnotateCycles())
+        estimate_network_performance = model.analysis(dataflow_performance)
+        if is_mlo(model):
+            throughput_performance = folding_performance(model)
+            estimate_network_performance.update(throughput_performance)
+        n_clock_cycles_per_sec = (10**9) / cfg.synth_clk_period_ns
+        est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
+        estimate_network_performance["estimated_throughput_fps"] = est_fps
+        est_latency_ns = (
+            estimate_network_performance["critical_path_cycles"] * cfg.synth_clk_period_ns
+        )
+        estimate_network_performance["estimated_latency_ns"] = est_latency_ns
+        with open(report_dir + "/estimate_network_performance.json", "w") as f:
+            json.dump(estimate_network_performance, f, indent=2)
     else:
         print(
             """DataflowOutputType.ESTIMATE_REPORTS not in requested outputs,
@@ -1090,6 +1116,9 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(SplitLargeFIFOs())
     model = model.transform(RemoveShallowFIFOs())
 
+    if DataflowOutputType.ESTIMATE_REPORTS in cfg.generate_outputs:
+        _write_estimate_layer_resources(model, cfg, "estimate_layer_resources_post_fifo.json")
+
     # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again
     # this will only run for the new nodes (e.g. FIFOs and DWCs)
     model = model.transform(PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()))
@@ -1134,7 +1163,10 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
             ooc_res_dict = parse_ooc_synth_results(vivado_stitch_proj)
             if ooc_res_dict is not None:
                 # Calculate estimated throughput from fmax and cycle analysis
-                estimate_network_performance = model.analysis(dataflow_performance)
+                if is_mlo(model):
+                    estimate_network_performance = folding_performance(model)
+                else:
+                    estimate_network_performance = model.analysis(dataflow_performance)
                 n_clock_cycles_per_sec = float(ooc_res_dict["fmax_mhz"]) * (10**6)
                 est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
                 ooc_res_dict["estimated_throughput_fps"] = est_fps
@@ -1201,7 +1233,7 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
     Depends on the DataflowOutputType.STITCHED_IP output product.
     """
 
-    if DataflowOutputType.RTLSIM_PERFORMANCE in cfg.generate_outputs and not is_mlo(model):
+    if DataflowOutputType.RTLSIM_PERFORMANCE in cfg.generate_outputs:
         assert (
             DataflowOutputType.STITCHED_IP in cfg.generate_outputs
         ), "rtlsim_perf needs stitched IP"
@@ -1221,17 +1253,46 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
         model = model.transform(AnnotateCycles())
         perf = model.analysis(dataflow_performance)
         latency = perf["critical_path_cycles"]
-        max_iters = latency * 1.1 + 50
+        model_is_mlo = is_mlo(model)
+        throughput_perf = folding_performance(model) if model_is_mlo else perf
         # Use behav=False for performance measurement to use real RTL components
         # instead of behavioral models (FINN_SIMULATION affects FIFOs, MVU, LayerNorm,
         # and RTL elementwise ops)
-        rtlsim_perf_dict = xsi_fifosim(model, rtlsim_bs, max_iters=max_iters, behav=False)
+        if model_is_mlo:
+            mlo_rtlsim_bs = max(3, rtlsim_bs)
+            if mlo_rtlsim_bs % 2 == 0:
+                mlo_rtlsim_bs += 1
+            loop_nodes = model.get_nodes_by_op_type("FINNLoop")
+            assert len(loop_nodes) == 1, "MLO performance RTLSIM currently supports one FINNLoop"
+            loop_node = loop_nodes[0]
+            loop_inst = getCustomOp(loop_node)
+            loop_body = loop_inst.get_nodeattr("body")
+            loop_body = loop_body.transform(AnnotateCycles())
+            body_latency = loop_body.analysis(dataflow_performance)["critical_path_cycles"]
+            body_max_iters = body_latency * 1.1 + 50
+            rtlsim_perf_dict = xsi_fifosim(
+                loop_body, mlo_rtlsim_bs, max_iters=body_max_iters, behav=False
+            )
+        else:
+            max_iters = latency * 1.1 + 50
+            rtlsim_perf_dict = xsi_fifosim(model, rtlsim_bs, max_iters=max_iters, behav=False)
         # keep keys consistent between the Python and C++-styles
         for key, val in rtlsim_perf_dict.items():
             if "max_count" in key:
                 del rtlsim_perf_dict[key]
         rtlsim_perf_dict = annotate_rtlsim_performance(
-            rtlsim_perf_dict, rtlsim_bs, cfg.synth_clk_period_ns
+            rtlsim_perf_dict,
+            mlo_rtlsim_bs if model_is_mlo else rtlsim_bs,
+            cfg.synth_clk_period_ns,
+        )
+        if model_is_mlo:
+            rtlsim_perf_dict = annotate_rtlsim_mlo_capacity(
+                rtlsim_perf_dict,
+                loop_inst.get_nodeattr("iteration"),
+                FINNLOOP_ITERATION_OVERHEAD_CYCLES,
+            )
+        rtlsim_perf_dict = annotate_rtlsim_estimate_comparison(
+            rtlsim_perf_dict, throughput_perf["max_cycles"]
         )
 
         with open(report_dir + "/rtlsim_performance.json", "w") as f:
@@ -1242,7 +1303,7 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
 
     else:
         print(
-            """DataflowOutputType.RTLSIM_PERFORMANCE not in requested outputs or model is MLO,
+            """DataflowOutputType.RTLSIM_PERFORMANCE not in requested outputs,
             skipping step_measure_rtlsim_performance."""
         )
 
