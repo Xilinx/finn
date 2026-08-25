@@ -118,9 +118,9 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
     def get_rtl_file_list(self, abspath=False):
         """The shared FIFO sources plus the per-node wrapper generate_hdl() wrote."""
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen") + "/" if abspath else ""
-        return [
-            code_gen_dir + self.get_nodeattr("gen_top_module") + ".v"
-        ] + fifo_rtl_files(abspath, gauge=True)
+        return [code_gen_dir + self.get_nodeattr("gen_top_module") + ".v"] + fifo_rtl_files(
+            abspath, gauge=True
+        )
 
     def execute_node(self, context, graph):
         # a FIFO only passes data through, so it is never simulated on its own:
