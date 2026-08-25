@@ -871,10 +871,22 @@ class FINNLoop(HWCustomOp, RTLBackend):
             "create_bd_intf_pin -mode Slave "
             "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/s_axis_0" % bd_name
         )
-        for id, inp in enumerate(loop_body.graph.input[1:]):
+        # One tap per parameter graph-input, mirroring generate_hdl_stream_tap():
+        # Requant packs scale (input[1]) and bias (input[2]) into one memstream
+        # driven by the scale tap, so the bias gets no tap of its own.
+        taps = []
+        node_to_taps = {}
+        for gid, inp in enumerate(loop_body.graph.input[1:], start=1):
+            consumer = loop_body.find_consumer(inp.name)
+            if consumer.op_type == "Requant_rtl" and inp.name in consumer.input[2:]:
+                continue
+            taps.append((gid, "IN_%d_stream_tap_wrapper" % gid, consumer.name))
+            node_to_taps.setdefault(consumer.name, []).append(gid)
+        # number the master ports densely, to match the loop body IP's s_axis_1..N
+        for pid, _ in enumerate(taps, start=1):
             cmd.append(
                 "create_bd_intf_pin -mode Master "
-                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/m_axis_%d" % (bd_name, id + 1)
+                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/m_axis_%d" % (bd_name, pid)
             )
         # get stream tap (+ skid)  components
         skid_file = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/skid/skid.sv")
@@ -911,18 +923,6 @@ class FINNLoop(HWCustomOp, RTLBackend):
             ),
         )
 
-        # Map each parameter graph-input to its stream tap. A node may consume
-        # several parameter inputs (e.g. Requant: scale=input[1], bias=input[2]),
-        # so keep a per-graph-input tap list plus a node -> [tap ids] index.
-        # taps: list of (gid, tap_name, consumer_name); node_to_taps: name -> [gid]
-        taps = []
-        node_to_taps = {}
-        for id, inp in enumerate(loop_body.graph.input[1:], start=1):
-            consumer = loop_body.find_consumer(inp.name)
-            tap_name = "IN_%d_stream_tap_wrapper" % id
-            taps.append((id, tap_name, consumer.name))
-            node_to_taps.setdefault(consumer.name, []).append(id)
-
         def node_entry(node_name):
             # Entry tap (lowest gid) of a node: where the set index enters the
             # node's param taps. A multi-param node chains its taps internally
@@ -941,9 +941,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
             # across distinct destination nodes (branching dataflow).
             return [node_entry(d) for d in dsts]
 
-        # instantiate all stream taps and connect their clk and rst; wire each
-        # tap's m_axis_1 to the stg output m_axis_<gid> by its true graph-input id
-        for gid, tap_name, _consumer in taps:
+        # instantiate all stream taps and connect their clk and rst
+        for pid, (_gid, tap_name, _consumer) in enumerate(taps, start=1):
             cmd.append(
                 "create_bd_cell -type hier -reference %s /%s/%s" % (tap_name, bd_name, tap_name)
             )
@@ -958,7 +957,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
             )
             cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/m_axis_%s] "
-                "[get_bd_intf_pins %s/%s/m_axis_1]" % (bd_name, gid, bd_name, tap_name)
+                "[get_bd_intf_pins %s/%s/m_axis_1]" % (bd_name, pid, bd_name, tap_name)
             )
 
         # Chain a multi-param node's taps in series (e.g. Requant scale -> bias):
@@ -1258,6 +1257,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # connect components with each other
         # stream tap with finn ip
         connect_signals = loop_body_intf_names["s_axis"]
+        assert len(taps) == len(connect_signals) - 1, "stream tap / loop body param mismatch"
         for id, sig in enumerate(connect_signals[:-1]):
             cmd.append(
                 "connect_bd_intf_net "
