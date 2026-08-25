@@ -43,8 +43,7 @@ from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
-
-export_onnx_path = "test_brevitas_non_scaled_QuantHardTanh_export.onnx"
+from finn.util.basic import make_build_dir
 
 
 @pytest.mark.brevitas_export
@@ -72,17 +71,17 @@ def test_brevitas_act_export_qhardtanh_nonscaled(abits, narrow_range, max_val):
         scaling_impl_type=ScalingImplType.CONST,
         narrow_range=narrow_range,
     )
-    m_path = export_onnx_path
+    build_dir = make_build_dir(prefix="test_brevitas_act_export_qhardtanh_nonscaled")
+    m_path = os.path.join(build_dir, "test_brevitas_non_scaled_QuantHardTanh_export.onnx")
     export_qonnx(b_act, torch.randn(ishape), m_path)
     qonnx_cleanup(m_path, out_file=m_path)
     model = ModelWrapper(m_path)
     model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(InferShapes())
     inp_tensor = np.random.uniform(low=min_val, high=max_val, size=ishape).astype(np.float32)
-    idict = {model.graph.input[0].name: inp_tensor}
+    idict = {model.get_first_global_in(): inp_tensor}
     odict = oxe.execute_onnx(model, idict, True)
-    produced = odict[model.graph.output[0].name]
+    produced = odict[model.get_first_global_out()]
     inp_tensor = torch.from_numpy(inp_tensor).float()
     expected = b_act.forward(inp_tensor).detach().numpy()
     assert np.isclose(produced, expected, atol=1e-3).all()
-    os.remove(export_onnx_path)

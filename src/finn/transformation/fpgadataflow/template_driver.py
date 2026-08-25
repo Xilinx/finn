@@ -82,20 +82,23 @@ io_shape_dict = {
     "input_dma_name" : $INPUT_DMA_NAME$,
     "output_dma_name" : $OUTPUT_DMA_NAME$,
     "number_of_external_weights": $EXT_WEIGHT_NUM$,
+    "external_weights_input_shapes": $EXT_WEIGHT_INPUT_SHAPES$,
     "num_inputs" : $NUM_INPUTS$,
     "num_outputs" : $NUM_OUTPUTS$,
+    # MLO/FINNLoop DDR weight config
+    "mlo_weight_config" : $MLO_WEIGHT_CONFIG$,
 }
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Execute FINN-generated accelerator on numpy inputs, or run throughput test')
     parser.add_argument('--exec_mode', help='Please select functional verification ("execute") or throughput test ("throughput_test")', default="execute")
-    parser.add_argument('--platform', help='Target platform: zynq-iodma alveo', default="$PLATFORM$")
+    parser.add_argument('--platform', help='Target platform: zynq-iodma vitis-xrt', default="$PLATFORM$")
     parser.add_argument('--batchsize', help='number of samples for inference', type=int, default=1)
     parser.add_argument('--device', help='FPGA device to be used', type=int, default=0)
     parser.add_argument('--bitfile', help='name of bitfile (i.e. "resizer.bit")', default="resizer.bit")
     parser.add_argument('--inputfile', help='name(s) of input npy file(s) (i.e. "input.npy")', nargs="*", type=str, default=["input.npy"])
     parser.add_argument('--outputfile', help='name(s) of output npy file(s) (i.e. "output.npy")', nargs="*", type=str, default=["output.npy"])
-    parser.add_argument('--runtime_weight_dir', help='path to folder containing runtime-writable .dat weights', default="runtime_weights/")
+    parser.add_argument('--weight_dir', help='path to folder containing the weights subfolders (runtime_weights/, mlo_weights/)', default="weights/")
     # parse arguments
     args = parser.parse_args()
     exec_mode = args.exec_mode
@@ -104,7 +107,7 @@ if __name__ == "__main__":
     bitfile = args.bitfile
     inputfile = args.inputfile
     outputfile = args.outputfile
-    runtime_weight_dir = args.runtime_weight_dir
+    weight_dir = args.weight_dir
     devID = args.device
     device = Device.devices[devID]
 
@@ -112,7 +115,7 @@ if __name__ == "__main__":
     accel = FINNExampleOverlay(
         bitfile_name = bitfile, platform = platform,
         io_shape_dict = io_shape_dict, batch_size = batch_size,
-        runtime_weight_dir = runtime_weight_dir, device=device
+        weight_dir = weight_dir, device=device
     )
 
     # for the remote execution the data from the input npy file has to be loaded,

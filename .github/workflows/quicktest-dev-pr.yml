@@ -11,7 +11,7 @@ jobs:
 
   test:
     name: Run quicktest on PR branch
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
 
     steps:
       - name: checkout
@@ -23,4 +23,5 @@ jobs:
           export FINN_BUILD_DIR=/tmp/finn_gha
           export FINN_INST_NAME=finn_gha
           export FINN_SKIP_XRT_DOWNLOAD=1
+          export DOCKER_INTERACTIVE=""
           ./run-docker.sh quicktest

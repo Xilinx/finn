@@ -26,7 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import math
-import numpy as np
 import warnings
 from qonnx.core.datatype import DataType
 
@@ -65,17 +64,11 @@ class StreamingFIFO(HWCustomOp):
                 # the FIFO does not need its own FIFOs
                 "inFIFODepths": ("ints", False, [0]),
                 "outFIFODepths": ("ints", False, [0]),
+                "debug_log_path": ("s", False, ""),
             }
         )
 
         return my_attrs
-
-    def make_shape_compatible_op(self, model):
-        exp_ishape = self.get_normal_input_shape()
-        oshape = self.get_normal_output_shape()
-        ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == tuple(exp_ishape), "Unexpect input shape for StreamingFIFO."
-        return super().make_const_shape_op(oshape)
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
@@ -91,21 +84,32 @@ class StreamingFIFO(HWCustomOp):
         # data type stays the same
         model.set_tensor_datatype(node.output[0], idt)
 
-    def verify_node(self):
-        pass
-
     def get_verilog_top_module_intf_names(self):
         ret = super().get_verilog_top_module_intf_names()
-        is_rtl = self.get_nodeattr("impl_style") == "rtl"
+        try:
+            is_rtl = self.get_nodeattr("impl_style") == "rtl"
+        except AttributeError:
+            raise Exception(
+                self.onnx_node.name
+                + """ is still in hw abstraction format,
+                Please run SpecializeLayers() before proceeding."""
+            )
         is_depth_monitor = self.get_nodeattr("depth_monitor") == 1
         if is_rtl and is_depth_monitor:
             ret["ap_none"] = ["maxcount"]
         return ret
 
     def get_normal_input_shape(self, ind=0):
-        depth = self.get_adjusted_depth()
+        try:
+            depth = self.get_adjusted_depth()
+        except AttributeError:
+            depth = self.get_nodeattr("depth")
         assert depth >= 1, """Depth is too low"""
-        if depth > 256 and self.get_nodeattr("impl_style") == "rtl":
+        try:
+            impl_style = self.get_nodeattr("impl_style") == "rtl"
+        except AttributeError:
+            impl_style = ""
+        if depth > 256 and impl_style == "rtl":
             warnings.warn("Depth is high, set between 2 and 256 for efficient SRL implementation")
         return self.get_nodeattr("normal_shape")
 
@@ -140,15 +144,22 @@ class StreamingFIFO(HWCustomOp):
         node = self.onnx_node
         context[node.output[0]] = context[node.input[0]]
 
-    def get_number_output_values(self):
-        folded_oshape = self.get_folded_output_shape()
-        return np.prod(folded_oshape[:-1])
-
     def bram_estimation(self):
         """Calculates resource estimation for BRAM"""
-        impl = self.get_nodeattr("impl_style")
+        try:
+            impl = self.get_nodeattr("impl_style")
+        except AttributeError:
+            raise Exception(
+                self.onnx_node.name
+                + """ is still in hw abstraction format,
+                Please run SpecializeLayers() before proceeding."""
+            )
+
         ram_type = self.get_nodeattr("ram_style")
-        depth = self.get_adjusted_depth()
+        try:
+            depth = self.get_adjusted_depth()
+        except AttributeError:
+            depth = self.get_nodeattr("depth")
         W = self.get_instream_width()
 
         if impl == "rtl" or (impl == "vivado" and ram_type != "block"):
@@ -171,9 +182,19 @@ class StreamingFIFO(HWCustomOp):
     def uram_estimation(self):
         """Calculates resource estimation for URAM"""
 
-        impl = self.get_nodeattr("impl_style")
+        try:
+            impl = self.get_nodeattr("impl_style")
+        except AttributeError:
+            raise Exception(
+                self.onnx_node.name
+                + """ is still in hw abstraction format,
+                Please run SpecializeLayers() before proceeding."""
+            )
         ram_type = self.get_nodeattr("ram_style")
-        depth = self.get_adjusted_depth()
+        try:
+            depth = self.get_adjusted_depth()
+        except AttributeError:
+            depth = self.get_nodeattr("depth")
         W = self.get_instream_width()
 
         if impl == "rtl" or (impl == "vivado" and ram_type != "ultra"):
@@ -183,7 +204,10 @@ class StreamingFIFO(HWCustomOp):
             return (math.ceil(depth / 4096)) * (math.ceil(W / 72))
 
     def bram_efficiency_estimation(self):
-        depth = self.get_adjusted_depth()
+        try:
+            depth = self.get_adjusted_depth()
+        except AttributeError:
+            depth = self.get_nodeattr("depth")
         W = self.get_instream_width()
         bram16_est = self.bram_estimation()
         if bram16_est == 0:
@@ -192,11 +216,37 @@ class StreamingFIFO(HWCustomOp):
         bram16_est_capacity = bram16_est * 36 * 512
         return wbits / bram16_est_capacity
 
+    def uram_efficiency_estimation(self):
+        # TODO: Versal URAM supports flexible bit widths (9/18/36/72) unlike
+        # UltraScale+ which only supports 72-bit. This could improve efficiency
+        # for narrow data types on Versal devices.
+        try:
+            depth = self.get_adjusted_depth()
+        except AttributeError:
+            depth = self.get_nodeattr("depth")
+        W = self.get_instream_width()
+        uram_est = self.uram_estimation()
+        if uram_est == 0:
+            return 1
+        wbits = W * depth
+        uram_est_capacity = uram_est * 72 * 4096
+        return wbits / uram_est_capacity
+
     def lut_estimation(self):
         """Calculates resource estimations for LUTs"""
-        impl = self.get_nodeattr("impl_style")
+        try:
+            impl = self.get_nodeattr("impl_style")
+        except AttributeError:
+            raise Exception(
+                self.onnx_node.name
+                + """ is still in hw abstraction format,
+                Please run SpecializeLayers() before proceeding."""
+            )
         ram_type = self.get_nodeattr("ram_style")
-        depth = self.get_adjusted_depth()
+        try:
+            depth = self.get_adjusted_depth()
+        except AttributeError:
+            depth = self.get_nodeattr("depth")
         W = self.get_instream_width()
 
         address_luts = 2 * math.ceil(math.log(depth, 2))
