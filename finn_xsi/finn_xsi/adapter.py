@@ -209,23 +209,37 @@ def rtlsim_multi_io(
         sim.stream_input(stream_name, hexstring_input)
 
     hex_output_streams = {}
+    watchdogs = []
     for out in io_dict["outputs"]:
         stream_name = out + sname
+        watchdog = sim.create_watchdog(f"{stream_name} timeout", liveness_threshold)
+        watchdogs.append(watchdog)
         hex_output_streams[out] = sim.collect_output(
             stream_name,
             num_out_values[out],
-            watchdog=sim.create_watchdog(f"{stream_name} timeout", liveness_threshold),
+            watchdog=watchdog,
         )
 
     start_ticks = sim.ticks
-    ret = sim.run()
-    if len(ret) > 0:
-        assert False, (
-            get_rtlsim_timeout_error_message(liveness_threshold, liveness_estimate)
-            + f" Triggered watchdogs: {str(ret)}. Check rtlsim_trace if any."
-        )
-    end_ticks = sim.ticks
-    for out in io_dict["outputs"]:
-        io_dict["outputs"][out] = list(map(lambda var: int(var, base=16), hex_output_streams[out]))
+    try:
+        ret = sim.run()
+        if len(ret) > 0:
+            assert False, (
+                get_rtlsim_timeout_error_message(liveness_threshold, liveness_estimate)
+                + f" Triggered watchdogs: {str(ret)}. Check rtlsim_trace if any."
+            )
+        end_ticks = sim.ticks
+        for out in io_dict["outputs"]:
+            io_dict["outputs"][out] = list(
+                map(lambda var: int(var, base=16), hex_output_streams[out])
+            )
+    finally:
+        # Remove the per-output watchdogs so they do not outlive this data pass.
+        # sim.watchdogs is persistent; a leftover (already-exhausted) watchdog
+        # would keep ticking and prematurely abort any later sim.run(), e.g. a
+        # post-hook AXI-Lite weight read-back (see test_fpgadataflow_mvau).
+        for watchdog in watchdogs:
+            if watchdog in sim.watchdogs:
+                sim.remove_watchdog(watchdog)
 
     return end_ticks - start_ticks
