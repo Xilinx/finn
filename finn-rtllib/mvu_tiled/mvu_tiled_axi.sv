@@ -183,7 +183,8 @@ module mvu_tiled_axi #(
 				.PE(PE), .SIMD(SIMD),
 				.TH(TH),
 				.WEIGHT_WIDTH(WEIGHT_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .ACCU_WIDTH(ACCU_WIDTH),
-				.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS)
+				.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS),
+				.TARGET(1'b1)   // this core is DSP58-only, i.e. Versal
 			) inst_cu_mvau_tiled (
 				.clk(ap_clk), .rst(rst), .en(dsp_en),
 				.ivld(istb), .ilast(dsp_last), .w(dsp_w), .a(dsp_a),

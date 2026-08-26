@@ -767,7 +767,12 @@ module mvu #(
 
 					uwire [1:0]  arg[SIMD];
 					uwire [SUM_WIDTH-1:0]  sum;
-					add_multi #(.N(SIMD), .DEPTH(PIPELINE_DEPTH-5), .ARG_WIDTH(2), .ARG_LO(-1), .ARG_HI(1)) reduce (
+					// ARG_LO < 0 keeps this on the behavioral tree, but pass the target
+					// anyway so the architecture bit is never wrong if that changes.
+					add_multi #(
+						.N(SIMD), .DEPTH(PIPELINE_DEPTH-5), .ARG_WIDTH(2), .ARG_LO(-1), .ARG_HI(1),
+						.TARGET(VERSION == 3)  // VERSION 3 = Versal
+					) reduce (
 						.clk, .rst, .en,
 						.arg, .sum
 					);
@@ -801,7 +806,8 @@ module mvu #(
 				add_multi #(
 					.N(SIMD), .DEPTH(PIPELINE_DEPTH-4),
 					.ARG_WIDTH(LO_WIDTH),
-					.RESET_ZERO(0)
+					.RESET_ZERO(0),
+					.TARGET(VERSION == 3)  // VERSION 3 = Versal
 				) reduce (
 					.clk, .rst, .en,
 					.arg, .sum

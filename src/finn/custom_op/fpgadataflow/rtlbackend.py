@@ -78,6 +78,23 @@ class RTLBackend(ABC):
         """Returns list of rtl files. Needs to be filled by each node."""
         pass
 
+    def _get_compressor_hdl_files(self):
+        """Return absolute paths to compressor HDL from ``$COMPRESSOR_ROOT/hdl/``.
+
+        Scans for ``.sv`` and ``.svh`` files, excluding testbenches (``*_tb.sv``)
+        and subdirectories.  Files are referenced in-place — no per-node copy."""
+        compressor_root = os.environ.get("COMPRESSOR_ROOT")
+        if not compressor_root:
+            raise RuntimeError("COMPRESSOR_ROOT environment variable not set")
+        hdl_dir = os.path.join(compressor_root, "hdl")
+        files = []
+        for f in sorted(os.listdir(hdl_dir)):
+            if f.endswith("_tb.sv"):
+                continue
+            if f.endswith(".sv") or f.endswith(".svh"):
+                files.append(os.path.join(hdl_dir, f))
+        return files
+
     @abstractmethod
     def code_generation_ipi(self):
         pass

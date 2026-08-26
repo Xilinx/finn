@@ -28,7 +28,7 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * @brief	Pipelined multi-input adder tree.
+ * @brief	Pipelined multi-input adder using LUT-based compressors.
  * @author	Thomas B. Preußer <thomas.preusser@amd.com>
  *****************************************************************************/
 
@@ -39,7 +39,7 @@ module add_multi import mvu_pkg::*; #(
 	int  ARG_LO = 0,
 	int  ARG_HI = 0,
 	bit  RESET_ZERO = 1,
-
+	bit  TARGET = 0,   // 1 = Versal; 0 = 7-series/UltraScale (compressor path only)
 	localparam int unsigned  SUM_WIDTH = sumwidth(N, ARG_WIDTH, ARG_LO, ARG_HI)
 )(
 	input	logic  clk,
@@ -50,12 +50,59 @@ module add_multi import mvu_pkg::*; #(
 	output	logic [SUM_WIDTH-1:0]  sum
 );
 
-	localparam int unsigned  L = $clog2(N);  // Number of levels with reductions
+//---------------------------------------------------------------------------
+// Compressor path: unsigned low reduction via parametric add_multi_sv, whose
+// LUT-compressor schedule is built at elaboration (add_multi_sched.svh).
+// add_multi_sv is free-running (no en); en=0 holds inputs upstream.
 
-	uwire [SUM_WIDTH-1:0]  sum0;
-	if(L < 1) begin : genTrivial
+	// Re-derive NP (output width) and PIPE (latency) from the same schedule.
+	localparam int unsigned  SCHED_N          = N;
+	localparam int unsigned  SCHED_ARG_WIDTH  = ARG_WIDTH;
+	localparam bit           SCHED_SIGNED     = 1'b0;
+	localparam int unsigned  SCHED_COMB_DEPTH = 1;
+	`include "add_multi_sched.svh"
+
+	// Eligible only when there is pipeline budget to hide the compressor latency.
+	localparam bit  USE_COMP = !RESET_ZERO && (ARG_LO >= 0) && (DEPTH >= PIPE);
+
+	if(USE_COMP) begin : genComp
+		uwire [N-1:0][ARG_WIDTH-1:0]  a;
+		for(genvar  i = 0; i < N; i++)  assign  a[i] = arg[i];
+
+		uwire [NP-1:0]  out;
+		add_multi_sv #(
+			.N(N), .ARG_WIDTH(ARG_WIDTH), .TARGET(TARGET), .SIGNED(1'b0), .COMB_DEPTH(1)
+		) comp_inst (
+			.clk, .en(1'b1), .a, .vld(), .p(out)
+		);
+		initial assert(SUM_WIDTH >= NP) else
+			$warning("add_multi: compressor output width %0d > SUM_WIDTH %0d", NP, SUM_WIDTH);
+
+		// Pad the remaining pipeline depth (en-gated).
+		localparam int unsigned  SUM_DELAY = DEPTH - PIPE;
+		if(SUM_DELAY == 0)  assign  sum = out;
+		else begin : genDelay
+			logic [SUM_WIDTH-1:0]  SumZ[SUM_DELAY] = '{ default: '0 };
+			always_ff @(posedge clk) begin
+				if(rst)  SumZ <= '{ default: '0 };
+				else if(en) begin
+					for(int unsigned  i = 0; i < SUM_DELAY-1; i++)  SumZ[i] <= SumZ[i+1];
+					SumZ[SUM_DELAY-1] <= out;
+				end
+			end
+			assign	sum = SumZ[0];
+		end : genDelay
+	end : genComp
+
+//- Generic Behavioral Addition ---------
+	else begin : genGeneric
+
+	localparam int unsigned  L = $clog2(N);  // Tree levels
+
+	logic [SUM_WIDTH-1:0]  sum0;
+	if(L < 1) begin : genPassThrough
 		assign	sum0 = arg[0];
-	end : genTrivial
+	end : genPassThrough
 	else begin : genTree
 		localparam int unsigned  D = L < DEPTH? L : DEPTH;  // Pipeline stages absorbed by tree
 
@@ -117,16 +164,18 @@ module add_multi import mvu_pkg::*; #(
 	// Delay Output if requested DEPTH exceeds Tree Height
 	if(DEPTH <= L)  assign  sum = sum0;
 	else begin : genDelay
-		localparam logic [SUM_WIDTH-1:0]  SUM_RESET = {(SUM_WIDTH){RESET_ZERO? 1'b0 : 1'bx}};
-		logic [SUM_WIDTH-1:0]  SumZ[DEPTH - L] = '{ default: SUM_RESET };
+		localparam int unsigned  DELAY = DEPTH - L;
+		logic [SUM_WIDTH-1:0]  SumZ[DELAY] = '{ default: '0 };
 		always_ff @(posedge clk) begin
-			if(rst)  SumZ <= '{ default: SUM_RESET };
-			else begin
-				for(int unsigned  i = 0; i < DEPTH-L-1; i++)  SumZ[i] <= SumZ[i+1];
-				SumZ[DEPTH-L-1] <= sum0;
+			if(rst)  SumZ <= '{ default: '0 };
+			else if(en) begin
+				for(int unsigned  i = 0; i < DELAY-1; i++)  SumZ[i] <= SumZ[i+1];
+				SumZ[DELAY-1] <= sum0;
 			end
 		end
 		assign	sum = SumZ[0];
 	end : genDelay
+
+	end : genGeneric
 
 endmodule : add_multi

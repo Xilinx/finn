@@ -64,6 +64,17 @@ module mvu_vvu_axi #(
 	bit FORCE_BEHAVIORAL = 0,
 	bit M_REG_LUT = 1,
 
+	// LUT-based compressor tree pipeline depth. This is set by default for maximum Pipelining (inbetween every stage).
+	int unsigned  COMP_PIPELINE_DEPTH = 1,
+
+	// LUT-compressor last->vld latency ceiling; 0 = full pipelining (default).
+	// Clamped to the natural depth; compressor path only.
+	int unsigned  CYCLE_BUDGET = 0,
+
+	// Passed at generation time, whether compressors were generated if deemed worth it.
+	// Decides wether to use LUT-based compressors instead of DSPs.
+	bit USE_COMPRESSOR = 0,
+
 	// Safely deducible parameters
 	localparam int unsigned  WEIGHT_STREAM_WIDTH    = PE * SIMD * WEIGHT_WIDTH,
 	localparam int unsigned  WEIGHT_STREAM_WIDTH_BA = (WEIGHT_STREAM_WIDTH + 7)/8 * 8,
@@ -128,6 +139,34 @@ module mvu_vvu_axi #(
 
 	uwire  rst = !ap_rst_n;
 
+	//- LUT-compressor schedule / pipeline depth ----------------------------
+	// Re-derive the compressor's last->vld latency (PIPE) from the same
+	// schedule the core builds at elaboration.
+	localparam int unsigned  EFFECTIVE_SIMD = SIMD_UNEVEN && PUMPED_COMPUTE? SIMD+1 : SIMD;
+	localparam int unsigned  DSP_SIMD       = EFFECTIVE_SIMD/(PUMPED_COMPUTE+1);
+
+	localparam bit           TARGET           = (VERSION == 3);  // DSP58 => Versal
+	// Matches dsp_w_t/dsp_a_t; _is_dotp_comp_eligible rejects pumping, so here DSP_SIMD == EFFECTIVE_SIMD == SIMD.
+	localparam int unsigned  SCHED_SIMD       = USE_COMPRESSOR? DSP_SIMD         : 1;
+	localparam int unsigned  SCHED_WW         = USE_COMPRESSOR? WEIGHT_WIDTH     : 1;
+	localparam int unsigned  SCHED_AW         = USE_COMPRESSOR? ACTIVATION_WIDTH : 1;
+	localparam int unsigned  SCHED_ACCU       = USE_COMPRESSOR? ACCU_WIDTH       : 2;
+	localparam bit           SCHED_SACT       = SIGNED_ACTIVATIONS;
+	localparam bit           SCHED_SWT        = 1'b1;   // FINN weights signed
+	localparam int unsigned  SCHED_COMB_DEPTH = COMP_PIPELINE_DEPTH;
+	// SF == 1 folds the whole row in one cycle, so nothing accumulates across
+	localparam bit           SCHED_ACC        = (MW/SIMD) > 1;
+	localparam int           SCHED_ACC_KIND   = -1;     // auto-select from TARGET/COMB_DEPTH/ACC
+	localparam bit           SCHED_EN         = 1'b1;
+	localparam int           SCHED_BUDGET     = USE_COMPRESSOR? CYCLE_BUDGET : 0;
+
+	// Only PIPE is consumed here, so skip the schedule chunk build. The macro is
+	// compilation-unit scoped and must be undefined again so it does not also
+	// strip the chunks from compress_dotp, which does need them.
+`define SCHED_META_ONLY
+	`include "compress_dotp_sched.svh"   // -> R, PIPE (last->vld latency)
+`undef SCHED_META_ONLY
+
 	//- Replay to Accommodate Neuron Fold -----------------------------------
 	typedef logic [(IS_MVU? 1:PE)*SIMD-1:0][ACTIVATION_WIDTH-1:0]  mvu_flatin_t;
 	uwire mvu_flatin_t amvau;
@@ -179,8 +218,6 @@ module mvu_vvu_axi #(
 	uwire  ovld;
 	uwire dsp_p_t  odat;
 	if(1) begin : blkDsp
-		localparam int unsigned  EFFECTIVE_SIMD = SIMD_UNEVEN && PUMPED_COMPUTE ? SIMD+1 : SIMD;
-		localparam int unsigned  DSP_SIMD = EFFECTIVE_SIMD/(PUMPED_COMPUTE+1);
 		typedef logic [PE    -1:0][DSP_SIMD-1:0][WEIGHT_WIDTH    -1:0]  dsp_w_t;
 		typedef logic [ACT_PE-1:0][DSP_SIMD-1:0][ACTIVATION_WIDTH-1:0]  dsp_a_t;
 
@@ -310,7 +347,21 @@ module mvu_vvu_axi #(
 		localparam int unsigned  A_WIDTH = 25 + 2*(VERSION > 1);     // Width of A datapath
 		localparam int unsigned  NUM_LANES = A_WIDTH == WEIGHT_WIDTH? 1 : 1 + (A_WIDTH - !NARROW_WEIGHTS - WEIGHT_WIDTH) / MIN_LANE_WIDTH;
 
-		if(!IS_MVU || ((VERSION > 2) && (NUM_LANES <= 3) && (WEIGHT_WIDTH <= 8) && (ACTIVATION_WIDTH <= 9))) begin : genINT8
+		if(USE_COMPRESSOR) begin : genCompressor
+			compress_dotp #(
+				.PE(PE), .SIMD(SCHED_SIMD),
+				.WEIGHT_WIDTH(SCHED_WW), .ACTIVATION_WIDTH(SCHED_AW), .ACCU_WIDTH(SCHED_ACCU),
+				.SIGNED_ACTIVATIONS(SCHED_SACT), .SIGNED_WEIGHTS(SCHED_SWT), .TARGET(TARGET),
+				.COMB_DEPTH(SCHED_COMB_DEPTH), .ACCUMULATE(SCHED_ACC), .ACC_KIND(SCHED_ACC_KIND),
+				.ENABLE(SCHED_EN), .CYCLE_BUDGET(SCHED_BUDGET),
+				.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
+			) core (
+				.clk(ap_clk), .rst, .en('1),
+				.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
+				.vld(dsp_vld), .p(dsp_p)
+			);
+		end : genCompressor
+		else if(!IS_MVU || ((VERSION > 2) && (NUM_LANES <= 3) && (WEIGHT_WIDTH <= 8) && (ACTIVATION_WIDTH <= 9))) begin : genINT8
 			initial $info("Sidestepping to INT8 mode of DSP58 for %0dx%0d.", WEIGHT_WIDTH, ACTIVATION_WIDTH);
 			mvu_vvu_8sx9_dsp58 #(
 				.IS_MVU(IS_MVU),
@@ -343,11 +394,14 @@ module mvu_vvu_axi #(
 
 	if(1) begin : blkOutput
 		localparam int unsigned  CORE_PIPELINE_DEPTH =
-			VERSION == 3? 3 + (SEGMENTLEN == 0? 0 : ((SIMD+2)/3 -1)/SEGMENTLEN) :
-			/* else */    3 + $clog2(SIMD+1) + (SIMD == 1);
+			USE_COMPRESSOR? PIPE :   // exact compressor latency (compress_dotp_sched.svh)
+			VERSION == 3?   3 + (SEGMENTLEN == 0? 0 : ((SIMD+2)/3 -1)/SEGMENTLEN) :
+			/* else */      3 + $clog2(SIMD+1) + (SIMD == 1);
 
-		// This is conservative and could be divided by a guaranteed minimum output interval, e.g. MW/SIMD.
-		localparam int unsigned  MAX_IN_FLIGHT = CORE_PIPELINE_DEPTH;
+		// Floor at the DSP-equivalent depth so the compressor path (shallow pipeline)
+		localparam int unsigned  DSP_PIPELINE_DEPTH = 3 + $clog2(SIMD+1) + (SIMD == 1);
+		localparam int unsigned  MAX_IN_FLIGHT =
+			CORE_PIPELINE_DEPTH > DSP_PIPELINE_DEPTH? CORE_PIPELINE_DEPTH : DSP_PIPELINE_DEPTH;
 		typedef logic [PE-1:0][ACCU_WIDTH-1:0]  output_t;
 
 		logic signed [$clog2(MAX_IN_FLIGHT+1):0]  OPtr = '1;	// -1 | 0, 1, ..., MAX_IN_FLIGHT

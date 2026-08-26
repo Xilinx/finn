@@ -51,6 +51,10 @@ class MVAU_rtl(MVAU, RTLBackend):
         my_attrs = {
             # Double-pumped DSPs enabled
             "pumpedCompute": ("i", False, 0, {0, 1}),
+            # Set to "compress_dotp" by generate_hdl when the LUT-compressor path is used.
+            "comp_module_name": ("s", False, ""),
+            # LUT-compressor last->vld latency ceiling; 0 = full pipelining. Compressor path only.
+            "cycle_budget": ("i", False, 0),
         }
         my_attrs.update(MVAU.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
@@ -171,16 +175,26 @@ class MVAU_rtl(MVAU, RTLBackend):
             mult_dsp = np.ceil(P / 4) * Q
         return int(mult_dsp)
 
-    def instantiate_ip(self, cmd):
-        # instantiate the RTL IP
-        node_name = self.onnx_node.name
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-
+    def _get_rtl_source_files(self, abspath=True):
+        """
+        Build the list of RTL source files for this node, including any
+        generated compressor files. Used by both instantiate_ip() and
+        get_rtl_file_list() to avoid duplication.
+        """
         theight = self.get_nodeattr("TH")
 
+        if abspath:
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen") + "/"
+            if theight > 1:
+                rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu_tiled/")
+            else:
+                rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
+        else:
+            code_gen_dir = ""
+            rtllib_dir = ""
+
         if theight > 1:
-            rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu_tiled/")
-            sourcefiles = [
+            base_files = [
                 "../fifo/hdl/Q_srl.v",
                 "../skid/skid.sv",
                 "../mvu/mvu_pkg.sv",
@@ -192,18 +206,35 @@ class MVAU_rtl(MVAU, RTLBackend):
                 "weights_buff_tile.sv",
             ]
         else:
-            rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
-            sourcefiles = [
+            base_files = [
                 "mvu_pkg.sv",
-                "mvu_vvu_axi.sv",
                 "replay_buffer.sv",
                 "mvu.sv",
                 "mvu_vvu_8sx9_dsp58.sv",
-                "add_multi.sv",
             ]
         sourcefiles = [
             os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v")
-        ] + [rtllib_dir + _ for _ in sourcefiles]
+        ] + [rtllib_dir + f for f in base_files]
+
+        if theight <= 1:
+            sourcefiles.append(rtllib_dir + "mvu_vvu_axi.sv")
+
+            # DSP path also compiles the FINN add_multi wrapper (comp_module_name
+            # doubles as the compressor-path flag). Shared from finn-rtllib, so every
+            # node contributes the same path and the flat namespace sees one definition.
+            if not self.get_nodeattr("comp_module_name"):
+                sourcefiles.append(rtllib_dir + "add_multi.sv")
+
+        # Compressor HDL — both paths (and tiled) need the schedule headers
+        # since add_multi.sv unconditionally includes add_multi_sched.svh.
+        sourcefiles += self._get_compressor_hdl_files()
+
+        return sourcefiles
+
+    def instantiate_ip(self, cmd):
+        # instantiate the RTL IP
+        node_name = self.onnx_node.name
+        sourcefiles = self._get_rtl_source_files(abspath=True)
 
         for f in sourcefiles:
             cmd.append("add_files -norecurse %s" % (f))
@@ -295,6 +326,20 @@ class MVAU_rtl(MVAU, RTLBackend):
             case _:
                 return 1
 
+    def _is_dotp_comp_eligible(self, fpgapart, ww, aw, pumped_compute):
+        """
+        Check if LUT-based compressor should replace the DSP compute path.
+        Returns True when: non-pumped, small operands (WW <= 4 and AW <= 4).
+
+        All FPGA families are supported via resolve_target() in the compressor:
+        - Versal: LUT6 + LOOKAHEAD8 primitives
+        - UltraScale+: LUT6_2 + CARRY4 (Vivado maps to CARRY8)
+        - 7-Series: LUT6_2 + CARRY4
+        """
+        if pumped_compute or ww > 4 or aw > 4:
+            return False
+        return True
+
     def generate_hdl(self, model, fpgapart, clk):
         # Generate params as part of IP preparation
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
@@ -313,6 +358,28 @@ class MVAU_rtl(MVAU, RTLBackend):
             else 1
         )
         code_gen_dict["$NARROW_WEIGHTS$"] = str(narrow_weights)
+
+        if self.get_nodeattr("TH") <= 1:
+            # Extract params from code_gen_dict for compressor-path selection.
+            ww = int(code_gen_dict["$WEIGHT_WIDTH$"][0])
+            aw = int(code_gen_dict["$ACTIVATION_WIDTH$"][0])
+            pumped_compute = int(code_gen_dict["$PUMPED_COMPUTE$"][0])
+
+            # Compressor path selection. Both paths share one unmodified mvu_vvu_axi.sv
+            # from finn-rtllib; the choice rides in as the USE_COMPRESSOR wrapper
+            # parameter, so the core needs no per-node copy.
+            if self._is_dotp_comp_eligible(fpgapart, ww, aw, pumped_compute):
+                # LUT dot-product path; compress_dotp builds its schedule at elaboration.
+                code_gen_dict["$USE_COMPRESSOR$"] = [str(1)]
+                code_gen_dict["$CYCLE_BUDGET$"] = [str(self.get_nodeattr("cycle_budget"))]
+                # Flags the compressor path for _get_rtl_source_files.
+                self.set_nodeattr("comp_module_name", "compress_dotp")
+            else:
+                # DSP path. Clear the flag: it persists in the model, so a node that
+                # was eligible on an earlier pass would otherwise keep the compressor
+                # marking and drop add_multi.sv from its source list.
+                self.set_nodeattr("comp_module_name", "")
+
         # add general parameters to dictionary
         code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [self.get_verilog_top_module_name()]
         # save top module name so we can refer to it after this node has been renamed
@@ -409,49 +476,14 @@ class MVAU_rtl(MVAU, RTLBackend):
             [str(1)] if (self.get_input_datatype(0).min() < 0) else [str(0)]
         )
         code_gen_dict["$SEGMENTLEN$"] = [str(self._resolve_segment_len(clk))]
+        code_gen_dict["$COMP_PIPELINE_DEPTH$"] = [str(1)]
+        code_gen_dict["$CYCLE_BUDGET$"] = [str(0)]
+        code_gen_dict["$USE_COMPRESSOR$"] = [str(0)]
 
         return template_path, code_gen_dict
 
     def get_rtl_file_list(self, abspath=False):
-        if abspath:
-            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen") + "/"
-            if self.get_nodeattr("TH") > 1:
-                rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu_tiled/")
-            else:
-                rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
-        else:
-            code_gen_dir = ""
-            rtllib_dir = ""
-
-        if self.get_nodeattr("TH") > 1:
-            verilog_files = [
-                "../fifo/hdl/Q_srl.v",
-                "../skid/skid.sv",
-                "../mvu/mvu_pkg.sv",
-                "../mvu/add_multi.sv",
-                "acc_stage.sv",
-                "input_gen.sv",
-                "weights_buff_tile.sv",
-                "cu_mvau_tiled.sv",
-                "mvu_tiled_axi.sv",
-            ]
-            verilog_files = [
-                os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v")
-            ] + [rtllib_dir + _ for _ in verilog_files]
-        else:
-            verilog_files = [
-                "mvu_pkg.sv",
-                "mvu_vvu_axi.sv",
-                "replay_buffer.sv",
-                "mvu.sv",
-                "mvu_vvu_8sx9_dsp58.sv",
-                "add_multi.sv",
-            ]
-            verilog_files = [
-                os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v")
-            ] + [rtllib_dir + _ for _ in verilog_files]
-
-        return verilog_files
+        return self._get_rtl_source_files(abspath=abspath)
 
     def get_verilog_paths(self):
         verilog_paths = super().get_verilog_paths()

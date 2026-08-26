@@ -144,22 +144,32 @@ class VVAU_rtl(VVAU, RTLBackend):
         Q = self.get_nodeattr("SIMD")
         return int(P * np.ceil(Q / 3))
 
+    def _collect_rtl_sourcefiles(self, code_gen_dir, rtllib_dir):
+        """Ordered RTL source list for this VVU node. `code_gen_dir` holds the
+        generated wrapper, `rtllib_dir` the shared cores. Both args carry their own
+        trailing separator (or are empty for relative paths)."""
+        rtllib_files = [
+            "mvu_pkg.sv",
+            "replay_buffer.sv",
+            "mvu.sv",
+            "mvu_vvu_8sx9_dsp58.sv",
+            "add_multi.sv",  # FINN wrapper over add_multi_sv
+            "mvu_vvu_axi.sv",
+        ]
+        return (
+            [
+                os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"),
+            ]
+            + [rtllib_dir + _ for _ in rtllib_files]
+            + self._get_compressor_hdl_files()
+        )
+
     def instantiate_ip(self, cmd):
         # instantiate the RTL IP
         node_name = self.onnx_node.name
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
-        sourcefiles = [
-            "mvu_pkg.sv",
-            "mvu_vvu_axi.sv",
-            "replay_buffer.sv",
-            "mvu.sv",
-            "mvu_vvu_8sx9_dsp58.sv",
-            "add_multi.sv",
-        ]
-        sourcefiles = [
-            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v")
-        ] + [rtllib_dir + _ for _ in sourcefiles]
+        sourcefiles = self._collect_rtl_sourcefiles(code_gen_dir, rtllib_dir)
 
         for f in sourcefiles:
             cmd.append("add_files -norecurse %s" % (f))
@@ -284,6 +294,9 @@ class VVAU_rtl(VVAU, RTLBackend):
             [str(1)] if (self.get_input_datatype(0).min() < 0) else [str(0)]
         )
         code_gen_dict["$SEGMENTLEN$"] = [str(self._resolve_segment_len(clk))]
+        code_gen_dict["$COMP_PIPELINE_DEPTH$"] = [str(1)]
+        code_gen_dict["$CYCLE_BUDGET$"] = [str(0)]
+        code_gen_dict["$USE_COMPRESSOR$"] = [str(0)]
 
         return template_path, code_gen_dict
 
@@ -295,19 +308,7 @@ class VVAU_rtl(VVAU, RTLBackend):
             code_gen_dir = ""
             rtllib_dir = ""
 
-        verilog_files = [
-            "mvu_pkg.sv",
-            "mvu_vvu_axi.sv",
-            "replay_buffer.sv",
-            "mvu.sv",
-            "mvu_vvu_8sx9_dsp58.sv",
-            "add_multi.sv",
-        ]
-        verilog_files = [
-            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v")
-        ] + [rtllib_dir + _ for _ in verilog_files]
-
-        return verilog_files
+        return self._collect_rtl_sourcefiles(code_gen_dir, rtllib_dir)
 
     def get_verilog_paths(self):
         verilog_paths = super().get_verilog_paths()
