@@ -108,11 +108,7 @@ def test_brevitas_quant_identity_export_per_channel(
         f"{quant_scale.shape} vs expected {channel_shape}"
     )
     if squeeze_leading:
-        # Reduce the Quant scale to a leading-1s-omitted shape so its channel axis
-        # can only be recovered via broadcasting right-alignment in
-        # _get_channel_axis (e.g. nhwc (1,1,1,8) -> (8,), nchw (1,8,1,1) ->
-        # (8,1,1)). Only leading unit dims are dropped; trailing unit dims are
-        # significant for the channel position and must be kept.
+        # Strip only leading unit dims; trailing ones fix the channel position.
         q_scale_name = model.get_nodes_by_op_type("Quant")[0].input[1]
         scale = model.get_initializer(q_scale_name)
         reduced_shape = tuple(scale.shape)
