@@ -111,10 +111,10 @@ finn.custom\_op.fpgadataflow.labelselect
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.fpgadataflow.where
------------------------------------
+finn.custom\_op.fpgadataflow.hwwhere
+-------------------------------------
 
-.. automodule:: finn.custom_op.fpgadataflow.where
+.. automodule:: finn.custom_op.fpgadataflow.hwwhere
    :members:
    :undoc-members:
    :show-inheritance:

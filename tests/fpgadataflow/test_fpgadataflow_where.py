@@ -29,6 +29,11 @@ FPGA_PART = "xc7z020clg400-1"
 CLK_NS = 10
 DEFAULT_SHAPE = (1, 2, 4)
 SYNTH_SHAPE = (1, 64, 64)
+# X replays a 1024-word row (BRAM); cond/Y broadcast and stay in LUTRAM.
+SYNTH_OOC_OUT_SHAPE = (1, 8, 1024)
+SYNTH_OOC_X_SHAPE = (1, 1, 1024)
+SYNTH_OOC_COND_SHAPE = (1, 1, 1)
+SYNTH_OOC_Y_SHAPE = (1, 8, 1)
 
 SHAPE_CASES = [
     pytest.param((None, None, None, None), id="simple"),
@@ -86,7 +91,14 @@ def _run_sim_style(model, sim_style):
 
 @pytest.mark.parametrize(
     "finn_dtype",
-    [DataType["INT8"], DataType["UINT4"], DataType["BIPOLAR"], DataType["FLOAT32"]],
+    [
+        DataType["INT8"],
+        DataType["INT4"],
+        DataType["UINT4"],
+        DataType["BIPOLAR"],
+        DataType["FLOAT16"],
+        DataType["FLOAT32"],
+    ],
 )
 @pytest.mark.parametrize("pe", [1, 2])
 @pytest.mark.parametrize("shape_case", SHAPE_CASES)
@@ -119,7 +131,7 @@ def test_where_execution(sim_style, shape_case, pe, finn_dtype):
     # Stitched-IP execution includes FIFO latency, so compare the cycle model
     # against the node-by-node result only.
     if sim_style == "node_by_node":
-        node = model.get_nodes_by_op_type("Where_rtl")[0]
+        node = model.get_nodes_by_op_type("HWWhere_rtl")[0]
         cycles_rtlsim = getCustomOp(node).get_nodeattr("cycles_rtlsim")
         exp_cycles = model.analysis(exp_cycles_per_layer)[node.name]
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
@@ -130,7 +142,7 @@ def test_where_execution(sim_style, shape_case, pe, finn_dtype):
     "shape, ram_style, expected_bram, expected_lut, expected_uram",
     [
         (DEFAULT_SHAPE, "auto", 0, 114, 0),
-        (SYNTH_SHAPE, "auto", 17, 80, 0),
+        (SYNTH_SHAPE, "auto", 0, 114, 0),
         (DEFAULT_SHAPE, "block", 3, 80, 0),
         (DEFAULT_SHAPE, "distributed", 0, 114, 0),
         (DEFAULT_SHAPE, "ultra", 0, 80, 3),
@@ -158,18 +170,24 @@ def test_where_resource_estimation(shape, ram_style, expected_bram, expected_lut
 @pytest.mark.slow
 def test_where_stitched_ip_synth_ooc():
     model = make_where_modelwrapper(
-        DataType["INT8"], SYNTH_SHAPE, SYNTH_SHAPE, SYNTH_SHAPE, SYNTH_SHAPE
+        DataType["INT8"],
+        SYNTH_OOC_COND_SHAPE,
+        SYNTH_OOC_X_SHAPE,
+        SYNTH_OOC_Y_SHAPE,
+        SYNTH_OOC_OUT_SHAPE,
     )
     model = model.transform(InferWhereLayer())
     where = getCustomOp(model.graph.node[0])
     where.set_nodeattr("PE", 2)
-    # This larger shape should make Vivado's auto memory mapping choose BRAM,
-    # unlike the small functional-test shape which is expected to use LUTRAM.
+    # Broadcasting X drives a real replay buffer that Vivado's auto mapping is
+    # expected to place in BRAM, so this exercises the BRAM estimate against
+    # synthesis (the small functional-test shape stays in LUTRAM).
     where.set_nodeattr("ram_style", "auto")
     model = _run_sim_style(model, "stitched_ip")
 
-    where_rtl = getCustomOp(model.get_nodes_by_op_type("Where_rtl")[0])
+    where_rtl = getCustomOp(model.get_nodes_by_op_type("HWWhere_rtl")[0])
     expected_bram = where_rtl.bram_estimation()
+    assert expected_bram > 0
     model = model.transform(CreateStitchedIP(FPGA_PART, CLK_NS, run_pnr=True))
     ret = parse_ooc_synth_results(model.get_metadata_prop("vivado_stitch_proj"))
     assert ret is not None

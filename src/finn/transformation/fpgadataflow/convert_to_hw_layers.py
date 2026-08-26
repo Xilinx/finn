@@ -1349,12 +1349,12 @@ class InferSplitLayer(Transformation):
 
 
 class InferWhereLayer(Transformation):
-    """Convert ONNX Where(condition, X, Y) into a streaming Where layer."""
+    """Convert ONNX Where(condition, X, Y) into a streaming HWWhere layer."""
 
     @staticmethod
     def _warn_skip(node, reason):
         node_name = node.name if node.name else "<unnamed Where>"
-        warnings.warn("%s: %s. Can't infer Where layer." % (node_name, reason))
+        warnings.warn("%s: %s. Can't infer HWWhere layer." % (node_name, reason))
 
     def apply(self, model):
         graph = model.graph
@@ -1362,8 +1362,7 @@ class InferWhereLayer(Transformation):
         graph_modified = False
         for node in graph.node:
             node_ind += 1
-            # The empty and explicit ai.onnx domains both denote standard ONNX ops.
-            if node.op_type != "Where" or node.domain not in ["", "ai.onnx"]:
+            if node.op_type != "Where":
                 continue
             if len(node.input) != 3:
                 self._warn_skip(node, "Expected exactly three inputs")
@@ -1422,12 +1421,12 @@ class InferWhereLayer(Transformation):
                 continue
 
             new_node = helper.make_node(
-                "Where",
+                "HWWhere",
                 node.input,
                 node.output,
                 domain="finn.custom_op.fpgadataflow",
                 backend="fpgadataflow",
-                name="Where_" + node.name,
+                name="HWWhere_" + node.name,
                 CondRank=len(cond_shape),
                 XRank=len(x_shape),
                 YRank=len(y_shape),

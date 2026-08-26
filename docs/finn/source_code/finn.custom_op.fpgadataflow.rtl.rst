@@ -61,10 +61,10 @@ finn.custom\_op.fpgadataflow.streamingdatawidthconverter\_rtl
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.fpgadataflow.where\_rtl
+finn.custom\_op.fpgadataflow.hwwhere\_rtl
 ---------------------------------------------------------------
 
-.. automodule:: finn.custom_op.fpgadataflow.rtl.where_rtl
+.. automodule:: finn.custom_op.fpgadataflow.rtl.hwwhere_rtl
    :members:
    :undoc-members:
    :show-inheritance:

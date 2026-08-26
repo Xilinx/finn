@@ -4,15 +4,15 @@
 import os
 import shutil
 
+from finn.custom_op.fpgadataflow.hwwhere import HWWhere
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.custom_op.fpgadataflow.where import Where
 
 
 def _rtlsrc_dir():
     return os.environ["FINN_ROOT"] + "/finn-rtllib/where/hdl"
 
 
-class Where_rtl(Where, RTLBackend):
+class HWWhere_rtl(HWWhere, RTLBackend):
     """RTL implementation of the ONNX Where operator with multidirectional broadcasting."""
 
     def __init__(self, onnx_node, **kwargs):
@@ -20,7 +20,7 @@ class Where_rtl(Where, RTLBackend):
 
     def get_nodeattr_types(self):
         my_attrs = {}
-        my_attrs.update(Where.get_nodeattr_types(self))
+        my_attrs.update(HWWhere.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
 
@@ -128,7 +128,7 @@ class Where_rtl(Where, RTLBackend):
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         if mode == "cppsim":
-            Where.execute_node(self, context, graph)
+            HWWhere.execute_node(self, context, graph)
         elif mode == "rtlsim":
             RTLBackend.execute_node(self, context, graph)
         else:

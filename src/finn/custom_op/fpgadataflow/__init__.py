@@ -62,6 +62,7 @@ from finn.custom_op.fpgadataflow.fmpadding import FMPadding
 from finn.custom_op.fpgadataflow.fmpadding_pixel import FMPadding_Pixel
 from finn.custom_op.fpgadataflow.globalaccpool import GlobalAccPool
 from finn.custom_op.fpgadataflow.hwsoftmax import HWSoftmax
+from finn.custom_op.fpgadataflow.hwwhere import HWWhere
 from finn.custom_op.fpgadataflow.inner_shuffle import InnerShuffle
 from finn.custom_op.fpgadataflow.labelselect import LabelSelect
 from finn.custom_op.fpgadataflow.layernorm import LayerNorm
@@ -84,7 +85,6 @@ from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
 from finn.custom_op.fpgadataflow.thresholding import Thresholding
 from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour
 from finn.custom_op.fpgadataflow.vectorvectoractivation import VVAU
-from finn.custom_op.fpgadataflow.where import Where
 
 # make sure new HLSCustomOp subclasses are imported here so that they get
 # registered and plug in correctly into the infrastructure
@@ -114,5 +114,5 @@ custom_op["StreamingDataWidthConverter"] = StreamingDataWidthConverter
 custom_op["UpsampleNearestNeighbour"] = UpsampleNearestNeighbour
 custom_op["HWSoftmax"] = HWSoftmax
 custom_op["Requant"] = Requant
-custom_op["Where"] = Where
+custom_op["HWWhere"] = HWWhere
 custom_op["SelectToken"] = SelectToken
