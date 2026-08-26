@@ -28,6 +28,7 @@
 
 import numpy as np
 import os
+import shutil
 
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
@@ -170,6 +171,9 @@ class MVAU_rtl(MVAU, RTLBackend):
         else:
             mult_dsp = np.ceil(P / 4) * Q
         return int(mult_dsp)
+
+    def code_generation_ipi(self):
+        return MVAU.code_generation_ipi(self)
 
     def instantiate_ip(self, cmd):
         # instantiate the RTL IP
@@ -335,10 +339,16 @@ class MVAU_rtl(MVAU, RTLBackend):
         # generate the weight-infrastructure HDL (shared MVAU helper)
         self.generate_infra_hdl(fpgapart)
 
-        # set ipgen_path and ip_path so that HLS-Synth transformation
-        # and stich_ip transformation do not complain
-        self.set_nodeattr("ipgen_path", code_gen_dir)
-        self.set_nodeattr("ip_path", code_gen_dir)
+        rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
+        sourcefiles = [
+            rtllib_dir + "mvu_vvu_axi.sv",
+            rtllib_dir + "replay_buffer.sv",
+            rtllib_dir + "mvu_4sx4u.sv",
+            rtllib_dir + "mvu_vvu_8sx9_dsp58.sv",
+            rtllib_dir + "mvu_8sx8u_dsp48.sv",
+        ]
+        for f in sourcefiles:
+            shutil.copy(f, code_gen_dir)
 
     def prepare_codegen_default(self, fpgapart, clk):
         if self.get_nodeattr("TH") > 1:

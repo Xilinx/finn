@@ -28,9 +28,12 @@
 
 import numpy as np
 import os
+import shutil
+import subprocess
 from abc import ABC, abstractmethod
 
 from finn import xsi
+from finn.custom_op.fpgadataflow import templates
 from finn.util.basic import make_build_dir
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
@@ -78,12 +81,68 @@ class RTLBackend(ABC):
         """Returns list of rtl files. Needs to be filled by each node."""
         pass
 
-    @abstractmethod
     def code_generation_ipi(self):
-        pass
+        """Constructs and returns the TCL for node instantiation in Vivado IPI."""
+        vlnv = self.get_nodeattr("ip_vlnv")
+        cmd = ["create_bd_cell -type ip -vlnv %s %s" % (vlnv, self.onnx_node.name)]
+        return cmd
+
+    def code_generation_pack_ip(self, fpgapart):
+        """Pack RTL as IP"""
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        # bundle all RTL source files into the codegen dir so the packaging tcl
+        # (which globs *.v/*.sv/*.dat in the dir) picks them up. This keeps the
+        # packaging uniform across ops without requiring per-op file copies.
+        for src in self.get_rtl_file_list(abspath=True):
+            dst = os.path.join(code_gen_dir, os.path.basename(src))
+            if os.path.abspath(src) != os.path.abspath(dst):
+                shutil.copy(src, code_gen_dir)
+        # prepare the IP packaging tcl template
+        template = templates.ip_package_tcl
+        self.code_gen_dict.clear()
+        self.code_gen_dict["$TOPNAME$"] = [self.get_nodeattr("gen_top_module")]
+        self.code_gen_dict["$PART$"] = [fpgapart]
+        # note: setting the root dir as absolute can cause path problems
+        # the ipgen script will be invoked from the sources dir so root_dir=. is OK
+        self.code_gen_dict["$VERILOG_DIR$"] = ["."]
+        for key in self.code_gen_dict:
+            # transform list into long string separated by '\n'
+            code_gen_line = "\n".join(self.code_gen_dict[key])
+            template = template.replace(key, code_gen_line)
+        f = open(os.path.join(code_gen_dir, "package_ip.tcl"), "w")
+        f.write(template)
+        f.close()
+        # create a shell script and call Vivado to invoke the IP pkg script
+        make_project_sh = code_gen_dir + "/make_ip.sh"
+        working_dir = os.environ["PWD"]
+        with open(make_project_sh, "w") as f:
+            f.write("#!/bin/bash \n")
+            f.write("cd {}\n".format(code_gen_dir))
+            f.write("vivado -mode batch -source package_ip.tcl\n")
+            f.write("cd {}\n".format(working_dir))
+        bash_command = ["bash", make_project_sh]
+        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
+        process_compile.communicate()
+        # set ipgen_path and ip_path to point to the new packaged IP
+        self.set_nodeattr("ipgen_path", code_gen_dir)
+        self.set_nodeattr("ip_path", code_gen_dir)
+        vlnv = "xilinx.com:hls:%s:1.0" % (self.get_nodeattr("gen_top_module"))
+        self.set_nodeattr("ip_vlnv", vlnv)
+        self.code_gen_dict.clear()
+
+    def pack_as_ip(self):
+        """Whether this node is instantiated as a standalone packaged IP (via the
+        base code_generation_ipi, create_bd_cell -type ip -vlnv) and therefore
+        needs to be packaged during code_generation_ipgen. Ops that override
+        code_generation_ipi to add raw sources / build their own RTL hierarchy are
+        not black-boxed and must not be packaged; those inherit this default,
+        which returns False for them because they override code_generation_ipi."""
+        return type(self).code_generation_ipi is RTLBackend.code_generation_ipi
 
     def code_generation_ipgen(self, model, fpgapart, clk):
         self.generate_hdl(model, fpgapart, clk)
+        if self.pack_as_ip():
+            self.code_generation_pack_ip(fpgapart)
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")

@@ -112,32 +112,21 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
 
         shutil.copy(rtlsrc + "/fifo_gauge.sv", code_gen_dir)
         shutil.copy(rtlsrc + "/Q_srl.v", code_gen_dir)
-        # set ipgen_path and ip_path so that HLS-Synth transformation
-        # and stich_ip transformation do not complain
-        self.set_nodeattr("ipgen_path", code_gen_dir)
-        self.set_nodeattr("ip_path", code_gen_dir)
+
+    def code_generation_ipgen(self, model, fpgapart, clk):
+        self.generate_hdl(model, fpgapart, clk)
+        # Only the rtl impl_style is instantiated as a packaged IP (see the rtl
+        # branch of code_generation_ipi -> base create_bd_cell -type ip -vlnv).
+        # The vivado impl_style uses a Xilinx axis_data_fifo and needs no packaging.
+        # The heuristic base code_generation_ipgen skips packaging here because this
+        # op overrides code_generation_ipi, so trigger it explicitly for rtl.
+        if self.get_nodeattr("impl_style") == "rtl":
+            self.code_generation_pack_ip(fpgapart)
 
     def code_generation_ipi(self):
         impl_style = self.get_nodeattr("impl_style")
         if impl_style == "rtl":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-
-            sourcefiles = [
-                "fifo_gauge.sv",
-                "Q_srl.v",
-                self.get_nodeattr("gen_top_module") + ".v",
-            ]
-
-            sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
-
-            cmd = []
-            for f in sourcefiles:
-                cmd += ["add_files -norecurse %s" % (f)]
-            cmd += [
-                "create_bd_cell -type module -reference %s %s"
-                % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)
-            ]
-            return cmd
+            return RTLBackend.code_generation_ipi(self)
         elif impl_style == "vivado":
             cmd = []
             node_name = self.onnx_node.name

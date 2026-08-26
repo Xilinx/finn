@@ -914,31 +914,6 @@ class ConvolutionInputGenerator_rtl(ConvolutionInputGenerator, RTLBackend):
 
         return verilog_files
 
-    def code_generation_ipi(self):
-        """Constructs and returns the TCL for node instantiation in Vivado IPI."""
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-
-        sourcefiles = [
-            "swg_pkg.sv",
-            self.get_nodeattr("gen_top_module") + "_wrapper.v",
-            self.get_nodeattr("gen_top_module") + "_impl.sv",
-            "swg_common.sv",
-        ]
-
-        if self.get_nodeattr("dynamic_mode"):
-            sourcefiles += [self.get_nodeattr("gen_top_module") + "_axilite.v"]
-
-        sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
-
-        cmd = []
-        for f in sourcefiles:
-            cmd += ["add_files -norecurse %s" % (f)]
-        cmd += [
-            "create_bd_cell -type module -reference %s %s"
-            % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)
-        ]
-        return cmd
-
     def get_verilog_top_module_intf_names(self):
         # Overload default HLSCustomOp implementation to add axilite control IF
         """Return a dict of names of input and output interfaces.

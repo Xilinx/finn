@@ -28,6 +28,7 @@
 
 import numpy as np
 import os
+import shutil
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
@@ -144,6 +145,9 @@ class VVAU_rtl(VVAU, RTLBackend):
         Q = self.get_nodeattr("SIMD")
         return int(P * np.ceil(Q / 3))
 
+    def code_generation_ipi(self):
+        return VVAU.code_generation_ipi(self)
+
     def instantiate_ip(self, cmd):
         # instantiate the RTL IP
         node_name = self.onnx_node.name
@@ -228,10 +232,16 @@ class VVAU_rtl(VVAU, RTLBackend):
                     if Ultrascale device is targeted."""
             self.generate_hdl_memstream(fpgapart)
 
-        # set ipgen_path and ip_path so that HLS-Synth transformation
-        # and stich_ip transformation do not complain
-        self.set_nodeattr("ipgen_path", code_gen_dir)
-        self.set_nodeattr("ip_path", code_gen_dir)
+        rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
+        sourcefiles = [
+            rtllib_dir + "mvu_vvu_axi.sv",
+            rtllib_dir + "replay_buffer.sv",
+            rtllib_dir + "mvu_4sx4u.sv",
+            rtllib_dir + "mvu_vvu_8sx9_dsp58.sv",
+            rtllib_dir + "mvu_8sx8u_dsp48.sv",
+        ]
+        for f in sourcefiles:
+            shutil.copy(f, code_gen_dir)
 
     def _resolve_segment_len(self, clk):
         # Insert pipeline registers in the DSP58 chain to meet target clock frequency
