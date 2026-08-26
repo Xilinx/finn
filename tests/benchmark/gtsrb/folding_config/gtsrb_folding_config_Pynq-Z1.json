@@ -1,0 +1,83 @@
+{
+  "Defaults": {},
+  "Thresholding_rtl_0": {
+    "PE": 1
+  },
+  "ConvolutionInputGenerator_rtl_0": {
+    "SIMD": 1,
+    "parallel_window": 0
+  },
+  "MVAU_hls_0": {
+    "PE": 2,
+    "SIMD": 27
+  },
+  "ConvolutionInputGenerator_rtl_1": {
+    "SIMD": 16,
+    "parallel_window": 0
+  },
+  "MVAU_hls_1": {
+    "PE": 2,
+    "SIMD": 576
+  },
+  "ConvolutionInputGenerator_rtl_2": {
+    "SIMD": 2,
+    "parallel_window": 0
+  },
+  "Pool_hls_0": {
+    "PE": 2
+  },
+  "ConvolutionInputGenerator_rtl_3": {
+    "SIMD": 4,
+    "parallel_window": 0
+  },
+  "MVAU_hls_2": {
+    "PE": 1,
+    "SIMD": 576
+  },
+  "ConvolutionInputGenerator_rtl_4": {
+    "SIMD": 4,
+    "parallel_window": 0
+  },
+  "MVAU_hls_3": {
+    "PE": 1,
+    "SIMD": 576
+  },
+  "ConvolutionInputGenerator_rtl_5": {
+    "SIMD": 1,
+    "parallel_window": 0
+  },
+  "Pool_hls_1": {
+    "PE": 1
+  },
+  "ConvolutionInputGenerator_rtl_6": {
+    "SIMD": 1,
+    "parallel_window": 0
+  },
+  "MVAU_hls_4": {
+    "PE": 1,
+    "SIMD": 96
+  },
+  "ConvolutionInputGenerator_rtl_7": {
+    "SIMD": 1,
+    "parallel_window": 0
+  },
+  "MVAU_hls_5": {
+    "PE": 1,
+    "SIMD": 18
+  },
+  "MVAU_hls_6": {
+    "PE": 1,
+    "SIMD": 4
+  },
+  "MVAU_hls_7": {
+    "PE": 1,
+    "SIMD": 8
+  },
+  "MVAU_hls_8": {
+    "PE": 1,
+    "SIMD": 1
+  },
+  "LabelSelect_hls_0": {
+    "PE": 1
+  }
+}
