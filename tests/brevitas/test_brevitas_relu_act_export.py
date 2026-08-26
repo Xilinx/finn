@@ -87,10 +87,14 @@ def test_brevitas_act_export_relu(
         pytest.param((1, 32, 1, 1), (1, 32, 1, 1), id="nchw-singleton"),
     ],
 )
+# When True, drop leading unit dims from the scale (e.g. (1,1,1,8) -> (8,)) to
+# cover the broadcasting right-alignment path in _get_channel_axis.
+@pytest.mark.parametrize("squeeze_leading", [False, True])
 def test_brevitas_act_export_relu_channel(
     abits,
     ishape,
     channel_shape,
+    squeeze_leading,
 ):
     b_act = QuantReLU(
         bit_width=abits,
@@ -113,6 +117,14 @@ def test_brevitas_act_export_relu_channel(
         "brevitas did not preserve the per-channel scale shape in the Quant node: "
         f"{quant_scale.shape} vs expected {channel_shape}"
     )
+    if squeeze_leading:
+        # Strip only leading unit dims; trailing ones fix the channel position.
+        q_scale_name = model.get_nodes_by_op_type("Quant")[0].input[1]
+        scale = model.get_initializer(q_scale_name)
+        reduced_shape = tuple(scale.shape)
+        while len(reduced_shape) > 1 and reduced_shape[0] == 1:
+            reduced_shape = reduced_shape[1:]
+        model.set_initializer(q_scale_name, scale.reshape(reduced_shape))
     model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(InferShapes())
     inp_tensor = np.random.uniform(low=-1.0, high=6.0, size=ishape).astype(np.float32)

@@ -69,9 +69,14 @@ def test_brevitas_quant_identity_export(abits, ishape, narrow, quant):
         pytest.param((1, 32, 1, 1), (1, 32, 1, 1), id="nchw-singleton"),
     ],
 )
+# When True, drop leading unit dims from the scale (e.g. (1,1,1,8) -> (8,)) to
+# cover the broadcasting right-alignment path in _get_channel_axis.
+@pytest.mark.parametrize("squeeze_leading", [False, True])
 @pytest.mark.parametrize("narrow", [True, False])
 @pytest.mark.parametrize("quant", [Int8ActPerTensorFloat, Uint8ActPerTensorFloat])
-def test_brevitas_quant_identity_export_per_channel(abits, ishape, channel_shape, narrow, quant):
+def test_brevitas_quant_identity_export_per_channel(
+    abits, ishape, channel_shape, narrow, quant, squeeze_leading
+):
     build_dir = make_build_dir("test_brevitas_quant_identity_export_per_channel_")
     export_path = os.path.join(build_dir, "quant_identity.onnx")
     b_act = QuantIdentity(
@@ -102,6 +107,18 @@ def test_brevitas_quant_identity_export_per_channel(abits, ishape, channel_shape
         "brevitas did not preserve the per-channel scale shape in the Quant node: "
         f"{quant_scale.shape} vs expected {channel_shape}"
     )
+    if squeeze_leading:
+        # Reduce the Quant scale to a leading-1s-omitted shape so its channel axis
+        # can only be recovered via broadcasting right-alignment in
+        # _get_channel_axis (e.g. nhwc (1,1,1,8) -> (8,), nchw (1,8,1,1) ->
+        # (8,1,1)). Only leading unit dims are dropped; trailing unit dims are
+        # significant for the channel position and must be kept.
+        q_scale_name = model.get_nodes_by_op_type("Quant")[0].input[1]
+        scale = model.get_initializer(q_scale_name)
+        reduced_shape = tuple(scale.shape)
+        while len(reduced_shape) > 1 and reduced_shape[0] == 1:
+            reduced_shape = reduced_shape[1:]
+        model.set_initializer(q_scale_name, scale.reshape(reduced_shape))
     model = model.transform(ConvertQONNXtoFINN())
 
     inp_tensor = np.random.uniform(low=-10.0, high=10.0, size=ishape).astype(np.float32)
