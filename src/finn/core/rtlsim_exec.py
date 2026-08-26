@@ -255,9 +255,11 @@ def rtlsim_exec_cppxsi(
         ), f"cppxsi sim doesn't know how to handle full AXI MM interfaces: {ifnames['aximm']}"
     instream_names = [x[0] for x in ifnames["s_axis"]]
     outstream_names = [x[0] for x in ifnames["m_axis"]]
-    assert len(instream_names) == len(instream_iters), (
-        "stitched-IP s_axis ports (%d) don't match streamed graph inputs (%d)"
-        % (len(instream_names), len(instream_iters))
+    assert len(instream_names) == len(
+        instream_iters
+    ), "stitched-IP s_axis ports (%d) don't match streamed graph inputs (%d)" % (
+        len(instream_names),
+        len(instream_iters),
     )
     instream_descrs = [
         (instream_names[i], instream_iters[i], instream_iters[i] + throttle_cycles)
