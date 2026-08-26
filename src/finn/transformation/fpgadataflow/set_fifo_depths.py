@@ -27,11 +27,10 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import math
 import numpy as np
+import os
 import warnings
 from onnx import TensorProto, helper
-from pyverilator.util.axi_utils import reset_rtlsim, toggle_clk
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
@@ -40,8 +39,10 @@ from qonnx.transformation.general import (
     GiveUniqueNodeNames,
     SortGraph,
 )
+from qonnx.util.basic import gen_finn_dt_tensor
 
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
+from finn.core.rtlsim_exec import rtlsim_exec_cppxsi
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
@@ -50,7 +51,6 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
-from finn.util.pyverilator import pyverilate_stitched_ip, verilator_fifosim
 
 
 def reset_implementation(node):
@@ -105,7 +105,7 @@ class RemoveShallowFIFOs(Transformation):
             if (
                 node.op_type.startswith("StreamingFIFO")
                 and getCustomOp(node).get_nodeattr("depth") <= self.shallow_threshold
-                and (not is_first_node)
+                and (not is_first_node or getCustomOp(node).get_nodeattr("mlo_max_iter"))
             ):
                 # bypass shallow fifos
                 shallow_fifos.append(node)
@@ -196,6 +196,36 @@ class CapConvolutionFIFODepths(Transformation):
         return (model, False)
 
 
+def xsi_fifosim(model, n_inferences, max_iters=None, throttle_cycles=0, behav=True):
+    """Create a XSI model of stitched IP and use a simple C++
+    driver to drive the input stream. Useful for FIFO sizing, latency
+    and throughput measurement. If max_iters is None, use the default
+    liveness threshold instead. throttle_cycles can be used for throttling
+    the input stream every time a frame is finished.
+    If behav=True (default), FINN_SIMULATION is defined and fifo_gauge is used.
+    If behav=False, Q_srl is used instead (no debug logging)."""
+
+    iname = model.get_first_global_in()
+    first_node = model.find_consumer(iname)
+    oname = model.get_first_global_out()
+    last_node = model.find_producer(oname)
+    assert (first_node is not None) and (last_node is not None), "Failed to find first/last nodes"
+    # define execution context for dummy data mode:
+    # only number of transactions, no real data
+    ctx = {k.name: n_inferences for k in model.graph.input}
+    # run XSI sim
+    ret_dict = rtlsim_exec_cppxsi(
+        model,
+        ctx,
+        dummy_data_mode=True,
+        timeout_cycles=max_iters,
+        throttle_cycles=throttle_cycles,
+        behav=behav,
+    )
+
+    return ret_dict
+
+
 class InsertAndSetFIFODepths(Transformation):
     """Insert appropriate-depth StreamingFIFOs through RTLSim that preserve
     throughput in the created accelerator.
@@ -211,6 +241,8 @@ class InsertAndSetFIFODepths(Transformation):
         smaller where appropriate
     :parameter vivado_ram_style: the StreamingFIFO.ram_style attribute to be used
         for large FIFOs implemented by Vivado afterwards
+    :parameter fifosim_input_throttle: use input throttling based on dataflow analysis
+        while doing simulation-based FIFO sizing
 
     Assumed input graph properties:
 
@@ -245,7 +277,10 @@ class InsertAndSetFIFODepths(Transformation):
         max_depth=None,
         swg_exception=False,
         vivado_ram_style="auto",
-        force_python_sim=False,
+        fifosim_input_throttle=True,
+        cfg_n_inferences=2,
+        debug_log_dir=None,
+        debug_log_prefix="",
     ):
         super().__init__()
         self.fpgapart = fpgapart
@@ -254,15 +289,40 @@ class InsertAndSetFIFODepths(Transformation):
         self.max_depth = max_depth
         self.swg_exception = swg_exception
         self.vivado_ram_style = vivado_ram_style
-        self.force_python_sim = force_python_sim
+        self.fifosim_input_throttle = fifosim_input_throttle
+        self.cfg_n_inferences = cfg_n_inferences
+        self.mlo_max_iter = 0
+        self.ind_map = {}
+        self.debug_log_dir = debug_log_dir
+        self.debug_log_prefix = debug_log_prefix
 
     def apply(self, model):
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(GiveReadableTensorNames())
+        for x in model.graph.node:
+            if x.op_type == "FINNLoop":
+                reset_implementation(getCustomOp(x))
+                return (model, False)
+
         # these optypes may potentially use external weights
+        # but don't have the param input exposed as a graph input
         # we'll temporarily change them to use decoupled mode for FIFO sizing
         extw_optypes = ["MVAU_hls", "MVAU_rtl", "VVAU_hls", "VVAU_rtl"]
-        # change external to decoupled and warn user
-        # this way we are sure we have exactly one input/output
-        modified_fc_nodes = []
+        modified_extw_nodes = []
+
+        # these optypes may potentially be param nodes in an mlo
+        # we'll temporarily change them to use external mode for FIFO sizing
+        mlo_optypes = [
+            "MVAU_hls",
+            "MVAU_rtl",
+            "Thresholding_rtl",
+            "ElementwiseAdd_hls",
+            "ElementwiseMul_hls",
+            "ElementwiseAdd_rtl",
+            "ElementwiseMul_rtl",
+            "ElementwiseSub_rtl",
+        ]
+        modified_mlo_nodes = {}
         for node in model.graph.node:
             # verify assumptions
             assert is_hls_node(node) or is_rtl_node(node), "Found non-fpgadataflow node: " + str(
@@ -280,22 +340,92 @@ class InsertAndSetFIFODepths(Transformation):
                 # set each FIFO to its tensor size
                 # (except stream width hence the :-1)
                 for i in range(len(ifd)):
-                    ifd[i] = np.prod(node.get_folded_input_shape(i)[:-1])
+                    # safe guard that for very small tensors depth is not set to 1
+                    tensor_size = np.prod(node.get_folded_input_shape(i)[:-1])
+                    ifd[i] = tensor_size if tensor_size > 1 else 2
                 for o in range(len(ofd)):
-                    ofd[o] = np.prod(node.get_folded_output_shape(o)[:-1])
-            node.set_nodeattr("inFIFODepths", ifd)
-            node.set_nodeattr("outFIFODepths", ofd)
+                    # safe guard that for very small tensors depth is not set to 1
+                    depth = np.prod(node.get_folded_output_shape(o)[:-1])
+                    ofd[o] = tensor_size if tensor_size > 1 else 2
+            # set node attribute and ensure that it gets saved as list of integers
+            node.set_nodeattr("inFIFODepths", [int(fifo) for fifo in ifd])
+            node.set_nodeattr("outFIFODepths", [int(fifo) for fifo in ofd])
+            # do necessary temporary settinggs for external weights nodes
             if node.onnx_node.op_type in extw_optypes:
+                input_names_set = {inp.name for inp in model.graph.input}
                 mmode = node.get_nodeattr("mem_mode")
-                if mmode == "external":
-                    modified_fc_nodes.append(node.onnx_node.name)
+                if mmode == "external" and node.onnx_node.input[1] not in input_names_set:
+                    modified_extw_nodes.append(node.onnx_node.name)
                     node.set_nodeattr("mem_mode", "internal_decoupled")
                     reset_implementation(node)
                     warnings.warn(
                         "Changed mem_mode from external to internal_decoupled for "
                         + node.onnx_node.name
                     )
-
+            # do necessary temporary settings for external_mem nodes
+            if node.onnx_node.op_type in mlo_optypes:
+                mlo_max_iter = node.get_nodeattr("mlo_max_iter")
+                has_mem_mode = "mem_mode" in node.get_nodeattr_types()
+                mmode = node.get_nodeattr("mem_mode") if has_mem_mode else None
+                if mlo_max_iter or mmode == "external_mem":
+                    node_mlo_info = {
+                        "orig_mem_mode": mmode,
+                        "orig_mlo_max_iter": mlo_max_iter,
+                        "saved_initializer": None,
+                    }
+                    node.set_nodeattr("mlo_max_iter", 0)
+                    if node.onnx_node.op_type.startswith("MVAU"):
+                        node.set_nodeattr("mem_mode", "external")
+                        # If the weight tensor has an initializer and is not
+                        # already a graph input, we must promote it so that
+                        # InsertFIFO / CreateStitchedIP treat it as a streaming
+                        # input during FIFO sizing simulation.
+                        param_input = node.onnx_node.input[1]
+                        input_names_set = {inp.name for inp in model.graph.input}
+                        if param_input not in input_names_set:
+                            # Save and remove initializer
+                            node_mlo_info["saved_initializer"] = model.get_initializer(param_input)
+                            model.del_initializer(param_input)
+                            # Move value_info to graph.input
+                            param_vi = model.get_tensor_valueinfo(param_input)
+                            if param_vi is not None and param_vi in model.graph.value_info:
+                                model.graph.value_info.remove(param_vi)
+                            else:
+                                param_shape = model.get_tensor_shape(param_input)
+                                param_vi = helper.make_tensor_value_info(
+                                    param_input, TensorProto.FLOAT, param_shape
+                                )
+                            model.graph.input.append(param_vi)
+                        # Ensure inFIFODepths covers the weight stream (index 1)
+                        # since it was computed while mem_mode was external_mem
+                        ifd = node.get_nodeattr("inFIFODepths")
+                        if len(ifd) <= 1:
+                            w_size = np.prod(node.get_folded_input_shape(1)[:-1])
+                            ifd.append(int(w_size) if w_size > 1 else 2)
+                            node.set_nodeattr("inFIFODepths", ifd)
+                    elif (
+                        node.onnx_node.op_type == "Thresholding_rtl"
+                        or node.onnx_node.op_type.startswith("Elementwise")
+                    ):
+                        # set thresholding array to a dummy value
+                        param_input = node.onnx_node.input[1]
+                        # remember index of input
+                        inputs = [x.name for x in model.graph.input]
+                        ind = inputs.index(param_input)
+                        tdt = model.get_tensor_datatype(param_input)
+                        tshape = model.get_tensor_shape(param_input)
+                        dummy_threshs = gen_finn_dt_tensor(tdt, tuple(tshape))
+                        if node.onnx_node.op_type == "Thresholding_rtl":
+                            dummy_threshs = np.sort(dummy_threshs, axis=1)
+                        model.set_initializer(param_input, dummy_threshs)
+                        self.ind_map[node.onnx_node.name] = ind
+                        # For elementwise ops, temporarily set rhs_style to const
+                        # since we converted the parameter to an initializer
+                        if node.onnx_node.op_type.startswith("Elementwise"):
+                            node.set_nodeattr("rhs_style", "const")
+                    modified_mlo_nodes[node.onnx_node.name] = node_mlo_info
+                    self.mlo_max_iter = mlo_max_iter
+                    reset_implementation(node)
         # insert stream infrastructure (DWC/FIFO)
         model = model.transform(InsertDWC())
         model = model.transform(InsertFIFO(create_shallow_fifos=True))
@@ -315,6 +445,14 @@ class InsertAndSetFIFODepths(Transformation):
             if (self.max_depth is not None) and (node.get_nodeattr("depth") != self.max_depth):
                 node.set_nodeattr("depth", self.max_depth)
 
+        if self.debug_log_dir is not None:
+            os.makedirs(os.path.abspath(self.debug_log_dir), exist_ok=True)
+            for node in model.get_nodes_by_op_type("StreamingFIFO_rtl"):
+                log_path = os.path.abspath(
+                    os.path.join(self.debug_log_dir, self.debug_log_prefix + node.name + ".log")
+                )
+                getCustomOp(node).set_nodeattr("debug_log_path", log_path)
+
         # insert FIFOs and do all transformations for RTLsim
         model = model.transform(AnnotateCycles())
         perf = model.analysis(dataflow_performance)
@@ -325,73 +463,21 @@ class InsertAndSetFIFODepths(Transformation):
         model = model.transform(CreateStitchedIP(self.fpgapart, self.clk_ns))
         model.set_metadata_prop("exec_mode", "rtlsim")
 
-        if self.force_python_sim:
-            # do rtlsim in Python for FIFO sizing
-            # calculate input frequency (number of cycles for each input word)
+        # do rtlsim in C++ for FIFO sizing
+        # use the critical_path_cycles estimate to set the timeout limit for FIFO sim
+        max_iters = latency * 1.1 + 50
+
+        # set up rate limit for input throttling
+        if self.fifosim_input_throttle:
             first_node = getCustomOp(model.graph.node[0])
-            ncycles_per_input = max(
-                1,
-                int(
-                    math.ceil(
-                        perf["max_cycles"]
-                        / (
-                            np.prod(first_node.get_folded_input_shape())
-                            / first_node.get_folded_input_shape()[-1]
-                        )
-                    )
-                ),
-            )
-
-            # set sufficiently large threshold for 1 image to  fully execute and exit
-            ncycles = int(latency + max_cycles)
-
-            # prepare pyverilator model
-            sim = pyverilate_stitched_ip(model)
-
-            reset_rtlsim(sim)
-            toggle_clk(sim)
-
-            # set all input valids to 0 and output readies to 1
-            # set input data to some constant
-            set_signal(sim, "tvalid", 0)
-            set_signal(sim, "tready", 1)
-            set_signal(sim, "tdata", 0)
-
-            output_detected = False
-            while ncycles > 0:
-                toggle_clk(sim)
-                # set/unset valids
-                if ncycles % ncycles_per_input == 0:
-                    set_signal(sim, "tvalid", 1)
-                else:
-                    set_signal(sim, "tvalid", 0)
-
-                # since latency estimation is very pessimistic, detect first output
-                # and fast-forward the sim
-                if get_signal(sim, "tvalid") != 0 and not output_detected:
-                    ncycles = max_cycles
-                    output_detected = True
-                else:
-                    ncycles = ncycles - 1
-
-            if not output_detected:
-                warnings.warn("No output detected, calculated FIFO depths may not be correct")
+            inp_fold = np.prod(first_node.get_folded_input_shape()[:-1])
+            throttle_cycles = max(0, max_cycles - inp_fold)
         else:
-            # do rtlsim in C++ for FIFO sizing
-            # determine # inputs for FIFO sizing according to topology type
-            swg_nodes = [
-                x for x in model.graph.node if x.op_type.startswith("ConvolutionInputGenerator")
-            ]
-            if len(swg_nodes) == 0:
-                # MLP, no layer overlap
-                # assuming half the nodes are now FIFOs, use half the # of
-                # nodes as # inputs to drive the imulation
-                n_inputs = int(len(model.graph.node) / 2)
-            else:
-                # convnet, two inputs are typically enough to fill entire
-                # layer pipeline due to overlaps
-                n_inputs = 2
-            sim = verilator_fifosim(model, n_inputs)
+            throttle_cycles = 0
+
+        sim = xsi_fifosim(
+            model, self.cfg_n_inferences, max_iters=max_iters, throttle_cycles=throttle_cycles
+        )
 
         for ind, node in enumerate(fifo_nodes):
             maxcount_name = "maxcount_%d" % ind
@@ -402,6 +488,7 @@ class InsertAndSetFIFODepths(Transformation):
         # Apply depths back into the model;
         # also set in/outFIFODepths to zero for non-FIFO
         # nodes, preventing further FIFO insertion
+        weight_fifos_to_remove = []
         for node in model.graph.node:
             # set FIFO depth, reset FIFO implementation,
             # and set implementation/ram styles
@@ -431,21 +518,113 @@ class InsertAndSetFIFODepths(Transformation):
                 # for every extw node we changed from external to decoupled,
                 # change back and reset implementation
                 if node.op_type in extw_optypes:
-                    if node.name in modified_fc_nodes:
+                    if node.name in modified_extw_nodes:
                         node_inst = getCustomOp(node)
                         node_inst.set_nodeattr("mem_mode", "external")
                         reset_implementation(node_inst)
-                        modified_fc_nodes.remove(node.name)
+                        modified_extw_nodes.remove(node.name)
+                # do the same resetting for mlo / external_mem nodes
+                if node.op_type in mlo_optypes:
+                    if node.name in modified_mlo_nodes and node.op_type.startswith("MVAU"):
+                        node_inst = getCustomOp(node)
+                        node_mlo_info = modified_mlo_nodes[node.name]
+                        node_inst.set_nodeattr("mlo_max_iter", node_mlo_info["orig_mlo_max_iter"])
+                        node_inst.set_nodeattr("mem_mode", node_mlo_info["orig_mem_mode"])
+                        # Remove the weight-stream FIFO that was inserted during
+                        # FIFO sizing (input index 1) and restore the original
+                        # weight tensor connection.
+                        if node_mlo_info["saved_initializer"] is not None:
+                            # node.input[1] now points to FIFO output; find the FIFO
+                            # param_input = node.input[1]
+                            weight_fifo_out = node.input[1]
+                            weight_fifo = model.find_producer(weight_fifo_out)
+                            if weight_fifo is not None and weight_fifo.op_type.startswith(
+                                "StreamingFIFO"
+                            ):
+                                # The original weight tensor is the FIFO's input
+                                orig_weight_name = weight_fifo.input[0]
+                                # Reconnect MVAU directly to original weight tensor
+                                node.input[1] = orig_weight_name
+                                # Defer removal of the FIFO node until after iteration
+                                weight_fifos_to_remove.append((weight_fifo, weight_fifo_out))
+                            else:
+                                orig_weight_name = weight_fifo_out
+                            # Restore initializer and demote weight from graph input
+                            model.set_initializer(
+                                orig_weight_name, node_mlo_info["saved_initializer"]
+                            )
+                            for gi in list(model.graph.input):
+                                if gi.name == orig_weight_name:
+                                    model.graph.input.remove(gi)
+                                    model.graph.value_info.append(gi)
+                                    break
+                        reset_implementation(node_inst)
+                        del modified_mlo_nodes[node.name]
+
+        # Remove weight-stream FIFOs that were deferred during the loop
+        for weight_fifo, weight_fifo_out in weight_fifos_to_remove:
+            model.graph.node.remove(weight_fifo)
+            for vi in list(model.graph.value_info):
+                if vi.name == weight_fifo_out:
+                    model.graph.value_info.remove(vi)
+                    break
+            if weight_fifo.name in fifos:
+                del fifos[weight_fifo.name]
+
+        sorted_ind_map = dict(sorted(self.ind_map.items(), key=lambda item: item[1]))
+        for k, v in sorted_ind_map.items():
+            node = model.get_node_from_name(k)
+            node_inst = getCustomOp(node)
+            node_mlo_info = modified_mlo_nodes[node.name]
+            node_inst.set_nodeattr("mlo_max_iter", node_mlo_info["orig_mlo_max_iter"])
+            # remove initializer again
+            param_input = node.input[1]
+            param_input_vi = model.get_tensor_valueinfo(param_input)
+            model.del_initializer(param_input)
+            model.graph.input.insert(self.ind_map[node.name], param_input_vi)
+            model.graph.value_info.remove(param_input_vi)
+            if node.op_type.startswith("Elementwise"):
+                # Restore rhs_style to "input" (it must have been "input" for MLO nodes)
+                node_inst.set_nodeattr("rhs_style", "input")
+            reset_implementation(node_inst)
+            del modified_mlo_nodes[node.name]
 
         assert (
-            len(modified_fc_nodes) == 0 and len(fifos.keys()) == 0
+            len(modified_extw_nodes) == 0 and len(fifos.keys()) == 0
+        ), "FIFO/FC nodes left untouched after model reconfiguration"
+        assert (
+            len(modified_mlo_nodes) == 0 and len(fifos.keys()) == 0
         ), "FIFO/FC nodes left untouched after model reconfiguration"
 
         # handle custom sizing for SWG FIFOs if desired
         if self.swg_exception:
             model = model.transform(CapConvolutionFIFODepths(max_qsrl_depth=self.max_qsrl_depth))
+
+        # remove FIFOs from mlo parameter inputs
+        for op_type in mlo_optypes:
+            nodes = model.get_nodes_by_op_type(op_type)
+            for node in nodes:
+                node_inst = getCustomOp(node)
+                if node_inst.get_nodeattr("mlo_max_iter"):
+                    # Check if there is a FIFO inserted at param input
+                    fifo_node = model.find_producer(node.input[1])
+                    if fifo_node and fifo_node.op_type.startswith("StreamingFIFO"):
+                        fifo_inst = getCustomOp(fifo_node)
+                        fifo_inst.set_nodeattr("depth", 0)
+                        fifo_inst.set_nodeattr("mlo_max_iter", 1)
+
         # remove shallow FIFOs
         model = model.transform(RemoveShallowFIFOs())
+
+        # clean up references to stitched IP and rtlsim objects
+        # (the stitched IP needs to be re-done after FIFO sizing)
+        model.set_metadata_prop("exec_mode", "")
+        model.set_metadata_prop("rtlsim_trace", "")
+        model.set_metadata_prop("rtlsim_so", "")
+        model.set_metadata_prop("vivado_stitch_proj", "")
+        model.set_metadata_prop("wrapper_filename", "")
+        model.set_metadata_prop("vivado_stitch_vlnv", "")
+        model.set_metadata_prop("vivado_stitch_ifnames", "")
 
         # reflect final values in attributes
         for node in model.graph.node:
@@ -489,8 +668,9 @@ class InsertAndSetFIFODepths(Transformation):
                         else:
                             # explicitly no FIFO on this dynamic output
                             fifodepth_out.append(0)
-                node_inst.set_nodeattr("inFIFODepths", fifodepth_in)
-                node_inst.set_nodeattr("outFIFODepths", fifodepth_out)
+                # set node attribute and ensure that it gets saved as list of integers
+                node_inst.set_nodeattr("inFIFODepths", [int(fifo) for fifo in fifodepth_in])
+                node_inst.set_nodeattr("outFIFODepths", [int(fifo) for fifo in fifodepth_out])
 
         return (model, False)
 

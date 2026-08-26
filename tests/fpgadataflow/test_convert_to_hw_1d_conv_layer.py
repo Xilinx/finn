@@ -76,7 +76,6 @@ from finn.util.fpgadataflow import is_fpgadataflow_node
 @pytest.mark.vivado
 def test_convert_to_hw_1d_conv_layer(conv_config, depthwise, use_rtl_swg, exec_mode):
     pad, kernel_size, stride, dilation = conv_config
-    np.random.seed(0)
     idt = DataType["UINT4"]
 
     in_feature_dim_h, in_feature_dim_w = [10, 1]
@@ -178,7 +177,7 @@ def test_convert_to_hw_1d_conv_layer(conv_config, depthwise, use_rtl_swg, exec_m
         raise Exception("Unknown exec_mode")
 
     x = gen_finn_dt_tensor(idt, input_shape)
-    inp_dict = {model.graph.input[0].name: x}
+    inp_dict = {model.get_first_global_in(): x}
     assert oxe.compare_execution(model, new_model, inp_dict)
 
     if pad_h == 1 and pad_w == 1:

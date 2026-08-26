@@ -94,13 +94,13 @@ def test_move_chw_add_past_conv(idim, k, s, ich, och):
 
     # execution before transformation
     inp_values = np.random.uniform(low=0, high=1, size=tuple(ishape)).astype(np.float32)
-    idict = {model.graph.input[0].name: inp_values}
+    idict = {model.get_first_global_in(): inp_values}
     odict = oxe.execute_onnx(model, idict)
-    y_before = odict[model.graph.output[0].name]
+    y_before = odict[model.get_first_global_out()]
 
     model = model.transform(MoveAddPastConv())
     odict = oxe.execute_onnx(model, idict)
-    y_after = odict[model.graph.output[0].name]
+    y_after = odict[model.get_first_global_out()]
 
     assert np.isclose(y_before, y_after).all()
     assert model.graph.node[0].op_type == "Conv"

@@ -73,9 +73,9 @@ def test_brevitas_debug(QONNX_FINN_conversion):
     raw_i = get_data("qonnx.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
     # run using FINN-based execution
-    input_dict = {model.graph.input[0].name: nph.to_array(input_tensor)}
+    input_dict = {model.get_first_global_in(): nph.to_array(input_tensor)}
     output_dict = oxe.execute_onnx(model, input_dict, return_full_exec_context=True)
-    produced = output_dict[model.graph.output[0].name]
+    produced = output_dict[model.get_first_global_out()]
     # run using PyTorch/Brevitas
     input_tensor = torch.from_numpy(nph.to_array(input_tensor)).float()
     assert input_tensor.shape == (1, 1, 28, 28)

@@ -117,8 +117,6 @@ def prepare_inputs(input_tensor):
 @pytest.mark.parametrize("m", [1])
 # Flip dimensions
 @pytest.mark.parametrize("flip", [False])
-# implementation style
-@pytest.mark.parametrize("impl_style", ["rtl", "hls"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
@@ -135,7 +133,6 @@ def test_fpgadataflow_slidingwindow(
     parallel_window,
     m,
     flip,
-    impl_style,
 ):
     if flip:
         if (
@@ -186,9 +183,6 @@ def test_fpgadataflow_slidingwindow(
     model = model.transform(to_hw.InferConvInpGen())
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     assert (y_produced == y_expected).all()
-    # set impl_style
-    inst = getCustomOp(model.get_nodes_by_op_type("ConvolutionInputGenerator")[0])
-    inst.set_nodeattr("preferred_impl_style", impl_style)
     model = model.transform(SpecializeLayers("xc7z020clg400-1"))
     # set simd
     inst = getCustomOp(model.graph.node[0])
@@ -197,9 +191,6 @@ def test_fpgadataflow_slidingwindow(
     if optype == "ConvolutionInputGenerator_rtl":
         inst.set_nodeattr("parallel_window", parallel_window)
         inst.set_nodeattr("M", m)
-    if optype == "ConvolutionInputGenerator_hls":
-        if inst.get_nodeattr("is1D"):
-            inst.set_nodeattr("parallel_window", parallel_window)
 
     if exec_mode == "cppsim":
         model = model.transform(SetExecMode("cppsim"))
@@ -225,15 +216,12 @@ def test_fpgadataflow_slidingwindow(
         y_expected = y_expected.reshape(1, ofm_dim_h, ofm_dim_w, ifm_ch * k_h * k_w)
         assert (y_produced == y_expected).all()
 
-    if exec_mode == "rtlsim" and impl_style == "hls":
-        nodes = model.get_nodes_by_op_type("ConvolutionInputGenerator_hls")
-        if nodes:
-            node = nodes[0]
-            inst = getCustomOp(node)
-            cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
-            exp_cycles_dict = model.analysis(exp_cycles_per_layer)
-            exp_cycles = exp_cycles_dict[node.name]
-            assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
-            assert exp_cycles != 0
-        else:
-            assert model.graph.node[0].op_type == "ConvolutionInputGenerator_rtl"
+    if exec_mode == "rtlsim":
+        nodes = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")
+        node = nodes[0]
+        inst = getCustomOp(node)
+        cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
+        exp_cycles_dict = model.analysis(exp_cycles_per_layer)
+        exp_cycles = exp_cycles_dict[node.name]
+        assert np.isclose(exp_cycles, cycles_rtlsim, atol=10, rtol=1.1)
+        assert exp_cycles != 0

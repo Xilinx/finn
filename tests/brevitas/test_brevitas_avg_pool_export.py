@@ -107,8 +107,8 @@ def test_brevitas_avg_pool_export(
     # reference brevitas output
     ref_output_array = model_brevitas(input_tensor).detach().numpy()
     # finn output
-    idict = {model.graph.input[0].name: input_array}
+    idict = {model.get_first_global_in(): input_array}
     odict = oxe.execute_onnx(model, idict, True)
-    finn_output = odict[model.graph.output[0].name]
+    finn_output = odict[model.get_first_global_out()]
     # compare outputs
     assert np.isclose(ref_output_array, finn_output).all()

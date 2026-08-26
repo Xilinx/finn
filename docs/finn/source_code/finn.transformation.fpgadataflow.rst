@@ -146,10 +146,19 @@ finn.transformation.fpgadataflow.insert\_tlastmarker
    :undoc-members:
    :show-inheritance:
 
+finn.transformation.fpgadataflow.loop\_rolling
+-------------------------------------------------
+
+.. automodule:: finn.transformation.fpgadataflow.loop_rolling
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
 finn.transformation.fpgadataflow.make\_pynq\_driver
 ----------------------------------------------------------
 
-.. automodule:: finn.transformation.fpgadataflow.make_pynq_driver
+.. automodule:: finn.transformation.fpgadataflow.make_driver
    :members:
    :undoc-members:
    :show-inheritance:
@@ -205,6 +214,14 @@ finn.transformation.fpgadataflow.prepare\_rtlsim
    :undoc-members:
    :show-inheritance:
 
+finn.transformation.fpgadataflow.raise\_scalar\_to\_rank1
+-------------------------------------------------------------
+
+.. automodule:: finn.transformation.fpgadataflow.raise_scalar_to_rank1
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.transformation.fpgadataflow.replace\_verilog\_relpaths
 ------------------------------------------------------------------
 
@@ -237,18 +254,18 @@ finn.transformation.fpgadataflow.set\_folding
   :undoc-members:
   :show-inheritance:
 
-finn.transformation.fpgadataflow.specialize\_layers
+finn.transformation.fpgadataflow.set\_loop\_boundary
 -------------------------------------------------------
 
-.. automodule:: finn.transformation.fpgadataflow.specialize_layers
+.. automodule:: finn.transformation.fpgadataflow.set_loop_boundary
   :members:
   :undoc-members:
   :show-inheritance:
 
-finn.transformation.fpgadataflow.synth\_ooc
----------------------------------------------
+finn.transformation.fpgadataflow.specialize\_layers
+-------------------------------------------------------
 
-.. automodule:: finn.transformation.fpgadataflow.synth_ooc
+.. automodule:: finn.transformation.fpgadataflow.specialize_layers
   :members:
   :undoc-members:
   :show-inheritance:
@@ -269,10 +286,10 @@ finn.transformation.fpgadataflow.templates
   :undoc-members:
   :show-inheritance:
 
-finn.transformation.fpgadataflow.vitis\_build
+finn.transformation.fpgadataflow.alveo\_build
 -------------------------------------------------
 
-.. automodule:: finn.transformation.fpgadataflow.vitis_build
+.. automodule:: finn.transformation.fpgadataflow.alveo_build
    :members:
    :undoc-members:
    :show-inheritance:

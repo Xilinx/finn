@@ -193,6 +193,8 @@ class InsertFIFO(Transformation):
                     inp_ind = list(first_node.input).index(graph_in_name)
                     n_input = first_node.input[inp_ind]
                     n0 = getCustomOp(first_node)
+                    if n0.get_nodeattr("mlo_max_iter") and inp_ind > 0:
+                        continue
                     # determine fifo node attributes
                     fld_shape = n0.get_folded_input_shape(inp_ind)
                     n_shape = n0.get_normal_input_shape(inp_ind)

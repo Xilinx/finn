@@ -45,7 +45,8 @@
 
 module mvu_vvu_axi #(
 	bit IS_MVU,
-	parameter COMPUTE_CORE,
+	int unsigned  VERSION,	// Allowed versions - 1: DSP48E1, 2: DSP48E2, 3: DSP58
+
 	int unsigned MW,
 	int unsigned MH,
 	int unsigned PE,
@@ -58,7 +59,8 @@ module mvu_vvu_axi #(
 	bit NARROW_WEIGHTS     = 0,
 	bit SIGNED_ACTIVATIONS = 0,
 
-	bit PUMPED_COMPUTE = 0,
+	bit PUMPED_COMPUTE = 0, // Not meaningful for SIMD < 2, which will error out.
+	                        // Best utilization for even values.
 	bit FORCE_BEHAVIORAL = 0,
 	bit M_REG_LUT = 1,
 
@@ -95,42 +97,35 @@ module mvu_vvu_axi #(
 //-------------------- Parameter sanity checks --------------------\\
 	initial begin
 		if (MW % SIMD != 0) begin
-			$error("Matrix width (%0d) is not a multiple of SIMD (%0d).", MW, SIMD);
+			$error("%m: Matrix width (%0d) is not a multiple of SIMD (%0d).", MW, SIMD);
 			$finish;
 		end
 		if (MH % PE != 0) begin
-			$error("Matrix height (%0d) is not a multiple of PE (%0d).", MH, PE);
+			$error("%m: Matrix height (%0d) is not a multiple of PE (%0d).", MH, PE);
 			$finish;
 		end
-		if (WEIGHT_WIDTH > 8) begin
-			$error("Weight width of %0d-bits exceeds maximum of 8-bits", WEIGHT_WIDTH);
+
+		if(PUMPED_COMPUTE && (SIMD == 1)) begin
+			$error("Clock pumping an input of SIMD=1 is not meaningful.");
 			$finish;
 		end
-		if (ACTIVATION_WIDTH > 8) begin
-			if (!(SIGNED_ACTIVATIONS == 1 && ACTIVATION_WIDTH == 9 && COMPUTE_CORE == "mvu_vvu_8sx9_dsp58")) begin
-				$error("Activation width of %0d-bits exceeds maximum of 9-bits for signed numbers on DSP48", ACTIVATION_WIDTH);
-				$finish;
-			end
-		end
-		if (COMPUTE_CORE == "mvu_vvu_8sx9_dsp58") begin
-			if (SEGMENTLEN == 0) begin
+		if(VERSION == 3) begin
+			if(SEGMENTLEN == 0) begin
 				$warning("Segment length of %0d defaults to chain length of %0d", SEGMENTLEN, (SIMD+2)/3);
 			end
-			if (SEGMENTLEN > (SIMD+2)/3) begin
+			if(SEGMENTLEN > (SIMD+2)/3) begin
 				$error("Segment length of %0d exceeds chain length of %0d", SEGMENTLEN, (SIMD+2)/3);
 				$finish;
 			end
 		end
-		if (!IS_MVU) begin
-			if (COMPUTE_CORE != "mvu_vvu_8sx9_dsp58" && COMPUTE_CORE != "mvu_vvu_lut") begin
-				$error("VVU only supported on DSP58 or LUT-based implementation");
+		if(!IS_MVU) begin
+			if(VERSION != 3) begin
+				$error("VVU only supported on DSP58-based implementation");
 				$finish;
 			end
 		end
 	end
 
-	uwire  clk = ap_clk;
-	uwire  clk2x = ap_clk2x;
 	uwire  rst = !ap_rst_n;
 
 	//- Replay to Accommodate Neuron Fold -----------------------------------
@@ -144,7 +139,7 @@ module mvu_vvu_axi #(
 	localparam int unsigned  SF = MW/SIMD;
 	localparam int unsigned  NF = MH/PE;
 	replay_buffer #(.LEN(SF), .REP(IS_MVU ? NF : 1), .W($bits(mvu_flatin_t))) activation_replay (
-		.clk, .rst,
+		.clk(ap_clk), .rst,
 		.ivld(s_axis_input_tvalid), .irdy(s_axis_input_tready), .idat(mvu_flatin_t'(s_axis_input_tdata)),
 		.ovld(avld), .ordy(ardy), .odat(amvau), .olast(alast), .ofin(afin)
 	);
@@ -175,10 +170,9 @@ module mvu_vvu_axi #(
 	end : genVVUInput
 
 	//- Flow Control Bracket around Compute Core ----------------------------
-	uwire en;
-	uwire istb = avld && s_axis_weights_tvalid;
-	assign ardy = en && s_axis_weights_tvalid;
-	assign s_axis_weights_tready = en && avld;
+	uwire  idle;
+	assign	ardy = !idle && s_axis_weights_tvalid;
+	assign	s_axis_weights_tready = !idle && avld;
 
 	//- Conditionally Pumped DSP Compute ------------------------------------
 	typedef logic [PE-1:0][ACCU_WIDTH-1:0]  dsp_p_t;
@@ -190,9 +184,6 @@ module mvu_vvu_axi #(
 		typedef logic [PE    -1:0][DSP_SIMD-1:0][WEIGHT_WIDTH    -1:0]  dsp_w_t;
 		typedef logic [ACT_PE-1:0][DSP_SIMD-1:0][ACTIVATION_WIDTH-1:0]  dsp_a_t;
 
-		uwire  dsp_clk;
-		uwire  dsp_en;
-
 		uwire  dsp_last;
 		uwire  dsp_zero;
 		uwire dsp_w_t  dsp_w;
@@ -202,11 +193,8 @@ module mvu_vvu_axi #(
 		uwire dsp_p_t  dsp_p;
 
 		if(!PUMPED_COMPUTE) begin : genUnpumpedCompute
-			assign	dsp_clk = clk;
-			assign	dsp_en  = en;
-
-			assign	dsp_last = alast && avld;
-			assign	dsp_zero = !istb;
+			assign	dsp_zero = idle || !s_axis_weights_tvalid || !avld;
+			assign	dsp_last = alast && !dsp_zero;
 			assign	dsp_w = mvu_w;
 			assign	dsp_a = amvau_i;
 
@@ -214,21 +202,37 @@ module mvu_vvu_axi #(
 			assign	odat = dsp_p;
 		end : genUnpumpedCompute
 		else begin : genPumpedCompute
-			assign	dsp_clk = clk2x;
-
-			// Identify second fast cycle just before active slow clock edge
-			logic  Active = 0;
-			if(1) begin : blkActive
-				uwire  clk_lut[2];	// Put some LUT delay on the input from the fast clock net
-				(* DONT_TOUCH = "TRUE", HLUTNM = "CLK_LUT" *) LUT1 #(.INIT(2'b10)) lut0(.O(clk_lut[0]), .I0(clk));
-				(* DONT_TOUCH = "TRUE", HLUTNM = "CLK_LUT" *) LUT1 #(.INIT(2'b10)) lut1(.O(clk_lut[1]), .I0(clk_lut[0]));
-				always_ff @(posedge clk2x)  Active <= clk_lut[1];
-			end : blkActive
 
 			// The input for a slow cycle is split across two fast cycles along the SIMD dimension.
 			//	- Both fast cycles are controlled by the same enable state.
 			//	- A zero cycle is duplicated across both fast cycles.
 			//	- The last flag must be restricted to the second fast cycle.
+			//                ┌─────┐     ┌─────┐     ┌─────┐     ┌─────┐     ┌─────┐
+			//  clk         ──┘     └─────┘     └─────┘     └─────┘     └─────┘     └
+			//              ──┐
+			//  rst           └──────────────────────────────────────────────────────
+			//                ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌
+			//  clk2x       ──┘  └──┘  └──┘  └──┘  └──┘  └──┘  └──┘  └──┘  └──┘  └──┘
+			//                      ┌─────┐     ┌─────┐     ┌─────┐     ┌─────┐     ┌
+			//  Active      ────────┘     └─────┘     └─────┘     └─────┘     └─────┘
+			//
+			//              ─────────────\ /─────────\ /─────────\ /─────────\ /─────
+			//  Data (slow)    XXX        X {Hi0,Lo0} X {Hi1,Lo1} X {Hi2,Lo2} X {Hi3,
+			//              ─────────────/ \─────────/ \─────────/ \─────────/ \─────
+			//                                        ┌───────────┐
+			//  Last (slow) ──────────────────────────┘           └──────────────────
+			//              ───────────────────\ /───\ /───\ /───\ /───\ /───\ /───\
+			//  Data (fast)    XXX              X Lo0 X Hi0 X Lo1 X Hi1 X Lo2 X Hi2 X
+			//              ───────────────────/ \───/ \───/ \───/ \───/ \───/ \───/
+			//                                                    ┌─────┐
+			//  Last (fast) ──────────────────────────────────────┘     └────────────
+
+			// Identify second fast cycle just before active slow clock edge
+			logic  Active = 0;
+			always_ff @(posedge ap_clk2x) begin
+				if(rst)  Active <= 0;
+				else     Active <= !Active;
+			end
 
 			dsp_w_t  W = 'x;
 			for(genvar  pe = 0; pe < PE; pe++) begin : genPERegW
@@ -237,9 +241,9 @@ module mvu_vvu_axi #(
 				for(genvar  i =    0; i <       SIMD; i++)  assign  w[i] = mvu_w[pe][i];
 				for(genvar  i = SIMD; i < 2*DSP_SIMD; i++)  assign  w[i] = 0;
 
-				always_ff @(posedge clk2x) begin
-					if(rst)      W[pe] <= 'x;
-					else if(en)  W[pe] <= w[(Active? DSP_SIMD : 0) +: DSP_SIMD];
+				always_ff @(posedge ap_clk2x) begin
+					if(rst)  W[pe] <= 'x;
+					else     W[pe] <= w[(Active? DSP_SIMD : 0) +: DSP_SIMD];
 				end
 
 			end : genPERegW
@@ -251,27 +255,27 @@ module mvu_vvu_axi #(
 				for(genvar  i =    0; i <       SIMD; i++)  assign  a[i] = amvau_i[pe][i];
 				for(genvar  i = SIMD; i < 2*DSP_SIMD; i++)  assign  a[i] = 0;
 
-				always_ff @(posedge clk2x) begin
-					if(rst)      A[pe] <= 'x;
-					else if(en)  A[pe] <= a[(Active? DSP_SIMD : 0) +: DSP_SIMD];
+				always_ff @(posedge ap_clk2x) begin
+					if(rst)  A[pe] <= 'x;
+					else     A[pe] <= a[(Active? DSP_SIMD : 0) +: DSP_SIMD];
 				end
 
 			end : genPERegA
 
 			logic  Zero = 1;
 			logic  Last = 0;
-			always_ff @(posedge clk2x) begin
+			always_ff @(posedge ap_clk2x) begin
 				if(rst) begin
 					Zero <= 1;
 					Last <= 0;
 				end
-				else if(en) begin
-					Zero <= !istb;
-					Last <= alast && avld && Active;
+				else begin
+					automatic logic  zero = idle || !s_axis_weights_tvalid || !avld;
+					Zero <= zero;
+					Last <= alast && !zero && Active;
 				end
 			end
 
-			assign	dsp_en = en;
 			assign	dsp_last = Last;
 			assign	dsp_zero = Zero;
 			assign	dsp_w = W;
@@ -283,12 +287,12 @@ module mvu_vvu_axi #(
 			// clock to pick it up.
 			logic    Vld = 0;
 			dsp_p_t  P = 'x;
-			always_ff @(posedge clk2x) begin
+			always_ff @(posedge ap_clk2x) begin
 				if(rst) begin
 					Vld <= 0;
 					P   <= 'x;
 				end
-				else if(en) begin
+				else begin
 					if(dsp_vld)  P <= dsp_p;
 					Vld <= dsp_vld || (Vld && !Active);
 				end
@@ -298,94 +302,97 @@ module mvu_vvu_axi #(
 
 		end : genPumpedCompute
 
-		case(COMPUTE_CORE)
-		"mvu_vvu_8sx9_dsp58":
+		// @todo	Push core selection decision entirely into mvu.sv.
+		// This currently duplicates the lane count computation from mvu.sv
+		// to intercept configurations that should map to the INT8 mode of DSP58.
+		localparam int unsigned  MIN_LANE_WIDTH = WEIGHT_WIDTH + ACTIVATION_WIDTH - 1;
+		// number of lanes: for only 1 lane, NARROW_WEIGHTS makes no difference
+		localparam int unsigned  A_WIDTH = 25 + 2*(VERSION > 1);     // Width of A datapath
+		localparam int unsigned  NUM_LANES = A_WIDTH == WEIGHT_WIDTH? 1 : 1 + (A_WIDTH - !NARROW_WEIGHTS - WEIGHT_WIDTH) / MIN_LANE_WIDTH;
+
+		if(!IS_MVU || ((VERSION > 2) && (NUM_LANES <= 3) && (WEIGHT_WIDTH <= 8) && (ACTIVATION_WIDTH <= 9))) begin : genINT8
+			initial $info("Sidestepping to INT8 mode of DSP58 for %0dx%0d.", WEIGHT_WIDTH, ACTIVATION_WIDTH);
 			mvu_vvu_8sx9_dsp58 #(
 				.IS_MVU(IS_MVU),
 				.PE(PE), .SIMD(DSP_SIMD),
 				.WEIGHT_WIDTH(WEIGHT_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .ACCU_WIDTH(ACCU_WIDTH),
-				.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .SEGMENTLEN(SEGMENTLEN),
+				.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS),
+				.SEGMENTLEN(SEGMENTLEN),
 				.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
 			) core (
-				.clk(dsp_clk), .rst, .en(dsp_en),
+				.clk(PUMPED_COMPUTE? ap_clk2x : ap_clk), .rst, .en('1),
 				.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
 				.vld(dsp_vld), .p(dsp_p)
 			);
-		"mvu_4sx4u_dsp48e1":
-			mvu_4sx4u #(
+		end : genINT8
+		else begin : genSoftVec
+			mvu #(
+				.VERSION(VERSION),
 				.PE(PE), .SIMD(DSP_SIMD),
 				.WEIGHT_WIDTH(WEIGHT_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .ACCU_WIDTH(ACCU_WIDTH),
 				.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .NARROW_WEIGHTS(NARROW_WEIGHTS),
-				.VERSION(1), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
+				.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
 			) core (
-				.clk(dsp_clk), .rst, .en(dsp_en),
+				.clk(PUMPED_COMPUTE? ap_clk2x : ap_clk), .rst, .en('1),
 				.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
 				.vld(dsp_vld), .p(dsp_p)
 			);
-		"mvu_4sx4u_dsp48e2":
-			mvu_4sx4u #(
-				.PE(PE), .SIMD(DSP_SIMD),
-				.WEIGHT_WIDTH(WEIGHT_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .ACCU_WIDTH(ACCU_WIDTH),
-				.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .NARROW_WEIGHTS(NARROW_WEIGHTS),
-				.VERSION(2), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
-			) core (
-				.clk(dsp_clk), .rst, .en(dsp_en),
-				.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
-				.vld(dsp_vld), .p(dsp_p)
-			);
-		"mvu_8sx8u_dsp48":
-			mvu_8sx8u_dsp48 #(
-				.PE(PE), .SIMD(DSP_SIMD),
-				.WEIGHT_WIDTH(WEIGHT_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .ACCU_WIDTH(ACCU_WIDTH),
-				.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
-			) core (
-				.clk(dsp_clk), .rst, .en(dsp_en),
-				.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
-				.vld(dsp_vld), .p(dsp_p)
-			);
-		default: initial begin
-			$error("Unrecognized COMPUTE_CORE '%s'", COMPUTE_CORE);
-			$finish;
-		end
-		endcase
+		end : genSoftVec
 
 	end : blkDsp
 
-//-------------------- Output register slice --------------------\\
-	// Make `en`computation independent from external inputs.
-	// Drive all outputs from registers.
-	struct packed {
-		logic rdy;
-		logic [PE-1:0][ACCU_WIDTH-1:0] dat;
-	}  A = '{ rdy: 1, default: 'x };	// side-step register used when encountering backpressure
-	struct packed {
-		logic vld;
-		logic [PE-1:0][ACCU_WIDTH-1:0] dat;
-	}  B = '{ vld: 0, default: 'x };	// ultimate output register
+	if(1) begin : blkOutput
+		localparam int unsigned  CORE_PIPELINE_DEPTH =
+			VERSION == 3? 3 + (SEGMENTLEN == 0? 0 : ((SIMD+2)/3 -1)/SEGMENTLEN) :
+			/* else */    3 + $clog2(SIMD+1) + (SIMD == 1);
 
-	assign	en = A.rdy;
-	uwire  b_load = !B.vld || m_axis_output_tready;
+		// This is conservative and could be divided by a guaranteed minimum output interval, e.g. MW/SIMD.
+		localparam int unsigned  MAX_IN_FLIGHT = CORE_PIPELINE_DEPTH;
+		typedef logic [PE-1:0][ACCU_WIDTH-1:0]  output_t;
 
-	always_ff @(posedge clk) begin
-		if(rst) begin
-			A <= '{ rdy: 1, default: 'x };
-			B <= '{ vld: 0, default: 'x };
+		logic signed [$clog2(MAX_IN_FLIGHT+1):0]  OPtr = '1;	// -1 | 0, 1, ..., MAX_IN_FLIGHT
+		(* SHREG_EXTRACT = "YES" *)
+		output_t  OBuf[0:MAX_IN_FLIGHT];
+		logic     OVld  =  0;
+		output_t  OReg  = 'x;
+		logic     OLock =  0;	// Lock upon backpressure (second entry into queue)
+
+		// Catch every output into (SRL) Output Queue
+		always_ff @(posedge ap_clk) begin
+			if(ovld)  OBuf <= { odat, OBuf[0:MAX_IN_FLIGHT-1] };
 		end
-		else begin
-			if(A.rdy)  A.dat <= odat;
-			A.rdy <= (A.rdy && !ovld) || b_load;
 
-			if(b_load) begin
-				B <= '{
-					vld: ovld || !A.rdy,
-					dat: A.rdy? odat : A.dat
-				};
+		always_ff @(posedge ap_clk) begin
+			if(rst) begin
+				OPtr  <= '1;
+				OVld  <=  0;
+				OReg  <= 'x;
+				OLock <=  0;
+			end
+			else begin
+				automatic logic  push = ovld;
+				automatic logic  pop  = (m_axis_output_tready || !OVld) && !OPtr[$left(OPtr)];
+				assert(pop || !push || (OPtr < $signed(MAX_IN_FLIGHT))) else begin
+					$error("%m: Overflowing output queue.");
+				end
+				OPtr <= OPtr + $signed(push == pop? 0 : push? 1 : -1);
+
+				if(OPtr[$left(OPtr)])                   OLock <= 0;
+				else if(OVld && !m_axis_output_tready)  OLock <= 1;
+
+				if(m_axis_output_tready || !OVld) begin
+					OVld <= !OPtr[$left(OPtr)];
+					OReg <= OBuf[OPtr[$left(OPtr)-1:0]];
+				end
 			end
 		end
-	end
-	assign	m_axis_output_tvalid = B.vld;
-	// Why would we need a sign extension here potentially creating a higher signal load into the next FIFO?
-	// These extra bits should never be used. Why not 'x them out?
-	assign	m_axis_output_tdata  = { {(OUTPUT_STREAM_WIDTH_BA-OUTPUT_STREAM_WIDTH){B.dat[PE-1][ACCU_WIDTH-1]}}, B.dat};
+		assign	idle = OLock;
+
+		assign	m_axis_output_tvalid = OVld;
+		// Why would we need a sign extension here potentially creating a higher signal load into the next FIFO?
+		// These extra bits should never be used. Why not 'x them out?
+		assign	m_axis_output_tdata = { {(OUTPUT_STREAM_WIDTH_BA-OUTPUT_STREAM_WIDTH){OReg[PE-1][ACCU_WIDTH-1]}}, OReg };
+
+	end : blkOutput
 
 endmodule : mvu_vvu_axi

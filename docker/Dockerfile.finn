@@ -28,20 +28,22 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 FROM ubuntu:jammy-20230126
-LABEL maintainer="Jakoba Petri-Koenig <jakoba.petri-koenig@amd.com>, Yaman Umuroglu <yaman.umuroglu@amd.com>"
+LABEL maintainer="Jakoba Petri-Koenig <jakoba.petri-koenig@amd.com>, Thomas Preusser <thomas.preusser@amd.com>"
 
-ARG XRT_DEB_VERSION="xrt_202220.2.14.354_22.04-amd64-xrt"
+ARG XRT_DEB_VERSION="xrt_202420.2.18.179_22.04-amd64-xrt"
 ARG SKIP_XRT
 ARG LOCAL_XRT
+ARG SLASHKIT_DEB_PACKAGE
 
 WORKDIR /workspace
 
 # some Vitis deps require a timezone to be specified, which hangs in Docker
 # use workaround from https://grigorkh.medium.com/fix-tzdata-hangs-docker-image-build-cdb52cc3360d
-ENV TZ="Europe/Dublin"
+ENV TZ "Europe/Dublin"
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 RUN apt-get update && \
+    apt-get upgrade -y && \
     apt-get install -y \
     build-essential \
     libc6-dev-i386 \
@@ -49,8 +51,12 @@ RUN apt-get update && \
     libsm6 \
     libxext6 \
     libxrender-dev \
+    libyaml-0-2 \
+    libjsoncpp-dev \
+    libxml2-dev \
+    libzmq3-dev \
+    libpixman-1-0 \
     nano \
-    zsh \
     rsync \
     git \
     openssh-client \
@@ -65,27 +71,33 @@ RUN apt-get update && \
     python-is-python3 \
     python3-pip \
     python3-setuptools-scm \
-    python3-venv
+    python3-venv \
+    pybind11-dev \
+    libfmt-dev \
+    libboost-dev \
+    libjansson-dev \
+    libgetdata-dev \
+    libtinfo5 \
+    g++-10 \
+    cmake \
+    tcsh
+# tcsh: required by LSF esub scripts (they ship with a /bin/csh shebang).
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 RUN locale-gen "en_US.UTF-8"
 
-# install Verilator from source to get the right version
-RUN apt-get install -y git perl make autoconf g++ flex bison ccache libgoogle-perftools-dev numactl perl-doc libfl2 libfl-dev zlib1g zlib1g-dev
-RUN git clone https://github.com/verilator/verilator
-RUN cd verilator && \
-    git checkout v4.224 && \
-    autoconf && \
-    ./configure && \
-    make -j4 && \
-    make install
+# Install slashkit. If the package isn't provided, this is a no-op
+# The wildcard pattern ensures COPY doesn't fail if the file doesn't exist
+COPY slashkit.de[b] /tmp/
+RUN if [ -f /tmp/slashkit.deb ]; then apt-get update && apt-get install -y /tmp/slashkit.deb && rm /tmp/slashkit.deb; fi
 
 # install XRT
 RUN if [ -z "$LOCAL_XRT" ] && [ -z "$SKIP_XRT" ];then \
-    wget -U 'Mozilla/5.0 (X11; Linux i686) AppleWebKit/537.17 (KHTML, like Gecko) Chrome/24.0.1312.27 Safari/537.17' "https://www.xilinx.com/bin/public/openDownload?filename=$XRT_DEB_VERSION.deb" -O /tmp/$XRT_DEB_VERSION.deb; fi
+    wget -U 'Mozilla/5.0 (X11; Linux i686) AppleWebKit/537.17 (KHTML, like Gecko) Chrome/24.0.1312.27 Safari/537.17' "https://download.amd.com/opendownload/xrt/$XRT_DEB_VERSION.deb" -O /tmp/$XRT_DEB_VERSION.deb; fi
 
 COPY requirements.txt $XRT_DEB_VERSION.* /tmp/
 
 RUN if [ -z "$SKIP_XRT" ];then \
+    apt-get update && \
     apt install -y /tmp/$XRT_DEB_VERSION.deb && \
     rm /tmp/$XRT_DEB_VERSION.deb; fi
 
@@ -95,18 +107,21 @@ RUN pip install -r /tmp/requirements.txt
 RUN rm /tmp/requirements.txt
 
 # install PyTorch
-RUN pip install torch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu116
+RUN pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --extra-index-url https://download.pytorch.org/whl/cu126
 
 # extra Python package dependencies (for testing and interaction)
 RUN pip install pygments==2.14.0
 RUN pip install ipykernel==6.21.2
 RUN pip install jupyter==1.0.0 --ignore-installed
+# anyio >= 4.13.0 for jupyter incompatible with pytest 6.2.5 (missing _pytest.scope module, added in pytest 7.0.0)
+RUN pip install 'anyio<4.13'
 RUN pip install markupsafe==2.0.1
 RUN pip install matplotlib==3.7.0  --ignore-installed
 RUN pip install pytest-dependency==0.5.1
 RUN pip install pytest-xdist[setproctitle]==3.2.0
 RUN pip install pytest-parallel==0.1.1
-RUN pip install "netron>=5.0.0"
+# Beyond version 8.5.0, subsequent Netron calls in a Jupyter notebook cause "Address already in use" errors
+RUN pip install netron
 RUN pip install pandas==1.5.3
 RUN pip install scikit-learn==1.2.1
 RUN pip install tqdm==4.64.1
@@ -130,8 +145,6 @@ RUN pip install networkx==2.8
 RUN pip install future-annotations==1.0.0
 RUN pip install dependencies==2.0.1
 RUN pip install tokenize-rt==4.2.1
-# pyverilator
-RUN pip install tclwrapper==0.0.1
 
 # assure that we have the right setuptools version
 RUN pip install setuptools==68.2.2
@@ -139,9 +152,20 @@ RUN pip install setuptools==68.2.2
 # extra environment variables for FINN compiler
 ENV VIVADO_IP_CACHE "/tmp/vivado_ip_cache"
 
+ARG USERNAME
+ARG USER_UID
+ARG GROUP_ID
+ARG GROUPNAME
+RUN useradd $USERNAME -u $USER_UID
+# Check and add group if it doesn't exist
+RUN if ! getent group "$GROUP_ID" > /dev/null 2>&1 && ! getent group "$GROUPNAME" > /dev/null 2>&1; then \
+        groupadd -g $GROUP_ID $GROUPNAME; \
+    fi
+
 COPY docker/finn_entrypoint.sh /usr/local/bin/
 COPY docker/quicktest.sh /usr/local/bin/
 RUN chmod 755 /usr/local/bin/finn_entrypoint.sh
 RUN chmod 755 /usr/local/bin/quicktest.sh
+USER $USERNAME
 ENTRYPOINT ["finn_entrypoint.sh"]
 CMD ["bash"]
