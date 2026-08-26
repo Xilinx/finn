@@ -12,6 +12,26 @@
  *		round(x*scale+bias)
  *	The used single-precision floating-point scale and bias parameters are
  *	rotated round-robin through the list of C channel-specific values.
+ *
+ *	The floating-point scale and bias are decomposed into fixed-point
+ *	representations at elaboration time (derive_PARAMS). The scale
+ *	mantissa is captured in S_WIDTH-1 magnitude bits (+ sign). When
+ *	K <= DSP port width, S_WIDTH=25 and all 24 IEEE 754 significand
+ *	bits are preserved exactly. When K exceeds the DSP port width,
+ *	S_WIDTH < 25 and the mantissa is rounded to fewer bits.
+ *
+ *	The integer multiply (x * scale_fixed) is exact within the product
+ *	datapath — unlike a single-precision floating-point multiply, which
+ *	rounds its result to 24 significant bits. Consequently, for
+ *	non-power-of-two scales (dense mantissa fractions), the hardware
+ *	result may differ by ±1 from a single-precision evaluation of
+ *	round(scale*x+bias). Power-of-two scales (zero mantissa fraction)
+ *	produce bit-exact agreement with the floating-point specification.
+ *
+ *	Similarly, the bias mantissa is aligned into the product datapath
+ *	by shifting. When the bias exponent is small relative to the tap
+ *	position, right-shifting truncates least-significant mantissa bits,
+ *	which can also contribute to ±1 deviations at rounding boundaries.
  ***************************************************************************/
 
 module requant #(
@@ -23,7 +43,9 @@ module requant #(
 	int unsigned  PE = 1,  // Vector parallelism, must divide C
 
 	shortreal     SCALES[PE][C/PE],
-	shortreal     BIASES[PE][C/PE]
+	shortreal     BIASES[PE][C/PE],
+
+	bit  SIGNED_OUT = 0  // 0: unsigned clip [0, 2^N-1], 1: signed clip [-2^(N-1), 2^(N-1)-1]
 )(
 	input	logic  clk,
 	input	logic  rst,
@@ -34,6 +56,7 @@ module requant #(
 	output	logic [PE-1:0][N-1:0]  odat,
 	output	logic  ovld
 );
+`default_nettype none
 	localparam int unsigned  CF = C/PE;  // Channel fold
 
 	// Parameter Constraints Checking
@@ -146,7 +169,17 @@ module requant #(
 	endfunction : derive_PARAMS
 	localparam params_mat_t  PARAMS = derive_PARAMS();
 	initial begin
-		void'(derive_PARAMS());
+		for(int unsigned  pe = 0; pe < PE; pe++) begin
+			for(int unsigned  cf = 0; cf < CF; cf++) begin
+				automatic bit [31:0]  s = $shortrealtobits(SCALES[pe][cf]);
+				if(s[22:0] != 0 && 25 > MUL_WIDTHS.s) begin
+					// Dense mantissa with S_WIDTH < 25: check for actual bit loss
+					automatic bit [24:0]  sm = { 1'b1, s[0+:23], 1'b0 };
+					if(sm[0+:25-MUL_WIDTHS.s] != 0)
+						$warning("%m: SCALES[%0d][%0d] scale mantissa truncated (%0d to %0d bits).", pe, cf, 25, MUL_WIDTHS.s);
+				end
+			end
+		end
 	end
 	typedef struct {
 		int unsigned  min;
@@ -238,18 +271,16 @@ module requant #(
 		end
 
 		logic [N-1:0]  R4 = 'x;
-		if(1) begin : blkStage4
-			localparam int unsigned  TAP_SPAN = TAP_MINMAX.max - TAP_MINMAX.min;
+		localparam int unsigned  TAP_SPAN = TAP_MINMAX.max - TAP_MINMAX.min;
+		uwire  neg = P3[$left(P3)];
+		if(!SIGNED_OUT) begin : blkStage4Unsigned
 			uwire [TAP_SPAN + N-1:0]  win = P3[TAP_MINMAX.max+N-1 : TAP_MINMAX.min];
 			uwire [TAP_SPAN + N-1:0]  tap = win >> T3;
-			uwire  neg = P3[$left(P3)];
 			uwire  ovf =
 				(($left(P3)      > TAP_MINMAX.max+N)? |P3[$left(P3)-1:TAP_MINMAX.max+N] : 0) ||
 				((TAP_MINMAX.min < TAP_MINMAX.max  )? |tap[$left(tap):N] : 0);
 			always_ff @(posedge clk) begin
-				if(rst) begin
-					R4 <= 'x;
-				end
+				if(rst)  R4 <= 'x;
 				else begin
 					R4 <=
 						neg?  0 :
@@ -257,9 +288,21 @@ module requant #(
 						tap[N-1:0];
 				end
 			end
-		end : blkStage4
+		end : blkStage4Unsigned
+		else begin : blkStage4Signed
+			uwire signed [TAP_SPAN + N-1:0]  win = P3[TAP_MINMAX.max+N-1 : TAP_MINMAX.min];
+			uwire signed [TAP_SPAN + N-1:0]  tap = win >>> T3;
+			uwire  ovf =
+				(($left(P3)      > TAP_MINMAX.max+N-1)? |(P3[$left(P3)-1:TAP_MINMAX.max+N-1] ^ {($left(P3)-TAP_MINMAX.max-N+1){neg}}) : 0) ||
+				((TAP_MINMAX.min < TAP_MINMAX.max    )? ~(&tap[$left(tap):N-1]) && (|tap[$left(tap):N-1]) : 0);
+			always_ff @(posedge clk) begin
+				if(rst)  R4 <= 'x;
+				else     R4 <= ovf? {neg, {(N-1){!neg}}} : tap[N-1:0];
+			end
+		end : blkStage4Signed
 
 		assign	odat[pe] = R4;
 	end : genPE
 
+`default_nettype wire
 endmodule : requant

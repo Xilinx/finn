@@ -1,15 +1,24 @@
-# Copyright (C) 2026, Advanced Micro Devices, Inc.
-# All rights reserved.
-#
+# Copyright Advanced Micro Devices, Inc.
 # SPDX-License-Identifier: BSD-3-Clause
 
 import numpy as np
 import os
+from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.requant import Requant
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.util.basic import get_dsp_block, make_build_dir
+from finn.util.basic import get_dsp_block, make_build_dir, roundup_to_integer_multiple
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+
+
+def _twos(value, width):
+    """Return the ``width``-bit two's-complement representation of ``value``."""
+    return int(value) & ((1 << width) - 1)
+
+
+def _clog2(n):
+    """Ceil(log2(n)) matching Verilog ``$clog2`` for n >= 1."""
+    return (n - 1).bit_length()
 
 
 class Requant_rtl(Requant, RTLBackend):
@@ -22,7 +31,73 @@ class Requant_rtl(Requant, RTLBackend):
         my_attrs = {}
         my_attrs.update(Requant.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
+        my_attrs.update(
+            {
+                # memory mode for the scale/bias parameters
+                # internal_embedded: constant-folded into the datapath (default)
+                # internal_decoupled: streamed from a unified on-chip memstream
+                "mem_mode": (
+                    "s",
+                    False,
+                    "internal_embedded",
+                    {"internal_embedded", "internal_decoupled"},
+                ),
+                "runtime_writeable_weights": ("i", False, 0, {0, 1}),
+            }
+        )
         return my_attrs
+
+    def adapt_for_loop_body(self, input_types):
+        """Adapt Requant_rtl for loop body (MLO) execution.
+
+        Requant's default ``mem_mode`` is ``internal_embedded``, which
+        constant-folds scale/bias into the SV datapath and therefore cannot vary
+        per loop iteration. When LoopRolling flags this node for MLO (it sets
+        ``mlo_max_iter`` on the consumer of each per-iteration PARAMETER input),
+        switch to ``internal_decoupled`` so scale+bias are streamed from the
+        unified param memstream instead (mirrors MVAU_rtl's
+        embedded->external_mem switch, but with Requant's own decoupled target
+        mode). Gate on the per-node
+        ``mlo_max_iter`` signal rather than the positional ``input_types``.
+        """
+        if self.get_nodeattr("mlo_max_iter") > 0:
+            self.set_nodeattr("mem_mode", "internal_decoupled")
+
+    def _mlo_set_bits_padded(self):
+        """Byte-padded width of the per-iteration set-select stream.
+
+        Must match the FINNLoop stream_tap ``$DATA_WIDTH$``
+        (finn_loop.py:548-550) so that the tap's ``m_axis`` connects cleanly to
+        the ``in1_V`` set-select slave pin.
+        """
+        iteration = self.get_nodeattr("mlo_max_iter")
+        data_width = DataType.get_smallest_possible(iteration).bitwidth()
+        return roundup_to_integer_multiple(data_width, 8)
+
+    def get_verilog_top_module_intf_names(self):
+        """Interface names for the Requant top module.
+
+        Base case exposes only the activation stream ``in0_V`` and output
+        ``out0_V`` (scale/bias are internal to the decoupled hierarchy). In MLO
+        mode one extra set-select slave pin ``in1_V`` is appended; it is driven
+        by a FINNLoop stream_tap and selects the active parameter set in the
+        unified param memstream.
+        """
+        intf_names = {"clk": ["ap_clk"], "rst": ["ap_rst_n"]}
+        intf_names["s_axis"] = [("in0_V", self.get_instream_width_padded(0))]
+        if (
+            self.get_nodeattr("mlo_max_iter") > 0
+            and self.get_nodeattr("mem_mode") == "internal_decoupled"
+        ):
+            set_bits_padded = self._mlo_set_bits_padded()
+            intf_names["s_axis"] += [
+                ("in1_V", set_bits_padded),
+            ]
+        intf_names["m_axis"] = [("out0_V", self.get_outstream_width_padded(0))]
+        intf_names["aximm"] = []
+        intf_names["axilite"] = []
+        intf_names["ap_none"] = []
+        return intf_names
 
     def _resolve_dsp_version(self, fpgapart):
         """Determine DSP version based on FPGA part."""
@@ -35,6 +110,126 @@ class Requant_rtl(Requant, RTLBackend):
             case _:
                 return 1
 
+    def _derive_decoupled_widths(self, model, fpgapart):
+        """Derive the fixed-point stream layout for decoupled mode.
+
+        Returns a dict with the decomposed params plus the per-lane and
+        byte-aligned stream widths for the scale and bias parameter streams and
+        the input/output data streams. All widths are consistent with the
+        localparam derivation in ``requant_axi_decoupled.sv``.
+        """
+        version = self._resolve_dsp_version(fpgapart)
+        params = self.decompose_params(model, version)
+        s_width = params["s_width"]
+        x_width = params["x_width"]
+        tap_min = params["tap_min"]
+        tap_max = params["tap_max"]
+
+        pe = self.get_nodeattr("PE")
+        k = self.get_input_datatype(0).bitwidth()
+        n = self.get_output_datatype().bitwidth()
+
+        # In MLO mode the scale stream WIDTH and the core TAP_MIN/TAP_MAX are
+        # baked once at generate_hdl time but must cover *every* loop iteration's
+        # params. Since a valid tap is structurally bounded to
+        # 0 <= tap <= s_width + x_width + 1 - n (see decompose_params, purely
+        # datatype/version-derived), size the window to that worst case instead
+        # of the per-layer [min, max]. This makes the layout iteration-invariant
+        # and leaf-local (no cross-iteration knowledge needed).
+        if self.get_nodeattr("mlo_max_iter") > 0:
+            tap_min = 0
+            tap_max = s_width + x_width + 1 - n
+
+        bias_width = s_width + x_width
+        tap_range = tap_max - tap_min + 1
+        tap_width = max(1, _clog2(tap_range)) if tap_range > 1 else 1
+        params_lane_width = s_width + tap_width + bias_width
+
+        info = dict(params)
+        info.update(
+            {
+                "version": version,
+                "tap_min": tap_min,
+                "tap_max": tap_max,
+                "bias_width": bias_width,
+                "tap_width": tap_width,
+                "params_lane_width": params_lane_width,
+                "in_stream_width": roundup_to_integer_multiple(pe * k, 8),
+                "out_stream_width": roundup_to_integer_multiple(pe * n, 8),
+                "params_stream_width": roundup_to_integer_multiple(pe * params_lane_width, 8),
+            }
+        )
+        return info
+
+    def _pack_param_words(self, info):
+        """Pack the decomposed params into per-fold stream words.
+
+        All three fields (scale, tap-offset, bias) are packed into a single
+        struct per PE lane. Lane 0 (pe=0) occupies the least significant bits.
+        Returns a single list of ``CF`` Python integers.
+
+        Per-lane layout (LSB to MSB):
+            [S_WIDTH-1 : 0]                                    = SCALE  (signed mantissa)
+            [S_WIDTH+TAP_WIDTH-1 : S_WIDTH]                    = T      (tap - TAP_MIN, unsigned)
+            [S_WIDTH+TAP_WIDTH+BIAS_WIDTH-1 : S_WIDTH+TAP_WIDTH] = BIAS (signed)
+        """
+        pe = self.get_nodeattr("PE")
+        num_channels = self.get_nodeattr("NumChannels")
+        cf = num_channels // pe
+
+        scale = info["scale"]
+        bias = info["bias"]
+        tap = info["tap"]
+        tap_min = info["tap_min"]
+        s_width = info["s_width"]
+        tap_width = info["tap_width"]
+        bias_width = info["bias_width"]
+        params_lane_width = info["params_lane_width"]
+
+        params_words = []
+        for c in range(cf):
+            p_word = 0
+            for p in range(pe):
+                t_off = int(tap[p][c]) - tap_min
+                # Pack: { BIAS[BIAS_WIDTH], T[TAP_WIDTH], SCALE[S_WIDTH] }
+                lane = (
+                    (_twos(bias[p][c], bias_width) << (s_width + tap_width))
+                    | (_twos(t_off, tap_width) << s_width)
+                    | _twos(scale[p][c], s_width)
+                )
+                p_word |= lane << (p * params_lane_width)
+            params_words.append(p_word)
+        return params_words
+
+    @staticmethod
+    def _write_memblock(path, words, stream_width):
+        """Write memstream init .dat: one hex word per line, zero-padded."""
+        hex_digits = stream_width // 4
+        with open(path, "w") as f:
+            for w in words:
+                f.write("{:0{}x}\n".format(int(w), hex_digits))
+
+    def generate_params(self, model, path, fpgapart=None):
+        """Emit the unified decoupled memstream init file for the current params.
+
+        Writes ``params_memblock.dat`` into ``path`` for the scale/bias
+        currently attached to this node in ``model``. Used both by standalone
+        decoupled generation and, per loop iteration, by
+        ``FINNLoop.generate_params`` (which sets the per-iteration initializers
+        before calling this). ``fpgapart`` is required to resolve the DSP version
+        so the fixed-point layout matches the elaborated core. Returns the packed
+        ``params_words`` list for reuse by callers.
+        """
+        assert fpgapart is not None, "Requant_rtl.generate_params requires fpgapart"
+        info = self._derive_decoupled_widths(model, fpgapart)
+        params_words = self._pack_param_words(info)
+        self._write_memblock(
+            os.path.join(path, "params_memblock.dat"),
+            params_words,
+            info["params_stream_width"],
+        )
+        return params_words
+
     def generate_hdl(self, model, fpgapart, clk):
         """Generate RTL code for the requant operation."""
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
@@ -42,6 +237,21 @@ class Requant_rtl(Requant, RTLBackend):
             code_gen_dir = make_build_dir("requant_rtl_ipgen_")
             self.set_nodeattr("code_gen_dir_ipgen", code_gen_dir)
 
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "internal_embedded":
+            self._generate_hdl_embedded(model, fpgapart, clk, code_gen_dir)
+        elif mem_mode == "internal_decoupled":
+            self._generate_hdl_decoupled(model, fpgapart, clk, code_gen_dir)
+        else:
+            raise ValueError(f"{self.onnx_node.name}: unsupported mem_mode {mem_mode}.")
+
+        # set ipgen_path and ip_path so that HLS-Synth transformation
+        # and stitch ip transformation do not complain
+        self.set_nodeattr("ipgen_path", code_gen_dir)
+        self.set_nodeattr("ip_path", code_gen_dir)
+
+    def _generate_hdl_embedded(self, model, fpgapart, clk, code_gen_dir):
+        """Embedded mode: constant-fold scale/bias into the SV datapath."""
         # Get parameters
         pe = self.get_nodeattr("PE")
         num_channels = self.get_nodeattr("NumChannels")
@@ -103,6 +313,7 @@ class Requant_rtl(Requant, RTLBackend):
         sv_code = sv_code.replace("$PE$", str(pe))
         sv_code = sv_code.replace("$SCALES$", scales_sv)
         sv_code = sv_code.replace("$BIASES$", biases_sv)
+        sv_code = sv_code.replace("$SIGNED_OUT$", str(int(odt.signed())))
         sv_code = sv_code.replace("$IN_STREAM_WIDTH$", str(in_stream_width))
         sv_code = sv_code.replace("$OUT_STREAM_WIDTH$", str(out_stream_width))
 
@@ -126,28 +337,94 @@ class Requant_rtl(Requant, RTLBackend):
 
         self.set_nodeattr("gen_top_module", top_module_name)
 
-        # set ipgen_path and ip_path so that HLS-Synth transformation
-        # and stitch ip transformation do not complain
-        self.set_nodeattr("ipgen_path", code_gen_dir)
-        self.set_nodeattr("ip_path", code_gen_dir)
+    def _generate_hdl_decoupled(self, model, fpgapart, clk, code_gen_dir):
+        """Decoupled mode: stream scale/tap/bias from a unified param memstream.
+
+        The float->fixed-point decomposition is done in Python
+        (``decompose_params``); the resulting per-channel words are packed into
+        a single struct-based stream and emitted as one memstream init file, and
+        the compute core is elaborated with the worst-case TAP_MIN/TAP_MAX
+        window instead of embedded params.
+        """
+        info = self._derive_decoupled_widths(model, fpgapart)
+
+        pe = self.get_nodeattr("PE")
+        num_channels = self.get_nodeattr("NumChannels")
+        cf = num_channels // pe
+        k = self.get_input_datatype(0).bitwidth()
+        n = self.get_output_datatype().bitwidth()
+
+        top_module_name = self.get_verilog_top_module_name()
+        rtllib_dir = os.environ["FINN_ROOT"] + "/finn-rtllib/requant/hdl/"
+
+        odt = self.get_output_datatype()
+        subst = {
+            "$TOP_MODULE_NAME$": top_module_name,
+            "$VERSION$": str(info["version"]),
+            "$K$": str(k),
+            "$N$": str(n),
+            "$C$": str(num_channels),
+            "$PE$": str(pe),
+            "$TAP_MIN$": str(info["tap_min"]),
+            "$TAP_MAX$": str(info["tap_max"]),
+            "$SIGNED_OUT$": str(int(odt.signed())),
+        }
+
+        # Verilog wrapper (.v) for IP packaging
+        with open(rtllib_dir + "requant_wrapper_decoupled_template.v", "r") as f:
+            v_code = f.read()
+        for key, val in subst.items():
+            v_code = v_code.replace(key, val)
+        with open(os.path.join(code_gen_dir, top_module_name + ".v"), "w") as f:
+            f.write(v_code)
+
+        self.set_nodeattr("gen_top_module", top_module_name)
+
+        # Emit memstream init file (.dat) via the shared generate_params path,
+        # plus the packed words as .npy for standalone rtlsim.
+        params_words = self.generate_params(model, code_gen_dir, fpgapart)
+        np.save(
+            os.path.join(code_gen_dir, "params_words.npy"),
+            np.array(params_words, dtype=object),
+        )
+
+        # Emit the unified memstream wrapper (params = scale + tap + bias)
+        node_name = self.onnx_node.name
+        self.generate_hdl_memstream(
+            fpgapart,
+            name=node_name + "_params",
+            depth=cf,
+            width=info["params_stream_width"],
+            init_file=os.path.join(code_gen_dir, "params_memblock.dat"),
+            ram_style="auto",
+        )
 
     def get_rtl_file_list(self, abspath=False):
         """Return list of RTL files needed for this node."""
         rtllib_dir = os.environ["FINN_ROOT"] + "/finn-rtllib/requant/hdl/"
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
-        rtl_files = [
-            rtllib_dir + "queue.sv",
-            rtllib_dir + "requant.sv",
-            rtllib_dir + "requant_axi.sv",
-        ]
-
-        # Add generated wrappers (Verilog stub + SystemVerilog impl)
         top_module = self.get_nodeattr("gen_top_module")
         if top_module == "":
             top_module = self.get_verilog_top_module_name()
-        rtl_files.append(os.path.join(code_gen_dir, top_module + "_impl.sv"))
-        rtl_files.append(os.path.join(code_gen_dir, top_module + ".v"))
+
+        if self.get_nodeattr("mem_mode") == "internal_decoupled":
+            rtl_files = [
+                rtllib_dir + "queue.sv",
+                rtllib_dir + "requant_decoupled.sv",
+                rtllib_dir + "requant_axi_decoupled.sv",
+                # generated Verilog wrapper (directly instantiates the SV core)
+                os.path.join(code_gen_dir, top_module + ".v"),
+            ]
+        else:
+            rtl_files = [
+                rtllib_dir + "queue.sv",
+                rtllib_dir + "requant.sv",
+                rtllib_dir + "requant_axi.sv",
+                # generated SystemVerilog impl + Verilog stub wrapper
+                os.path.join(code_gen_dir, top_module + "_impl.sv"),
+                os.path.join(code_gen_dir, top_module + ".v"),
+            ]
 
         if abspath:
             return rtl_files
@@ -155,6 +432,10 @@ class Requant_rtl(Requant, RTLBackend):
             return [os.path.basename(f) for f in rtl_files]
 
     def code_generation_ipi(self):
+        """Return the Vivado IPI Tcl commands that instantiate this node."""
+        if self.get_nodeattr("mem_mode") == "internal_decoupled":
+            return self._code_generation_ipi_decoupled()
+
         sourcefiles = self.get_rtl_file_list(abspath=True)
 
         cmd = []
@@ -166,16 +447,129 @@ class Requant_rtl(Requant, RTLBackend):
         ]
         return cmd
 
+    def _code_generation_ipi_decoupled(self):
+        """Instantiate the decoupled core plus the unified param memstream."""
+        node_name = self.onnx_node.name
+        top_module = self.get_nodeattr("gen_top_module")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        source_target = "./ip/verilog/rtl_ops/%s" % node_name
+
+        cmd = ["file mkdir %s" % source_target]
+
+        # Hierarchy with external data in/out pins (params are internal)
+        cmd.append("create_bd_cell -type hier %s" % node_name)
+        cmd.append("create_bd_pin -dir I -type clk /%s/ap_clk" % node_name)
+        cmd.append("create_bd_pin -dir I -type rst /%s/ap_rst_n" % node_name)
+        cmd.append(
+            "create_bd_intf_pin -mode Master "
+            "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/out0_V" % node_name
+        )
+        cmd.append(
+            "create_bd_intf_pin -mode Slave "
+            "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/in0_V" % node_name
+        )
+
+        # MLO: expose per-iteration set-select slave pin for the unified param
+        # memstream (in1_V). This carries the memstream set index driven by the
+        # FINNLoop stream-tap graph; standalone (SETS=1) leaves it absent.
+        mlo = self.get_nodeattr("mlo_max_iter") > 0
+        if mlo:
+            cmd.append(
+                "create_bd_intf_pin -mode Slave "
+                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/in1_V" % node_name
+            )
+
+        # Compute core
+        for f in self.get_rtl_file_list(abspath=True):
+            cmd.append("add_files -copy_to %s -norecurse %s" % (source_target, f))
+        cmd.append(
+            "create_bd_cell -type module -reference %s /%s/%s" % (top_module, node_name, node_name)
+        )
+        cmd.append(
+            "connect_bd_net [get_bd_pins %s/ap_clk] [get_bd_pins %s/%s/ap_clk]"
+            % (node_name, node_name, node_name)
+        )
+        cmd.append(
+            "connect_bd_net [get_bd_pins %s/ap_rst_n] [get_bd_pins %s/%s/ap_rst_n]"
+            % (node_name, node_name, node_name)
+        )
+        cmd.append(
+            "connect_bd_intf_net [get_bd_intf_pins %s/in0_V] "
+            "[get_bd_intf_pins %s/%s/in0_V]" % (node_name, node_name, node_name)
+        )
+        cmd.append(
+            "connect_bd_intf_net [get_bd_intf_pins %s/out0_V] "
+            "[get_bd_intf_pins %s/%s/out0_V]" % (node_name, node_name, node_name)
+        )
+
+        # Shared memstream sources
+        axi_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/axi/hdl/")
+        ms_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/memstream/hdl/")
+        for f in [axi_dir + "axilite.sv", ms_dir + "memstream_axi.sv", ms_dir + "memstream.sv"]:
+            cmd.append("add_files -copy_to %s -norecurse %s" % (source_target, f))
+
+        # Unified param memstreamer feeding the core's s_params_V port.
+        # In MLO mode the external set-select pin (in1_V) drives the
+        # memstreamer's s_axis_0; standalone leaves s_axis_0 unwired (SETS=1).
+        suffix = "_params"
+        core_port = "s_params_V"
+        ext_pin = "in1_V"
+
+        # Discover the generated wrapper by suffix rather than reconstructing
+        # from node_name: inside a FINNLoop body the node is renamed between
+        # generate_hdl (files carry the loop-prefixed name) and ipi time, so
+        # the module name lives in gen_top_module / the filename, not in
+        # self.onnx_node.name (mirrors MVAU matrixvectoractivation.py:1176).
+        file_suffix = suffix + "_memstream_wrapper.v"
+        wrapper_fname = None
+        for fname in os.listdir(code_gen_dir):
+            if fname.endswith(file_suffix):
+                wrapper_fname = fname
+        assert wrapper_fname is not None, "Requant decoupled: could not find %s in %s" % (
+            file_suffix,
+            code_gen_dir,
+        )
+        wrapper_file = os.path.join(code_gen_dir, wrapper_fname)
+        cmd.append("add_files -copy_to %s -norecurse %s" % (source_target, wrapper_file))
+        strm_mod = wrapper_fname[:-2]
+        strm_inst = node_name + suffix + "_wstrm"
+        cmd.append(
+            "create_bd_cell -type hier -reference %s /%s/%s" % (strm_mod, node_name, strm_inst)
+        )
+        cmd.append(
+            "connect_bd_net [get_bd_pins %s/ap_clk] [get_bd_pins %s/%s/ap_clk]"
+            % (node_name, node_name, strm_inst)
+        )
+        cmd.append(
+            "connect_bd_net [get_bd_pins %s/ap_clk] [get_bd_pins %s/%s/ap_clk2x]"
+            % (node_name, node_name, strm_inst)
+        )
+        cmd.append(
+            "connect_bd_net [get_bd_pins %s/ap_rst_n] [get_bd_pins %s/%s/ap_rst_n]"
+            % (node_name, node_name, strm_inst)
+        )
+        cmd.append(
+            "connect_bd_intf_net [get_bd_intf_pins %s/%s/m_axis_0] "
+            "[get_bd_intf_pins %s/%s/%s]" % (node_name, strm_inst, node_name, node_name, core_port)
+        )
+        if mlo:
+            cmd.append(
+                "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
+                "[get_bd_intf_pins %s/%s/s_axis_0]" % (node_name, ext_pin, node_name, strm_inst)
+            )
+
+        cmd.append("save_bd_design")
+        return cmd
+
     def execute_node(self, context, graph):
         """Execute the node, using RTL simulation if exec_mode is rtlsim."""
         mode = self.get_nodeattr("exec_mode")
         if mode == "rtlsim":
-            # Custom RTL sim that only passes input 0 (data), not scale/bias
-            # which are embedded as parameters in the generated HDL
             node = self.onnx_node
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+            decoupled = self.get_nodeattr("mem_mode") == "internal_decoupled"
 
-            # Only process input 0 (data tensor)
+            # Process input 0 (data tensor)
             inp = node.input[0]
             exp_ishape = tuple(self.get_normal_input_shape(0))
             folded_ishape = self.get_folded_input_shape(0)
@@ -195,6 +589,23 @@ class Requant_rtl(Requant, RTLBackend):
                 "inputs": {"in0": rtlsim_inp},
                 "outputs": {"out0": []},
             }
+
+            if decoupled:
+                # A SETS>1 (MLO) memstream needs a per-iteration set-select
+                # index on s_axis_0, which the standalone .npy streaming path
+                # cannot supply. Such nodes must be executed via the stitched
+                # FINNLoop rtlsim, which drives the set index in hardware.
+                assert self.get_nodeattr("mlo_max_iter") == 0, (
+                    "%s: standalone rtlsim cannot drive the set-select index; "
+                    "a SETS>1 (MLO) Requant must be executed via FINNLoop." % node.name
+                )
+                # Feed the unified parameter stream alongside the data.
+                # The memstream cycles CF words; replicate per input vector.
+                params_words = list(
+                    np.load(os.path.join(code_gen_dir, "params_words.npy"), allow_pickle=True)
+                )
+                num_vectors = int(np.prod(self.get_nodeattr("numInputVectors")))
+                io_dict["inputs"]["s_params"] = [int(w) for w in params_words] * num_vectors
 
             sim = self.get_rtlsim()
             self.reset_rtlsim(sim)
