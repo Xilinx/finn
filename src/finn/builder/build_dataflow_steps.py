@@ -536,6 +536,7 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
         to_hw.InferElementwiseBinaryOperation(),
         "elementwise binary operations",
     )
+    model = apply_if_relevant(model, ["Where"], to_hw.InferWhereLayer(), "where selection")
     model = apply_if_relevant(
         model, ["Relu"], to_hw.InferReLUAsElementwiseMax(), "ReLU as elementwise max"
     )
