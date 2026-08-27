@@ -214,11 +214,11 @@ def test_characterization_fifosizing_uses_matching_consumer_input(tmp_path):
     branch = helper.make_tensor_value_info("branch", TensorProto.FLOAT, [1, 1])
     out = helper.make_tensor_value_info("out", TensorProto.FLOAT, [1, 1])
     fork = helper.make_node(
-        "DuplicateStreams_rtl",
+        "DuplicateStreams_hls",
         ["inp"],
         ["skip", "branch"],
         name="fork",
-        domain="finn.custom_op.fpgadataflow.rtl",
+        domain="finn.custom_op.fpgadataflow.hls",
         backend="fpgadataflow",
         NumChannels=1,
         NumOutputStreams=2,
@@ -255,7 +255,7 @@ def test_characterization_fifosizing_uses_matching_consumer_input(tmp_path):
     consumer_chrc = np.asarray(
         [producer_chrc, [0, 0, 0, 1, 1, 1, 1, 2]], dtype=np.int32
     )
-    fork_node = model.get_nodes_by_op_type("DuplicateStreams_rtl")[0]
+    fork_node = model.get_nodes_by_op_type("DuplicateStreams_hls")[0]
     join_node = model.get_nodes_by_op_type("ElementwiseAdd_rtl")[0]
     for node, chrc_in, chrc_out in [
         (fork_node, None, np.stack([producer_chrc, producer_chrc])),
@@ -277,7 +277,7 @@ def test_characterization_fifosizing_uses_matching_consumer_input(tmp_path):
 
     model = model.transform(DeriveFIFOSizes())
 
-    fork_inst = getCustomOp(model.get_nodes_by_op_type("DuplicateStreams_rtl")[0])
+    fork_inst = getCustomOp(model.get_nodes_by_op_type("DuplicateStreams_hls")[0])
     assert fork_inst.get_nodeattr("outFIFODepths") == [0, 3]
 
 
