@@ -245,16 +245,12 @@ def test_characterization_fifosizing_uses_matching_consumer_input(tmp_path):
         PE=1,
         inFIFODepths=[2, 2],
     )
-    graph = helper.make_graph(
-        [fork, join], "residual", [inp], [out], value_info=[skip, branch]
-    )
+    graph = helper.make_graph([fork, join], "residual", [inp], [out], value_info=[skip, branch])
     model = ModelWrapper(qonnx_make_model(graph))
 
     period = 4
     producer_chrc = np.asarray([1, 2, 3, 4, 5, 6, 7, 8], dtype=np.int32)
-    consumer_chrc = np.asarray(
-        [producer_chrc, [0, 0, 0, 1, 1, 1, 1, 2]], dtype=np.int32
-    )
+    consumer_chrc = np.asarray([producer_chrc, [0, 0, 0, 1, 1, 1, 1, 2]], dtype=np.int32)
     fork_node = model.get_nodes_by_op_type("DuplicateStreams_hls")[0]
     join_node = model.get_nodes_by_op_type("ElementwiseAdd_rtl")[0]
     for node, chrc_in, chrc_out in [
@@ -289,9 +285,7 @@ def test_characterization_fifosizing_honors_output_override():
     producer_inst = getCustomOp(producer)
 
     transformation = DeriveFIFOSizes(
-        output_fifo_depth_overrides={
-            producer.name: {i: i + 2 for i in range(len(producer.output))}
-        }
+        output_fifo_depth_overrides={producer.name: {i: i + 2 for i in range(len(producer.output))}}
     )
     transformation.ref_input_model = model
     returned, changed = transformation.applyNodeLocal(producer)

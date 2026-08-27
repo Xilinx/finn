@@ -138,9 +138,7 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
                 "    set ::finn_streamingfifo_rtl_shared_sources_added 1\n"
                 "}" % shared_source_cmds
             ]
-            top_sourcefile = os.path.join(
-                code_gen_dir, self.get_nodeattr("gen_top_module") + ".v"
-            )
+            top_sourcefile = os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + ".v")
             cmd.append("add_files -norecurse %s" % top_sourcefile)
             create_cell_cmd = "create_bd_cell -type module -reference %s %s" % (
                 self.get_nodeattr("gen_top_module"),

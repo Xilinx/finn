@@ -31,7 +31,6 @@ from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
-
 VIVADO_AXIS_DATA_FIFO_MAX_WIDTH = 256 * 8
 
 

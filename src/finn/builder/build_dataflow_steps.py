@@ -955,9 +955,7 @@ def step_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
                 for node in verify_model.graph.node:
                     node_inst = getCustomOp(node)
                     node_inst.set_nodeattr("rtlsim_trace", f"{abspath}/{node.name}_rtlsim.wdb")
-            verify_model = verify_model.transform(
-                PrepareRTLSim(behav=cfg.verify_rtlsim_behavioral)
-            )
+            verify_model = verify_model.transform(PrepareRTLSim(behav=cfg.verify_rtlsim_behavioral))
             verify_model = verify_model.transform(SetExecMode("rtlsim"))
             verify_step(verify_model, cfg, "node_by_node_rtlsim", need_parent=True)
             # Clear rtlsim_trace attributes to prevent later simulations from

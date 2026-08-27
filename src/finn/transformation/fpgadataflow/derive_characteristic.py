@@ -142,9 +142,7 @@ class DeriveFIFOSizes(NodeLocalTransformation):
                         if output_index in node_overrides:
                             out_fifo_depths.append(node_overrides[output_index])
                             continue
-                        prod_chrc_index = (
-                            output_index if len(prod_chrcs) == len(node.output) else 0
-                        )
+                        prod_chrc_index = output_index if len(prod_chrcs) == len(node.output) else 0
                         prod_chrc = prod_chrcs[prod_chrc_index]
                         assert (
                             len(prod_chrc) == 2 * period
