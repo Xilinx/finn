@@ -34,6 +34,31 @@ from qonnx.transformation.base import NodeLocalTransformation
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
+def _assert_no_reconvergent_residuals(model):
+    """Raise if the model contains a reconvergent residual, i.e. a two-stream
+    ElementwiseAdd join.
+
+    Characterization-based FIFO sizing derives each consumer's requirement from
+    its first input characteristic only (io_chrc_in[0]), so a node that joins
+    two live streams (a residual add fed by a stream fork) cannot be sized
+    correctly. Detect this up front and fail with a clear message rather than
+    after the (potentially hours-long) characterization rtlsim. FINNLoop bodies
+    are opaque here (the loop is an IP core at this stage), so no descent into
+    subgraphs is needed.
+    """
+    for node in model.graph.node:
+        if "ElementwiseAdd" in node.op_type:
+            inst = registry.getCustomOp(node)
+            if inst.get_nodeattr("lhs_style") == "input" and (
+                inst.get_nodeattr("rhs_style") == "input"
+            ):
+                raise RuntimeError(
+                    "Characterize FIFO sizing is not supported for models with "
+                    "reconvergent residual paths (two-stream ElementwiseAdd '%s' "
+                    "fed by a stream fork). Use a different auto_fifo_strategy." % node.name
+                )
+
+
 def _find_minimum_phase_shift(prod_chrc, cons_chrc, period):
     """Find the first phase shift where production covers consumption."""
 
@@ -79,6 +104,11 @@ class DeriveCharacteristic(NodeLocalTransformation):
         super().__init__(num_workers=num_workers)
         self.period = period
         self.skip_node_names = set(skip_node_names or [])
+
+    def apply(self, model):
+        # fail fast on unsupported topologies before the (long) characterization
+        _assert_no_reconvergent_residuals(model)
+        return super().apply(model)
 
     def applyNodeLocal(self, node):
         if node.name in self.skip_node_names:
@@ -132,21 +162,19 @@ class DeriveFIFOSizes(NodeLocalTransformation):
                     out_fifo_depths = [node_overrides[i] for i in range(len(node.output))]
                 else:
                     period = prod.get_nodeattr("io_chrc_period")
+                    prod_chrc = prod.get_io_chrc_out()[0]
+                    assert (
+                        len(prod_chrc) == 2 * period
+                    ), "Found unexpected characterization attribute"
                     if any([x > 2 for x in prod.get_nodeattr("outFIFODepths")]):
                         # FIFO depth already set, can skip this node
                         return (node, False)
 
                     out_fifo_depths = []
-                    prod_chrcs = prod.get_io_chrc_out()
                     for output_index, output_name in enumerate(node.output):
                         if output_index in node_overrides:
                             out_fifo_depths.append(node_overrides[output_index])
                             continue
-                        prod_chrc_index = output_index if len(prod_chrcs) == len(node.output) else 0
-                        prod_chrc = prod_chrcs[prod_chrc_index]
-                        assert (
-                            len(prod_chrc) == 2 * period
-                        ), "Found unexpected characterization attribute"
                         cons_node = model.find_consumer(output_name)
                         if cons_node is None:
                             # could be final node, will be overridden if so
@@ -154,12 +182,7 @@ class DeriveFIFOSizes(NodeLocalTransformation):
                             out_fifo_depths.append(self.io_fifo_depth)
                             continue
                         cons = registry.getCustomOp(cons_node)
-                        cons_chrcs = cons.get_io_chrc_in()
-                        cons_input_index = list(cons_node.input).index(output_name)
-                        cons_chrc_index = (
-                            cons_input_index if len(cons_chrcs) == len(cons_node.input) else 0
-                        )
-                        cons_chrc = cons_chrcs[cons_chrc_index]
+                        cons_chrc = cons.get_io_chrc_in()[0]
                         # find minimum phase shift satisfying the constraint
                         pshift_min = _find_minimum_phase_shift(prod_chrc, cons_chrc, period)
                         prod_chrc_part = prod_chrc[pshift_min : (pshift_min + period)]

@@ -154,6 +154,6 @@ class DuplicateStreams(HWCustomOp):
             "inputs": {
                 "in0": [0 for i in range(n_inps)],
             },
-            "outputs": {"out%d" % i: [] for i in range(len(self.onnx_node.output))},
+            "outputs": {"out0": [], "out1": []},
         }
         super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)

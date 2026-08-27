@@ -208,7 +208,7 @@ def test_oversized_vivado_axis_fifo_stays_rtl():
     assert all(getCustomOp(fifo).get_nodeattr("impl_style") == "rtl" for fifo in fifos)
 
 
-def test_characterization_fifosizing_uses_matching_consumer_input(tmp_path):
+def test_characterization_fifosizing_rejects_reconvergent_residual():
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, 1])
     skip = helper.make_tensor_value_info("skip", TensorProto.FLOAT, [1, 1])
     branch = helper.make_tensor_value_info("branch", TensorProto.FLOAT, [1, 1])
@@ -248,33 +248,8 @@ def test_characterization_fifosizing_uses_matching_consumer_input(tmp_path):
     graph = helper.make_graph([fork, join], "residual", [inp], [out], value_info=[skip, branch])
     model = ModelWrapper(qonnx_make_model(graph))
 
-    period = 4
-    producer_chrc = np.asarray([1, 2, 3, 4, 5, 6, 7, 8], dtype=np.int32)
-    consumer_chrc = np.asarray([producer_chrc, [0, 0, 0, 1, 1, 1, 1, 2]], dtype=np.int32)
-    fork_node = model.get_nodes_by_op_type("DuplicateStreams_hls")[0]
-    join_node = model.get_nodes_by_op_type("ElementwiseAdd_rtl")[0]
-    for node, chrc_in, chrc_out in [
-        (fork_node, None, np.stack([producer_chrc, producer_chrc])),
-        (join_node, consumer_chrc, producer_chrc.reshape(1, -1)),
-    ]:
-        inst = getCustomOp(node)
-        inst.set_nodeattr("io_chrc_period", period)
-        if chrc_in is not None:
-            path = tmp_path / f"{node.name}_io_chrc_in.npy"
-            np.save(path, chrc_in)
-            inst.set_nodeattr("io_chrc_in_file", str(path))
-        if node is fork_node:
-            path = tmp_path / f"{node.name}_io_chrc_out.npz"
-            np.savez_compressed(path, io_chrc=chrc_out)
-        else:
-            path = tmp_path / f"{node.name}_io_chrc_out.npy"
-            np.save(path, chrc_out)
-        inst.set_nodeattr("io_chrc_out_file", str(path))
-
-    model = model.transform(DeriveFIFOSizes())
-
-    fork_inst = getCustomOp(model.get_nodes_by_op_type("DuplicateStreams_hls")[0])
-    assert fork_inst.get_nodeattr("outFIFODepths") == [0, 3]
+    with pytest.raises(RuntimeError, match="reconvergent residual paths"):
+        model.transform(DeriveCharacteristic(period=4))
 
 
 def test_characterization_fifosizing_honors_output_override():
