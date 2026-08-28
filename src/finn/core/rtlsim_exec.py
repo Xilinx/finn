@@ -134,7 +134,7 @@ def rtlsim_exec_cppxsi(
     dummy data or real data. The execution_context parameter must be formatted
     according to whether dummy or real data is used.
     If behav=True (default), FINN_SIMULATION is defined and fifo_gauge is used.
-    If behav=False, Q_srl is used instead (no debug logging).
+    If behav=False, the synthesizable fifo.sv is used instead (no debug logging).
 
     Example with dummy_data = True::
 

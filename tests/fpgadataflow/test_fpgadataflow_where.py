@@ -186,7 +186,7 @@ def test_where_stitched_ip_synth_ooc():
     model = _run_sim_style(model, "stitched_ip")
 
     where_rtl = getCustomOp(model.get_nodes_by_op_type("HWWhere_rtl")[0])
-    expected_bram = where_rtl.bram_estimation()
+    expected_bram = where_rtl.bram_estimation(FPGA_PART)
     assert expected_bram > 0
     model = model.transform(CreateStitchedIP(FPGA_PART, CLK_NS, run_pnr=True))
     ret = parse_ooc_synth_results(model.get_metadata_prop("vivado_stitch_proj"))

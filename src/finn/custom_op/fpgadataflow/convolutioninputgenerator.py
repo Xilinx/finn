@@ -212,13 +212,13 @@ class ConvolutionInputGenerator(HWCustomOp):
     def get_exp_cycles(self):
         return 0
 
-    def bram_estimation(self):
+    def bram_estimation(self, fpgapart):
         return 0
 
-    def lut_estimation(self):
+    def lut_estimation(self, fpgapart):
         return 0
 
-    def uram_estimation(self):
+    def uram_estimation(self, fpgapart):
         return 0
 
     def execute_node(self, context, graph):
