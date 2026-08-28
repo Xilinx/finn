@@ -483,7 +483,17 @@ class InsertAndSetFIFODepths(Transformation):
             maxcount_name = "maxcount_%d" % ind
             if ind == 0:
                 maxcount_name = "maxcount"
-            fifos[node.name] = sim[maxcount_name]
+            observed = sim[maxcount_name]
+
+            # Warn that MaxCount went over the FIFO sizing insertion depths
+            insertion_depth = getCustomOp(node).get_nodeattr("depth")
+            if observed >= insertion_depth:
+                warnings.warn(
+                    "%s: maxcount %d, FIFO depth %d -> FIFO sizing counter observed %d more entries"
+                    "than FIFO gauge could measure, it is likely the results are incorrect."
+                    % (node.name, observed, insertion_depth, observed - insertion_depth)
+                )
+            fifos[node.name] = observed
 
         # Apply depths back into the model;
         # also set in/outFIFODepths to zero for non-FIFO

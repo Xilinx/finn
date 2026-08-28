@@ -99,6 +99,13 @@ module fifo_gauge #(
 			Count <= Q.size;
 			if(Q.size > MaxCount)  MaxCount <= Q.size;
 
+                        // Fail if MaxCount overflows
+			if(longint'(Q.size) > (longint'(1) << COUNT_WIDTH) - 1) begin
+				$fatal(1, $sformatf({"%m: FIFO sizing counter reached %0d which ",
+                                           "exceeds counter width COUNT_WIDTH=%0d (max %0d)"},
+				       Q.size, COUNT_WIDTH, (longint'(1) << COUNT_WIDTH) - 1));
+			end
+
 			// Offer output when available
 			if(!OVld || ordy) begin
 				if(Q.size == 0) begin

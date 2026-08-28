@@ -88,7 +88,8 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
         # make instream width a multiple of 8 for axi interface
         in_width = self.get_instream_width_padded()
 
-        count_width = int(self.get_nodeattr("depth")).bit_length()
+        # Set depth counter bitwidth high to avoid overflow
+        count_width = 32
         depth = int(self.get_nodeattr("depth"))
         code_gen_dict["$COUNT_WIDTH$"] = f"{count_width}"
         code_gen_dict["$COUNT_RANGE$"] = "[{}:0]".format(count_width - 1)
