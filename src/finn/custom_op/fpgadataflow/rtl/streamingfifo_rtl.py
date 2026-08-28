@@ -37,10 +37,7 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
         super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
-        my_attrs = {
-            # single-valued, kept so that existing folding configs still load
-            "impl_style": ("s", False, "rtl", {"rtl"}),
-        }
+        my_attrs = {}
         my_attrs.update(StreamingFIFO.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
 

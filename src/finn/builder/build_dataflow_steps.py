@@ -1025,7 +1025,6 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         "parallel_window",
         "ram_style",
         "depth",
-        "impl_style",
         "resType",
         "mem_mode",
         "runtime_writeable_weights",
