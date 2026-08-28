@@ -1,10 +1,10 @@
 # Copyright Advanced Micro Devices, Inc.
 # SPDX-License-Identifier: BSD-3-Clause
 
-# Guards finn.custom_op.fpgadataflow.streamingfifo._resolve() against drift from the
-# RAM_STYLE_EFF selection in finn-rtllib/fifo/hdl/fifo.sv. _resolve() is a hand-written
-# Python mirror of that selection, used for resource estimation and the build report; if
-# someone edits fifo.sv without updating _resolve(), this test fails.
+# Guards finn.util.resource_models._resolve() against drift from the RAM_STYLE_EFF
+# selection in finn-rtllib/fifo/hdl/fifo.sv. _resolve() is a hand-written Python mirror of
+# that selection, used for resource estimation and the build report; if someone edits
+# fifo.sv without updating _resolve(), this test fails.
 #
 # It does not restate the selection logic: it parses fifo.sv, turns each condition into a
 # callable, and uses that as the oracle. So a threshold change in fifo.sv moves the oracle
@@ -15,7 +15,7 @@ import pytest
 import os
 import re
 
-from finn.custom_op.fpgadataflow.streamingfifo import _resolve
+from finn.util.resource_models import _resolve
 
 # fifo.sv spells the SRL backing "shift"; FINN's vocabulary calls it "srl" (translated
 # back at the codegen boundary in streamingfifo_rtl.py).
@@ -32,7 +32,7 @@ def _read_ram_style_eff():
     if m is None:
         pytest.fail(
             "Could not find the RAM_STYLE_EFF selection in %s. If fifo.sv's style "
-            "selection was restructured, update streamingfifo._resolve() and this test." % sv_path
+            "selection was restructured, update resource_models._resolve() and this test." % sv_path
         )
     body = m.group(1)
     # drop /* ... */ comments (e.g. the trailing "/* else */") so only code remains
@@ -50,7 +50,7 @@ def _read_ram_style_eff():
     if len(branches) < 2 or branches[-1][0] is not None:
         pytest.fail(
             "Parsed an unexpected RAM_STYLE_EFF shape from fifo.sv: %r. Update "
-            "streamingfifo._resolve() and this test to match." % branches
+            "resource_models._resolve() and this test to match." % branches
         )
     return branches
 
@@ -73,7 +73,7 @@ def _eval_condition(cond_src, depth, width, requested):
     except Exception as e:  # pragma: no cover - only hit if fifo.sv adds new syntax
         pytest.fail(
             "Could not evaluate RAM_STYLE_EFF condition %r from fifo.sv (%s). Extend "
-            "this test's parser and check streamingfifo._resolve()." % (cond_src, e)
+            "this test's parser and check resource_models._resolve()." % (cond_src, e)
         )
 
 
@@ -95,6 +95,7 @@ WIDTHS = [1, 4, 5, 6, 11, 12, 13, 64]
 REQUESTS = ["auto", "srl", "distributed", "block", "ultra"]
 
 
+@pytest.mark.fpgadataflow
 def test_resolve_mirrors_fifo_sv():
     branches = _read_ram_style_eff()
     for depth in DEPTHS:
@@ -104,6 +105,6 @@ def test_resolve_mirrors_fifo_sv():
                 actual = _resolve(depth, width, requested)
                 assert actual == expected, (
                     "_resolve(%d, %d, %s) = %s but fifo.sv elaborates %s. "
-                    "streamingfifo._resolve() has drifted from fifo.sv's RAM_STYLE_EFF."
+                    "resource_models._resolve() has drifted from fifo.sv's RAM_STYLE_EFF."
                     % (depth, width, requested, actual, expected)
                 )
