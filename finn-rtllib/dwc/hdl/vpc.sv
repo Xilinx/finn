@@ -62,6 +62,7 @@ module vpc #(
 	// Derived Parameters
 	localparam int unsigned  TRNI = 1 + (N0-1)/PI0;	// input transactions per vector
 	localparam int unsigned  TRNO = 1 + (N0-1)/PO0;	// output transactions per vector
+	localparam int unsigned  OLAST = N - (TRNO-1)*PO;	// valid output lanes on last beat (1..PO)
 
 	uwire  itrn = ivld && irdy;
 	uwire  otrn = ovld && ordy;
@@ -100,7 +101,15 @@ module vpc #(
 
 			assign  irdy = !Cnt[$left(Cnt)];
 			assign  ovld = Cnt[$left(Cnt)];
-			assign  odat = Buf[0];
+
+			if(OLAST == PO)  assign  odat = Buf[0];
+			else begin : genOpad
+				uwire  olast_beat = &Cnt;
+				for(genvar  p = 0; p < PO; p++) begin : genOdat
+					if(p < OLAST)  assign  odat[p] = Buf[0][p*W +: W];
+					else           assign  odat[p] = olast_beat? '0 : Buf[0][p*W +: W];
+				end : genOdat
+			end : genOpad
 
 		end : genRelax
 		else begin : genFull
@@ -150,7 +159,15 @@ module vpc #(
 
 			assign  irdy = !Cnt[$left(Cnt)];
 			assign  ovld = SVld;
-			assign  odat = Side;
+
+			if(OLAST == PO)  assign  odat = Side;
+			else begin : genOpad
+				uwire  olast_beat = !Cnt[$left(Cnt)];
+				for(genvar  p = 0; p < PO; p++) begin : genOdat
+					if(p < OLAST)  assign  odat[p] = Side[p*W +: W];
+					else           assign  odat[p] = olast_beat? '0 : Side[p*W +: W];
+				end : genOdat
+			end : genOpad
 
 		end : genFull
 
@@ -253,87 +270,84 @@ module vpc #(
 		uwire  nxt;
 		uwire  idone;
 		uwire  odone;
+		uwire  olast;
 		if(TRNI * PI0 == TRNO * PO0) begin : genSimple
 			assign  nxt   = 0;
 			assign  idone = 0;
 			assign  odone = 0;
+
+			if(OLAST == PO)  assign  olast = 0;
+			else begin : genOlast
+				logic signed [$clog2((TRNO > 1)? TRNO : 2):0]  OBeat = 1-TRNO;
+				assign  olast = !OBeat[$left(OBeat)];
+				always_ff @(posedge clk) begin
+					if(rst)  OBeat <= 1-TRNO;
+					else     OBeat <= OBeat + ((olast && otrn)? -TRNO : 0) + otrn;
+				end
+			end : genOlast
 		end : genSimple
 		else begin : genTrn
-			logic signed [$clog2(TRNI):0]  ITrn = TRNI-1;
-			logic signed [$clog2(TRNO):0]  OTrn = TRNO-1;
+			localparam int unsigned  ITRN_W = $clog2((TRNI > 2)? TRNI-1 : 2);
+			localparam int unsigned  OTRN_W = $clog2((TRNO > 2)? TRNO-1 : 2);
+			logic signed [ITRN_W:0]  ITrn = 1-TRNI;	// -TRNI+1, .., 0 (last), 1 (done)
+			logic signed [OTRN_W:0]  OTrn = 1-TRNO;	// -TRNO+1, .., 0 (last), 1 (done)
 
-			uwire signed [$clog2(TRNI):0]  n_itrn = ITrn - itrn;
-			uwire signed [$clog2(TRNO):0]  n_otrn = OTrn - otrn;
-			assign  nxt = n_itrn[$left(n_itrn)] && n_otrn[$left(n_otrn)];
+			uwire  ilast = !ITrn[$left(ITrn)] && !ITrn[0];
+			assign  olast = !OTrn[$left(OTrn)] && !OTrn[0];
+			assign  idone = !ITrn[$left(ITrn)] && ITrn[0];
+			assign  odone = !OTrn[$left(OTrn)] && OTrn[0];
+			assign  nxt = (idone || (ilast && itrn)) && (odone || (olast && otrn));
 
 			always_ff @(posedge clk) begin
 				if(rst) begin
-					ITrn <= TRNI-1;
-					OTrn <= TRNO-1;
+					ITrn <= 1-TRNI;
+					OTrn <= 1-TRNO;
 				end
 				else begin
-					ITrn <= nxt? TRNI-1 : n_itrn;
-					OTrn <= nxt? TRNO-1 : n_otrn;
+					ITrn <= ITrn + (nxt? -TRNI : 0) + itrn;
+					OTrn <= OTrn + (nxt? -TRNO : 0) + otrn;
 				end
 			end
-
-			assign  idone = ITrn[$left(ITrn)];
-			assign  odone = OTrn[$left(OTrn)];
 		end : genTrn
 
-		localparam int unsigned  CAP = PI0 + PO0;
+		localparam int unsigned  CAP  = PI0 + PO0;
+		localparam int unsigned  PMAX = (PI0 > PO0)? PI0 : PO0;
+		typedef logic signed [$clog2(PMAX+1):0]  cap_t;
 		logic [W0-1:0]  Buf[CAP];
-		logic signed [$clog2(CAP):0]  ICap = PO0;	// PO0 (empty), .., 0, .., -PI0; >= 0: room
-		logic signed [$clog2(CAP):0]  ORdy = -PO0;	// -PO0 (empty), .., 0, .., PI0; >= 0: ready
+		cap_t  ICap = PO0;	// PO0 (empty), .., 0, .., -PI0; >= 0: room
+		cap_t  OAvl = -PO0;	// -PO0 (empty), .., 0, .., PI0; >= 0: available
 
 		always_ff @(posedge clk) begin
 			if(rst) begin
 				Buf <= '{ default: 'x };
 				ICap <= PO0;
-				ORdy <= -PO0;
+				OAvl <= -PO0;
 			end
 			else begin
-				automatic logic [W0-1:0]  n_buf[CAP];
-				automatic logic signed [$clog2(CAP):0]   n_icap;
-				automatic logic signed [$clog2(CAP):0]   n_ordy;
-
-				n_buf  = Buf;
-				n_icap = ICap;
-				n_ordy = ORdy;
-
-				// Phase 1: retire PO0 elements from buffer head.
-				if(otrn) begin
-					n_buf[0 +: CAP-PO0] = n_buf[PO0 +: CAP-PO0];
-					n_icap += PO0;
-					n_ordy -= PO0;
-				end
-
-				// Phase 2: deposit input at buffer tail (don't-care beyond ORdy).
+				// Buffer shift and deposit.
 				if(1) begin
-					automatic int unsigned  ofs = ORdy + (otrn? 0 : $signed(PO0));
-					for(int unsigned  p = 0; p < PI0; p++)
-						if(ofs + p < CAP)  n_buf[ofs + p] = idat[p*GCD +: GCD];
-				end
-				if(itrn) begin
-					n_icap -= PI0;
-					n_ordy += PI0;
-				end
-
-				// When both input and output vectors are complete, start next vector.
-				if(nxt) begin
-					n_icap =  PO0;
-					n_ordy = -PO0;
+					automatic logic [W0-1:0]  n_buf[CAP] = Buf;
+					if(otrn)  n_buf[0 +: CAP-PO0] = n_buf[PO0 +: CAP-PO0];
+					if(1) begin
+						automatic int unsigned  ofs = OAvl + (otrn? 0 : $signed(PO0));
+						for(int unsigned  p = 0; p < PI0; p++)
+							if(ofs + p < CAP)  n_buf[ofs + p] = idat[p*GCD +: GCD];
+					end
+					Buf <= n_buf;
 				end
 
-				Buf <= n_buf;
-				ICap <= n_icap;
-				ORdy <= n_ordy;
+				// Capacity counters: base + constant delta.
+				ICap <= (nxt? 0 : ICap) + cap_t'(nxt?  PO0 : otrn? (itrn? PO0-PI0 :  PO0) : itrn? -PI0 : 0);
+				OAvl <= (nxt? 0 : OAvl) + cap_t'(nxt? -PO0 : otrn? (itrn? PI0-PO0 : -PO0) : itrn?  PI0 : 0);
 			end
 		end
 
 		assign  irdy = !idone && !ICap[$left(ICap)];
-		assign  ovld = !odone && !(ORdy[$left(ORdy)] && !idone);
-		for(genvar  p = 0; p < PO0; p++)  assign  odat[p*GCD +: GCD] = Buf[p];
+		assign  ovld = !odone && !(OAvl[$left(OAvl)] && !idone);
+
+		for(genvar  p = 0; p < PO; p++) begin : genOdat
+			assign  odat[p] = (OLAST == PO || p < OLAST || !olast)? Buf[p/GCD][(p%GCD)*W +: W] : '0;
+		end : genOdat
 
 	end : genGeneric
 
