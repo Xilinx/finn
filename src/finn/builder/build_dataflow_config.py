@@ -78,16 +78,6 @@ class VitisOptStrategyCfg(str, Enum):
     BUILD_SPEED = "quick"
 
 
-class LargeFIFOMemStyle(str, Enum):
-    """Type of memory resource to use for large FIFOs."""
-
-    AUTO = "auto"
-    SHIFT = "shift"
-    BRAM = "block"
-    LUTRAM = "distributed"
-    URAM = "ultra"
-
-
 class VerificationStepType(str, Enum):
     "Steps at which FINN ONNX execution can be launched for verification."
 
@@ -268,12 +258,6 @@ class DataflowBuildConfig:
     #: When `auto_fifo_depths = True`, select which method will be used for
     #: setting the FIFO sizes.
     auto_fifo_strategy: Optional[AutoFIFOSizingMethod] = AutoFIFOSizingMethod.LARGEFIFO_RTLSIM
-
-    #: Memory resource type for the FIFOs sized by the auto-sizing flow.
-    #: "auto" lets FINN resolve a concrete backing from each FIFO's depth and
-    #: width, see StreamingFIFO.resolve_ram_style().
-    #: Only relevant when `auto_fifo_depths = True`
-    large_fifo_mem_style: Optional[LargeFIFOMemStyle] = LargeFIFOMemStyle.AUTO
 
     #: Enable input throttling for simulation-based FIFO sizing
     #: Only relevant if auto_fifo_strategy = LARGEFIFO_RTLSIM

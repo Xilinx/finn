@@ -32,6 +32,7 @@ from functools import lru_cache
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import is_versal
 
 # This model mirrors finn-rtllib/fifo/hdl/fifo.sv, so that the style decision and the
 # estimators share one description of it. W is the padded stream width.
@@ -59,8 +60,9 @@ HI_URAM_RATIO = 7
 # width and depth, i.e. a fixed control block (read enable, pipeline valid).
 VERSAL_URAM_LUTS = 20
 
-# SDP configurations as (width, rows), widest first, selected by the `versal` flag that
-# reaches the estimators as the is_versal attribute. RAMB36 needs no entry: it is two
+# SDP configurations as (width, rows), widest first, selected by the `versal` flag the
+# estimators derive from the fpgapart threaded into node_res_estimation(). RAMB36 needs
+# no entry: it is two
 # RAMB18 worth of bits at coarser depth granularity. Versal's RAMB18E5 stops at 9 bits,
 # so a narrow word cannot be traded for depth as far there.
 RAMB18_SDP = ((36, 512), (18, 1024), (9, 2048), (4, 4096), (2, 8192), (1, 16384))
@@ -210,22 +212,28 @@ def _uram_plan(rows, W, versal=False):
 def _resolve(depth, W, requested):
     """Predicts the storage style fifo.sv's RAM_STYLE_EFF ladder will elaborate.
 
+    Mirror of the RAM_STYLE_EFF selection in fifo.sv:84-90; keep the thresholds below
+    in sync with it. tests/fpgadataflow/test_fifo_ram_style_mirror.py parses fifo.sv and
+    fails if this drifts from it.
+
     Takes no part, because the ladder does not see one: FINN forwards RAM_STYLE
     untouched and the RTL is the decision. Where the part turns out to have no URAM,
     Vivado drops the attribute (Synth 8-12187) and backs the same array with BRAM, so
     the style below is what was asked for rather than what the device delivers."""
     if depth <= 33:
         # a shift register whatever the RAM_STYLE, so anything else only warns
-        style = "shift"
+        style = "srl"
     elif requested != "auto":
         style = requested
     elif depth <= 64 and W < 12:
         # this threshold and the two around it are the RTL ladder's, not fitted: the
         # LUTRAM pointer overhead, ~27 LUTs by the fitted control terms below, does not
         # amortize yet
-        style = "shift"
-    elif depth <= 257:
-        # 256-entry LUTRAM + 1 output register, i.e. 4x RAM64M8 per byte
+        style = "srl"
+    elif depth <= 257 or W < 5:
+        # 256-entry LUTRAM + 1 output register, i.e. 4x RAM64M8 per byte. fifo.sv also
+        # sends any word narrower than 5 bits here at any depth (fifo.sv:88): too few
+        # bit lanes to fill a BRAM/URAM aspect, so LUTRAM stays cheaper
         style = "distributed"
     else:
         style = "block" if depth <= URAM_DEPTH_THRESHOLD else "ultra"
@@ -233,7 +241,10 @@ def _resolve(depth, W, requested):
 
 
 def _fifo_cost(depth, W, style, versal=False):
-    """Returns the FifoCost of a depth x W fifo.sv instance in the given style."""
+    """Returns the FifoCost of a depth x W fifo.sv instance in the given style.
+
+    Fitted against fifo.sv's implementation; if the RTL's geometry or per-style logic
+    changes, these estimates must be refitted to match."""
     if depth < 2:
         # set_fifo_depths makes depth-0 FIFOs for MLO parameter inputs and estimation
         # may still see them; they hold nothing, so zero is honest. fifo.sv will not
@@ -242,12 +253,12 @@ def _fifo_cost(depth, W, style, versal=False):
     # Control is fitted linear in the counter width cw, not in depth: the up/down count,
     # the full/empty compares and the maxcount running max each cost logic per counter
     # bit. Slope = per-bit users the style keeps, negative intercept = low bits folding
-    # into a carry chain. The slopes differ because the users do: 5 shift (one up/down
+    # into a carry chain. The slopes differ because the users do: 5 srl (one up/down
     # pointer), 8 distributed (separate read and write addresses), 6 ultra (those plus
     # the credit counter fronting the URAM pipeline).
     cw = _clog2(depth + 1) + 1
 
-    if style == "shift":
+    if style == "srl":
         # stages * W exact: an SRLC32E is 32 bits in one LUT, so one LUT per bit lane per
         # stage, matching the measured srl column outright. One item sits in the output
         # register and fifo.sv floors shift capacity at 5. Fitted intercept -7 overshoots
@@ -330,22 +341,16 @@ class StreamingFIFO(HWCustomOp):
                 "normal_shape": ("ints", True, []),
                 # FINN DataTypes for inputs/outputs
                 "dataType": ("s", True, ""),
-                # requested FPGA resource for the storage, passed straight to fifo.sv:
-                # auto (its RAM_STYLE_EFF ladder decides), shift (SRL), block (BRAM),
-                # distributed (LUTRAM) or ultra (URAM, on UltraScale+ and Versal)
+                # requested FPGA resource for the storage, passed to fifo.sv (with srl
+                # mapped to the RTL's "shift" token at the codegen boundary):
+                # auto (its RAM_STYLE_EFF ladder decides), srl (SRL shift register),
+                # block (BRAM), distributed (LUTRAM) or ultra (URAM, on UltraScale+/Versal)
                 "ram_style": (
                     "s",
                     False,
                     "auto",
-                    {"auto", "shift", "block", "distributed", "ultra"},
+                    {"auto", "srl", "block", "distributed", "ultra"},
                 ),
-                # which style that ladder is predicted to elaborate. Reporting only;
-                # resolve_ram_style() derives it on demand, so nothing reads it back
-                "ram_style_resolved": ("s", False, ""),
-                # whether the target is a Versal part, which has its own BRAM and URAM
-                # aspect ladders. Recorded because the estimators, unlike the ladder,
-                # do need the part and are called without an fpgapart
-                "is_versal": ("i", False, 0),
                 # whether the maxcount occupancy output is exposed on the wrapper
                 "depth_monitor": ("i", False, 0),
                 # the FIFO does not need its own FIFOs
@@ -358,7 +363,7 @@ class StreamingFIFO(HWCustomOp):
         return my_attrs
 
     def resolve_ram_style(self):
-        """Predicts which of shift/distributed/block/ultra fifo.sv will elaborate.
+        """Predicts which of srl/distributed/block/ultra fifo.sv will elaborate.
 
         generate_hdl() forwards ram_style to the RTL untouched, so this decides
         nothing: it reproduces the RAM_STYLE_EFF ladder so that resource estimation,
@@ -369,21 +374,22 @@ class StreamingFIFO(HWCustomOp):
         depth = self.get_nodeattr("depth")
         W = self.get_instream_width_padded()
         style = _resolve(depth, W, requested)
-        # the shallow-depth downgrade, warned about here as fifo.sv warns about it.
-        # "distributed" is excluded in both: an SRL is a strict improvement on a LUTRAM
-        # this shallow, so asking for LUTRAM is not asking for a memory
-        if style == "shift" and requested in ("block", "ultra"):
+        # fifo.sv checks depth<=33 before it checks RAM_STYLE!=auto (fifo.sv:85-86), so
+        # at this depth any explicit memory request is forced to a shift register
+        # regardless. Warn for every explicit style (block/ultra/distributed alike) so
+        # the override is not silent
+        if depth <= 33 and requested not in ("auto", "srl"):
             warnings.warn(
-                "%s: ram_style=%s requested but depth %d is built as a shift register"
-                % (self.onnx_node.name, requested, depth)
+                "%s: ram_style=%s requested but depth %d <= 33 is built as a shift "
+                "register regardless" % (self.onnx_node.name, requested, depth)
             )
-        # shift is never auto-selected past 257, so a deeper one is an explicit
-        # request, most likely large_fifo_mem_style, whose name suggests a memory.
-        if style == "shift" and depth > 257:
+        # srl is never auto-selected past 257, so a deeper one is an explicit
+        # ram_style=srl request, whose name does not suggest the LUT cost it carries.
+        if style == "srl" and depth > 257:
             warnings.warn(
-                "%s: ram_style=shift at depth %d costs roughly %d LUTs of shift "
+                "%s: ram_style=srl at depth %d costs roughly %d LUTs of shift "
                 "register; consider distributed/block/ultra instead"
-                % (self.onnx_node.name, depth, _fifo_cost(depth, W, "shift").lut)
+                % (self.onnx_node.name, depth, _fifo_cost(depth, W, "srl").lut)
             )
         return style
 
@@ -439,43 +445,45 @@ class StreamingFIFO(HWCustomOp):
     def get_ram_style(self):
         """Returns the storage style this FIFO is built with.
 
-        Derived rather than read back from ram_style_resolved: the ladder depends only
-        on attributes this node already carries, so recomputing cannot go stale the way
-        a recorded value does when set_fifo_depths changes the depth."""
+        Derived on demand rather than stored: the style depends only on attributes this
+        node already carries, so recomputing cannot go stale the way a recorded value
+        would when set_fifo_depths changes the depth."""
         return self.resolve_ram_style()
 
-    def get_fifo_cost(self):
-        """Returns the FifoCost of this node as fifo.sv implements it."""
+    def get_fifo_cost(self, fpgapart):
+        """Returns the FifoCost of this node as fifo.sv implements it.
+
+        Needs the fpgapart because BRAM/URAM aspects differ on Versal."""
         return _fifo_cost(
             self.get_nodeattr("depth"),
             self.get_instream_width_padded(),
             self.get_ram_style(),
-            self.get_nodeattr("is_versal") == 1,
+            is_versal(fpgapart),
         )
 
-    def bram_estimation(self):
+    def bram_estimation(self, fpgapart):
         """Calculates resource estimation for BRAM"""
-        return self.get_fifo_cost().bram
+        return self.get_fifo_cost(fpgapart).bram
 
-    def uram_estimation(self):
+    def uram_estimation(self, fpgapart):
         """Calculates resource estimation for URAM"""
-        return self.get_fifo_cost().uram
+        return self.get_fifo_cost(fpgapart).uram
 
-    def lut_estimation(self):
+    def lut_estimation(self, fpgapart):
         """Calculates resource estimations for LUTs"""
-        return self.get_fifo_cost().lut
+        return self.get_fifo_cost(fpgapart).lut
 
-    def bram_efficiency_estimation(self):
-        bram_est = self.bram_estimation()
+    def bram_efficiency_estimation(self, fpgapart):
+        bram_est = self.bram_estimation(fpgapart)
         if bram_est == 0:
             return 1
         wbits = self.get_instream_width_padded() * self.get_nodeattr("depth")
         return wbits / (bram_est * 18 * 1024)
 
-    def uram_efficiency_estimation(self):
+    def uram_efficiency_estimation(self, fpgapart):
         # every URAM288 aspect holds 288 Kib, so this capacity is correct on the
         # Versal ladder too; narrow words show up as a smaller uram_estimation()
-        uram_est = self.uram_estimation()
+        uram_est = self.uram_estimation(fpgapart)
         if uram_est == 0:
             return 1
         wbits = self.get_instream_width_padded() * self.get_nodeattr("depth")

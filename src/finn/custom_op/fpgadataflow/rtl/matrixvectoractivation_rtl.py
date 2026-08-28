@@ -157,7 +157,7 @@ class MVAU_rtl(MVAU, RTLBackend):
                 )
             )
 
-    def lut_estimation(self):
+    def lut_estimation(self, fpgapart):
         return 0
 
     def dsp_estimation(self, fpgapart):

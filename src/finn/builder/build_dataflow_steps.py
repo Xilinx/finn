@@ -46,7 +46,6 @@ must use the phases, since the loop-body orchestration lives there.
 
 import json
 import numpy as np
-import onnx
 import os
 import shutil
 from copy import deepcopy
@@ -154,7 +153,7 @@ from finn.transformation.qonnx.quant_act_to_multithreshold import (
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import get_rtlsim_trace_depth, is_versal
+from finn.util.basic import get_rtlsim_trace_depth
 from finn.util.config import (
     extract_model_config_consolidate_shuffles,
     extract_model_config_to_json,
@@ -176,20 +175,6 @@ def _maybe_enable_verify_behavioral(cfg):
 
 def _fifo_debug_live_dir(cfg):
     return cfg.output_dir + "/debug/fifo_logs/_live"
-
-
-def _refresh_fifo_ram_style(graph, fpgapart):
-    """Refresh the reported ram_style_resolved/is_versal on every FIFO.
-
-    Only the report reads these; the estimators derive the style on demand."""
-    for node in graph.node:
-        for attr in node.attribute:
-            if attr.type == onnx.AttributeProto.GRAPH:
-                _refresh_fifo_ram_style(attr.g, fpgapart)
-        if node.op_type == "StreamingFIFO_rtl":
-            inst = getCustomOp(node)
-            inst.set_nodeattr("ram_style_resolved", inst.resolve_ram_style())
-            inst.set_nodeattr("is_versal", int(is_versal(fpgapart)))
 
 
 def snapshot_fifo_logs(cfg, phase_name, loop_context=None):
@@ -964,7 +949,6 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
             model = model.transform(DeriveFIFOSizes())
             model = model.transform(
                 InsertFIFO(
-                    ram_style=cfg.large_fifo_mem_style,
                     create_shallow_fifos=True,
                 )
             )
@@ -1002,7 +986,6 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     cfg._resolve_fpga_part(),
                     cfg._resolve_hls_clk_period(),
                     swg_exception=cfg.default_swg_exception,
-                    large_fifo_ram_style=cfg.large_fifo_mem_style,
                     fifosim_input_throttle=cfg.fifosim_input_throttle,
                     cfg_n_inferences=cfg.fifosim_n_inferences,
                     debug_log_dir=(_fifo_debug_live_dir(cfg) if cfg.debug_fifo else None),
@@ -1035,16 +1018,12 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         if cfg.folding_config_file is not None:
             model = model.transform(ApplyConfig(cfg.folding_config_file))
 
-    _refresh_fifo_ram_style(model.graph, cfg._resolve_fpga_part())
-
     # extract the final configuration and save it as json
     hw_attrs = [
         "PE",
         "SIMD",
         "parallel_window",
         "ram_style",
-        # names the primitive actually built, rather than "auto"
-        "ram_style_resolved",
         "depth",
         "impl_style",
         "resType",
@@ -1428,7 +1407,6 @@ def step_loop_body_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig
             cfg._resolve_fpga_part(),
             cfg._resolve_hls_clk_period(),
             swg_exception=cfg.default_swg_exception,
-            large_fifo_ram_style=cfg.large_fifo_mem_style,
             fifosim_input_throttle=cfg.fifosim_input_throttle,
             debug_log_dir=(_fifo_debug_live_dir(cfg) if cfg.debug_fifo else None),
             debug_log_prefix=(loop_context + "_") if loop_context else "",

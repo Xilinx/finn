@@ -288,7 +288,7 @@ class HWWhere(HWCustomOp):
             return math.ceil(depth / 1024) * math.ceil(width / 18)
         return math.ceil(depth / 512) * math.ceil(width / 36)
 
-    def bram_estimation(self):
+    def bram_estimation(self, fpgapart):
         ram_style = self.get_nodeattr("ram_style")
         if ram_style == "block":
             buffer_specs = self._input_gen_buffer_specs()
@@ -304,7 +304,7 @@ class HWWhere(HWCustomOp):
             return 0
         return int(sum(self._bram18_estimation(width, depth) for width, depth in buffer_specs))
 
-    def uram_estimation(self):
+    def uram_estimation(self, fpgapart):
         if self.get_nodeattr("ram_style") != "ultra":
             return 0
         return int(
@@ -314,8 +314,8 @@ class HWWhere(HWCustomOp):
             )
         )
 
-    def bram_efficiency_estimation(self):
-        bram_estimate = self.bram_estimation()
+    def bram_efficiency_estimation(self, fpgapart):
+        bram_estimate = self.bram_estimation(fpgapart)
         if bram_estimate == 0:
             return 1
         buffer_specs = self._input_gen_buffer_specs()
@@ -327,14 +327,14 @@ class HWWhere(HWCustomOp):
         used_bits = sum(width * depth for width, depth in buffer_specs)
         return used_bits / (bram_estimate * 36 * 512)
 
-    def uram_efficiency_estimation(self):
-        uram_estimate = self.uram_estimation()
+    def uram_efficiency_estimation(self, fpgapart):
+        uram_estimate = self.uram_estimation(fpgapart)
         if uram_estimate == 0:
             return 1
         used_bits = sum(width * depth for width, depth in self._input_gen_buffer_specs())
         return used_bits / (uram_estimate * 72 * 4096)
 
-    def lut_estimation(self):
+    def lut_estimation(self, fpgapart):
         selection_luts = 64 + self.get_nodeattr("PE") * self.get_output_datatype().bitwidth()
         ram_style = self.get_nodeattr("ram_style")
         if ram_style == "distributed":
