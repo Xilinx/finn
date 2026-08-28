@@ -49,6 +49,7 @@ PYBIND11_MODULE(xsi, m) {
 			return  d;
 		}))
 		.def("trace_all", &Design::trace_all)
+		.def("close",     &Design::close)
 		.def("run",       &Design::run)
 		.def("restart",   &Design::restart)
 		.def("get_status",     &Design::get_status)
