@@ -30,6 +30,10 @@
 import pytest
 
 import json
+import os
+import re
+import shutil
+import subprocess
 import torch
 from brevitas.export import export_qonnx
 from onnx import TensorProto, helper
@@ -45,8 +49,26 @@ import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.basic import make_build_dir, robust_rmtree
+from finn.util.basic import make_build_dir, robust_rmtree, which
 from finn.util.test import get_trained_network_and_ishape
+
+FPGAPART = "xc7z020clg400-1"
+
+# Residual model for the maxcount overflow tests
+IDT = DataType["INT4"]
+CH = 8
+PE = 8
+# Folded tensor size, the natural insertion depth
+NVEC = [1, 8, 8]
+SHAPE = NVEC + [CH]
+FULL_W = CH * IDT.bitwidth()
+NARROW_W = IDT.bitwidth()
+
+# Tiny insertion depth keeps the wrap point at 8
+MAX_DEPTH = 4
+WRAP_AT = 2 ** int(MAX_DEPTH).bit_length()
+# Width-converter pairs delaying the long branch
+NPAIR = 2
 
 
 def fetch_test_model(topology, wbits=2, abits=2):
@@ -195,3 +217,225 @@ def make_multi_io_modelwrapper(ch, pe, idt):
     model = model.transform(InferDataTypes())
 
     return model
+
+
+def run_xsim(tmpdir, top):
+    """Runs one fifo_gauge_overflow_tb top under xsim."""
+    rtllib_fifo_hdl = os.environ["FINN_ROOT"] + "/finn-rtllib/fifo/hdl"
+    for src in ["fifo_gauge.sv", "fifo_gauge_overflow_tb.sv"]:
+        shutil.copy(os.path.join(rtllib_fifo_hdl, src), tmpdir)
+    out = ""
+    for args in (
+        ["xvlog", "-sv", "fifo_gauge.sv", "fifo_gauge_overflow_tb.sv"],
+        # fifo_gauge.sv carries no timescale, the testbench does
+        ["xelab", top, "-debug", "off", "-s", "sim", "--timescale", "1ns/1ps"],
+        ["xsim", "sim", "-runall"],
+    ):
+        proc = subprocess.run(
+            args, cwd=tmpdir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8"
+        )
+        out += proc.stdout
+        if proc.returncode != 0:
+            return (proc.returncode, out)
+    # xsim exits 0 even on $fatal, so scan transcript
+    return (1 if "Fatal:" in out else 0, out)
+
+
+def make_residual_modelwrapper():
+    """Fork -> (short branch | long branch with buffers) -> join."""
+    nodes = []
+    vi = []
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, SHAPE)
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, SHAPE)
+
+    nodes.append(
+        helper.make_node(
+            "DuplicateStreams",
+            ["inp"],
+            ["short", "long0"],
+            domain="finn.custom_op.fpgadataflow",
+            backend="fpgadataflow",
+            NumChannels=CH,
+            NumOutputStreams=2,
+            PE=PE,
+            inputDataType=IDT.name,
+            numInputVectors=NVEC,
+            outFIFODepths=[2, 2],
+        )
+    )
+    vi += [helper.make_tensor_value_info(n, TensorProto.FLOAT, SHAPE) for n in ("short", "long0")]
+
+    # Narrow leg drains slowly, backing up short branch
+    cur = "long0"
+    for i in range(NPAIR):
+        narrow, wide = "lnarrow%d" % i, "long%d" % (i + 1)
+        nodes.append(
+            helper.make_node(
+                "StreamingDataWidthConverter",
+                [cur],
+                [narrow],
+                domain="finn.custom_op.fpgadataflow",
+                backend="fpgadataflow",
+                shape=SHAPE,
+                inWidth=FULL_W,
+                outWidth=NARROW_W,
+                dataType=IDT.name,
+            )
+        )
+        nodes.append(
+            helper.make_node(
+                "StreamingDataWidthConverter",
+                [narrow],
+                [wide],
+                domain="finn.custom_op.fpgadataflow",
+                backend="fpgadataflow",
+                shape=SHAPE,
+                inWidth=NARROW_W,
+                outWidth=FULL_W,
+                dataType=IDT.name,
+            )
+        )
+        vi += [helper.make_tensor_value_info(n, TensorProto.FLOAT, SHAPE) for n in (narrow, wide)]
+        cur = wide
+
+    nodes.append(
+        helper.make_node(
+            "ElementwiseAdd",
+            ["short", cur],
+            ["outp"],
+            domain="finn.custom_op.fpgadataflow",
+            backend="fpgadataflow",
+            lhs_shape=SHAPE,
+            rhs_shape=SHAPE,
+            out_shape=SHAPE,
+            lhs_dtype=IDT.name,
+            rhs_dtype=IDT.name,
+            out_dtype=IDT.name,
+            lhs_style="input",
+            rhs_style="input",
+            PE=PE,
+            inFIFODepths=[2, 2],
+        )
+    )
+
+    graph = helper.make_graph(nodes, "residual", [inp], [outp], value_info=vi)
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="residual-maxcount"))
+    for tname in ["inp", "outp"] + [x.name for x in vi]:
+        model.set_tensor_datatype(tname, IDT)
+    model = model.transform(InferShapes())
+    return model.transform(InferDataTypes())
+
+
+def gauge_maxfill_per_fifo(log_dir):
+    """Reads untruncated MaxCount from each gauge log."""
+    fills = {}
+    for fname in os.listdir(log_dir):
+        match = re.search(r"MaxFill:\s*(\d+)", open(os.path.join(log_dir, fname)).read())
+        if match:
+            fills[os.path.splitext(fname)[0]] = int(match.group(1))
+    return fills
+
+
+@pytest.mark.vivado
+@pytest.mark.fpgadataflow
+def test_fifo_gauge_maxcount_overflow_is_fatal():
+    """Checks MaxCount > COUNT_WIDTH capacity is fatal."""
+    if which("xsim") is None:
+        pytest.skip("xsim not available")
+    tmpdir = make_build_dir("test_fifo_maxcount_overflow_")
+    (rc, out) = run_xsim(tmpdir, "fifo_gauge_overflow_fires_tb")
+    assert rc != 0, "Overflowing the maxcount port did not abort the simulation:\n" + out
+    assert "NO_OVERFLOW_DETECTED" not in out, "Fill ran to completion without tripping the guard"
+    assert "COUNT_WIDTH" in out, "Simulation failed, but not with the overflow diagnostic:\n" + out
+
+
+@pytest.mark.vivado
+@pytest.mark.fpgadataflow
+def test_fifo_gauge_maxcount_no_false_positive():
+    """Checks MaxCount < COUNT_WIDTH capacity is quiet.
+
+    Guards `Q.size >= 2**COUNT_WIDTH`, which overflows to 0 at COUNT_WIDTH=32.
+    """
+    if which("xsim") is None:
+        pytest.skip("xsim not available")
+    tmpdir = make_build_dir("test_fifo_maxcount_no_false_positive_")
+    (rc, out) = run_xsim(tmpdir, "fifo_gauge_overflow_quiet_tb")
+    assert rc == 0, "Guard fired on a fill well within the maxcount port's range:\n" + out
+    assert "NO_FALSE_POSITIVE maxcount=19999" in out, "Unexpected gauge behaviour:\n" + out
+
+
+@pytest.mark.fpgadataflow
+@pytest.mark.parametrize("depth", [2, 32, 1024, 150526])
+def test_small_fifo_counter_overflow(depth):
+    """Checks COUNT_WIDTH is not derived from insertion_depth."""
+    shape = [1, 32]
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape)
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, shape)
+    fifo_node = helper.make_node(
+        "StreamingFIFO_rtl",
+        ["inp"],
+        ["outp"],
+        domain="finn.custom_op.fpgadataflow.rtl",
+        backend="fpgadataflow",
+        depth=depth,
+        folded_shape=shape,
+        normal_shape=shape,
+        dataType="INT4",
+        impl_style="rtl",
+    )
+    graph = helper.make_graph(nodes=[fifo_node], name="fifo_graph", inputs=[inp], outputs=[outp])
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="fifo-model"))
+    model.set_tensor_datatype("inp", DataType["INT4"])
+    model.set_tensor_datatype("outp", DataType["INT4"])
+
+    inst = getCustomOp(model.graph.node[0])
+    code_gen_dir = make_build_dir("test_fifo_count_width_")
+    inst.set_nodeattr("code_gen_dir_ipgen", code_gen_dir)
+    inst.generate_hdl(model, FPGAPART, 10.0)
+
+    with open(os.path.join(code_gen_dir, inst.get_verilog_top_module_name() + ".v")) as f:
+        gen = f.read()
+    # Gauge must represent fills above nominal depth
+    assert ".COUNT_WIDTH(32)" in gen, "count/maxcount ports were sized from the depth"
+
+
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.fpgadataflow
+def test_fifosizing_residual_matches_gauge_maxfill():
+    """Checks sized depth matches MaxCount > insertion_depth."""
+    log_dir = make_build_dir("test_maxcount_sizing_logs_")
+    model = make_residual_modelwrapper()
+    model = model.transform(SpecializeLayers(FPGAPART))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(
+        InsertAndSetFIFODepths(FPGAPART, max_depth=MAX_DEPTH, debug_log_dir=log_dir)
+    )
+
+    observed = gauge_maxfill_per_fifo(log_dir)
+    assert observed, "No gauge logs were produced, so nothing was actually measured"
+
+    # Guard against passing for the wrong reason
+    peak = max(observed.values())
+    assert peak >= WRAP_AT, (
+        "Residual skew was too small to exercise the truncation: peak observed "
+        "fill %d, need >= %d. The test model no longer stresses the sizing path." % (peak, WRAP_AT)
+    )
+
+    sized = {}
+    for node in model.get_nodes_by_op_type("StreamingFIFO_rtl"):
+        sized[node.name] = getCustomOp(node).get_nodeattr("depth")
+
+    mismatches = []
+    for name, fill in observed.items():
+        if name not in sized:
+            continue
+        # optimize_depth() floors small depths at 32, and a
+        # truncated readout always lands below true fill
+        if fill > 32 and sized[name] != fill:
+            mismatches.append("%s: gauge observed %d, FIFO sized to %d" % (name, fill, sized[name]))
+
+    assert not mismatches, (
+        "FIFO depth does not match the occupancy the gauge measured, which means "
+        "maxcount was truncated on readout:\n  " + "\n  ".join(mismatches)
+    )
