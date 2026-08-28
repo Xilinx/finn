@@ -209,9 +209,6 @@ class InsertAndSetFIFODepths(Transformation):
         will be. If set to None, use the tensor size as the depth
     :parameter swg_exception: call CapConvolutionFIFODepths to make convolution FIFOs
         smaller where appropriate
-    :parameter large_fifo_ram_style: the StreamingFIFO.ram_style attribute to be
-        set on the sized FIFOs. The default "auto" lets FINN pick a backing per
-        depth and width, see StreamingFIFO.resolve_ram_style()
     :parameter fifosim_input_throttle: use input throttling based on dataflow analysis
         while doing simulation-based FIFO sizing
 
@@ -246,7 +243,6 @@ class InsertAndSetFIFODepths(Transformation):
         clk_ns=10.0,
         max_depth=None,
         swg_exception=False,
-        large_fifo_ram_style="auto",
         fifosim_input_throttle=True,
         cfg_n_inferences=2,
         debug_log_dir=None,
@@ -257,7 +253,6 @@ class InsertAndSetFIFODepths(Transformation):
         self.clk_ns = clk_ns
         self.max_depth = max_depth
         self.swg_exception = swg_exception
-        self.large_fifo_ram_style = large_fifo_ram_style
         self.fifosim_input_throttle = fifosim_input_throttle
         self.cfg_n_inferences = cfg_n_inferences
         self.mlo_max_iter = 0
@@ -467,7 +462,9 @@ class InsertAndSetFIFODepths(Transformation):
                 node_inst = getCustomOp(node)
                 node_inst.set_nodeattr("depth", depth)
                 node_inst.set_nodeattr("depth_monitor", 0)
-                node_inst.set_nodeattr("ram_style", self.large_fifo_ram_style)
+                # leave every sized FIFO on "auto" so fifo.sv picks a backing for the
+                # new depth; folding config or the user can override per FIFO afterwards
+                node_inst.set_nodeattr("ram_style", "auto")
                 # reset implementation
                 reset_implementation(node_inst)
                 del fifos[node.name]

@@ -443,7 +443,6 @@ def test_end2end_mobilenet_set_fifo_depths():
             fpga_part,
             target_clk_ns,
             swg_exception=False,
-            large_fifo_ram_style="auto",
         )
     )
     # perform shallow FIFO removal only after the final config json file has been
