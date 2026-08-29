@@ -175,7 +175,7 @@ class StreamingDataWidthConverter(HWCustomOp):
         output = np.asarray([output], dtype=np.float32).reshape(*exp_shape)
         context[node.output[0]] = output
 
-    def lut_estimation(self):
+    def lut_estimation(self, fpgapart):
         """Calculates resource estimations for LUTs"""
         inw = self.get_instream_width()
         outw = self.get_outstream_width()
