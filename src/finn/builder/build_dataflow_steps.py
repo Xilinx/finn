@@ -92,7 +92,6 @@ from finn.builder.build_dataflow_config import (
     VerificationStepType,
 )
 from finn.core.onnx_exec import execute_onnx
-from finn.core.rtlsim_exec import rtlsim_exec
 from finn.transformation.fpgadataflow.absorb_into_requant import (
     AbsorbElementwiseOpsIntoRequant,
 )
@@ -136,7 +135,6 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import (
     InsertAndSetFIFODepths,
     RemoveShallowFIFOs,
-    SplitLargeFIFOs,
     xsi_fifosim,
 )
 from finn.transformation.fpgadataflow.set_folding import SetFolding
@@ -161,7 +159,7 @@ from finn.util.config import (
     extract_model_config_to_json,
 )
 from finn.util.fpgadataflow import is_mlo, warn_hls_rtl_dsp_conflict
-from finn.util.rtlsim import annotate_rtlsim_performance, mlo_prehook_func_factory
+from finn.util.rtlsim import annotate_rtlsim_performance
 from finn.util.test import execute_parent
 from finn.util.vivado import parse_ooc_synth_results
 
@@ -205,8 +203,6 @@ def verify_step(
     cfg: DataflowBuildConfig,
     step_name: str,
     need_parent: bool,
-    rtlsim_pre_hook=None,
-    batched: bool = False,
 ):
     print("Running verification for " + step_name)
     verify_out_dir = cfg.output_dir + "/verification_output"
@@ -217,13 +213,13 @@ def verify_step(
     bsize_out = exp_out_npy_all.shape[0]
     assert bsize_in == bsize_out, "Batch sizes don't match for verification IO pair"
     all_res = True
-    if batched:
-        chunks = [(in_npy_all, exp_out_npy_all, 0)]
-    else:
-        chunks = [
-            (np.expand_dims(in_npy_all[b], axis=0), np.expand_dims(exp_out_npy_all[b], axis=0), b)
-            for b in range(bsize_in)
-        ]
+    # Verification runs one frame at a time (execute_onnx only accepts a single
+    # frame), so split the batched IO array into single-frame chunks. Batched
+    # multi-frame rtlsim is still possible by calling rtlsim_exec directly.
+    chunks = [
+        (np.expand_dims(in_npy_all[b], axis=0), np.expand_dims(exp_out_npy_all[b], axis=0), b)
+        for b in range(bsize_in)
+    ]
     for in_npy, exp_out_npy, index in chunks:
         if need_parent:
             assert cfg.save_intermediate_models, "Enable save_intermediate_models for verification"
@@ -256,12 +252,8 @@ def verify_step(
                 print("Attempting to force model shape on verification input")
                 in_npy = in_npy.reshape(target_ishape)
             inp_dict = {inp_tensor_name: in_npy}
-            if rtlsim_pre_hook is not None:
-                rtlsim_exec(model, inp_dict, pre_hook=rtlsim_pre_hook)
-                out_npy = inp_dict[out_tensor_name]
-            else:
-                out_dict = execute_onnx(model, inp_dict, True)
-                out_npy = out_dict[out_tensor_name]
+            out_dict = execute_onnx(model, inp_dict, True)
+            out_npy = out_dict[out_tensor_name]
         exp_oshape = exp_out_npy.shape
         if out_npy.shape != exp_oshape:
             print(
@@ -279,7 +271,7 @@ def verify_step(
         all_res = all_res and res
         res_to_str = {True: "SUCCESS", False: "FAIL"}
         res_str = res_to_str[res]
-        if cfg.verify_save_full_context and (rtlsim_pre_hook is None):
+        if cfg.verify_save_full_context:
             verification_output_fn = verify_out_dir + "/verify_%s_%d_%s.npz" % (
                 step_name,
                 index,
@@ -287,8 +279,6 @@ def verify_step(
             )
             np.savez(verification_output_fn, **out_dict)
         else:
-            if cfg.verify_save_full_context:
-                print("Warning: Unable to save the full context when using MLO")
             verification_output_fn = verify_out_dir + "/verify_%s_%d_%s.npy" % (
                 step_name,
                 index,
@@ -315,33 +305,6 @@ def verify_step(
 
 
 def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
-    if not cfg.rtlsim_use_vivado_comps:
-        need_restitch = False
-        # switch impl_style=vivado components to rtl
-        # StreamingFIFO must have impl_style=rtl
-        for fifo_layer in verify_model.get_nodes_by_op_type("StreamingFIFO_rtl"):
-            inst = getCustomOp(fifo_layer)
-            if inst.get_nodeattr("impl_style") != "rtl":
-                inst.set_nodeattr("impl_style", "rtl")
-                inst.set_nodeattr("code_gen_dir_ipgen", "")
-                inst.set_nodeattr("ipgen_path", "")
-                need_restitch = True
-        # if we've made alterations to the model, need to do some re-prep
-        if need_restitch:
-            print("Need to regen/re-stitch some IP for STITCHED_IP_RTLSIM")
-            verify_model = verify_model.transform(
-                PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
-            )
-            verify_model = verify_model.transform(HLSSynthIP(cfg._resolve_fpga_part()))
-            verify_model = verify_model.transform(
-                CreateStitchedIP(
-                    cfg._resolve_fpga_part(),
-                    cfg.synth_clk_period_ns,
-                )
-            )
-    else:
-        print("rtlsim_use_vivado_comps is enabled, may yield incorrect results")
-
     # set top-level prop for stitched-ip rtlsim and launch
     verify_model.set_metadata_prop("exec_mode", "rtlsim")
     # TODO make configurable
@@ -545,6 +508,7 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
         to_hw.InferElementwiseBinaryOperation(),
         "elementwise binary operations",
     )
+    model = apply_if_relevant(model, ["Where"], to_hw.InferWhereLayer(), "where selection")
     model = apply_if_relevant(
         model, ["Relu"], to_hw.InferReLUAsElementwiseMax(), "ReLU as elementwise max"
     )
@@ -557,7 +521,12 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
         model, ["GlobalAveragePool"], to_hw.InferGlobalAccPoolLayer(), "global pooling"
     )
 
-    # Lookup layers
+    # Gather-derived layers. SelectToken must run first because scalar Gather
+    # removes the selected axis, whereas the generic Crop keeps it.
+    model = apply_if_relevant(
+        model, ["Gather"], to_hw.InferSelectTokenLayer(), "token selection layers"
+    )
+    model = apply_if_relevant(model, ["Gather"], to_hw.InferCrop(), "crop layers")
     model = apply_if_relevant(model, ["Gather"], to_hw.InferLookupLayer(), "lookup layers")
 
     # Activation functions
@@ -567,9 +536,6 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = apply_if_relevant(
         model, ["LayerNormalization"], to_hw.InferLayerNorm(), "layer normalization"
     )
-
-    # Cropping layers
-    model = apply_if_relevant(model, ["Crop"], to_hw.InferCrop(), "crop layers")
 
     # Graph topology transformations (always check - not based on op_type)
     # DuplicateStreams: detects forks where tensors have multiple consumers
@@ -983,8 +949,6 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
             model = model.transform(DeriveFIFOSizes())
             model = model.transform(
                 InsertFIFO(
-                    vivado_ram_style=cfg.large_fifo_mem_style,
-                    max_qsrl_depth=256,
                     create_shallow_fifos=True,
                 )
             )
@@ -1022,7 +986,6 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     cfg._resolve_fpga_part(),
                     cfg._resolve_hls_clk_period(),
                     swg_exception=cfg.default_swg_exception,
-                    vivado_ram_style=cfg.large_fifo_mem_style,
                     fifosim_input_throttle=cfg.fifosim_input_throttle,
                     cfg_n_inferences=cfg.fifosim_n_inferences,
                     debug_log_dir=(_fifo_debug_live_dir(cfg) if cfg.debug_fifo else None),
@@ -1062,7 +1025,6 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         "parallel_window",
         "ram_style",
         "depth",
-        "impl_style",
         "resType",
         "mem_mode",
         "runtime_writeable_weights",
@@ -1081,11 +1043,9 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     else:
         extract_model_config_to_json(model, cfg.output_dir + "/final_hw_config.json", hw_attrs)
 
-    # perform FIFO splitting and shallow FIFO removal only after the final config
-    # json file has been written. otherwise, since these transforms may add/remove
-    # FIFOs, we get name mismatch problems when trying to reuse the final config.
-    if cfg.split_large_fifos:
-        model = model.transform(SplitLargeFIFOs())
+    # perform shallow FIFO removal only after the final config json file has been
+    # written. otherwise, since this transform removes FIFOs, we get name mismatch
+    # problems when trying to reuse the final config.
     model = model.transform(RemoveShallowFIFOs())
 
     # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again
@@ -1093,20 +1053,6 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()))
     model = model.transform(HLSSynthIP(cfg._resolve_fpga_part()))
     return model
-
-
-def verify_mlo(model: ModelWrapper, cfg: DataflowBuildConfig, step: str):
-    finn_loop = model.get_nodes_by_op_type("FINNLoop")
-    # TODO: allow for multiple FINNLoops
-    mlo_prehook = mlo_prehook_func_factory(finn_loop[0])
-    verify_step(
-        model,
-        cfg,
-        "stitched_ip_rtlsim",
-        need_parent=False,
-        rtlsim_pre_hook=mlo_prehook,
-        batched=True,
-    )
 
 
 def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
@@ -1183,14 +1129,18 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
                 verify_model.set_metadata_prop("rtlsim_trace", abspath + "/verify_rtlsim.wdb")
             if cfg.verify_rtlsim_behavioral:
                 verify_model.set_metadata_prop("rtlsim_behavioral", "1")
+            # MLO and non-MLO both route through the parent (need_parent=True); the
+            # stitched child self-derives its FINNLoop memory-init pre-hook.
+            verify_step(
+                verify_model,
+                cfg,
+                "stitched_ip_rtlsim",
+                need_parent=True,
+            )
             if is_mlo(model):
-                verify_mlo(verify_model, cfg, "stitched_ip_rtlsim")
                 for loop_node in verify_model.get_nodes_by_op_type("FINNLoop"):
                     snapshot_fifo_logs(cfg, "stitched_ip_rtlsim", loop_context=loop_node.name)
-                snapshot_fifo_logs(cfg, "stitched_ip_rtlsim")
-            else:
-                verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
-                snapshot_fifo_logs(cfg, "stitched_ip_rtlsim")
+            snapshot_fifo_logs(cfg, "stitched_ip_rtlsim")
     return model
 
 
@@ -1456,7 +1406,6 @@ def step_loop_body_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig
             cfg._resolve_fpga_part(),
             cfg._resolve_hls_clk_period(),
             swg_exception=cfg.default_swg_exception,
-            vivado_ram_style=cfg.large_fifo_mem_style,
             fifosim_input_throttle=cfg.fifosim_input_throttle,
             debug_log_dir=(_fifo_debug_live_dir(cfg) if cfg.debug_fifo else None),
             debug_log_prefix=(loop_context + "_") if loop_context else "",
@@ -1464,7 +1413,6 @@ def step_loop_body_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig
     )
     # snapshot per-FIFO debug logs for this loop body before the live dir is reused
     snapshot_fifo_logs(cfg, "fifo_sizing", loop_context=loop_context)
-    model = model.transform(SplitLargeFIFOs())
     model = model.transform(RemoveShallowFIFOs())
     # Re-apply the enclosing FINNLoop name as a prefix so loop-body node (and
     # hence IP/module) names stay unique across the whole design. Without this

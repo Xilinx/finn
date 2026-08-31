@@ -167,35 +167,35 @@ class HWCustomOp(CustomOp):
         """Returns summarized resource estimation of BRAMs and LUTs
         of the node as a dictionary."""
         ret = dict()
-        ret["BRAM_18K"] = self.bram_estimation()
-        ret["BRAM_efficiency"] = self.bram_efficiency_estimation()
-        ret["LUT"] = self.lut_estimation()
-        ret["URAM"] = self.uram_estimation()
-        ret["URAM_efficiency"] = self.uram_efficiency_estimation()
+        ret["BRAM_18K"] = self.bram_estimation(fpgapart)
+        ret["BRAM_efficiency"] = self.bram_efficiency_estimation(fpgapart)
+        ret["LUT"] = self.lut_estimation(fpgapart)
+        ret["URAM"] = self.uram_estimation(fpgapart)
+        ret["URAM_efficiency"] = self.uram_efficiency_estimation(fpgapart)
         ret["DSP"] = self.dsp_estimation(fpgapart)
         return ret
 
-    def bram_efficiency_estimation(self):
+    def bram_efficiency_estimation(self, fpgapart):
         """Function for BRAM efficiency estimation: actual parameter storage
         needed divided by the allocated BRAM storage (from estimation)"""
         return 1
 
-    def uram_efficiency_estimation(self):
+    def uram_efficiency_estimation(self, fpgapart):
         """Function for URAM efficiency estimation: actual parameter storage
         needed divided by the allocated URAM storage (from estimation)."""
         return 1
 
-    def bram_estimation(self):
+    def bram_estimation(self, fpgapart):
         """Function for BRAM resource estimation, is member function of
         HWCustomOp class but has to be filled by every node"""
         return 0
 
-    def uram_estimation(self):
+    def uram_estimation(self, fpgapart):
         """Function for UltraRAM resource estimation, is member function of
         HWCustomOp class but has to be filled by every node"""
         return 0
 
-    def lut_estimation(self):
+    def lut_estimation(self, fpgapart):
         """Function for LUT resource estimation, is member function of
         HWCustomOp class but has to be filled by every node"""
         return 0

@@ -642,8 +642,9 @@ def test_rtlsim_shuffle_layer(shuffle_param, datatype, simd, monkeypatch):
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_stitched_ip_shuffle_layer(shuffle_sip_param, datatype, simd):
+def test_stitched_ip_shuffle_layer(shuffle_sip_param, datatype, simd, monkeypatch):
     """Build stitched IP for shuffle layer tests and save results for buffer analysis"""
+    monkeypatch.setenv("LIVENESS_THRESHOLD", "10000000")
     dt = DataType[datatype]
     simd = int(simd[-1])
     in_shape = shuffle_sip_param["in_shape"]

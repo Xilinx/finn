@@ -257,9 +257,9 @@ module softmaxf_max #(
 	//===========================================================================
 	// Section: vector replay queue
 	//---------------------------------------------------------------------------
-	queue #(
+	fifo #(
 		.DATA_WIDTH(SIMD * TI_WIDTH),
-		.ELASTICITY(BEATS + TREE_LAT + 4)
+		.DEPTH(BEATS + TREE_LAT + 4)
 	) replay (
 		.clk, .rst,
 		.idat(xdat), .ivld(take), .irdy(vec_irdy),
@@ -372,9 +372,9 @@ module softmaxf_max #(
 	uwire         emit_max       = beat_vld && beat_is_last;
 	uwire         emit_has_infty = fp32_is_pos_inf(new_max);
 
-	queue #(
+	fifo #(
 		.DATA_WIDTH(33),
-		.ELASTICITY(4)
+		.DEPTH(4)
 	) max_q (
 		.clk, .rst,
 		.idat({emit_has_infty, new_max}),
@@ -711,9 +711,9 @@ module softmaxf_exp #(
 	end
 
 	uwire  y_irdy;
-	queue #(
+	fifo #(
 		.DATA_WIDTH(SIMD * EXP_W),
-		.ELASTICITY(CREDIT_Y)
+		.DEPTH(CREDIT_Y)
 	) y_obuf (
 		.clk, .rst,
 		.idat(beat_y), .ivld(out_vld), .irdy(y_irdy),
@@ -819,9 +819,9 @@ module softmaxf_exp #(
 	uwire  emit_sum = sum_beat_vld && sum_beat_last;
 
 	uwire  s_irdy;
-	queue #(
+	fifo #(
 		.DATA_WIDTH(SUM_W),
-		.ELASTICITY(CREDIT_S)
+		.DEPTH(CREDIT_S)
 	) sum_q (
 		.clk, .rst,
 		.idat(new_sum), .ivld(emit_sum), .irdy(s_irdy),
@@ -1003,9 +1003,9 @@ module softmaxf_recip #(
 	uwire [31:0]  out_dat = y_chain[NR_ITERS];
 
 	uwire  obuf_irdy;
-	queue #(
+	fifo #(
 		.DATA_WIDTH(32),
-		.ELASTICITY(CREDIT)
+		.DEPTH(CREDIT)
 	) obuf (
 		.clk, .rst,
 		.idat(out_dat), .ivld(out_vld), .irdy(obuf_irdy),
@@ -1198,9 +1198,9 @@ module softmaxf_div #(
 	// Section: output buffer
 	//---------------------------------------------------------------------------
 	uwire  obuf_irdy;
-	queue #(
+	fifo #(
 		.DATA_WIDTH(SIMD * 32),
-		.ELASTICITY(CREDIT)
+		.DEPTH(CREDIT)
 	) obuf (
 		.clk, .rst,
 		.idat(prod), .ivld(out_vld), .irdy(obuf_irdy),

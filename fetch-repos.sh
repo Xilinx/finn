@@ -40,7 +40,12 @@ AVNET_BDF_COMMIT="2d49cfc25766f07792c0b314489f21fe916b639b"
 XIL_BDF_COMMIT="8cf4bb674a919ac34e3d99d8d71a9e60af93d14e"
 RFSOC4x2_BDF_COMMIT="13fb6f6c02c7dfd7e4b336b18b959ad5115db696"
 KV260_BDF_COMMIT="98e0d3efc901f0b974006bc4370c2a7ad8856c79"
-EXP_BOARD_FILES_MD5="226ca927a16ea4ce579f1332675e9e9a"
+# Cache checksum for the assembled deps/board_files folder. Only used to decide
+# whether an existing folder can be reused or must be re-downloaded; it does not
+# gate the build. Must be regenerated whenever the board files change (a board
+# added/removed, or a *_BDF_COMMIT above bumped) with:
+#   find deps/board_files/ -type f -exec md5sum {} \; | sort -k 2 | md5sum
+EXP_BOARD_FILES_MD5="221a7edc838f4236922afbd9b9a20f17"
 AUPZU3_BDF_COMMIT="b595ecdf37c7204129517de1773b0895bcdcc2ed"
 
 QONNX_URL="https://github.com/fastmachinelearning/qonnx.git"
@@ -129,10 +134,15 @@ fetch_board_files() {
     mkdir -p "$SCRIPTPATH/deps/board_files"
     OLD_PWD=$(pwd)
     cd "$SCRIPTPATH/deps/board_files"
-    retry wget -qO pynq-z1.zip https://github.com/cathalmccabe/pynq-z1_board_files/raw/master/pynq-z1.zip
-    retry wget -qO pynq-z2.zip https://dpoauwgwqsy2x.cloudfront.net/Download/pynq-z2.zip
-    unzip -q pynq-z1.zip
-    unzip -q pynq-z2.zip
+    # Pynq-Z1/Pynq-Z2 (Zynq-7000) board files are retired from official support
+    # with the move to Vivado 2024.2 and are no longer downloaded by default (the
+    # two archives are also fairly large). If you want to build for Pynq-Z1/Pynq-Z2
+    # at your own decision, uncomment the four lines below and regenerate
+    # EXP_BOARD_FILES_MD5 (see top of this script) to match the new folder content.
+    # retry wget -qO pynq-z1.zip https://github.com/cathalmccabe/pynq-z1_board_files/raw/master/pynq-z1.zip
+    # retry wget -qO pynq-z2.zip https://dpoauwgwqsy2x.cloudfront.net/Download/pynq-z2.zip
+    # unzip -q pynq-z1.zip
+    # unzip -q pynq-z2.zip
     cp -r $SCRIPTPATH/deps/$AVNET_BDF_DIR/* $SCRIPTPATH/deps/board_files/
     cp -r $SCRIPTPATH/deps/$XIL_BDF_DIR/boards/Xilinx/rfsoc2x2 $SCRIPTPATH/deps/board_files/;
     cp -r $SCRIPTPATH/deps/$RFSOC4x2_BDF_DIR/board_files/rfsoc4x2 $SCRIPTPATH/deps/board_files/;

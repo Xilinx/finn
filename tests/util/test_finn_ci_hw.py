@@ -30,53 +30,57 @@ def _seed_build(artifact_dir, job_key, build, test_type, board, ready=True):
 
 def test_resolve_build_zips_picks_newest_ready_per_pair(tmp_path):
     art = tmp_path / "artifacts"
-    _seed_build(art, "finn", "10", "bnn_build_full", "U250", ready=False)
-    _seed_build(art, "finn", "11", "bnn_build_full", "U250", ready=True)
-    _seed_build(art, "finn", "12", "bnn_build_full", "Pynq-Z1", ready=True)
+    _seed_build(art, "finn", "10", "bnn_build_full", "U55C", ready=False)
+    _seed_build(art, "finn", "11", "bnn_build_full", "U55C", ready=True)
+    _seed_build(art, "finn", "12", "bnn_build_full", "AUP-ZU3_8GB", ready=True)
 
-    out = hw.resolve_build_zips(str(art), "finn", ["bnn_build_full"], ["U250", "Pynq-Z1", "ZCU104"])
+    out = hw.resolve_build_zips(
+        str(art), "finn", ["bnn_build_full"], ["U55C", "AUP-ZU3_8GB", "ZCU104"]
+    )
 
-    assert out["bnn_build_full"]["U250"]["zip"].endswith("/11/zips/bnn_build_full/U250.zip")
-    assert out["bnn_build_full"]["U250"]["buildDir"].endswith("/finn/11")
-    assert out["bnn_build_full"]["Pynq-Z1"]["zip"].endswith("/12/zips/bnn_build_full/Pynq-Z1.zip")
+    assert out["bnn_build_full"]["U55C"]["zip"].endswith("/11/zips/bnn_build_full/U55C.zip")
+    assert out["bnn_build_full"]["U55C"]["buildDir"].endswith("/finn/11")
+    assert out["bnn_build_full"]["AUP-ZU3_8GB"]["zip"].endswith(
+        "/12/zips/bnn_build_full/AUP-ZU3_8GB.zip"
+    )
     assert out["bnn_build_full"]["ZCU104"] == {}
 
 
 def test_resolve_build_zips_falls_back_to_older_build_per_board(tmp_path):
-    # A new build that only succeeded for Pynq-Z1 must not strand U250 on the
+    # A new build that only succeeded for AUP-ZU3_8GB must not strand U55C on the
     # older build it last produced a READY for.
     art = tmp_path / "artifacts"
-    _seed_build(art, "finn", "20", "bnn_build_full", "U250", ready=True)
-    _seed_build(art, "finn", "21", "bnn_build_full", "Pynq-Z1", ready=True)
+    _seed_build(art, "finn", "20", "bnn_build_full", "U55C", ready=True)
+    _seed_build(art, "finn", "21", "bnn_build_full", "AUP-ZU3_8GB", ready=True)
 
-    out = hw.resolve_build_zips(str(art), "finn", ["bnn_build_full"], ["U250", "Pynq-Z1"])
+    out = hw.resolve_build_zips(str(art), "finn", ["bnn_build_full"], ["U55C", "AUP-ZU3_8GB"])
 
-    assert out["bnn_build_full"]["U250"]["buildDir"].endswith("/finn/20")
-    assert out["bnn_build_full"]["Pynq-Z1"]["buildDir"].endswith("/finn/21")
-    assert out["bnn_build_full"]["U250"]["fallback"] is True
-    assert out["bnn_build_full"]["Pynq-Z1"]["fallback"] is False
-    assert out["bnn_build_full"]["U250"]["latestBuild"] == "21"
+    assert out["bnn_build_full"]["U55C"]["buildDir"].endswith("/finn/20")
+    assert out["bnn_build_full"]["AUP-ZU3_8GB"]["buildDir"].endswith("/finn/21")
+    assert out["bnn_build_full"]["U55C"]["fallback"] is True
+    assert out["bnn_build_full"]["AUP-ZU3_8GB"]["fallback"] is False
+    assert out["bnn_build_full"]["U55C"]["latestBuild"] == "21"
 
 
 def test_resolve_build_zips_ignores_a_build_that_published_nothing(tmp_path):
     art = tmp_path / "artifacts"
-    _seed_build(art, "finn", "20", "bnn_build_full", "U250", ready=True)
+    _seed_build(art, "finn", "20", "bnn_build_full", "U55C", ready=True)
     # Every build plants its directory in its first stage, so build 21 exists
-    # having published no READY zip at all. It is not a build U250 is behind.
+    # having published no READY zip at all. It is not a build U55C is behind.
     (art / "ci_runs" / "finn" / "21").mkdir(parents=True)
 
-    out = hw.resolve_build_zips(str(art), "finn", ["bnn_build_full"], ["U250"])
+    out = hw.resolve_build_zips(str(art), "finn", ["bnn_build_full"], ["U55C"])
 
-    assert out["bnn_build_full"]["U250"]["buildDir"].endswith("/finn/20")
-    assert out["bnn_build_full"]["U250"]["latestBuild"] == "20"
-    assert out["bnn_build_full"]["U250"]["fallback"] is False
+    assert out["bnn_build_full"]["U55C"]["buildDir"].endswith("/finn/20")
+    assert out["bnn_build_full"]["U55C"]["latestBuild"] == "20"
+    assert out["bnn_build_full"]["U55C"]["fallback"] is False
 
 
 def test_resolve_build_zips_measures_fallback_per_test_type(tmp_path):
     # The ordinary cadence: a full build, then a sanity-only build, then a
     # build still running. Nothing here is stale.
     art = tmp_path / "artifacts"
-    boards = ["U250", "Pynq-Z1", "ZCU104", "KV260_SOM"]
+    boards = ["U55C", "AUP-ZU3_8GB", "ZCU104", "KV260_SOM"]
     for board in boards:
         _seed_build(art, "finn", "100", "bnn_build_full", board, ready=True)
         _seed_build(art, "finn", "100", "bnn_build_sanity", board, ready=True)
@@ -92,7 +96,7 @@ def test_resolve_build_zips_measures_fallback_per_test_type(tmp_path):
 
 def test_resolve_build_zips_flags_only_the_board_the_newest_build_missed(tmp_path):
     art = tmp_path / "artifacts"
-    served = ["U250", "Pynq-Z1", "ZCU104"]
+    served = ["U55C", "AUP-ZU3_8GB", "ZCU104"]
     for board in served + ["KV260_SOM"]:
         _seed_build(art, "finn", "30", "bnn_build_full", board, ready=True)
     for board in served:
@@ -108,44 +112,44 @@ def test_resolve_build_zips_flags_only_the_board_the_newest_build_missed(tmp_pat
 
 def test_resolve_build_zips_leaves_a_never_published_test_type_empty(tmp_path):
     art = tmp_path / "artifacts"
-    _seed_build(art, "finn", "40", "bnn_build_full", "U250", ready=True)
+    _seed_build(art, "finn", "40", "bnn_build_full", "U55C", ready=True)
 
-    out = hw.resolve_build_zips(str(art), "finn", ["bnn_build_full", "bnn_build_sanity"], ["U250"])
+    out = hw.resolve_build_zips(str(art), "finn", ["bnn_build_full", "bnn_build_sanity"], ["U55C"])
 
-    assert out["bnn_build_full"]["U250"]["fallback"] is False
-    assert out["bnn_build_sanity"]["U250"] == {}
+    assert out["bnn_build_full"]["U55C"]["fallback"] is False
+    assert out["bnn_build_sanity"]["U55C"] == {}
 
 
 def test_resolve_build_zips_honours_explicit_build_dir(tmp_path):
     art = tmp_path / "artifacts"
-    _seed_build(art, "finn", "5", "bnn_build_full", "U250", ready=True)
-    _seed_build(art, "finn", "6", "bnn_build_full", "U250", ready=True)
+    _seed_build(art, "finn", "5", "bnn_build_full", "U55C", ready=True)
+    _seed_build(art, "finn", "6", "bnn_build_full", "U55C", ready=True)
     explicit = art / "ci_runs" / "finn" / "5"
     out = hw.resolve_build_zips(
-        str(art), "finn", ["bnn_build_full"], ["U250"], build_dir=str(explicit)
+        str(art), "finn", ["bnn_build_full"], ["U55C"], build_dir=str(explicit)
     )
-    assert out["bnn_build_full"]["U250"]["buildDir"] == str(explicit)
+    assert out["bnn_build_full"]["U55C"]["buildDir"] == str(explicit)
     # a pinned directory is the only build in scope, newer ones do not count
-    assert out["bnn_build_full"]["U250"]["latestBuild"] == "5"
-    assert out["bnn_build_full"]["U250"]["fallback"] is False
+    assert out["bnn_build_full"]["U55C"]["latestBuild"] == "5"
+    assert out["bnn_build_full"]["U55C"]["fallback"] is False
 
 
 def test_resolve_build_zips_returns_empty_when_no_ready_anywhere(tmp_path):
     art = tmp_path / "artifacts"
-    _seed_build(art, "finn", "1", "bnn_build_full", "U250", ready=False)
+    _seed_build(art, "finn", "1", "bnn_build_full", "U55C", ready=False)
 
-    out = hw.resolve_build_zips(str(art), "finn", ["bnn_build_full"], ["U250"])
-    assert out == {"bnn_build_full": {"U250": {}}}
+    out = hw.resolve_build_zips(str(art), "finn", ["bnn_build_full"], ["U55C"])
+    assert out == {"bnn_build_full": {"U55C": {}}}
 
 
 def test_resolve_build_zips_names_the_job_keys_that_exist_when_one_is_mistyped(tmp_path):
     # A mistyped build_job_name otherwise blames the build pipeline for the
     # empty result.
     art = tmp_path / "artifacts"
-    _seed_build(art, "finn", "7", "bnn_build_full", "U250", ready=True)
+    _seed_build(art, "finn", "7", "bnn_build_full", "U55C", ready=True)
 
     with pytest.raises(ValueError) as excinfo:
-        hw.resolve_build_zips(str(art), "fnin", ["bnn_build_full"], ["U250"])
+        hw.resolve_build_zips(str(art), "fnin", ["bnn_build_full"], ["U55C"])
 
     assert "build_job_name" in str(excinfo.value)
     assert "finn" in str(excinfo.value)
@@ -153,7 +157,7 @@ def test_resolve_build_zips_names_the_job_keys_that_exist_when_one_is_mistyped(t
 
 def test_resolve_build_zips_fails_when_nothing_has_been_published_at_all(tmp_path):
     with pytest.raises(ValueError) as excinfo:
-        hw.resolve_build_zips(str(tmp_path / "absent"), "finn", ["bnn_build_full"], ["U250"])
+        hw.resolve_build_zips(str(tmp_path / "absent"), "finn", ["bnn_build_full"], ["U55C"])
 
     assert "ci_runs" in str(excinfo.value)
 
@@ -164,23 +168,23 @@ def test_resolve_build_zips_honours_build_dir_without_any_job_tree(tmp_path):
     explicit = tmp_path / "somewhere" / "9"
     zip_dir = explicit / "zips" / "bnn_build_full"
     zip_dir.mkdir(parents=True)
-    (zip_dir / "U250.zip").write_text("")
-    (zip_dir / "U250.zip.READY").write_text("")
+    (zip_dir / "U55C.zip").write_text("")
+    (zip_dir / "U55C.zip.READY").write_text("")
 
     out = hw.resolve_build_zips(
-        str(tmp_path / "absent"), "finn", ["bnn_build_full"], ["U250"], build_dir=str(explicit)
+        str(tmp_path / "absent"), "finn", ["bnn_build_full"], ["U55C"], build_dir=str(explicit)
     )
-    assert out["bnn_build_full"]["U250"]["buildDir"] == str(explicit)
+    assert out["bnn_build_full"]["U55C"]["buildDir"] == str(explicit)
 
 
 def test_hw_shards_flattens_boards_dict_for_groovy():
     rows = hw.hw_shards()
     boards = [r["board"] for r in rows]
-    assert "U250" in boards
-    u250 = next(r for r in rows if r["board"] == "U250")
-    assert u250["agentLabel"] == "finn-u250"
-    assert u250["credentialsId"] is None
-    assert u250["restartPrep"] is False
+    assert "U55C" in boards
+    u55c = next(r for r in rows if r["board"] == "U55C")
+    assert u55c["agentLabel"] == "finn-u55c"
+    assert u55c["credentialsId"] is None
+    assert u55c["restartPrep"] is False
     # ordering matches BOARDS insertion order so HW parallel-branch order
     # is stable across builds
     assert boards == list(config.BOARDS.keys())
@@ -207,23 +211,23 @@ _COLLECT_ERROR = (
 )
 _REAL_PASS = (
     '<testcase classname="test_bnn_hw_pytest.TestBnn" '
-    'name="test_type_execute[Pynq_bnn_w1_a1_tfc_batchSize-1_platform-zynq-iodma]"/>'
+    'name="test_type_execute[AUP_ZU3_bnn_w1_a1_tfc_batchSize-1_platform-zynq-iodma]"/>'
 )
 _REAL_FAIL = (
     '<testcase classname="test_bnn_hw_pytest.TestBnn" '
-    'name="test_type_execute[Pynq_bnn_w2_a2_tfc_batchSize-1_platform-zynq-iodma]">'
+    'name="test_type_execute[AUP_ZU3_bnn_w2_a2_tfc_batchSize-1_platform-zynq-iodma]">'
     "<failure>readback mismatch</failure></testcase>"
 )
 
 
 def test_strip_collection_errors_drops_entries_and_fixes_counters(tmp_path):
     reports = tmp_path / "reports"
-    path = _write_report(reports, "bnn_build_full_hw_U250.xml", _COLLECT_ERROR * 2)
+    path = _write_report(reports, "bnn_build_full_hw_U55C.xml", _COLLECT_ERROR * 2)
 
     dropped = hw.strip_collection_errors(str(reports))
 
-    assert list(dropped) == ["bnn_build_full_hw_U250.xml"]
-    assert len(dropped["bnn_build_full_hw_U250.xml"]) == 2
+    assert list(dropped) == ["bnn_build_full_hw_U55C.xml"]
+    assert len(dropped["bnn_build_full_hw_U55C.xml"]) == 2
     suite = ET.parse(str(path)).getroot().find("testsuite")
     assert suite.findall("testcase") == []
     assert suite.get("tests") == "0"
@@ -317,7 +321,7 @@ def _packaging_skip(test_dir, missing="driver.py", name="test_type_execute"):
     # Built from the constant rather than spelled out, so the fixture cannot
     # drift from the prefix the harness actually writes.
     return (
-        '<testcase classname="test_bnn_hw_pytest.TestBnn" name="%s[U250_%s]">'
+        '<testcase classname="test_bnn_hw_pytest.TestBnn" name="%s[U55C_%s]">'
         '<skipped type="pytest.skip" message="%s %s is missing %s"/></testcase>'
         % (name, test_dir, hw.PACKAGING_SKIP_PREFIX, test_dir, missing)
     )
@@ -325,7 +329,7 @@ def _packaging_skip(test_dir, missing="driver.py", name="test_type_execute"):
 
 _UNRELATED_SKIP = (
     '<testcase classname="test_bnn_hw_pytest.TestBnn" '
-    'name="test_type_execute[U250_bnn_w1_a1_lfc_batchSize-1_platform-vitis-xrt]">'
+    'name="test_type_execute[U55C_bnn_w1_a1_lfc_batchSize-1_platform-vitis-xrt]">'
     '<skipped type="pytest.skip" message="known Alveo weight-size issue"/></testcase>'
 )
 
@@ -335,14 +339,14 @@ def test_packaging_skips_names_each_model_once_however_many_tests_it_skipped(tmp
     reports = tmp_path / "reports"
     _write_report(
         reports,
-        "bnn_build_full_hw_U250.xml",
+        "bnn_build_full_hw_U55C.xml",
         _packaging_skip("bnn_w1_a1_tfc")
         + _packaging_skip("bnn_w1_a1_tfc", name="test_type_throughput")
         + _packaging_skip("bnn_w2_a2_tfc", missing="driver.py, input.npy"),
     )
 
     assert hw.packaging_skips(str(reports)) == {
-        "bnn_build_full_hw_U250.xml": [
+        "bnn_build_full_hw_U55C.xml": [
             "bnn_w1_a1_tfc is missing driver.py",
             "bnn_w2_a2_tfc is missing driver.py, input.npy",
         ]
@@ -398,11 +402,11 @@ def test_packaging_skips_cli_is_silent_when_nothing_was_skipped(tmp_path, capsys
 
 def test_packaging_skips_cli_names_the_report_and_the_model(tmp_path, capsys):
     reports = tmp_path / "reports"
-    _write_report(reports, "bnn_build_full_hw_U250.xml", _packaging_skip("bnn_w2_a2_tfc"))
+    _write_report(reports, "bnn_build_full_hw_U55C.xml", _packaging_skip("bnn_w2_a2_tfc"))
 
     assert cli.main(["packaging-skips", str(reports)]) == 0
     out = capsys.readouterr().out.strip()
-    assert out == "bnn_build_full_hw_U250.xml: bnn_w2_a2_tfc is missing driver.py"
+    assert out == "bnn_build_full_hw_U55C.xml: bnn_w2_a2_tfc is missing driver.py"
 
 
 def test_strip_collection_errors_cli_names_every_dropped_entry(tmp_path, capsys):

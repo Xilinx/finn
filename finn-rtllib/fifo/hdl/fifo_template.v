@@ -59,10 +59,10 @@ output  $OUT_RANGE$ out0_V_TDATA
 		.count(count), .maxcount(maxcount)
 	);
 `else
-	Q_srl #(.depth($DEPTH$), .width($WIDTH$)) fifo (
-		.clock(ap_clk), .reset(!ap_rst_n),
-		.i_d(in0_V_TDATA), .i_v(in0_V_TVALID), .i_r(in0_V_TREADY),
-		.o_d(out0_V_TDATA), .o_v(out0_V_TVALID), .o_r(out0_V_TREADY),
+	fifo #(.DEPTH($DEPTH$), .DATA_WIDTH($WIDTH$), .RAM_STYLE("$RAM_STYLE$")) fifo (
+		.clk(ap_clk), .rst(!ap_rst_n),
+		.idat(in0_V_TDATA), .ivld(in0_V_TVALID), .irdy(in0_V_TREADY),
+		.odat(out0_V_TDATA), .ovld(out0_V_TVALID), .ordy(out0_V_TREADY),
 		.count(count), .maxcount(maxcount)
 	);
 `endif
