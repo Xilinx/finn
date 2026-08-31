@@ -34,7 +34,6 @@
 
 module fifo_gauge #(
 	int unsigned  WIDTH,
-	int unsigned  COUNT_WIDTH = 32,
 	parameter  DATA_LOGFILE = ""
 )(
 	input	logic  clk,
@@ -48,8 +47,8 @@ module fifo_gauge #(
 	output	logic  ovld,
 	input	logic  ordy,
 
-	output	logic [COUNT_WIDTH-1:0]  count,
-	output	logic [COUNT_WIDTH-1:0]  maxcount
+	output	int unsigned  count,     // mod 2^32
+	output	int unsigned  maxcount   // likely count overflow when at 2^32-1
 );
 
 	//-----------------------------------------------------------------------
@@ -62,8 +61,8 @@ module fifo_gauge #(
 
 	// The internal Queue serving as data buffer and an output register
 	logic [WIDTH-1:0]  Q[$] = {};
-	longint unsigned  Count    = 0;
-	longint unsigned  MaxCount = 0;
+	int unsigned  Count    = 0;
+	int unsigned  MaxCount = 0;
 
 	logic  OVld = 0;
 	logic [WIDTH-1:0]  ODat = 'x;
@@ -87,24 +86,27 @@ module fifo_gauge #(
 			OTxnCnt <= 0;
 		end
 		else begin
+			automatic int unsigned  count = Count;
+
 			// Always take input and track Transactions
 			if(ivld) begin
 				Q.push_back(idat);
 				if(LogFd)  $fwrite(LogFd, "%0x\n", idat);
 				ITxnCnt <= ITxnCnt + 1;
+				count++;
 			end
-			if(OVld && ordy)  OTxnCnt <= OTxnCnt + 1;
-
-			// Take Count
-			Count <= Q.size;
-			if(Q.size > MaxCount)  MaxCount <= Q.size;
-
-                        // Fail if MaxCount overflows
-			if(longint'(Q.size) > (longint'(1) << COUNT_WIDTH) - 1) begin
-				$fatal(1, $sformatf({"%m: FIFO sizing counter reached %0d which ",
-                                           "exceeds counter width COUNT_WIDTH=%0d (max %0d)"},
-				       Q.size, COUNT_WIDTH, (longint'(1) << COUNT_WIDTH) - 1));
+			if(OVld && ordy) begin
+				OTxnCnt <= OTxnCnt + 1;
+				count--;
 			end
+
+			// Track Count
+			assert((count != 0) || (Count != '1)) else begin
+				$error("%m: FIFO fill counter overflowed!");
+				$stop;
+			end
+			Count <= count;
+			if(MaxCount < count)  MaxCount <= count;
 
 			// Offer output when available
 			if(!OVld || ordy) begin
