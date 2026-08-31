@@ -330,3 +330,38 @@ def test_inconsistent_initializer_shape():
 
     # on success (the expected raise fired) drop the scratch dir, kept otherwise
     robust_rmtree(out_dir)
+
+
+@pytest.mark.transform
+def test_single_instance_loop_rolling_raises():
+    # A model with a single loop-body instance (num_layers=1) resolves to
+    # iteration=1, which the MLO infrastructure does not support.
+    out_dir = Path(make_build_dir(prefix="test_single_instance_loop_"))
+    input_size = 20
+    hidden_size = 20
+    num_layers = 1
+
+    onnx_path, model = export_model_to_qonnx(out_dir, input_size, hidden_size, num_layers)
+
+    qonnx_cleanup(onnx_path, out_file=onnx_path)
+    model_wrapper = ModelWrapper(onnx_path)
+
+    template_path = out_dir / "loop-body-template.onnx"
+    loop_extraction = LoopExtraction(
+        hierarchy_list=[["", "layers.0"]], loop_body_template_path=template_path
+    )
+    model_wrapper = model_wrapper.transform(loop_extraction)
+
+    # exactly one loop-body instance -> rolling would yield iteration=1
+    assert (
+        len(model_wrapper.get_nodes_by_op_type("fn_loop-body")) == 1
+    ), "Expected a single loop-body instance for num_layers=1"
+
+    with pytest.raises(
+        Exception,
+        match="LoopRolling: MLO requires at least 2 repetitions of the loop body",
+    ):
+        model_wrapper = model_wrapper.transform(LoopRolling(loop_extraction.loop_body_template))
+
+    # on success (the expected raise fired) drop the scratch dir, kept otherwise
+    robust_rmtree(out_dir)
