@@ -34,6 +34,7 @@ from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
+from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import gen_finn_dt_tensor
@@ -183,6 +184,57 @@ def make_single_multithresholding_modelwrapper(
     model.set_tensor_datatype("thresh", threshold_data_type)
     model.set_initializer("thresh", thresholds)
     return model
+
+
+@pytest.mark.fpgadataflow
+def test_infer_thresholding_shared_thresholds_after_noncanonical_transpose():
+    """A default NCHW output annotation must not add a one-sided transpose."""
+
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, 3, 2, 4])
+    transposed = helper.make_tensor_value_info("transposed", TensorProto.FLOAT, [1, 2, 3, 4])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, 2, 3, 4])
+    transpose = helper.make_node(
+        "Transpose", ["inp"], ["transposed"], perm=[0, 2, 1, 3], name="transpose"
+    )
+    threshold = helper.make_node(
+        "MultiThreshold",
+        ["transposed", "thresholds"],
+        ["outp"],
+        domain="qonnx.custom_op.general",
+        out_dtype="INT2",
+        out_bias=-2.0,
+        name="threshold",
+    )
+    graph = helper.make_graph(
+        [transpose, threshold],
+        "threshold_after_transpose",
+        [inp],
+        [outp],
+        value_info=[transposed],
+    )
+    model = ModelWrapper(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)]))
+    model.set_initializer("thresholds", np.asarray([[-1.0, 0.0, 1.0]], dtype=np.float32))
+    model.set_tensor_datatype("inp", DataType["FLOAT32"])
+    model.set_tensor_layout("inp", ["N", "H", "W", "C"])
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferDataLayouts())
+
+    assert model.get_tensor_layout("transposed") == ["N", "W", "H", "C"]
+    assert model.get_tensor_layout("outp") == ["N", "C", "H", "W"]
+    x = (np.arange(24, dtype=np.float32) % 5 - 2).reshape(1, 3, 2, 4)
+    input_dict = {"inp": x}
+    expected = oxe.execute_onnx(model, input_dict)["outp"]
+
+    model = model.transform(InferThresholdingLayer())
+
+    assert len(model.get_nodes_by_op_type("Transpose")) == 1
+    threshold_node = model.get_nodes_by_op_type("Thresholding")[0]
+    threshold_inst = getCustomOp(threshold_node)
+    assert threshold_inst.get_nodeattr("NumChannels") == 4
+    assert threshold_inst.get_nodeattr("numInputVectors") == [1, 2, 3]
+    produced = oxe.execute_onnx(model, input_dict)["outp"]
+    np.testing.assert_array_equal(produced, expected)
 
 
 @pytest.mark.parametrize("num_input_channels", [6, 16])

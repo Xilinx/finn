@@ -190,10 +190,24 @@ class InferThresholdingLayer(Transformation):
                 if not (tdt_int or tdt_fp or tdt_fxp):
                     continue
 
-                # check layout of inputs/outputs, and convert if needed
-                # check layout and convert if necessary
+                # Use one effective layout on both sides of MultiThreshold. The
+                # operation is elementwise and cannot change layout, but its
+                # default output annotation is NCHW even when a preceding
+                # transpose leaves the input layout non-canonical. Treating the
+                # two annotations independently would insert only an output
+                # transpose and silently reorder values. Per-tensor thresholds
+                # are channel-invariant, so they can use the existing layout;
+                # per-channel thresholds must follow the operator's declared
+                # data_layout.
                 thl_in_layout = model.get_tensor_layout(thl_input)
-                if thl_in_layout == DataLayout.NCHW:
+                shared_thresholds = thl_thres_shape[0] == 1
+                if shared_thresholds:
+                    convert_nchw = thl_in_layout == DataLayout.NCHW
+                else:
+                    multithreshold_layout = getCustomOp(node).get_nodeattr("data_layout")
+                    convert_nchw = multithreshold_layout == "NCHW"
+
+                if convert_nchw:
                     thl_input = nchw_to_nhwc(thl_input, model, node_ind)
                     node_ind += 1
                     thl_in_shape = model.get_tensor_shape(thl_input)
@@ -201,8 +215,7 @@ class InferThresholdingLayer(Transformation):
                 # keep track of where we need to insert the HW Op
                 # it has to be ahead of the output transform
                 insert_point = node_ind
-                thl_output_layout = model.get_tensor_layout(thl_output)
-                if thl_output_layout == DataLayout.NCHW:
+                if convert_nchw:
                     thl_output = nchw_to_nhwc(thl_output, model, node_ind, reverse=True)
                     node_ind += 1
 
