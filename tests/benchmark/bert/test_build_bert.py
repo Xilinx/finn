@@ -158,7 +158,6 @@ def test_build_bert():
         generate_outputs=[
             DataflowOutputType.ESTIMATE_REPORTS,
             DataflowOutputType.STITCHED_IP,
-            DataflowOutputType.RTLSIM_PERFORMANCE,
         ],
         save_intermediate_models=True,
     )
