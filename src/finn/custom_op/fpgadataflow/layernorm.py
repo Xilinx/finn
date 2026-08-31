@@ -30,6 +30,7 @@ class LayerNorm(HWCustomOp):
         my_attrs.update(
             {
                 "SIMD": ("i", True, 0),
+                "numRsqrtRefinements": ("i", False, 1),
                 "ifm_dim": ("ints", True, []),
                 "epsilon": ("f", True, 1e-5),
                 # FINN DataTypes for inputs, outputs

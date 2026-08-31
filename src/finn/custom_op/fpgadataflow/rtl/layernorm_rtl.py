@@ -40,6 +40,11 @@ class LayerNorm_rtl(LayerNorm, RTLBackend):
         simd = self.get_nodeattr("SIMD")
         topname = self.get_verilog_top_module_name()
         n = self.get_normal_input_shape()[-1]
+        num_rsqrt_refinements = self.get_nodeattr("numRsqrtRefinements")
+        assert num_rsqrt_refinements in (
+            1,
+            2,
+        ), "LayerNorm supports one or two rsqrt refinements"
         assert (
             n % simd == 0
         ), """Requirement N (last dim) divisable by SIMD is violated.
@@ -47,6 +52,7 @@ class LayerNorm_rtl(LayerNorm, RTLBackend):
         code_gen_dict = {
             "$N$": int(n),
             "$SIMD$": int(simd),
+            "$NUM_RSQRT_REFINEMENTS$": int(num_rsqrt_refinements),
             "$TOP_MODULE_NAME$": topname,
         }
 
@@ -125,12 +131,23 @@ class LayerNorm_rtl(LayerNorm, RTLBackend):
         simd = self.get_nodeattr("SIMD")
         idim = self.get_normal_input_shape()
         n = idim[-1]
+        num_rsqrt_refinements = self.get_nodeattr("numRsqrtRefinements")
         assert (
             n % simd == 0
         ), """Requirement N (last dim) divisable by SIMD is violated.
             Please set SIMD to a different value"""
         val_queue_len_0 = n // simd + math.ceil(math.log2(simd)) * 2 + 7
-        val_queue_len_1 = n // simd + math.ceil(math.log2(simd)) * 2 + 24
+        val_queue_len_1 = (
+            n // simd + math.ceil(math.log2(simd)) * 2 + 24 + 12 * (num_rsqrt_refinements - 1)
+        )
         exp_cycles = val_queue_len_0 + val_queue_len_1 + np.prod(idim) // simd + 5
 
         return int(exp_cycles)
+
+    def dsp_estimation(self, fpgapart=None):
+        # The optional second Newton step uses a three-DSP FP32 FMA pipeline.
+        simd = self.get_nodeattr("SIMD")
+        interval = self.get_normal_input_shape()[-1] // simd
+        rsqrt_dsps = max(1, 4 - interval)
+        num_rsqrt_refinements = self.get_nodeattr("numRsqrtRefinements")
+        return 5 * simd + rsqrt_dsps + 3 * (num_rsqrt_refinements - 1)
