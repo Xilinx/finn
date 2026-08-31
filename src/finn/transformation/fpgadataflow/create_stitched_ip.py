@@ -124,6 +124,9 @@ class CreateStitchedIP(Transformation):
         }
 
     def is_double_pumped(self, node):
+        if node.op_type == "FINNLoop":
+            inst = getCustomOp(node)
+            return bool(inst.get_verilog_top_module_intf_names().get("clk2x"))
         if node.op_type.startswith("MVAU"):
             inst = getCustomOp(node)
             try:
