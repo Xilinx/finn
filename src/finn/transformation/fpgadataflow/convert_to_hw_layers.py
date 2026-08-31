@@ -30,7 +30,7 @@
 import numpy as np
 import qonnx.core.data_layout as DataLayout
 import warnings
-from onnx import NodeProto, TensorProto, helper
+from onnx import AttributeProto, NodeProto, TensorProto, helper, numpy_helper
 from qonnx.core.datatype import DataType
 
 # QONNX wrapper to ONNX model graphs
@@ -45,6 +45,7 @@ from qonnx.util.onnx import nchw_to_nhwc
 
 # Module containing specializations of elementwise binary operations
 import finn.custom_op.fpgadataflow.elementwise_binary as elementwise_binary
+from finn.util.basic import resolve_resize_param_input
 
 
 class InferConvInpGen(Transformation):
@@ -543,11 +544,24 @@ class InferUpsample(Transformation):
             if n.op_type == "Upsample" or n.op_type == "Resize":
                 # Extract mode and scales and input shape
                 mode = get_by_name(n.attribute, "mode").s.decode("ascii")
+                in_shape = model.get_tensor_shape(n.input[0])
                 if n.op_type == "Upsample":
                     scales = model.get_initializer(n.input[1])
                 else:
-                    scales = model.get_initializer(n.input[2])
-                in_shape = model.get_tensor_shape(n.input[0])
+                    param_ind, is_sizes = resolve_resize_param_input(model, n)
+                    if is_sizes:
+                        # Convert target output sizes to equivalent scales. Only
+                        # integer-multiple upsampling is supported (see the scales
+                        # asserts below), so require sizes to divide the input
+                        # shape cleanly rather than silently rounding later.
+                        sizes = model.get_initializer(n.input[param_ind])
+                        assert (sizes % in_shape == 0).all(), (
+                            "%s: target sizes must be an integer multiple of the "
+                            "input shape (only integer upsampling is supported)." % n.name
+                        )
+                        scales = sizes / in_shape
+                    else:
+                        scales = model.get_initializer(n.input[param_ind])
 
                 dt = model.get_tensor_datatype(n.input[0])
                 if not dt.is_integer():
@@ -1327,6 +1341,261 @@ class InferSplitLayer(Transformation):
                 # remove old node
                 graph.node.remove(node)
                 graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferWhereLayer(Transformation):
+    """Convert ONNX Where(condition, X, Y) into a streaming HWWhere layer."""
+
+    @staticmethod
+    def _warn_skip(node, reason):
+        node_name = node.name if node.name else "<unnamed Where>"
+        warnings.warn("%s: %s. Can't infer HWWhere layer." % (node_name, reason))
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type != "Where":
+                continue
+            if len(node.input) != 3:
+                self._warn_skip(node, "Expected exactly three inputs")
+                continue
+
+            cond_name, x_name, y_name = node.input
+            if any(model.get_initializer(inp) is not None for inp in node.input):
+                self._warn_skip(node, "Initializer inputs are not supported by the streaming op")
+                continue
+
+            cond_shape = model.get_tensor_shape(cond_name)
+            x_shape = model.get_tensor_shape(x_name)
+            y_shape = model.get_tensor_shape(y_name)
+            out_shape = model.get_tensor_shape(node.output[0])
+            if any(s is None for s in [cond_shape, x_shape, y_shape, out_shape]):
+                self._warn_skip(node, "Input and output shapes must be known")
+                continue
+            all_dims = list(cond_shape) + list(x_shape) + list(y_shape) + list(out_shape)
+            if any(x is None for x in all_dims):
+                self._warn_skip(node, "Dynamic dimensions are not supported")
+                continue
+            try:
+                broadcast_shape = np.broadcast_shapes(
+                    tuple(cond_shape), tuple(x_shape), tuple(y_shape)
+                )
+            except ValueError:
+                self._warn_skip(node, "Input shapes are not broadcast-compatible")
+                continue
+            if list(out_shape) != [int(x) for x in broadcast_shape]:
+                self._warn_skip(node, "Output shape does not match the broadcast input shape")
+                continue
+            x_dt = model.get_tensor_datatype(x_name)
+            y_dt = model.get_tensor_datatype(y_name)
+            if x_dt is None or y_dt is None or x_dt != y_dt:
+                self._warn_skip(node, "X and Y must have the same known datatype")
+                continue
+            supported_dt = (
+                x_dt.is_integer()
+                or x_dt.is_fixed_point()
+                or x_dt in [DataType["FLOAT32"], DataType["FLOAT16"]]
+            )
+            if not supported_dt:
+                self._warn_skip(node, "X and Y datatype %s is not supported" % str(x_dt))
+                continue
+            out_dt = model.get_tensor_datatype(node.output[0])
+            if out_dt is not None and out_dt != x_dt:
+                self._warn_skip(node, "Output datatype must match X and Y")
+                continue
+
+            cond_dt = model.get_tensor_datatype(cond_name)
+            if cond_dt is None:
+                model.set_tensor_datatype(cond_name, DataType["BINARY"])
+                cond_dt = DataType["BINARY"]
+            if cond_dt != DataType["BINARY"]:
+                self._warn_skip(node, "Condition datatype must be BINARY")
+                continue
+
+            new_node = helper.make_node(
+                "HWWhere",
+                node.input,
+                node.output,
+                domain="finn.custom_op.fpgadataflow",
+                backend="fpgadataflow",
+                name="HWWhere_" + node.name,
+                CondRank=len(cond_shape),
+                XRank=len(x_shape),
+                YRank=len(y_shape),
+                PE=1,
+                conditionDataType=cond_dt.name,
+                inputDataType=x_dt.name,
+                outputDataType=x_dt.name,
+                inFIFODepths=[2, 2, 2],
+            )
+            for attr_name, attr_value in [
+                ("Shape", [int(x) for x in broadcast_shape]),
+                ("CondShape", [int(x) for x in cond_shape]),
+                ("XShape", [int(x) for x in x_shape]),
+                ("YShape", [int(x) for x in y_shape]),
+            ]:
+                new_node.attribute.append(
+                    helper.make_attribute(attr_name, attr_value, attr_type=AttributeProto.INTS)
+                )
+            graph.node.insert(node_ind, new_node)
+            graph.node.remove(node)
+            graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferPad1DLayer(Transformation):
+    """Convert 1D Concat padding patterns into Pad1D.
+
+    This covers class-token insertion as ``Concat([cls_token, tokens], axis=1)``
+    as well as constant left/right 1D padding around one streamed tensor.
+    """
+
+    def _make_pad_initializer(self, model, graph, values, idt):
+        values = np.asarray(values, dtype=np.float32)
+        pad_name = model.make_new_valueinfo_name()
+        graph.initializer.append(numpy_helper.from_array(values, name=pad_name))
+        model.set_tensor_datatype(pad_name, idt)
+        return pad_name
+
+    def _make_or_reuse_pad_initializer(self, model, graph, values, tensor_names, idt):
+        if len(tensor_names) == 1:
+            return tensor_names[0]
+        return self._make_pad_initializer(model, graph, values, idt)
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type != "Concat":
+                continue
+
+            axis = get_by_name(node.attribute, "axis")
+            if axis is None:
+                continue
+
+            stream_inds = [
+                ind for ind, inp in enumerate(node.input) if model.get_initializer(inp) is None
+            ]
+            if len(stream_inds) != 1:
+                continue
+            stream_ind = stream_inds[0]
+            stream_name = node.input[stream_ind]
+
+            stream_shape = model.get_tensor_shape(stream_name)
+            if stream_shape is None:
+                continue
+            if any(x is None for x in stream_shape):
+                continue
+
+            rank = len(stream_shape)
+            concat_axis = axis.i if axis.i >= 0 else axis.i + rank
+            if rank != 3 or concat_axis != 1:
+                continue
+            if stream_shape[0] != 1:
+                continue
+
+            const_values = []
+            valid_const_inputs = True
+            for inp in node.input:
+                init = model.get_initializer(inp)
+                if init is None:
+                    const_values.append(None)
+                    continue
+
+                const_shape = list(init.shape)
+                if (
+                    len(const_shape) != 3
+                    or const_shape[0] != 1
+                    or const_shape[2] != stream_shape[2]
+                ):
+                    valid_const_inputs = False
+                    break
+                const_values.append(np.asarray(init, dtype=np.float32))
+            if not valid_const_inputs:
+                continue
+
+            left_values = [const_values[ind] for ind in range(stream_ind)]
+            right_values = [const_values[ind] for ind in range(stream_ind + 1, len(node.input))]
+            left_names = [node.input[ind] for ind in range(stream_ind)]
+            right_names = [node.input[ind] for ind in range(stream_ind + 1, len(node.input))]
+            pad_left = sum(x.shape[1] for x in left_values)
+            pad_right = sum(x.shape[1] for x in right_values)
+            if pad_left == 0 and pad_right == 0:
+                continue
+
+            out_shape = model.get_tensor_shape(node.output[0])
+            exp_oshape = [1, stream_shape[1] + pad_left + pad_right, stream_shape[2]]
+            if out_shape is not None and list(out_shape) != exp_oshape:
+                continue
+
+            idt = model.get_tensor_datatype(stream_name)
+            if idt is None or not idt.is_integer():
+                continue
+
+            const_dtypes_valid = True
+            missing_const_dtypes = []
+            for inp in node.input:
+                if inp == stream_name:
+                    continue
+                pad_dt = model.get_tensor_datatype(inp)
+                if pad_dt is None:
+                    missing_const_dtypes.append(inp)
+                elif pad_dt != idt:
+                    const_dtypes_valid = False
+                    break
+            if not const_dtypes_valid:
+                continue
+
+            if pad_left == 0:
+                left_pad = np.zeros((1, 1, stream_shape[2]), dtype=np.float32)
+            else:
+                left_pad = np.concatenate(left_values, axis=1)
+            if pad_right == 0:
+                right_pad = np.zeros((1, 1, stream_shape[2]), dtype=np.float32)
+            else:
+                right_pad = np.concatenate(right_values, axis=1)
+
+            left_pad_name = self._make_or_reuse_pad_initializer(
+                model, graph, left_pad, left_names, idt
+            )
+            right_pad_name = self._make_or_reuse_pad_initializer(
+                model, graph, right_pad, right_names, idt
+            )
+
+            new_node = helper.make_node(
+                "Pad1D",
+                [stream_name, left_pad_name, right_pad_name],
+                node.output,
+                domain="finn.custom_op.fpgadataflow",
+                backend="fpgadataflow",
+                name="Pad1D_" + node.name,
+                NumTokens=int(stream_shape[1]),
+                NumChannels=int(stream_shape[2]),
+                PadLeft=int(pad_left),
+                PadRight=int(pad_right),
+                SIMD=1,
+                inputDataType=idt.name,
+                outputDataType=idt.name,
+            )
+            for inp in missing_const_dtypes:
+                model.set_tensor_datatype(inp, idt)
+            graph.node.insert(node_ind, new_node)
+            graph.node.remove(node)
+            graph_modified = True
 
         if graph_modified:
             model = model.transform(InferShapes())
@@ -2291,8 +2560,62 @@ def elements_are_consecutive(indices):
     if indices.size == 1:
         return True
     else:
-        indices.sort()
-        return np.all(np.diff(indices) == 1)
+        return np.all(np.diff(np.sort(indices)) == 1)
+
+
+class InferSelectTokenLayer(Transformation):
+    """Convert a scalar Gather on the token axis into SelectToken."""
+
+    def apply(self, model):
+        graph = model.graph
+        graph_modified = False
+        for node_ind, node in enumerate(list(graph.node)):
+            if node.op_type != "Gather" or len(node.input) != 2:
+                continue
+            axis_attr = get_by_name(node.attribute, "axis")
+            axis = axis_attr.i if axis_attr is not None else 0
+            seq_shape = model.get_tensor_shape(node.input[0])
+            if seq_shape is None or len(seq_shape) != 3:
+                continue
+            if axis < 0:
+                axis += len(seq_shape)
+            if axis != 1 or seq_shape[0] != 1:
+                continue
+
+            indices = model.get_initializer(node.input[1])
+            if indices is None or indices.ndim != 0 or not np.issubdtype(indices.dtype, np.integer):
+                continue
+            token_index = int(indices.item())
+            num_tokens = int(seq_shape[1])
+            if not -num_tokens <= token_index < num_tokens:
+                continue
+
+            idt = model.get_tensor_datatype(node.input[0])
+            odt = model.get_tensor_datatype(node.output[0])
+            if idt is None or (odt is not None and odt != idt):
+                continue
+            new_node = helper.make_node(
+                "SelectToken",
+                [node.input[0]],
+                node.output,
+                domain="finn.custom_op.fpgadataflow",
+                backend="fpgadataflow",
+                name="SelectToken_" + node.name,
+                NumTokens=num_tokens,
+                NumChannels=int(seq_shape[2]),
+                TokenIndex=token_index,
+                SIMD=1,
+                inputDataType=idt.name,
+                outputDataType=idt.name,
+            )
+            graph.node.insert(node_ind, new_node)
+            graph.node.remove(node)
+            graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
 
 
 class InferCrop(Transformation):
@@ -2300,9 +2623,6 @@ class InferCrop(Transformation):
     Find gather layers that can be converted into a Crop layer
     and replace them with a Crop layer
     """
-
-    def __init__(self):
-        super().__init__()
 
     def apply(self, model):
         graph = model.graph

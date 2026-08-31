@@ -33,7 +33,6 @@ from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
-from finn.util.basic import is_versal
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation_hls:
@@ -58,7 +57,7 @@ class MVAU_hls(MVAU, HLSBackend):
         my_attrs["resType"] = ("s", False, "lut", {"auto", "lut", "dsp"})
         return my_attrs
 
-    def lut_estimation(self):
+    def lut_estimation(self, fpgapart):
         """Calculates resource estimations for LUTs based on:
         - FINN-R: An End-to-End Deep-Learning Framework for Fast
         Exploration of Quantized Neural Networks
@@ -139,19 +138,8 @@ class MVAU_hls(MVAU, HLSBackend):
     def code_generation_ipgen(self, model, fpgapart, clk):
         """Generates c++ code and tcl script for ip generation."""
         super().code_generation_ipgen(model, fpgapart, clk)
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "dynamic":
-            self.generate_hdl_dynload()
-        if mem_mode == "internal_decoupled":
-            if self.get_nodeattr("ram_style") == "ultra" and not is_versal(fpgapart):
-                runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
-                assert (
-                    runtime_writeable == 1
-                ), """Layer with URAM weights must have runtime_writeable_weights=1
-                    if Ultrascale device is targeted."""
-            self.generate_hdl_memstream(fpgapart, pumped_memory=self.get_nodeattr("pumpedMemory"))
-        elif mem_mode == "external_mem":
-            self.generate_hdl_fetch_weights(fpgapart)
+        # generate the weight-infrastructure HDL (shared MVAU helper)
+        self.generate_infra_hdl(fpgapart)
 
     def get_template_param_values(self):
         """Returns the template parameter values according to input, output and weight
@@ -197,10 +185,16 @@ class MVAU_hls(MVAU, HLSBackend):
         self.code_gen_dict["$GLOBALS$"] += ['#include "activations.hpp"']
 
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode not in ["internal_embedded", "internal_decoupled", "external"]:
+        if mem_mode not in [
+            "internal_embedded",
+            "internal_decoupled",
+            "external",
+            "external_mem",
+            "dynamic",
+        ]:
             raise Exception(
-                """Please set mem_mode to "internal_embedded", "internal_decoupled", or "external",
-                currently no other parameter value is supported!"""
+                """Please set mem_mode to "internal_embedded", "internal_decoupled", "external",
+                "external_mem", or "dynamic", currently no other parameter value is supported!"""
             )
         self.code_gen_dict["$GLOBALS$"] += ['#include "mvau.hpp"']
         if self.calc_tmem() != 0:
@@ -208,6 +202,12 @@ class MVAU_hls(MVAU, HLSBackend):
             self.code_gen_dict["$GLOBALS$"] += ['#include "thresh.h"']
 
     def defines(self, var):
+        # Tiling (TH>1) is supported by the RTL backend (mvu_tiled). The HLS
+        # backend implements the untiled MVAU, so TH must be 1 here.
+        assert self.get_nodeattr("TH") == 1, (
+            f"{self.onnx_node.name}: tiled MVAU (TH>1) is only supported by the "
+            "RTL backend (MVAU_rtl). Specialize this node to MVAU_rtl or set TH=1."
+        )
         # Only ipgen mode: Make sure that SIMD parameter satisfies minimum requirements.
         if var == "ipgen":
             SIMD = self.get_nodeattr("SIMD")

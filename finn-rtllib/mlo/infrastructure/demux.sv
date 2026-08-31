@@ -35,6 +35,7 @@ module demux #(
     int unsigned                        IDX_BITS,
     int unsigned                        FM_SIZE,
 
+    int unsigned                        ELEM_BITS,
     int unsigned                        OLEN_BITS,
 
     int unsigned                        QDEPTH = 8,
@@ -64,7 +65,9 @@ module demux #(
     output logic [OLEN_BITS-1:0]         m_axis_se_tdata
 );
 
-localparam int unsigned FM_BEATS = FM_SIZE / (OLEN_BITS/8);
+localparam int unsigned EBYTES = (ELEM_BITS + 7)/8;
+localparam int unsigned OELEM  = OLEN_BITS / ELEM_BITS;
+localparam int unsigned FM_BEATS = FM_SIZE / (OELEM*EBYTES);
 localparam int unsigned FM_BEATS_BITS = (FM_BEATS == 1) ? 1 : $clog2(FM_BEATS);
 
 //
@@ -153,13 +156,13 @@ always_comb begin: DP_CTRL
     endcase
 end
 
-Q_srl #(
-    .depth(QDEPTH), .width(1)
+fifo #(
+    .DEPTH(QDEPTH), .DATA_WIDTH(1)
 ) inst_queue_seq (
-    .clock(aclk), .reset(!aresetn),
+    .clk(aclk), .rst(!aresetn),
     .count(), .maxcount(),
-    .i_d(seq_C), .i_v(val_seq_C), .i_r(seq_tready),
-    .o_d(seq_out_tdata), .o_v(seq_out_tvalid), .o_r(seq_out_tready)
+    .idat(seq_C), .ivld(val_seq_C), .irdy(seq_tready),
+    .odat(seq_out_tdata), .ovld(seq_out_tvalid), .ordy(seq_out_tready)
 );
 
 assign m_idx_tvalid = val_idx_C;

@@ -59,7 +59,7 @@ module fifo_gauge_tb;
 	// Depth Monitoring
 	uwire count_t  maxcount;
 
-	fifo_gauge #(.WIDTH(W), .DEBUG_LOG(1)) dut (
+	fifo_gauge #(.WIDTH(W), .DATA_LOGFILE("fifo_trace.log")) dut (
 		.clk, .rst,
 		.idat, .ivld, .irdy,
 		.odat, .ovld, .ordy,

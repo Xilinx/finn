@@ -48,7 +48,7 @@ module softmaxf #(
 	input	logic                   ordy
 );
 
-	localparam int unsigned  SUM_INT = $clog2(N*SIMD + 1);
+	localparam int unsigned  SUM_INT = $clog2(N + 1);
 	localparam int unsigned  SUM_W   = SUM_INT + 23;
 
 	// Mirror of softmaxf_recip's TOTAL_LAT (IN_LAT=1 + NR_ITERS*ITER_LAT(=8)).
@@ -202,6 +202,7 @@ module softmaxf_max #(
 	output	logic         mvld,
 	input	logic         mrdy
 );
+	import softmaxf_pkg::*;
 
 	localparam int unsigned  BEATS    = N / SIMD;
 	localparam int unsigned  TREE_LAT = $clog2(SIMD);
@@ -232,12 +233,6 @@ module softmaxf_max #(
 		return  fp32_gt(a, b)? a : b;
 	endfunction
 
-	function automatic bit fp32_is_pos_inf(input logic [31:0] x);
-		return  (x[31] == 1'b0) && (x[30:23] == 8'hFF) && (x[22:0] == '0);
-	endfunction
-
-	localparam logic [31:0]  FP32_NEG_INF = 32'hFF800000;
-
 	//===========================================================================
 	// Section: input handshake / queue tee
 	//   - Vector replay queue must be ready (vec_irdy)
@@ -262,9 +257,9 @@ module softmaxf_max #(
 	//===========================================================================
 	// Section: vector replay queue
 	//---------------------------------------------------------------------------
-	queue #(
+	fifo #(
 		.DATA_WIDTH(SIMD * TI_WIDTH),
-		.ELASTICITY(BEATS + TREE_LAT + 4)
+		.DEPTH(BEATS + TREE_LAT + 4)
 	) replay (
 		.clk, .rst,
 		.idat(xdat), .ivld(take), .irdy(vec_irdy),
@@ -377,9 +372,9 @@ module softmaxf_max #(
 	uwire         emit_max       = beat_vld && beat_is_last;
 	uwire         emit_has_infty = fp32_is_pos_inf(new_max);
 
-	queue #(
+	fifo #(
 		.DATA_WIDTH(33),
-		.ELASTICITY(4)
+		.DEPTH(4)
 	) max_q (
 		.clk, .rst,
 		.idat({emit_has_infty, new_max}),
@@ -442,17 +437,16 @@ module softmaxf_exp #(
 	input	logic                   yrdy,
 
 	// Per-vector fixed-point sum (to stage 3)
-	//   width = $clog2(N*SIMD+1) + SUM_PRECISION
-	output	logic [$clog2(N*SIMD + 1) + 22 :0]  sdat,
+	//   width = $clog2(N+1) + SUM_PRECISION
+	output	logic [$clog2(N + 1) + 22 :0]  sdat,
 	output	logic                               svld,
 	input	logic                               srdy
 );
-
-	import softmaxf_pkg::*;
+	import  softmaxf_pkg::*;
 
 	localparam int unsigned  SUM_PRECISION = 23;
 	localparam int unsigned  EXP_W    = 1 + SUM_PRECISION;
-	localparam int unsigned  SUM_INT  = $clog2(N*SIMD + 1);
+	localparam int unsigned  SUM_INT  = $clog2(N + 1);
 	localparam int unsigned  SUM_W    = SUM_INT + SUM_PRECISION;
 	localparam int unsigned  BEATS    = N / SIMD;
 	localparam int unsigned  DSP_LAT  = 4;
@@ -647,10 +641,6 @@ module softmaxf_exp #(
 	//   cycles to align with the polynomial output.  When out_has_infty is set,
 	//   replace the polynomial result with 1.0 for +inf lanes and 0 otherwise.
 	//---------------------------------------------------------------------------
-	function automatic bit fp32_is_pos_inf(input logic [31:0] x);
-		return  (x[31] == 1'b0) && (x[30:23] == 8'hFF) && (x[22:0] == '0);
-	endfunction
-
 	uwire [SIMD-1:0]  in_is_pos_inf;
 	for(genvar  i = 0; i < SIMD; i++) begin : genInfDet
 		assign	in_is_pos_inf[i] = fp32_is_pos_inf(x_cur[i]);
@@ -721,9 +711,9 @@ module softmaxf_exp #(
 	end
 
 	uwire  y_irdy;
-	queue #(
+	fifo #(
 		.DATA_WIDTH(SIMD * EXP_W),
-		.ELASTICITY(CREDIT_Y)
+		.DEPTH(CREDIT_Y)
 	) y_obuf (
 		.clk, .rst,
 		.idat(beat_y), .ivld(out_vld), .irdy(y_irdy),
@@ -829,9 +819,9 @@ module softmaxf_exp #(
 	uwire  emit_sum = sum_beat_vld && sum_beat_last;
 
 	uwire  s_irdy;
-	queue #(
+	fifo #(
 		.DATA_WIDTH(SUM_W),
-		.ELASTICITY(CREDIT_S)
+		.DEPTH(CREDIT_S)
 	) sum_q (
 		.clk, .rst,
 		.idat(new_sum), .ivld(emit_sum), .irdy(s_irdy),
@@ -1013,9 +1003,9 @@ module softmaxf_recip #(
 	uwire [31:0]  out_dat = y_chain[NR_ITERS];
 
 	uwire  obuf_irdy;
-	queue #(
+	fifo #(
 		.DATA_WIDTH(32),
-		.ELASTICITY(CREDIT)
+		.DEPTH(CREDIT)
 	) obuf (
 		.clk, .rst,
 		.idat(out_dat), .ivld(out_vld), .irdy(obuf_irdy),
@@ -1208,9 +1198,9 @@ module softmaxf_div #(
 	// Section: output buffer
 	//---------------------------------------------------------------------------
 	uwire  obuf_irdy;
-	queue #(
+	fifo #(
 		.DATA_WIDTH(SIMD * 32),
-		.ELASTICITY(CREDIT)
+		.DEPTH(CREDIT)
 	) obuf (
 		.clk, .rst,
 		.idat(prod), .ivld(out_vld), .irdy(obuf_irdy),

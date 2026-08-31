@@ -31,7 +31,12 @@ package softmaxf_pkg;
 	localparam int unsigned  EXP_NUM_SEGS    = 17;
 
 	// |x| >= 2^NUM_OCTAVES => exp_bits >= EXP_CLAMP_EXP => result clamped to 0
-	localparam logic [7:0]   EXP_CLAMP_EXP   = 8'd131;
+	localparam logic [ 7:0]  EXP_CLAMP_EXP = 8'd131;
+	localparam logic [31:0]  FP32_NEG_INF  = 32'hFF800000;
+
+	function bit fp32_is_pos_inf(input logic [31:0] x);
+		return  (x[31] == 1'b0) && (x[30:23] == 8'hFF) && (x[22:0] == '0);
+	endfunction
 
 	// Polynomial coefficients (Horner: c[0] + x*(c[1] + x*c[2] + ...)).
 	localparam logic [31:0]  EXP_COEFFS[EXP_NUM_SEGS][EXP_DEGREE+1] = '{

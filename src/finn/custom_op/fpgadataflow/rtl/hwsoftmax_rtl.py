@@ -13,6 +13,7 @@ import shutil
 
 from finn.custom_op.fpgadataflow.hwsoftmax import HWSoftmax
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
+from finn.util.basic import fifo_rtl_files
 
 
 class HWSoftmax_rtl(HWSoftmax, RTLBackend):
@@ -37,7 +38,6 @@ class HWSoftmax_rtl(HWSoftmax, RTLBackend):
             "binopf.sv",
             "pwpolyf_pkg.sv",
             "pwpolyf.sv",
-            "queue.sv",
             "int_to_fp32.sv",
         ]
 
@@ -100,7 +100,7 @@ class HWSoftmax_rtl(HWSoftmax, RTLBackend):
 
         verilog_files = [rtllib_dir + f for f in self._rtllib_files()]
         verilog_files.append(code_gen_dir + self.get_nodeattr("gen_top_module") + ".v")
-        return verilog_files
+        return verilog_files + fifo_rtl_files(abspath)
 
     def code_generation_ipi(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
@@ -108,6 +108,7 @@ class HWSoftmax_rtl(HWSoftmax, RTLBackend):
         sourcefiles = list(self._rtllib_files())
         sourcefiles.append(self.get_nodeattr("gen_top_module") + ".v")
         sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
+        sourcefiles += fifo_rtl_files()
 
         cmd = []
         for f in sourcefiles:
@@ -119,18 +120,18 @@ class HWSoftmax_rtl(HWSoftmax, RTLBackend):
         return cmd
 
     def get_exp_cycles(self):
-        # softmaxf is a batch-then-emit pipeline: it must consume all BEATS=N/SIMD
-        # input beats per vector before any output emerges (max-tree, exp, sum,
-        # reciprocal, divide).  Conservatively bound the no-output gap that the
-        # cppxsi FIFO-sizing driver may observe by the full folded input length
-        # plus the per-vector pipeline latency.
+        # softmaxf is a fully-pipelined 4-stage RTL design with elastic queues
+        # between stages. Once the pipeline fills, throughput is 1 beat/cycle.
+        # Pipeline fill latency: max-tree + exp-poly + recip-NR + div-mul.
+        # The queues (CREDIT_Y, CREDIT_S) absorb inter-stage latency, so
+        # steady-state overhead is minimal.
         folded = self.get_folded_input_shape()
         n_beats = int(np.prod(folded[:-1]))
         n = self.get_normal_input_shape()[-1]
         simd = self.get_nodeattr("SIMD")
         beats_per_vec = max(1, n // simd)
-        # softmaxf pipeline (max + exp + reciprocal + divide) ~ 100 cycles
-        return n_beats + beats_per_vec + 100
+        # Pipeline fill: ~50 cycles (tree + poly + recip + div latencies)
+        return n_beats + beats_per_vec + 50
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")

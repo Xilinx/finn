@@ -62,14 +62,17 @@ from finn.custom_op.fpgadataflow.fmpadding import FMPadding
 from finn.custom_op.fpgadataflow.fmpadding_pixel import FMPadding_Pixel
 from finn.custom_op.fpgadataflow.globalaccpool import GlobalAccPool
 from finn.custom_op.fpgadataflow.hwsoftmax import HWSoftmax
+from finn.custom_op.fpgadataflow.hwwhere import HWWhere
 from finn.custom_op.fpgadataflow.inner_shuffle import InnerShuffle
 from finn.custom_op.fpgadataflow.labelselect import LabelSelect
 from finn.custom_op.fpgadataflow.layernorm import LayerNorm
 from finn.custom_op.fpgadataflow.lookup import Lookup
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.outer_shuffle import OuterShuffle
+from finn.custom_op.fpgadataflow.pad1d import Pad1D
 from finn.custom_op.fpgadataflow.pool import Pool
 from finn.custom_op.fpgadataflow.requant import Requant
+from finn.custom_op.fpgadataflow.selecttoken import SelectToken
 from finn.custom_op.fpgadataflow.shuffle import Shuffle
 from finn.custom_op.fpgadataflow.split import StreamingSplit
 from finn.custom_op.fpgadataflow.streamingdataflowpartition import (
@@ -102,6 +105,7 @@ custom_op["LabelSelect"] = LabelSelect
 custom_op["LayerNorm"] = LayerNorm
 custom_op["Lookup"] = Lookup
 custom_op["OuterShuffle"] = OuterShuffle
+custom_op["Pad1D"] = Pad1D
 custom_op["Pool"] = Pool
 custom_op["Shuffle"] = Shuffle
 custom_op["StreamingConcat"] = StreamingConcat
@@ -110,3 +114,5 @@ custom_op["StreamingDataWidthConverter"] = StreamingDataWidthConverter
 custom_op["UpsampleNearestNeighbour"] = UpsampleNearestNeighbour
 custom_op["HWSoftmax"] = HWSoftmax
 custom_op["Requant"] = Requant
+custom_op["HWWhere"] = HWWhere
+custom_op["SelectToken"] = SelectToken

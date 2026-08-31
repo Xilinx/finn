@@ -45,6 +45,7 @@ from finn.builder.build_dataflow_config import (
     DataflowBuildConfig,
     default_build_dataflow_steps,
 )
+from finn.builder.build_dataflow_phases import build_dataflow_phase_lookup
 from finn.builder.build_dataflow_steps import (
     _maybe_enable_verify_behavioral,
     build_dataflow_step_lookup,
@@ -71,19 +72,53 @@ class StreamToLogger(object):
 
 
 def resolve_build_steps(cfg: DataflowBuildConfig, partial: bool = True):
+    """Resolve build steps from config, supporting both phases and fine-grained steps.
+
+    Note: When using phase-based builds with start_step/stop_step, specify phase names
+    (e.g., start_step="phase_build_hardware") rather than fine-grained step names.
+    Phases save intermediate models for each internal step, so checkpoints like
+    step_hw_ipgen.onnx will exist, but the build loop operates at the phase level.
+    """
     steps = cfg.steps
     if steps is None:
         steps = default_build_dataflow_steps
+
+    # Merge phase and step lookup dictionaries
+    all_steps = {
+        **build_dataflow_step_lookup,
+        **build_dataflow_phase_lookup,
+    }
+
     steps_as_fxns = []
     for transform_step in steps:
+        step_name = None
+
+        # Get step function and name
         if type(transform_step) is str:
-            # lookup step function from step name
-            steps_as_fxns.append(build_dataflow_step_lookup[transform_step])
+            step_name = transform_step
+            if transform_step in all_steps:
+                step_fn = all_steps[transform_step]
+            else:
+                raise ValueError(f"Unknown step or phase: {transform_step}")
         elif callable(transform_step):
-            # treat step as function to be called as-is
-            steps_as_fxns.append(transform_step)
+            step_fn = transform_step
+            step_name = getattr(transform_step, "__name__", None)
         else:
-            raise Exception("Could not resolve build step: " + str(transform_step))
+            raise ValueError(f"Invalid step type: {type(transform_step)}")
+
+        # Inject steps BEFORE this step
+        if step_name and step_name in cfg.inject_steps_before:
+            for injected_step in cfg.inject_steps_before[step_name]:
+                steps_as_fxns.append(injected_step)
+
+        # Add the main step
+        steps_as_fxns.append(step_fn)
+
+        # Inject steps AFTER this step
+        if step_name and step_name in cfg.inject_steps_after:
+            for injected_step in cfg.inject_steps_after[step_name]:
+                steps_as_fxns.append(injected_step)
+
     if partial:
         step_names = list(map(lambda x: x.__name__, steps_as_fxns))
         if cfg.start_step is None:

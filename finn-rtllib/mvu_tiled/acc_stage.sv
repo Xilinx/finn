@@ -1,33 +1,6 @@
 /******************************************************************************
- * Copyright (C) 2024, Advanced Micro Devices, Inc.
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *  1. Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *
- *  2. Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *
- *  3. Neither the name of the copyright holder nor the names of its
- *     contributors may be used to endorse or promote products derived from
- *     this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
- * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
- * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
- * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
+ * Copyright Advanced Micro Devices, Inc.
+ * SPDX-License-Identifier: BSD-3-Clause
  *****************************************************************************/
 
 
@@ -35,8 +8,7 @@ module acc_stage #(
 	int unsigned  CHAINLEN,
 	int unsigned  PE,
 	int unsigned  ACCU_WIDTH,
-	int unsigned  TH,
-	int unsigned  TH_MAX = 2*TH
+	int unsigned  TH
 )(
 	input  logic  clk,
 	input  logic  rst,
@@ -54,8 +26,9 @@ module acc_stage #(
 	localparam int unsigned  TREE_DEPTH = $clog2(CHAINLEN);
 	localparam int unsigned  ADD_LAT    = TREE_DEPTH + 1;
 
-	logic [PE-1:0][ACCU_WIDTH-1:0]  Acc;
+	uwire [PE-1:0][ACCU_WIDTH-1:0]  acc;
 	logic [PE-1:0][ACCU_WIDTH-1:0]  DatInt;
+	uwire [PE-1:0][ACCU_WIDTH-1:0]  sum;
 
 	for(genvar  i = 0; i < PE; i++) begin : genAdd
 		// Tree reduction of CHAINLEN DSP partial products
@@ -72,9 +45,10 @@ module acc_stage #(
 		);
 
 		// Accumulator add (1 registered stage)
+		assign  sum[i] = tree_sum[ACCU_WIDTH-1:0] + acc[i];
 		always_ff @(posedge clk) begin
 			if(rst)       DatInt[i] <= 'x;
-			else if(en)   DatInt[i] <= tree_sum[ACCU_WIDTH-1:0] + Acc[i];
+			else if(en)   DatInt[i] <= sum[i];
 		end
 	end : genAdd
 
@@ -104,30 +78,28 @@ module acc_stage #(
 	uwire  last_out = Last[ADD_LAT];
 	uwire  inc_acc  = Val[ADD_LAT-1];
 
-	//=== Prep Counter ======================================================
+	//=== Accumulation Delay Line ===========================================
+	//	Rotates TH partial sums rather than queueing them. Advances on the
+	//	accumulator read (inc_acc), one cycle ahead of the registered DatInt,
+	//	so it shifts in the combinational sum. Unreset, to infer SRLs: the
+	//	first TH reads are forced to the zero the accumulation starts from.
+	uwire  acc_shift = en && inc_acc;
+
 	logic signed [$clog2(TH):0]  CntPrep = -TH;
 	uwire  prep = CntPrep[$left(CntPrep)];
 	always_ff @(posedge clk) begin
-		if(rst)  CntPrep <= -TH;
-		else     CntPrep <= CntPrep + prep;
+		if(rst)             CntPrep <= -TH;
+		else if(acc_shift)  CntPrep <= CntPrep + prep;
 	end
 
-	//=== Accumulation FIFO =================================================
-	Q_srl #(
-		.depth(TH_MAX),
-		.width(PE*ACCU_WIDTH)
-	) inst_acc (
-		.clock(clk),
-		.reset(rst),
-		.i_d(prep? {PE*ACCU_WIDTH{1'b0}} : (last_out? {PE*ACCU_WIDTH{1'b0}} : DatInt)),
-		.i_v(prep? 1 : (en? val_out : 0)),
-		.i_r(),
-		.o_d(Acc),
-		.o_v(),
-		.o_r(en & inc_acc),
-		.count(),
-		.maxcount()
-	);
+	(* SHREG_EXTRACT = "yes" *) logic [PE-1:0][ACCU_WIDTH-1:0]  AccLine[TH];
+	always_ff @(posedge clk) begin
+		if(acc_shift) begin
+			AccLine[0] <= Last[ADD_LAT-1]? 0 : sum;
+			for(int  i = 1; i < TH; i++)  AccLine[i] <= AccLine[i-1];
+		end
+	end
+	assign  acc = prep? 0 : AccLine[TH-1];
 
 	//=== Output Stage ======================================================
 	always_ff @(posedge clk) begin

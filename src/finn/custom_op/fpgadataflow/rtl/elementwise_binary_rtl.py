@@ -15,7 +15,7 @@ from finn.custom_op.fpgadataflow import elementwise_binary
 from finn.custom_op.fpgadataflow.elementwise_binary import ElementwiseBinaryOperation
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.transformation.fpgadataflow.loop_rolling import LoopBodyInputType
-from finn.util.basic import roundup_to_integer_multiple
+from finn.util.basic import fifo_rtl_files, roundup_to_integer_multiple
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     pack_innermost_dim_as_hex_string,
@@ -176,7 +176,7 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
         if has_const or mlo:
             self.generate_hdl_memstream(fpgapart)
 
-        sv_files = ["eltwise.sv", "binopf.sv", "binopi.sv", "int_to_fp32.sv", "queue.sv"]
+        sv_files = ["eltwise.sv", "binopf.sv", "binopi.sv", "int_to_fp32.sv"]
         for sv_file in sv_files:
             shutil.copy(f"{rtlsrc}/{sv_file}", code_gen_dir)
         self.set_nodeattr("ipgen_path", code_gen_dir)
@@ -196,9 +196,8 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             f"{rtllib_dir}binopf.sv",
             f"{rtllib_dir}binopi.sv",
             f"{rtllib_dir}int_to_fp32.sv",
-            f"{rtllib_dir}queue.sv",
             f"{code_gen_dir}{top_module}.v",
-        ]
+        ] + fifo_rtl_files(abspath)
 
     def get_verilog_top_module_intf_names(self):
         """
@@ -481,35 +480,20 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
                 weight_tensor, (1,) * (len(weight_tensor.shape) - 1) + (self.pe,)
             )
 
-        if weight_file_mode == "decoupled_verilog_dat":
-            num_w_reps = np.prod(self.calc_numInputVectors())
-            base_wmem = super().calc_wmem()
-            mlo = self.get_nodeattr("mlo_max_iter")
-            if mlo and base_wmem > 1:
-                # In MLO mode, tile only enough to match per-iteration
-                # consumption (num_w_reps entries).  base_wmem entries
-                # already exist, so tile by num_w_reps / base_wmem.
-                tile_factor = int(num_w_reps // base_wmem)
-            else:
-                tile_factor = int(num_w_reps)
-            weight_tensor = np.tile(
-                weight_tensor, (tile_factor,) + (1,) * (len(weight_tensor.shape) - 1)
-            )
+        # Reshape to compact 3D form for decoupled modes
+        weight_tensor = weight_tensor.reshape(1, -1, weight_tensor.shape[-1]).copy()
 
         if weight_file_mode == "decoupled_npy":
-            # save the weight stream as a real .npy array (consumed by the
-            # AXI-MM sim and by FINNLoop.generate_params, which concatenates
-            # per-iteration weight arrays). Must be a genuine numpy file, not
-            # the hex text used for the verilog .dat below.
-            np.save(weight_file_name, weight_tensor.reshape(1, -1, weight_tensor.shape[-1]))
+            np.save(weight_file_name, weight_tensor)
             return
 
+        # decoupled_verilog_dat
         export_wdt = self.get_input_datatype(1)
         weight_width = self.get_instream_width(1)
         weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
 
         weight_tensor_hex = pack_innermost_dim_as_hex_string(
-            weight_tensor.reshape(1, -1, weight_tensor.shape[-1]),
+            weight_tensor,
             export_wdt,
             weight_width_padded,
             reverse_inner=True,
@@ -522,12 +506,28 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
                 f.write(val + "\n")
 
     def calc_wmem(self):
-        base_wmem = super().calc_wmem()
-        num_w_reps = np.prod(self.calc_numInputVectors())
-        mlo = self.get_nodeattr("mlo_max_iter")
-        if mlo:
-            return int(num_w_reps)
-        return int(base_wmem * num_w_reps)
+        return int(super().calc_wmem())
+
+    def calc_wmem_reps(self):
+        """Return how many times the compact parameter stream is replayed.
+
+        Elementwise constants often broadcast across non-channel axes, for
+        example a [C] scale applied to [N, T, C]. The memstream only needs to
+        store the compact [C] stream; regular single-set memstreams cycle on
+        their own, and FINNLoop multi-set memstreams use this value as the
+        stream-tap repetition count for each loop iteration.
+        """
+
+        base_wmem = int(super().calc_wmem())
+        num_w_reps = int(np.prod(self.calc_numInputVectors()))
+        if base_wmem <= 0:
+            raise RuntimeError(f"{self.onnx_node.name}: invalid const stream length {base_wmem}")
+        if num_w_reps % base_wmem != 0:
+            raise RuntimeError(
+                f"{self.onnx_node.name}: const stream length {base_wmem} "
+                f"does not divide output stream length {num_w_reps}"
+            )
+        return int(num_w_reps // base_wmem)
 
     def calc_numInputVectors(self):
         folded_lhs = self.get_folded_input_shape(0)

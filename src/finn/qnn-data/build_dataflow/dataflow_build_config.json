@@ -1,9 +1,10 @@
 {
-  "output_dir": "output_tfc_w1a1_Pynq-Z1",
+  "output_dir": "output_tfc_w1a1_AUP-ZU3_8GB",
   "target_fps": 100000,
   "mvau_wwidth_max": 10000,
   "synth_clk_period_ns": 10.0,
-  "board": "Pynq-Z1",
+  "rtlsim_batch_size": 2,
+  "board": "AUP-ZU3_8GB",
   "standalone_thresholds": false,
   "folding_config_file": "folding_config.json",
   "shell_flow_type": "vivado_zynq",

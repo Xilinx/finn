@@ -83,7 +83,6 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import (
     InsertAndSetFIFODepths,
     RemoveShallowFIFOs,
-    SplitLargeFIFOs,
 )
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
@@ -444,13 +443,11 @@ def test_end2end_mobilenet_set_fifo_depths():
             fpga_part,
             target_clk_ns,
             swg_exception=False,
-            vivado_ram_style="auto",
         )
     )
-    # perform FIFO splitting and shallow FIFO removal only after the final config
-    # json file has been written. otherwise, since these transforms may add/remove
-    # FIFOs, we get name mismatch problems when trying to reuse the final config.
-    model = model.transform(SplitLargeFIFOs())
+    # perform shallow FIFO removal only after the final config json file has been
+    # written. otherwise, since this transform removes FIFOs, we get name mismatch
+    # problems when trying to reuse the final config.
     model = model.transform(RemoveShallowFIFOs())
     # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again
     # this will only run for the new nodes (e.g. FIFOs and DWCs)
@@ -480,14 +477,15 @@ def test_end2end_mobilenet_stitched_ip():
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.end2end
-def test_end2end_mobilenet_stitched_ip_rtlsim():
+def test_end2end_mobilenet_stitched_ip_rtlsim(monkeypatch):
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_stitched_ip.onnx")
     # use critical path estimate to set rtlsim liveness threshold
     # (very conservative)
     model = model.transform(AnnotateCycles())
     estimate_network_performance = model.analysis(dataflow_performance)
-    os.environ["LIVENESS_THRESHOLD"] = str(
-        int(estimate_network_performance["critical_path_cycles"])
+    monkeypatch.setenv(
+        "LIVENESS_THRESHOLD",
+        str(int(estimate_network_performance["critical_path_cycles"])),
     )
     # Prepare input
     x = np.load(build_dir + "/end2end_mobilenet_input.npy")

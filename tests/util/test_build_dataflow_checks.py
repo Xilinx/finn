@@ -33,11 +33,11 @@ def make_test_model(build_dir):
 
 
 def cfg(output_dir, **kw):
-    """Create config that stops immediately after first step."""
+    """Create config that stops immediately after first phase."""
     return DataflowBuildConfig(
         output_dir=output_dir,
         synth_clk_period_ns=5.0,
-        stop_step="step_qonnx_to_finn",
+        stop_step="phase_prepare_model",
         generate_outputs=kw.pop("generate_outputs", [DataflowOutputType.ESTIMATE_REPORTS]),
         **kw
     )
@@ -55,7 +55,7 @@ class TestConfigCheckIntegration:
         with patch.dict("os.environ", {"XILINX_VIVADO": "/tools/Vivado/2024.2"}):
             build_dataflow_cfg(
                 model_path,
-                cfg(output_dir, board="Pynq-Z1", shell_flow_type=ShellFlowType.VIVADO_ZYNQ),
+                cfg(output_dir, board="AUP-ZU3_8GB", shell_flow_type=ShellFlowType.VIVADO_ZYNQ),
             )
 
         assert os.path.exists(os.path.join(output_dir, "config_check_report.txt"))
@@ -138,10 +138,10 @@ class TestConfigCheckIntegration:
     @pytest.mark.parametrize(
         "board,flow,should_error",
         [
-            ("Pynq-Z1", ShellFlowType.VIVADO_ZYNQ, False),
-            ("U250", ShellFlowType.VITIS_ALVEO, False),
-            ("Pynq-Z1", ShellFlowType.VITIS_ALVEO, True),
-            ("U250", ShellFlowType.VIVADO_ZYNQ, True),
+            ("AUP-ZU3_8GB", ShellFlowType.VIVADO_ZYNQ, False),
+            ("U55C", ShellFlowType.VITIS_ALVEO, False),
+            ("AUP-ZU3_8GB", ShellFlowType.VITIS_ALVEO, True),
+            ("U55C", ShellFlowType.VIVADO_ZYNQ, True),
         ],
     )
     def test_board_shell_compatibility(self, board, flow, should_error):
@@ -204,3 +204,31 @@ class TestConfigCheckIntegration:
         with patch.dict("os.environ", {"XILINX_VIVADO": "/tools/Vivado/2022.2"}):
             with pytest.raises(AssertionError, match="Configuration check failed"):
                 build_dataflow_cfg(model_path, cfg(output_dir, board="AUP-ZU3_8GB"))
+
+    @pytest.mark.parametrize("board", ["Pynq-Z1", "Pynq-Z2"])
+    def test_zynq7000_retired(self, board):
+        """Retired Zynq-7000 boards are blocked at config-check time."""
+        build_dir = make_build_dir("test_config_check_")
+        model_path = make_test_model(build_dir)
+        output_dir = os.path.join(build_dir, "output")
+
+        with patch.dict("os.environ", {"XILINX_VIVADO": "/tools/Vivado/2024.2"}):
+            try:
+                build_dataflow_cfg(
+                    model_path,
+                    cfg(
+                        output_dir,
+                        board=board,
+                        shell_flow_type=ShellFlowType.VIVADO_ZYNQ,
+                        mute_config_assertions=True,
+                    ),
+                )
+            except Exception:
+                pass
+
+        with open(os.path.join(output_dir, "config_check_report.json")) as f:
+            report = json.load(f)
+        error_names = [
+            c["name"] for c in report["checks"] if not c["passed"] and c["severity"] == "ERROR"
+        ]
+        assert "zynq7000_retired" in error_names

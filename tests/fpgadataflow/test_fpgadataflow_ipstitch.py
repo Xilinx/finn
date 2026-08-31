@@ -51,11 +51,17 @@ from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.util.basic import pynq_part_map, vitis_default_platform, vitis_part_map
+from finn.util.basic import (
+    make_build_dir,
+    pynq_part_map,
+    robust_rmtree,
+    vitis_default_platform,
+    vitis_part_map,
+)
 from finn.util.test import load_test_checkpoint_or_skip
 from finn.util.vivado import parse_ooc_synth_results
 
-test_pynq_board = "Pynq-Z1"
+test_pynq_board = "AUP-ZU3_8GB"
 test_fpga_part = pynq_part_map[test_pynq_board]
 
 ip_stitch_model_dir = os.environ["FINN_BUILD_DIR"]
@@ -194,7 +200,18 @@ def create_two_fc_model(mem_mode="internal_decoupled"):
     return model
 
 
-@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
+# gen_model -> do_stitch -> rtlsim hand a checkpoint between separate tests via
+# load_test_checkpoint_or_skip. grouping each mem_mode chain keeps it in one
+# shard (and, with workers > 1, loadgroup keeps it on one worker), so each
+# step's output is on disk before the next test reads it. the shared table
+# below keeps the three tests' group names in lockstep.
+MEM_MODE_PARAMS = [
+    pytest.param(m, marks=pytest.mark.xdist_group(name=f"ipstitch_{m}"))
+    for m in ("internal_embedded", "internal_decoupled")
+]
+
+
+@pytest.mark.parametrize("mem_mode", MEM_MODE_PARAMS)
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_ipstitch_gen_model(mem_mode):
@@ -213,7 +230,7 @@ def test_fpgadataflow_ipstitch_gen_model(mem_mode):
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model_%s.onnx" % mem_mode)
 
 
-@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
+@pytest.mark.parametrize("mem_mode", MEM_MODE_PARAMS)
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
@@ -249,7 +266,7 @@ def test_fpgadataflow_ipstitch_do_stitch(mem_mode):
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch_%s.onnx" % mem_mode)
 
 
-@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
+@pytest.mark.parametrize("mem_mode", MEM_MODE_PARAMS)
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_ipstitch_rtlsim(mem_mode):
@@ -285,7 +302,7 @@ def test_fpgadataflow_ipstitch_iodma_floorplan():
 
 
 # board
-@pytest.mark.parametrize("board", ["U250"])
+@pytest.mark.parametrize("board", ["U55C"])
 # clock period
 @pytest.mark.parametrize("period_ns", [5])
 # override mem_mode to external
@@ -297,6 +314,7 @@ def test_fpgadataflow_ipstitch_iodma_floorplan():
 def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
     if "VITIS_PATH" not in os.environ:
         pytest.skip("VITIS_PATH not set")
+    test_dir = make_build_dir("test_fpgadataflow_ipstitch_vitis_")
     platform = vitis_default_platform[board]
     fpga_part = vitis_part_map[board]
     model = create_two_fc_model("external" if extw else "internal_decoupled")
@@ -310,14 +328,15 @@ def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareForLinking(fpga_part, period_ns, "vitis-xrt"))
     model = model.transform(VitisLink(platform, period_ns))
-    model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_vitis.onnx")
+    model.save(os.path.join(test_dir, "test_fpgadataflow_ipstitch_vitis.onnx"))
     assert model.get_metadata_prop("platform") == "vitis-xrt"
     assert os.path.isdir(model.get_metadata_prop("vitis_link_proj"))
     assert os.path.isfile(model.get_metadata_prop("bitfile"))
+    robust_rmtree(test_dir)
 
 
 # board
-@pytest.mark.parametrize("board", ["Pynq-Z1"])
+@pytest.mark.parametrize("board", ["AUP-ZU3_8GB"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado

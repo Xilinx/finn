@@ -29,13 +29,13 @@
 
 import numpy as np
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from dataclasses_json import dataclass_json
 from enum import Enum
-from typing import Any, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from finn.transformation.fpgadataflow.alveo_build import VitisOptStrategy
-from finn.util.basic import part_map, vitis_default_platform
+from finn.util.basic import hbm_boards, part_map, vitis_default_platform
 
 
 class AutoFIFOSizingMethod(str, Enum):
@@ -78,15 +78,6 @@ class VitisOptStrategyCfg(str, Enum):
     BUILD_SPEED = "quick"
 
 
-class LargeFIFOMemStyle(str, Enum):
-    """Type of memory resource to use for large FIFOs."""
-
-    AUTO = "auto"
-    BRAM = "block"
-    LUTRAM = "distributed"
-    URAM = "ultra"
-
-
 class VerificationStepType(str, Enum):
     "Steps at which FINN ONNX execution can be launched for verification."
 
@@ -108,39 +99,20 @@ class VerificationStepType(str, Enum):
 #: specified order. Use the `steps` as part of build config to restrict which
 #: steps will be run.
 default_build_dataflow_steps = [
-    "step_qonnx_to_finn",
-    "step_tidy_up",
-    "step_streamline",
-    "step_convert_to_hw",
-    "step_create_dataflow_partition",
-    "step_specialize_layers",
-    "step_target_fps_parallelization",
-    "step_apply_folding_config",
-    "step_minimize_bit_width",
-    "step_transpose_decomposition",
-    "step_generate_estimate_reports",
-    "step_hw_codegen",
-    "step_hw_ipgen",
-    "step_set_fifo_depths",
-    "step_create_stitched_ip",
-    "step_measure_rtlsim_performance",
-    "step_synthesize_bitfile",
-    "step_make_driver",
-    "step_deployment_package",
+    "phase_prepare_model",
+    "phase_optimize_model",
+    "phase_convert_to_hardware",
+    "phase_optimize_hardware",
+    "phase_build_hardware",
+    "phase_generate_outputs",
 ]
 
 #: List of steps to run for an estimate-only (no synthesis) dataflow build
 estimate_only_dataflow_steps = [
-    "step_qonnx_to_finn",
-    "step_tidy_up",
-    "step_streamline",
-    "step_convert_to_hw",
-    "step_create_dataflow_partition",
-    "step_specialize_layers",
-    "step_target_fps_parallelization",
-    "step_apply_folding_config",
-    "step_minimize_bit_width",
-    "step_generate_estimate_reports",
+    "phase_prepare_model",
+    "phase_optimize_model",
+    "phase_convert_to_hardware",
+    "phase_optimize_hardware",
 ]
 
 #: List of steps to run for a dataflow build including HW code generation, but
@@ -265,7 +237,7 @@ class DataflowBuildConfig:
 
     #: Target board, only needed for generating full bitfiles where the FINN
     #: design is integrated into a shell.
-    #: e.g. "Pynq-Z1" or "U250"
+    #: e.g. "AUP-ZU3_8GB" or "U55C"
     board: Optional[str] = None
 
     #: Target shell flow, only needed for generating full bitfiles where the FINN
@@ -290,17 +262,9 @@ class DataflowBuildConfig:
     #: for each FIFO.
     auto_fifo_depths: Optional[bool] = True
 
-    #: Whether FIFO nodes with depth larger than 32768 will be split.
-    #: Allow to configure very large FIFOs in the folding_config_file.
-    split_large_fifos: Optional[bool] = False
-
     #: When `auto_fifo_depths = True`, select which method will be used for
     #: setting the FIFO sizes.
     auto_fifo_strategy: Optional[AutoFIFOSizingMethod] = AutoFIFOSizingMethod.LARGEFIFO_RTLSIM
-
-    #: Memory resource type for large FIFOs
-    #: Only relevant when `auto_fifo_depths = True`
-    large_fifo_mem_style: Optional[LargeFIFOMemStyle] = LargeFIFOMemStyle.AUTO
 
     #: Enable input throttling for simulation-based FIFO sizing
     #: Only relevant if auto_fifo_strategy = LARGEFIFO_RTLSIM
@@ -372,10 +336,14 @@ class DataflowBuildConfig:
     steps: Optional[List[Any]] = None
 
     #: If given, start from this step, loading the intermediate model generated
-    #: from the previous step (save_intermediate_models must be enabled)
+    #: from the previous step (save_intermediate_models must be enabled).
+    #: Note: When using phase-based builds (default), specify phase names
+    #: (e.g., "phase_build_hardware") rather than fine-grained step names.
     start_step: Optional[str] = None
 
     #: If given, stop at this step.
+    #: Note: When using phase-based builds (default), specify phase names
+    #: (e.g., "phase_build_hardware") rather than fine-grained step names.
     stop_step: Optional[str] = None
 
     #: The optional argument `max_multithreshold_bit_width` affects which Quant nodes
@@ -386,17 +354,15 @@ class DataflowBuildConfig:
     #: If not given `max_multithreshold_bit_width` defaults to 16.
     max_multithreshold_bit_width: Optional[int] = 16
 
-    #: Override the number of inputs for rtlsim performance measurement.
-    rtlsim_batch_size: Optional[int] = 1
-
-    #: If set to True, FIFOs with impl_style=vivado will be kept during
-    #: rtlsim, otherwise they will be replaced by RTL implementations.
-    rtlsim_use_vivado_comps: Optional[bool] = True
+    #: Override the number of frames for rtlsim performance measurement.
+    #: At least two are required to report steady-state throughput; a one-frame
+    #: run can measure latency and pipeline-fill throughput only.
+    rtlsim_batch_size: Optional[int] = 2
 
     #: Use behavioral simulation for RTLSim verification steps.
     #: When True, passes -define FINN_SIMULATION to xelab, enabling faster
     #: behavioral models for DSP-heavy modules (MVU, LayerNorm, Elementwise)
-    #: and fifo_gauge (with debug capabilities) instead of Q_srl.
+    #: and fifo_gauge (with debug capabilities) instead of the synthesizable fifo.sv.
     #: Does not affect FIFO sizing which always uses behavioral simulation.
     verify_rtlsim_behavioral: Optional[bool] = False
 
@@ -423,6 +389,22 @@ class DataflowBuildConfig:
     #: If True, suppress assertion errors for configuration checks.
     #: Warnings and info will still be printed but errors will not halt the build.
     mute_config_assertions: Optional[bool] = False
+
+    #: Inject custom steps after named steps/phases.
+    #: Dict mapping step/phase names to list of callable functions to run after that step.
+    #: Works at both granularities: keys can be a phase name (e.g. "phase_optimize_model")
+    #: or an internal step name (e.g. "step_tidy_up"), and the two can be mixed.
+    #: Example (phase): inject_steps_after={"phase_optimize_model": [my_custom_verification]}
+    #: Example (step):  inject_steps_after={"step_tidy_up": [my_custom_verification]}
+    inject_steps_after: Dict[str, List[Callable]] = field(default_factory=dict)
+
+    #: Inject custom steps before named steps/phases.
+    #: Dict mapping step/phase names to list of callable functions to run before that step.
+    #: Works at both granularities: keys can be a phase name (e.g. "phase_build_hardware")
+    #: or an internal step name (e.g. "step_convert_to_hw"), and the two can be mixed.
+    #: Example (phase): inject_steps_before={"phase_build_hardware": [my_custom_analysis]}
+    #: Example (step):  inject_steps_before={"step_convert_to_hw": [my_custom_analysis]}
+    inject_steps_before: Dict[str, List[Callable]] = field(default_factory=dict)
 
     def _resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:
@@ -452,6 +434,12 @@ class DataflowBuildConfig:
         else:
             # return as-is when explicitly specified
             return self.fpga_part
+
+    def _resolve_mem_type(self):
+        """Resolve the memory type used to stream weights from the memories
+        available on the target board. When a board exposes more than one memory
+        type, HBM takes precedence over DDR."""
+        return "HBM" if self.board in hbm_boards else "DDR"
 
     def _resolve_cycles_per_frame(self):
         if self.target_fps is None:

@@ -31,7 +31,6 @@ import pytest
 import copy
 import numpy as np
 import onnx.parser as oprs
-import os
 from bitstring import BitArray
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
@@ -64,13 +63,13 @@ from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.basic import get_liveness_threshold_cycles
 
 finnxsi = xsi if xsi.is_available() else None
 
 
-def create_conv_model(idim_h, idim_w, ifm, k, stride, ofm, idt, wdt, pad_mode, depthwise):
-    np.random.seed(0)
+def create_conv_model(
+    idim_h, idim_w, ifm, k, stride, ofm, idt, wdt, pad_mode, depthwise, weight_0, weight_1
+):
     group = ifm if depthwise else 1
     group_str = str(group)
     ishp = (1, ifm, idim_h, idim_w)
@@ -122,8 +121,8 @@ def create_conv_model(idim_h, idim_w, ifm, k, stride, ofm, idt, wdt, pad_mode, d
     model.set_tensor_datatype("in0", idt)
     model.set_tensor_datatype("param_c0_weight", wdt)
     model.set_tensor_datatype("param_c1_weight", wdt)
-    model.set_initializer("param_c0_weight", gen_finn_dt_tensor(wdt, wshp))
-    model.set_initializer("param_c1_weight", gen_finn_dt_tensor(wdt, wshp_1))
+    model.set_initializer("param_c0_weight", weight_0)
+    model.set_initializer("param_c1_weight", weight_1)
     return model
 
 
@@ -222,7 +221,7 @@ cfg2 = {
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.fpgadataflow
-def test_fpgadataflow_conv_dynamic(cfg):
+def test_fpgadataflow_conv_dynamic(cfg, monkeypatch):
     do_synth = cfg["do_synth"]
     pad_mode = cfg["pad_mode"]
     depthwise = cfg["depthwise"]
@@ -233,15 +232,29 @@ def test_fpgadataflow_conv_dynamic(cfg):
     ofm = cfg["ofm"]
     idt = DataType["UINT4"]
     wdt = DataType["INT2"]
+    wshp = (ifm, 1, k, k) if depthwise else (ofm, ifm, k, k)
+    wshp_1 = (ifm, 1, k, k) if depthwise else (ofm, ofm, k, k)
+    weight_0 = gen_finn_dt_tensor(wdt, wshp)
+    weight_1 = gen_finn_dt_tensor(wdt, wshp_1)
     exp_cfgs = []
     largest_model = None
     for idim in idims:
         idim_h, idim_w = idim
         ishp = (1, ifm, idim_h, idim_w)
-        np.random.seed(0)
         inp = gen_finn_dt_tensor(idt, ishp)
         model = create_conv_model(
-            idim_h, idim_w, ifm, k, stride, ofm, idt, wdt, pad_mode, depthwise
+            idim_h,
+            idim_w,
+            ifm,
+            k,
+            stride,
+            ofm,
+            idt,
+            wdt,
+            pad_mode,
+            depthwise,
+            weight_0,
+            weight_1,
         )
         _, _, int_dim_h, int_dim_w = model.get_tensor_shape("conv0")
         _, _, odim_h, odim_w = model.get_tensor_shape("out0")
@@ -362,10 +375,8 @@ def test_fpgadataflow_conv_dynamic(cfg):
         update_tensor_dim(model, last_node.onnx_node.output[0], (odim_h, odim_w))
         last_node.set_nodeattr("folded_shape", last_node_shp)
         ctx = {"global_in": inp.transpose(0, 2, 3, 1)}
-        liveness_prev = get_liveness_threshold_cycles()
-        os.environ["LIVENESS_THRESHOLD"] = "100000"
+        monkeypatch.setenv("LIVENESS_THRESHOLD", "100000")
         rtlsim_exec(model, ctx, pre_hook=config_hook(configs))
-        os.environ["LIVENESS_THRESHOLD"] = str(liveness_prev)
         ret = ctx["global_out"].transpose(0, 3, 1, 2)
         assert np.isclose(golden, ret).all()
 
