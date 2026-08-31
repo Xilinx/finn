@@ -136,26 +136,24 @@ localparam int unsigned  FM_BEATS_IN_BITS = (FM_BEATS_IN == 1)? 1 : $clog2(FM_BE
 logic idx_in_tvalid, idx_in_tready;
 logic [IDX_BITS-1:0] idx_in_tdata;
 
-Q_srl #(
-    .depth(QDEPTH), .width(IDX_BITS)
-) inst_queue_seq (
-    .clock(aclk), .reset(!aresetn),
+fifo #(
+    .DEPTH(QDEPTH), .DATA_WIDTH(IDX_BITS)) inst_queue_seq (
+    .clk(aclk), .rst(!aresetn),
     .count(), .maxcount(),
-    .i_d(s_idx_tdata), .i_v(s_idx_tvalid), .i_r(s_idx_tready),
-    .o_d(idx_in_tdata), .o_v(idx_in_tvalid), .o_r(idx_in_tready)
+    .idat(s_idx_tdata), .ivld(s_idx_tvalid), .irdy(s_idx_tready),
+    .odat(idx_in_tdata), .ovld(idx_in_tvalid), .ordy(idx_in_tready)
 );
 
 // Circ buff
 logic wr_sent, wr_rdy;
 logic rd_done;
 
-Q_srl #(
-    .depth(N_OUTSTANDING_DMAS), .width(1)
-) inst_queue_outstanding (
-    .clock(aclk), .reset(!aresetn),
+fifo #(
+    .DEPTH(N_OUTSTANDING_DMAS), .DATA_WIDTH(1)) inst_queue_outstanding (
+    .clk(aclk), .rst(!aresetn),
     .count(), .maxcount(),
-    .i_d(1'b1), .i_v(wr_sent), .i_r(wr_rdy),
-    .o_d(), .o_v(), .o_r(rd_done)
+    .idat(1'b1), .ivld(wr_sent), .irdy(wr_rdy),
+    .odat(), .ovld(), .ordy(rd_done)
 );
 
 // FSM
@@ -169,13 +167,12 @@ logic [ADDR_BITS-1:0] s0_dma_in_tdata;
 logic s0_dma_out_tvalid, s0_dma_out_tready;
 logic [ADDR_BITS-1:0] s0_dma_out_tdata;
 
-Q_srl #(
-    .depth(QDEPTH), .width(ADDR_BITS)
-) inst_queue_s0_dma (
-    .clock(aclk), .reset(!aresetn),
+fifo #(
+    .DEPTH(QDEPTH), .DATA_WIDTH(ADDR_BITS)) inst_queue_s0_dma (
+    .clk(aclk), .rst(!aresetn),
     .count(), .maxcount(),
-    .i_d(s0_dma_in_tdata), .i_v(s0_dma_in_tvalid), .i_r(s0_dma_in_tready),
-    .o_d(s0_dma_out_tdata), .o_v(s0_dma_out_tvalid), .o_r(s0_dma_out_tready)
+    .idat(s0_dma_in_tdata), .ivld(s0_dma_in_tvalid), .irdy(s0_dma_in_tready),
+    .odat(s0_dma_out_tdata), .ovld(s0_dma_out_tvalid), .ordy(s0_dma_out_tready)
 );
 
 always_ff @(posedge aclk) begin: REG_WR
@@ -244,13 +241,12 @@ end
 logic done_wr_in, done_wr_out;
 logic rd_start;
 
-Q_srl #(
-    .depth(N_OUTSTANDING_DMAS), .width(1)
-) inst_queue_done (
-    .clock(aclk), .reset(!aresetn),
+fifo #(
+    .DEPTH(N_OUTSTANDING_DMAS), .DATA_WIDTH(1)) inst_queue_done (
+    .clk(aclk), .rst(!aresetn),
     .count(), .maxcount(),
-    .i_d(1'b1), .i_v(done_wr_in), .i_r(),
-    .o_d(), .o_v(done_wr_out), .o_r(rd_start)
+    .idat(1'b1), .ivld(done_wr_in), .irdy(),
+    .odat(), .ovld(done_wr_out), .ordy(rd_start)
 );
 
 //
@@ -267,13 +263,12 @@ logic [ADDR_BITS-1:0] s1_dma_in_tdata;
 logic s1_dma_out_tvalid, s1_dma_out_tready;
 logic [ADDR_BITS-1:0] s1_dma_out_tdata;
 
-Q_srl #(
-    .depth(QDEPTH), .width(ADDR_BITS)
-) inst_queue_s1_dma (
-    .clock(aclk), .reset(!aresetn),
+fifo #(
+    .DEPTH(QDEPTH), .DATA_WIDTH(ADDR_BITS)) inst_queue_s1_dma (
+    .clk(aclk), .rst(!aresetn),
     .count(), .maxcount(),
-    .i_d(s1_dma_in_tdata), .i_v(s1_dma_in_tvalid), .i_r(s1_dma_in_tready),
-    .o_d(s1_dma_out_tdata), .o_v(s1_dma_out_tvalid), .o_r(s1_dma_out_tready)
+    .idat(s1_dma_in_tdata), .ivld(s1_dma_in_tvalid), .irdy(s1_dma_in_tready),
+    .odat(s1_dma_out_tdata), .ovld(s1_dma_out_tvalid), .ordy(s1_dma_out_tready)
 );
 
 always_ff @(posedge aclk) begin: REG_RD

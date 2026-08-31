@@ -140,6 +140,16 @@ def get_finn_root():
         )
 
 
+def fifo_rtl_files(abspath=True, gauge=False):
+    """Return the shared FIFO RTL sources, referenced in place so that the flat
+    elaboration namespace only ever sees one declaration of module fifo."""
+    names = (["fifo_gauge.sv"] if gauge else []) + ["fifo.sv"]
+    if not abspath:
+        return names
+    rtlsrc = os.path.join(get_finn_root(), "finn-rtllib", "fifo", "hdl")
+    return [os.path.join(rtlsrc, n) for n in names]
+
+
 def get_vivado_root():
     "Return the root directory that Vivado is installed into."
 

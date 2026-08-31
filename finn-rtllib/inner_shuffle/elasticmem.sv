@@ -93,7 +93,7 @@ module elasticmem #(
 
 	//- Credit-Enabling Reply Queue -----
 	uwire  q_irdy;
-	queue #(.DATA_WIDTH(WIDTH), .ELASTICITY(CREDITS)) u_queue (
+	fifo #(.DATA_WIDTH(WIDTH), .DEPTH(CREDITS)) u_queue (
 		.clk, .rst,
 		.idat(Dout[0]), .ivld(Vld[0]), .irdy(q_irdy),
 		.odat(rd_dat), .ovld(rd_dat_vld), .ordy(rd_dat_rdy)

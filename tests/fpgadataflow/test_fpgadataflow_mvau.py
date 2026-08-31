@@ -529,16 +529,6 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, pumpe
 def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
     mem_mode, idt, wdt, act, nf, sf, mw, mh, preferred_impl_style, ram_style, part
 ):
-    # TODO: bring back skipped test when solved
-    if (
-        preferred_impl_style == "rtl"
-        and part == "xczu7ev-ffvc1156-2-e"
-        and ram_style == "ultra"
-        and mw == mh == 128
-        and nf == sf == -1
-        and act is None
-    ):
-        pytest.skip("Temporarily xfail this test, because last address can't be read back.")
     if preferred_impl_style == "rtl" and act is not None:
         pytest.skip("RTL-MVAU doesn't support const mem mode or embedded activations")
     if nf == -1:

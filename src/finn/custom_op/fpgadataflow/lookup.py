@@ -194,7 +194,7 @@ class Lookup(HWCustomOp):
         result = sess.run(None, idict)
         context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)
 
-    def bram_estimation(self):
+    def bram_estimation(self, fpgapart):
         mem_mode = self.get_nodeattr("mem_mode")
         ram_style = self.get_nodeattr("ram_style")
         if mem_mode == "internal_embedded" and ram_style in ["auto", "block"]:
@@ -205,7 +205,7 @@ class Lookup(HWCustomOp):
             # TODO can we estimate BRAMs for the DMA engine?
             return 0
 
-    def uram_estimation(self):
+    def uram_estimation(self, fpgapart):
         mem_mode = self.get_nodeattr("mem_mode")
         ram_style = self.get_nodeattr("ram_style")
         if mem_mode == "internal_embedded" and ram_style == "ultra":
@@ -216,26 +216,26 @@ class Lookup(HWCustomOp):
             # TODO can we estimate URAMs for the DMA engine?
             return 0
 
-    def bram_efficiency_estimation(self):
-        bram16_est = self.bram_estimation()
+    def bram_efficiency_estimation(self, fpgapart):
+        bram16_est = self.bram_estimation(fpgapart)
         if bram16_est == 0:
             return 1
         ebits = self.get_outstream_width() * self.get_nodeattr("NumEmbeddings")
         bram16_est_capacity = bram16_est * 18 * 1024
         return ebits / bram16_est_capacity
 
-    def uram_efficiency_estimation(self):
+    def uram_efficiency_estimation(self, fpgapart):
         # TODO: Versal URAM supports flexible bit widths (9/18/36/72) unlike
         # UltraScale+ which only supports 72-bit. This could improve efficiency
         # for narrow data types on Versal devices.
-        uram_est = self.uram_estimation()
+        uram_est = self.uram_estimation(fpgapart)
         if uram_est == 0:
             return 1
         ebits = self.get_outstream_width() * self.get_nodeattr("NumEmbeddings")
         uram_est_capacity = uram_est * 72 * 4096
         return ebits / uram_est_capacity
 
-    def lut_estimation(self):
+    def lut_estimation(self, fpgapart):
         mem_mode = self.get_nodeattr("mem_mode")
         ram_style = self.get_nodeattr("ram_style")
         if mem_mode == "internal_embedded" and ram_style == "distributed":

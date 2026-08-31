@@ -140,11 +140,11 @@ module fetch_weights #(
 		logic  q_idx_rdy;
 		uwire [IDX_BITS-1:0]  q_idx_dat;
 
-		Q_srl #(.depth(QDEPTH), .width(IDX_BITS)) inst_queue_in (
-			.clock(aclk), .reset(!aresetn),
+		fifo #(.DEPTH(QDEPTH), .DATA_WIDTH(IDX_BITS)) inst_queue_in (
+			.clk(aclk), .rst(!aresetn),
 			.count(), .maxcount(),
-			.i_d(s_idx_tdata), .i_v(s_idx_tvalid), .i_r(s_idx_tready),
-			.o_d(q_idx_dat), .o_v(q_idx_vld), .o_r(q_idx_rdy)
+			.idat(s_idx_tdata), .ivld(s_idx_tvalid), .irdy(s_idx_tready),
+			.odat(q_idx_dat), .ovld(q_idx_vld), .ordy(q_idx_rdy)
 		);
 
 		assign	dma_addr = base_address + ADDRESS_OFFSET + l_offsets[Idx];
@@ -211,11 +211,11 @@ module fetch_weights #(
 
 		uwire [IDX_BITS-1:0]  q_idx_dat;
 
-		Q_srl #(.depth(QDEPTH), .width(IDX_BITS)) inst_idx_queue (
-			.clock(aclk), .reset(!aresetn),
+		fifo #(.DEPTH(QDEPTH), .DATA_WIDTH(IDX_BITS)) inst_idx_queue (
+			.clk(aclk), .rst(!aresetn),
 			.count(), .maxcount(),
-			.i_d(s_idx_tdata), .i_v(s_idx_tvalid), .i_r(s_idx_tready),
-			.o_d(q_idx_dat), .o_v(dma_tvalid), .o_r(dma_tready)
+			.idat(s_idx_tdata), .ivld(s_idx_tvalid), .irdy(s_idx_tready),
+			.odat(q_idx_dat), .ovld(dma_tvalid), .ordy(dma_tready)
 		);
 
 		assign	dma_addr = base_address + ADDRESS_OFFSET + l_offsets[q_idx_dat];
