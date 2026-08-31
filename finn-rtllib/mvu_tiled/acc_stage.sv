@@ -8,8 +8,7 @@ module acc_stage #(
 	int unsigned  CHAINLEN,
 	int unsigned  PE,
 	int unsigned  ACCU_WIDTH,
-	int unsigned  TH,
-	int unsigned  TH_MAX = 2*TH
+	int unsigned  TH
 )(
 	input  logic  clk,
 	input  logic  rst,
@@ -27,8 +26,9 @@ module acc_stage #(
 	localparam int unsigned  TREE_DEPTH = $clog2(CHAINLEN);
 	localparam int unsigned  ADD_LAT    = TREE_DEPTH + 1;
 
-	logic [PE-1:0][ACCU_WIDTH-1:0]  Acc;
+	uwire [PE-1:0][ACCU_WIDTH-1:0]  acc;
 	logic [PE-1:0][ACCU_WIDTH-1:0]  DatInt;
+	uwire [PE-1:0][ACCU_WIDTH-1:0]  sum;
 
 	for(genvar  i = 0; i < PE; i++) begin : genAdd
 		// Tree reduction of CHAINLEN DSP partial products
@@ -45,9 +45,10 @@ module acc_stage #(
 		);
 
 		// Accumulator add (1 registered stage)
+		assign  sum[i] = tree_sum[ACCU_WIDTH-1:0] + acc[i];
 		always_ff @(posedge clk) begin
 			if(rst)       DatInt[i] <= 'x;
-			else if(en)   DatInt[i] <= tree_sum[ACCU_WIDTH-1:0] + Acc[i];
+			else if(en)   DatInt[i] <= sum[i];
 		end
 	end : genAdd
 
@@ -77,30 +78,28 @@ module acc_stage #(
 	uwire  last_out = Last[ADD_LAT];
 	uwire  inc_acc  = Val[ADD_LAT-1];
 
-	//=== Prep Counter ======================================================
+	//=== Accumulation Delay Line ===========================================
+	//	Rotates TH partial sums rather than queueing them. Advances on the
+	//	accumulator read (inc_acc), one cycle ahead of the registered DatInt,
+	//	so it shifts in the combinational sum. Unreset, to infer SRLs: the
+	//	first TH reads are forced to the zero the accumulation starts from.
+	uwire  acc_shift = en && inc_acc;
+
 	logic signed [$clog2(TH):0]  CntPrep = -TH;
 	uwire  prep = CntPrep[$left(CntPrep)];
 	always_ff @(posedge clk) begin
-		if(rst)  CntPrep <= -TH;
-		else     CntPrep <= CntPrep + prep;
+		if(rst)             CntPrep <= -TH;
+		else if(acc_shift)  CntPrep <= CntPrep + prep;
 	end
 
-	//=== Accumulation FIFO =================================================
-	Q_srl #(
-		.depth(TH_MAX),
-		.width(PE*ACCU_WIDTH)
-	) inst_acc (
-		.clock(clk),
-		.reset(rst),
-		.i_d(prep? {PE*ACCU_WIDTH{1'b0}} : (last_out? {PE*ACCU_WIDTH{1'b0}} : DatInt)),
-		.i_v(prep? 1 : (en? val_out : 0)),
-		.i_r(),
-		.o_d(Acc),
-		.o_v(),
-		.o_r(en & inc_acc),
-		.count(),
-		.maxcount()
-	);
+	(* SHREG_EXTRACT = "yes" *) logic [PE-1:0][ACCU_WIDTH-1:0]  AccLine[TH];
+	always_ff @(posedge clk) begin
+		if(acc_shift) begin
+			AccLine[0] <= Last[ADD_LAT-1]? 0 : sum;
+			for(int  i = 1; i < TH; i++)  AccLine[i] <= AccLine[i-1];
+		end
+	end
+	assign  acc = prep? 0 : AccLine[TH-1];
 
 	//=== Output Stage ======================================================
 	always_ff @(posedge clk) begin

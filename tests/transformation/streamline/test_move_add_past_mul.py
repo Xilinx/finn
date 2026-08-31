@@ -135,7 +135,6 @@ def test_move_add_past_mul_only_if_linear():
     model = ModelWrapper(modelproto)
     model = model.transform(InferShapes())
 
-    np.random.seed(0)
     model.set_initializer("add1_param", np.random.rand(2).astype(np.float32))
     model.set_initializer("mul1_param", np.random.rand(2).astype(np.float32))
     model.set_initializer("mul2_param", np.random.rand(2).astype(np.float32))

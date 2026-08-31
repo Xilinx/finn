@@ -43,7 +43,7 @@ from finn.transformation.fpgadataflow.transpose_decomposition import (
     InferInnerOuterShuffles,
     ShuffleDecomposition,
 )
-from finn.util.basic import get_liveness_threshold_cycles, make_build_dir, robust_rmtree
+from finn.util.basic import get_watchdog_timeout_cycles, make_build_dir, robust_rmtree
 from finn.util.config import extract_model_config_consolidate_shuffles
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
@@ -642,8 +642,9 @@ def test_rtlsim_shuffle_layer(shuffle_param, datatype, simd, monkeypatch):
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_stitched_ip_shuffle_layer(shuffle_sip_param, datatype, simd):
+def test_stitched_ip_shuffle_layer(shuffle_sip_param, datatype, simd, monkeypatch):
     """Build stitched IP for shuffle layer tests and save results for buffer analysis"""
+    monkeypatch.setenv("LIVENESS_THRESHOLD", "10000000")
     dt = DataType[datatype]
     simd = int(simd[-1])
     in_shape = shuffle_sip_param["in_shape"]
@@ -734,6 +735,76 @@ def test_shuffle_config_consolidation():
     robust_rmtree(test_dir)
 
 
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_inner_shuffle_rtlsim_stalled_final_write_is_quiescent(monkeypatch):
+    """An incomplete page must not be announced while its final write is stalled."""
+    monkeypatch.setenv("LIVENESS_THRESHOLD", "10000000")
+    if not finnxsi.is_available():
+        pytest.skip("finn_xsi (XSI rtlsim) not available")
+
+    simd = 2
+    dt = DataType["UINT8"]
+    in_shape = (1, 4, 4)
+    model = construct_onnx_model(
+        input_shape=in_shape,
+        transpose_perm=(0, 2, 1),
+        reshape1_shape=None,
+        reshape2_shape=None,
+        dt=dt,
+    )
+    model = model.transform(InferShuffle(_filter=lambda *_: True))
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(SetShuffleSIMD(simd))
+    model = model.transform(ShuffleDecomposition())
+    model = model.transform(InferInnerOuterShuffles())
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareIP(test_fpga_part, test_synth_clk_period_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+
+    inst = getCustomOp(model.get_nodes_by_op_type("InnerShuffle_rtl")[0])
+    in_folded = inst.get_folded_input_shape(0)
+    frame = np.arange(16, dtype=np.float32).reshape(in_folded)
+    packed_frame = npy_to_rtlsim_input(
+        frame,
+        inst.get_input_datatype(0),
+        inst.get_instream_width(0),
+    )
+
+    sim = inst.get_rtlsim()
+    try:
+        inst.reset_rtlsim(sim)
+        sim.stream_input("in0_V", (f"{value:x}" for value in packed_frame[:-1]))
+        assert not sim.run()
+
+        output_valid = sim.get_bus_port("out0_V", "tvalid")
+
+        class IdleProbe:
+            def __init__(self, cycles):
+                self.remaining = cycles
+                self.saw_valid = False
+
+            def __bool__(self):
+                return True
+
+            def __call__(self, _sim):
+                self.saw_valid |= output_valid.read().as_bool()
+                self.remaining -= 1
+                return None if self.remaining == 0 else {}
+
+        probe = IdleProbe(32)
+        sim.enlist(probe)
+        assert not sim.run()
+        assert not probe.saw_valid
+    finally:
+        inst.close_rtlsim(sim)
+
+
 @pytest.mark.parametrize("throttle", [(float("inf"), 0), (1, 15)], ids=["backtoback", "bursty"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
@@ -792,7 +863,7 @@ def test_inner_shuffle_rtl_bursty(throttle, monkeypatch):
     hex_in = map(lambda v: f"{v:0x}", packed_in)
 
     sim = inst.get_rtlsim()
-    liveness = max(inst.get_exp_cycles(), get_liveness_threshold_cycles())
+    liveness = get_watchdog_timeout_cycles(inst.get_exp_cycles())
     try:
         inst.reset_rtlsim(sim)
         sim.stream_input("in0_V", hex_in, throttle=throttle)

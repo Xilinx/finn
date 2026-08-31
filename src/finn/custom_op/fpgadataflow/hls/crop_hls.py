@@ -15,9 +15,6 @@ from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 
 
 class Crop_hls(Crop, HLSBackend):
-    def __init__(self, onnx_node, **kwargs):
-        super().__init__(onnx_node, **kwargs)
-
     def get_nodeattr_types(self):
         return Crop.get_nodeattr_types(self) | HLSBackend.get_nodeattr_types(self)
 

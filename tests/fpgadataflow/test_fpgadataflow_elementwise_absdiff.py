@@ -62,7 +62,6 @@ from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 def build_absdiff_model(shp, dt0, dt1):
     """Build a model with Sub -> Abs pattern that will be fused to AbsDiff."""
-    np.random.seed(0)
     shp_str = str(shp)
     graph = """
     sub_out = Sub(in0, in1)
