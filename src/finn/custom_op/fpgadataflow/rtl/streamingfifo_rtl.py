@@ -70,15 +70,6 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
             "%s: depth %d cannot be built, fifo.sv requires 2 or above. A FIFO this "
             "shallow should have been removed by RemoveShallowFIFOs." % (self.onnx_node.name, depth)
         )
-        # fifo.sv may implement more capacity than requested. srl is never
-        # smaller then four stages, the memory path rounds up to whole primitives.
-        # Set depth counter bitwidth high to avoid overflow
-        count_width = 32
-        # fifo.sv's RAM_STYLE_EFF ladder is the decision, so the request goes to it
-        # untouched; resolve_ram_style() only predicts what it will pick, on demand for
-        # the estimators and the build report
-        code_gen_dict["$COUNT_WIDTH$"] = f"{count_width}"
-        code_gen_dict["$COUNT_RANGE$"] = "[{}:0]".format(count_width - 1)
         code_gen_dict["$IN_RANGE$"] = "[{}:0]".format(in_width - 1)
         code_gen_dict["$OUT_RANGE$"] = "[{}:0]".format(in_width - 1)
         code_gen_dict["$WIDTH$"] = str(in_width)

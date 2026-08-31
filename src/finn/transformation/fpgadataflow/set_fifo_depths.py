@@ -48,6 +48,19 @@ from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
+def check_fifo_gauge_overflow(node_name, observed):
+    # fifo_gauge.sv exposes a fixed 32-bit occupancy counter and holds maxcount at its
+    # maximum value (2^32-1) as a sticky sentinel once the counter has wrapped. A depth
+    # sized from a wrapped counter would be unreliable, so flag that value as an overflow
+    # marker rather than trusting it as a real fill level.
+    count_overflow = 2**32 - 1
+    if observed >= count_overflow:
+        raise RuntimeError(
+            "%s: FIFO sizing gauge overflowed its 32-bit occupancy counter "
+            "(maxcount=%d); the sized depth would be unreliable." % (node_name, observed)
+        )
+
+
 def reset_implementation(node):
     node.set_nodeattr("code_gen_dir_ipgen", "")
     node.set_nodeattr("ipgen_path", "")
@@ -447,15 +460,7 @@ class InsertAndSetFIFODepths(Transformation):
             if ind == 0:
                 maxcount_name = "maxcount"
             observed = sim[maxcount_name]
-
-            # Warn that MaxCount went over the FIFO sizing insertion depths
-            insertion_depth = getCustomOp(node).get_nodeattr("depth")
-            if observed >= insertion_depth:
-                warnings.warn(
-                    "%s: maxcount %d, FIFO depth %d -> FIFO sizing counter observed %d more entries"
-                    "than FIFO gauge could measure, it is likely the results are incorrect."
-                    % (node.name, observed, insertion_depth, observed - insertion_depth)
-                )
+            check_fifo_gauge_overflow(node.name, observed)
             fifos[node.name] = observed
 
         # Apply depths back into the model;

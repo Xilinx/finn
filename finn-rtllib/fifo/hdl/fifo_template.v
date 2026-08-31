@@ -29,7 +29,12 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *****************************************************************************/
 
-module $TOP_MODULE_NAME$(
+module $TOP_MODULE_NAME$ #(
+	// Width of the fill-count ports; wide enough to carry fifo_gauge's fixed
+	// 32-bit occupancy counter out to FIFO sizing without truncation. fifo.sv's
+	// own (narrower) counter zero-extends into these ports.
+	parameter COUNT_WIDTH = 32
+)(
 //- Global Control ------------------
 (* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out0_V, ASSOCIATED_RESET ap_rst_n" *)
 (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
@@ -37,8 +42,8 @@ input   ap_clk,
 (* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
 input   ap_rst_n,
 
-output $COUNT_RANGE$ count,
-output $COUNT_RANGE$ maxcount,
+output [COUNT_WIDTH-1:0] count,
+output [COUNT_WIDTH-1:0] maxcount,
 
 //- AXI Stream - Input --------------
 output   in0_V_TREADY,
