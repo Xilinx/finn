@@ -27,7 +27,6 @@ import pytest
 import custom_steps
 import os
 import tempfile
-from collections import namedtuple
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
@@ -37,9 +36,18 @@ from finn.builder.build_dataflow_config import (
     VerificationStepType,
 )
 
-# Path to the (user-supplied) quantized BERT ONNX model. Not committed.
-MODEL_PATH = "tests/benchmark/bert/quantized_int8_model_cleaned.onnx"
+# from collections import namedtuple  # MLO only: re-enable for a multi-layer BERT
 
+
+# Path to the (user-supplied) quantized BERT ONNX model. Not committed.
+MODEL_PATH = "tests/benchmark/bert/l1_bert_quantized_int8.onnx"
+
+# ---------------------------------------------------------------------------
+# MLO loop-rolling markers -- DISABLED for the 1-layer BERT (nothing to roll).
+# To build a *multi-layer* BERT, uncomment the ``namedtuple`` import above, the
+# constants below, and the ``mlo`` / ``loop_body_*`` args + MLO folding config in
+# test_build_bert(), and swap the folding config back to mlo_high_folding.json.
+# ---------------------------------------------------------------------------
 # MLO loop-body marker. ``loop_body_hierarchy`` selects the PyTorch metadata
 # hierarchy for the loop body; ``loop_body_range`` marks the (start, end) node
 # range of that loop body. The range is required because this fork cannot
@@ -55,7 +63,7 @@ MODEL_PATH = "tests/benchmark/bert/quantized_int8_model_cleaned.onnx"
 # tests/fpgadataflow/test_fpgadataflow_finnloop.py uses), NOT the original
 # PyTorch module path. A mismatch yields an empty subgraph and the
 # "GraphPattern must have at least one output" error during loop rolling.
-LOOP_BODY_HIERARCHY = [["", "layers.0"]]
+# LOOP_BODY_HIERARCHY = [["", "layers.0"]]
 
 # ``loop_body_range`` is consumed by ``SetLoopBoundary`` inside
 # ``step_loop_rolling``; that transform only reads ``.name`` off each endpoint
@@ -68,11 +76,11 @@ LOOP_BODY_HIERARCHY = [["", "layers.0"]]
 # equals the end name. The names must be the node names present at
 # step_loop_rolling time (i.e. after streamlining / convert_to_hw /
 # specialize_layers, so FINN HW-layer names).
-NodeRef = namedtuple("NodeRef", ["name"])
+# NodeRef = namedtuple("NodeRef", ["name"])
 
 # Loop body of the 6-layer model spans the first encoder layer, from the
 # DuplicateStreams at its input to the residual ElementwiseAdd at its output.
-LOOP_BODY_RANGE = (NodeRef("DuplicateStreams_hls_0"), NodeRef("ElementwiseAdd_rtl_9"))
+# LOOP_BODY_RANGE = (NodeRef("DuplicateStreams_hls_0"), NodeRef("ElementwiseAdd_rtl_9"))
 
 
 def select_build_steps():
@@ -85,27 +93,17 @@ def select_build_steps():
         custom_steps.step_bert_cleanup,
         custom_steps.step_remove_head,
         custom_steps.step_generate_reference_io,
-        # --- base BERT pipeline ---
-        "step_qonnx_to_finn",  # stock; runs ConvertQONNXtoFINN
-        custom_steps.step_bert_streamlining,
-        "step_convert_to_hw",  # = Brainsmith infer_kernels; also runs InferShuffle
-        "step_create_dataflow_partition",
-        "step_specialize_layers",
-        "step_loop_rolling",  # MLO
-        "step_target_fps_parallelization",
-        "step_apply_folding_config",
-        "step_minimize_bit_width",
-        "step_transpose_decomposition",
-        "step_generate_estimate_reports",
-        "step_hw_codegen",
-        "step_hw_ipgen",
-        "step_set_fifo_depths",
-        "step_create_stitched_ip",
-        "step_measure_rtlsim_performance",
+        # --- base BERT pipeline (phase-based) ---
+        "phase_prepare_model",  # step_qonnx_to_finn + step_tidy_up
+        custom_steps.step_bert_streamlining,  # replaces phase_optimize_model's step_streamline
+        "phase_convert_to_hardware",  # convert_to_hw + partition + specialize + loop_rolling (MLO)
+        "phase_optimize_hardware",  # fps + folding + minimize_bit_width + transpose + estimates
+        "phase_build_hardware",  # MLO:loop-body set_fifo_depths+ipgen/stitch, then main fifo+ipgen
+        "phase_generate_outputs",  # stitched IP + rtlsim perf
         # --- at_end (custom V80 shell integration + build) ---
-        custom_steps.step_stage_reference_io,
-        custom_steps.step_v80_hw_build,
-        custom_steps.step_v80_sw_build,
+        # custom_steps.step_stage_reference_io,
+        # custom_steps.step_v80_hw_build,
+        # custom_steps.step_v80_sw_build,
     ]
 
 
@@ -114,8 +112,9 @@ def select_build_steps():
 def test_build_bert():
     if not MODEL_PATH or not os.path.isfile(MODEL_PATH):
         pytest.skip("Set BERT_MODEL_PATH to a quantized BERT ONNX model to run this build.")
-    if LOOP_BODY_RANGE is None:
-        pytest.skip("Set LOOP_BODY_RANGE (the loop-body [start, end] node range) to run.")
+    # MLO only (multi-layer BERT): re-enable the loop-body range skip guard.
+    # if LOOP_BODY_RANGE is None:
+    #     pytest.skip("Set LOOP_BODY_RANGE (the loop-body [start, end] node range) to run.")
 
     build_dir = os.environ.get("FINN_BUILD_DIR", tempfile.gettempdir())
     output_dir = os.path.join(build_dir, "output_bert_l6_v80")
@@ -124,23 +123,27 @@ def test_build_bert():
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=output_dir,
         steps=select_build_steps(),
-        # clock / board / shell (V80 -> SLASH_ALVEO; fpga_part resolved from board)
+        # clock / board / shell (VCK190 -> VIVADO_ZYNQ; fpga_part resolved from board).
+        # VCK190 is DDR-only (not in hbm_boards), so FINNLoop mem_type auto-resolves
+        # to "DDR" in step_set_fifo_depths; no explicit mem_type needed.
         synth_clk_period_ns=5.0,  # 200 MHz
-        board="V80",
-        shell_flow_type=ShellFlowType.SLASH_ALVEO,
-        # MLO
-        mlo=True,
-        loop_body_hierarchy=LOOP_BODY_HIERARCHY,
-        loop_body_range=LOOP_BODY_RANGE,
+        board="VCK190",
+        shell_flow_type=ShellFlowType.VIVADO_ZYNQ,
+        # MLO -- DISABLED for the 1-layer BERT (single encoder layer, nothing to
+        # roll). Re-enable these three args for a multi-layer BERT.
+        # mlo=True,
+        # loop_body_hierarchy=LOOP_BODY_HIERARCHY,
+        # loop_body_range=LOOP_BODY_RANGE,
         # folding / thresholds / fifos
-        folding_config_file=os.path.join(config_dir, "mlo_high_folding.json"),
+        folding_config_file=os.path.join(config_dir, "unrolled_high_folding.json"),
+        # MLO (multi-layer) folding config:
+        # folding_config_file=os.path.join(config_dir, "mlo_high_folding.json"),
         standalone_thresholds=True,
         preserve_thresh_shape=True,
-        split_large_fifos=True,
         auto_fifo_depths=True,
         fifosim_n_inferences=2,
-        #fifosim_save_waveform=True,
-        #debug_fifo=True,
+        # fifosim_save_waveform=True,
+        # debug_fifo=True,
         stitched_ip_gen_dcp=True,
         verification_atol=0.1,
         mute_config_assertions=True,
