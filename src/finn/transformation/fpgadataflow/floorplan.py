@@ -66,7 +66,7 @@ class Floorplan(Transformation):
                 json.dump(self.user_floorplan, f, indent=4)
         else:
             model.set_metadata_prop("floorplan_json", self.user_floorplan)
-            model = model.transform(ApplyConfig(self.user_floorplan))
+            model = model.transform(ApplyConfig(self.user_floorplan, apply_to_subgraphs=True))
 
         try:
             default_slr = self.user_floorplan["Defaults"]["slr"][0]
