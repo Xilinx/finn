@@ -63,18 +63,18 @@ _qonnx_pyproj_toml="${FINN_ROOT}/deps/qonnx/pyproject.toml"
 _qonnx_pyproj_tmp="${FINN_ROOT}/deps/qonnx/pyproject.tmp"
 mv "$_qonnx_pyproj_toml" "$_qonnx_pyproj_tmp"
 trap 'mv "$_qonnx_pyproj_tmp" "$_qonnx_pyproj_toml" 2>/dev/null || true' EXIT
-pip install --user -e "${FINN_ROOT}/deps/qonnx"
+pip install --break-system-packages --user -e "${FINN_ROOT}/deps/qonnx"
 mv "$_qonnx_pyproj_tmp" "$_qonnx_pyproj_toml"
 trap - EXIT
 
 # finn-experimental
-pip install --user -e "${FINN_ROOT}/deps/finn-experimental"
+pip install --break-system-packages --user -e "${FINN_ROOT}/deps/finn-experimental"
 # brevitas
-pip install --user -e "${FINN_ROOT}/deps/brevitas"
+pip install --break-system-packages --user -e "${FINN_ROOT}/deps/brevitas"
 
 if [ -f "${FINN_ROOT}/setup.py" ];then
   # run pip install for finn
-  pip install --user -e "${FINN_ROOT}"
+  pip install --break-system-packages --user -e "${FINN_ROOT}"
 else
   recho "Unable to find FINN source code in ${FINN_ROOT}"
   recho "Ensure you have passed -v <path-to-finn-repo>:<path-to-finn-repo> to the docker run command"
@@ -93,8 +93,7 @@ if [ -f "$VITIS_PATH/settings64.sh" ];then
     source "$XILINX_XRT/setup.sh" || true
     gecho "Found XRT at $XILINX_XRT"
   else
-    recho "XRT not found on $XILINX_XRT, did you skip the download or did the installation fail?"
-    exit -1
+    yecho "XRT not found on $XILINX_XRT, Alveo U-series devices (U250, U280, U50, U55C, etc.) functionality will not be available."
   fi
 else
   yecho "Unable to find $VITIS_PATH/settings64.sh"

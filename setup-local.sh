@@ -100,14 +100,14 @@ echo ""
 # Step 1: Check prerequisites
 gecho "Step 1: Checking prerequisites..."
 
-# Check Python version (require 3.10+)
+# Check Python version (require 3.12+)
 PYTHON_VERSION=$(python3 --version 2>&1 | cut -d' ' -f2)
 PYTHON_MAJOR=$(echo $PYTHON_VERSION | cut -d'.' -f1)
 PYTHON_MINOR=$(echo $PYTHON_VERSION | cut -d'.' -f2)
 
-if [[ $PYTHON_MAJOR -lt 3 ]] || [[ $PYTHON_MAJOR -eq 3 && $PYTHON_MINOR -lt 10 ]]; then
-    recho "Python 3.10 or higher required, found $PYTHON_VERSION"
-    recho "Set FINN_PYTHON to point to a Python 3.10+ interpreter"
+if [[ $PYTHON_MAJOR -lt 3 ]] || [[ $PYTHON_MAJOR -eq 3 && $PYTHON_MINOR -lt 12 ]]; then
+    recho "Python 3.12 or higher required, found $PYTHON_VERSION"
+    recho "Set FINN_PYTHON to point to a Python 3.12+ interpreter"
     exit 1
 fi
 gecho "  Python $PYTHON_VERSION - OK"
@@ -158,10 +158,10 @@ if [ -d "$VENV_DIR" ]; then
     yecho "Virtual environment already exists at $VENV_DIR"
     yecho "Reusing existing environment. Delete .venv to start fresh."
 else
-    # Use FINN_PYTHON if set, otherwise look for Python 3.10
+    # Use FINN_PYTHON if set, otherwise look for Python 3.12
     if [ -z "$FINN_PYTHON" ]; then
-        if [ -x "/usr/bin/python3.10" ]; then
-            FINN_PYTHON="/usr/bin/python3.10"
+        if [ -x "/usr/bin/python3.12" ]; then
+            FINN_PYTHON="/usr/bin/python3.12"
         else
             FINN_PYTHON="python3"
         fi
@@ -193,32 +193,37 @@ pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --extra-index-url
 gecho "  Installed PyTorch"
 
 # Install extra Python packages (from Dockerfile)
-pip install pygments==2.14.0
-pip install ipykernel==6.21.2
-pip install markupsafe==2.0.1
-pip install matplotlib==3.7.0
+pip install pygments==2.17.2
+pip install ipykernel==6.29.0
+pip install markupsafe==2.1.5
+pip install matplotlib==3.8.2
 pip install pytest-dependency==0.5.1
 pip install pytest-xdist[setproctitle]==3.2.0
 pip install pytest-parallel==0.1.1
 pip install netron
-pip install pandas==1.5.3
-pip install scikit-learn==1.2.1
+pip install pandas==2.1.4
+pip install scikit-learn==1.4.0
 pip install tqdm==4.64.1
-pip install pytest==6.2.5
-pip install pytest-metadata==1.7.0
-pip install pytest-html==3.0.0
-pip install pytest-html-merger==0.0.8
+# pytest 7.x (and matching plugin majors) required on Python 3.12: pytest-html
+# 3.0.0 imports the removed py.xml and fails to load as a plugin; 4.x needs
+# pytest>=7, pytest-metadata>=2 and pytest-html-merger 0.1.0 for its report format.
+pip install pytest==7.4.4
+pip install pytest-metadata==3.1.1
+pip install pytest-html==4.1.1
+pip install pytest-html-merger==0.1.0
 pip install pytest-cov==4.1.0
 pip install pyyaml==6.0.1
 pip install jupyter==1.0.0
 pip install 'anyio<4.13'
 pip install git+https://github.com/fbcotter/dataset_loading.git@0.0.4
 # finn-experimental deps
-pip install deap==1.3.1
+pip install deap==1.4.1
 pip install mip==1.13.0
 pip install networkx==2.8
 # brevitas deps
+pip install future-annotations==1.0.0
 pip install dependencies==2.0.1
+pip install tokenize-rt==4.2.1
 pip install setuptools==68.2.2
 gecho "  Installed extra packages"
 
