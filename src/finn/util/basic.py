@@ -284,8 +284,7 @@ class CppBuilder:
             f.write("#!/bin/bash \n")
             f.write(bash_compile + "\n")
         bash_command = ["bash", self.compile_script]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
+        launch_process_helper(bash_command, check=True)
 
 
 def launch_process_helper(args, proc_env=None, cwd=None, check=False):

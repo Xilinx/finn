@@ -295,7 +295,7 @@ def rtlsim_exec_cppxsi(
     # write compilation command to a file for easy re-running/debugging
     with open(sim_base + "/compile_rtlsim.sh", "w") as f:
         f.write(" ".join(build_cmd))
-    launch_process_helper(build_cmd, cwd=sim_base)
+    launch_process_helper(build_cmd, cwd=sim_base, check=True)
     assert os.path.isfile(sim_base + "/rtlsim_xsi"), "Failed to compile rtlsim executable"
 
     # launch the rtlsim executable
@@ -310,7 +310,7 @@ def rtlsim_exec_cppxsi(
             " ./rtlsim_xsi > rtlsim_xsi_log.txt"
             " 2> rtlsim_xsi_stderr.log"
         )
-    launch_process_helper(runsim_cmd, cwd=sim_base)
+    launch_process_helper(runsim_cmd, cwd=sim_base, check=True)
 
     # parse results file and return dict
     results_filename = sim_base + "/results.txt"
