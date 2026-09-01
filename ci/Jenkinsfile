@@ -90,6 +90,16 @@ int finnCiMinFreeGB() {
 @Field
 static final String FINN_BUILD_LABEL = 'finn-build'
 
+// The commit every stage checks out. Resolved once from the branch tip on the
+// first checkoutPinned() call (Validate) and reused unchanged for the rest of
+// the build, so `git describe` — and therefore the Docker tag baked by
+// run-docker.sh — is identical in the Build Docker Image stage and its
+// consumers. Without this, each stage's checkout re-resolves the branch head;
+// a push mid-build desyncs the tag and hard-fails the PREBUILT check in
+// run-docker.sh. @Field so the SHA survives CPS replay across stages/agents.
+@Field
+String PINNED_SCM_COMMIT = ''
+
 // Optional setup-local.sh stage label and cache root.
 // Read via helpers, not @Field, so env resolution happens
 // inside the running pipeline rather than at script load.
@@ -126,6 +136,10 @@ pipeline {
   agent none
   options {
     timeout(time: 72, unit: 'HOURS')
+    // Every stage checks out through checkoutPinned() instead of the implicit
+    // per-agent checkout, so the whole build tests one commit even if the
+    // branch is pushed mid-run. See checkoutPinned() / PINNED_SCM_COMMIT.
+    skipDefaultCheckout()
   }
   parameters {
     // STAGES choices mirror finn_ci.config.jenkins_stage_choices(). Drift
@@ -151,6 +165,7 @@ pipeline {
       agent { label "${FINN_BUILD_LABEL}" }
       steps {
         script {
+          checkoutPinned()
           wipeStaleWorkspace()
           announceCiMode()
           loadStageConfig()
@@ -165,14 +180,14 @@ pipeline {
     stage('Build Docker Image') {
       agent { label "${FINN_BUILD_LABEL}" }
       environment { FINN_DOCKER_PREBUILT = '0' }
-      steps { script { wipeStaleWorkspace(); withAgentNfsEnv(exposeSharedImage: false) { buildAndPublishDockerImage() } } }
+      steps { script { checkoutPinned(); wipeStaleWorkspace(); withAgentNfsEnv(exposeSharedImage: false) { buildAndPublishDockerImage() } } }
     }
     stage('Run Tests') {
       steps { script { runParallelOrFail(buildParallelStageMap()) } }
     }
     stage('Check Stage Results') {
       agent { label "${FINN_BUILD_LABEL}" }
-      steps { script { withAgentNfsEnv { aggregateReports() } } }
+      steps { script { checkoutPinned(); withAgentNfsEnv { aggregateReports() } } }
     }
   }
   // post { always } runs on graceful completion AND graceful abort. It is
@@ -425,7 +440,7 @@ void runShard(Map entry) {
   node(FINN_BUILD_LABEL) {
     withAgentNfsEnv {
       stage(stageName) {
-        checkout scm
+        checkoutPinned()
         wipeStaleWorkspace()
         String perBuildRoot = finnCiPerBuildRoot()
         String buildDir = "${perBuildRoot}/${stashName}"
@@ -497,7 +512,7 @@ void runLocalSetupTest() {
   node(finnLocalBuildLabel()) {
     withAgentNfsEnv {
       stage('Local Setup (non-Docker) with Vivado') {
-        checkout scm
+        checkoutPinned()
         wipeStaleWorkspace()
         String perBuildRoot = finnCiPerBuildRoot()
         String buildDir = "${perBuildRoot}/local_setup"
@@ -833,6 +848,30 @@ void findCopyZip(String testType, String board, String findDir, String copyDir) 
 // ============================================================================
 // Cross-cutting helpers
 // ============================================================================
+
+// Single checkout entry point for every stage (skipDefaultCheckout() is set, so
+// nothing else clones). The first call (Validate) resolves the branch tip and
+// records it in PINNED_SCM_COMMIT; every later call — on any agent — checks out
+// that exact SHA, reusing the job's configured remotes/extensions/browser so
+// credentials, refspecs and tag fetching match a plain `checkout scm`. This
+// keeps `git describe` (and the Docker tag) constant across stages even if the
+// branch moves mid-build. Must run before wipeStaleWorkspace(), which needs a
+// populated git workspace to `git clean`/`git status`.
+void checkoutPinned() {
+  if (!PINNED_SCM_COMMIT) {
+    def vars = checkout scm
+    PINNED_SCM_COMMIT = vars.GIT_COMMIT
+    echo "checkoutPinned: pinned build to ${PINNED_SCM_COMMIT}"
+    return
+  }
+  checkout([
+    $class: 'GitSCM',
+    branches: [[name: PINNED_SCM_COMMIT]],
+    userRemoteConfigs: scm.userRemoteConfigs,
+    extensions: scm.extensions,
+    browser: scm.browser,
+  ])
+}
 
 // Per-shard scratch lives under WORKSPACE_TMP (a sibling of the git
 // workspace) so git clean has no deep NFS scratch tree to walk. We still
