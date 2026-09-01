@@ -25,79 +25,23 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.change_3d_tensors_to_4d import Change3DTo4DTensors
+from qonnx.transformation.general import GiveUniqueNodeNames
 
-# Temporary and binary files
-*~
-*.py[cod]
-*.so
-*.cfg
-!.isort.cfg
-!setup.cfg
-*.orig
-*.log
-*.pot
-__pycache__/*
-.cache/*
-.*.swp
-*.ipynb_checkpoints*
+import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
+import finn.transformation.streamline.absorb as absorb
+from finn.builder.build_dataflow_config import DataflowBuildConfig
 
-# Project files
-.vscode
-.ropeproject
-.project
-.pydevproject
-.settings
-.idea
-tags
 
-# Package files
-*.egg
-*.eggs/
-.installed.cfg
-*.egg-info
+def step_pre_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
+    model = model.transform(Change3DTo4DTensors())
+    model = model.transform(absorb.AbsorbScalarMulAddIntoTopK())
+    return model
 
-# Unittest and coverage
-htmlcov/*
-.coverage
-.tox
-junit.xml
-coverage.xml
-.pytest_cache/
 
-# Build and docs folder/files
-build/*
-dist/*
-sdist/*
-docs/api/*
-docs/_rst/*
-docs/_build/*
-cover/*
-MANIFEST
-
-# Per-project virtualenvs
-.venv*/
-
-# SSH key dir mounted into Docker
-/ssh_keys/
-
-# PYNQ board files
-/board_files/
-
-# datasets for testing
-/dataset/
-/data/
-*.csv
-
-# Google Drive key for dashboard
-/gdrive-key/
-
-# generated files as part of end2end notebooks
-/notebooks/end2end_example/**/*.onnx
-
-# downloaded dep repos
-/deps/
-
-# benchmark test onnx models and npy files
-/tests/benchmark/models/*.onnx
-/tests/benchmark/models/*.zip
-/tests/benchmark/verification_io/*.npy
+def step_convert_final_layers(model: ModelWrapper, cfg: DataflowBuildConfig):
+    model = model.transform(to_hw.InferChannelwiseLinearLayer())
+    model = model.transform(to_hw.InferLabelSelectLayer())
+    model = model.transform(GiveUniqueNodeNames())
+    return model
