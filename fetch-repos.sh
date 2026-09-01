@@ -32,7 +32,7 @@
 # `-u` is deliberately omitted: optional FINN_SKIP_BOARD_FILES flag may be unset.
 set -eo pipefail
 
-QONNX_COMMIT="a1174a5be4d122629a4d6bc117fb79480bfe3a02"
+QONNX_COMMIT="4c1f9b4452bb90e743f3bd7e182603fa5096af06"
 FINN_EXP_COMMIT="0724be21111a21f0d81a072fccc1c446e053f851"
 BREVITAS_COMMIT="aad4d5a293db6f2ec622a92a5d3278e47072453e"
 HLSLIB_COMMIT="8d979e2bdced486dd25d26607d1ff5ae327ed6a8"
@@ -48,7 +48,7 @@ KV260_BDF_COMMIT="98e0d3efc901f0b974006bc4370c2a7ad8856c79"
 EXP_BOARD_FILES_MD5="221a7edc838f4236922afbd9b9a20f17"
 AUPZU3_BDF_COMMIT="b595ecdf37c7204129517de1773b0895bcdcc2ed"
 
-QONNX_URL="https://github.com/fpjentzsch/qonnx.git"
+QONNX_URL="https://github.com/fastmachinelearning/qonnx.git"
 FINN_EXP_URL="https://github.com/Xilinx/finn-experimental.git"
 BREVITAS_URL="https://github.com/Xilinx/brevitas.git"
 HLSLIB_URL="https://github.com/Xilinx/finn-hlslib.git"
