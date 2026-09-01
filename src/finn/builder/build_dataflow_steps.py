@@ -144,7 +144,7 @@ from finn.transformation.fpgadataflow.transpose_decomposition import (
     InferInnerOuterShuffles,
     ShuffleDecomposition,
 )
-from finn.transformation.general import ApplyConfig, AssertNoAmbiguousMaxPoolCeilMode
+from finn.transformation.general import ApplyConfig
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.qonnx.quant_act_to_multithreshold import (
@@ -351,9 +351,6 @@ def step_tidy_up(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     model = model.transform(GiveUniqueNodeNames())
-    # reject ceil_mode=1 MaxPool whose output size is runtime-dependent (naive-ceil
-    # vs drop-rule disagree) before any further processing relies on its shape
-    model = model.transform(AssertNoAmbiguousMaxPoolCeilMode())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(InferDataTypes())
     model = model.transform(RemoveStaticGraphInputs())

@@ -45,7 +45,6 @@ from qonnx.util.onnx import nchw_to_nhwc
 
 # Module containing specializations of elementwise binary operations
 import finn.custom_op.fpgadataflow.elementwise_binary as elementwise_binary
-from finn.transformation.general import AssertNoAmbiguousMaxPoolCeilMode
 from finn.util.basic import resolve_resize_param_input
 
 
@@ -980,9 +979,6 @@ class InferPool(Transformation):
     data layout."""
 
     def apply(self, model):
-        # catch runtime-dependent ceil_mode=1 MaxPool here too, so it is rejected
-        # even outside the FINN build flow (e.g. when InferPool is called directly)
-        model = model.transform(AssertNoAmbiguousMaxPoolCeilMode())
         graph = model.graph
         node_ind = 0
         graph_modified = False
@@ -999,9 +995,12 @@ class InferPool(Transformation):
                     continue
 
                 # extract pool parameters
+                ceil_mode = 0
                 if node.op_type == "MaxPool":
                     kh, kw = list(get_by_name(node.attribute, "kernel_shape").ints)
                     sh, sw = list(get_by_name(node.attribute, "strides").ints)
+                    ceil_mode_attr = get_by_name(node.attribute, "ceil_mode")
+                    ceil_mode = ceil_mode_attr.i if ceil_mode_attr is not None else 0
                     dlayout = "NCHW"
                 elif node.op_type == "QuantAvgPool2d":
                     inst = getCustomOp(node)
@@ -1014,6 +1013,7 @@ class InferPool(Transformation):
                     inst = getCustomOp(node)
                     kh, kw = inst.get_nodeattr("kernel_shape")
                     sh, sw = inst.get_nodeattr("strides")
+                    ceil_mode = inst.get_nodeattr("ceil_mode")
                     dlayout = "NHWC"
                 try:
                     pad = list(get_by_name(node.attribute, "pads").ints)
@@ -1037,6 +1037,19 @@ class InferPool(Transformation):
                     _, ofm_h, ofm_w, ofm_ch = oshape
                 else:
                     raise Exception("Unknown dlayout: " + str(dlayout))
+
+                # ceil_mode=1 may require a trailing pooling window whose footprint
+                # extends past the input's trailing edge. The sliding-window generator
+                # only produces a floor-count grid, so absorb the ceil extension into
+                # extra trailing padding (bottom/right) such that the Im2Col floor
+                # formula reproduces the declared output size. For MaxPool this is
+                # exact: the pad value is the datatype min (matching the off-edge
+                # elements onnxruntime ignores in the max), and the drop rule
+                # guarantees every kept window still contains a real element.
+                # pad = [H_begin, W_begin, H_end, W_end]
+                if ceil_mode and node.op_type in ["MaxPool", "MaxPoolNHWC"]:
+                    pad[2] += max(0, (ofm_h - 1) * sh + kh - ifm_h - (pad[0] + pad[2]))
+                    pad[3] += max(0, (ofm_w - 1) * sw + kw - ifm_w - (pad[1] + pad[3]))
 
                 # if data layout NCHW, we need transpose nodes surrounding
                 # the hw layer
