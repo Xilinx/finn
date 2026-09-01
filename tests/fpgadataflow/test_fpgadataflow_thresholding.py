@@ -152,6 +152,15 @@ def make_single_multithresholding_modelwrapper(
 
     node_inp_list = ["inp", "thresh"]
 
+    # The generated tensors are always channels-last, but qonnx's MultiThreshold
+    # reference now locates the channel axis from the data_layout annotation
+    # (data_layout.index("C")). A fixed "NHWC" only matches rank-4 inputs and
+    # misplaces the channel axis for other ranks, so label the layout to match
+    # the actual tensor rank with C on the last axis.
+    rank = len(num_input_vecs) + 1
+    channels_last_layout = {2: "NC", 3: "NWC", 4: "NHWC", 5: "NDHWC"}
+    data_layout = channels_last_layout.get(rank, "N" + "S" * (rank - 2) + "C")
+
     Multithresholding_node = helper.make_node(
         "MultiThreshold",
         node_inp_list,
@@ -160,7 +169,7 @@ def make_single_multithresholding_modelwrapper(
         out_dtype=output_data_type.name,
         out_bias=float(activation_bias),
         out_scale=1.0,
-        data_layout="NHWC",
+        data_layout=data_layout,
     )
 
     graph = helper.make_graph(
