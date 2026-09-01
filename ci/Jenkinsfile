@@ -869,7 +869,6 @@ void checkoutPinned() {
     branches: [[name: PINNED_SCM_COMMIT]],
     userRemoteConfigs: scm.userRemoteConfigs,
     extensions: scm.extensions,
-    browser: scm.browser,
   ])
 }
 
