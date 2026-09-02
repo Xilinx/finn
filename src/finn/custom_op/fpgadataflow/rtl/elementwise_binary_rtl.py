@@ -389,6 +389,16 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
         }
         super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict, pre_hook=pre_hook)
 
+    def _reshape_dynamic_input(self, value, ind):
+        expected_shape = self.get_normal_input_shape(ind=ind)
+        if list(value.shape) == expected_shape:
+            return value
+        assert value.size == int(np.prod(expected_shape)), (
+            f"Input shape mismatch for {self.onnx_node.input[ind]}: "
+            f"got {list(value.shape)}, expected {expected_shape}"
+        )
+        return value.reshape(expected_shape)
+
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         if mode == "rtlsim":
@@ -397,13 +407,14 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             lhs = context[node.input[0]]
             rhs = context[node.input[1]]
 
-            assert list(lhs.shape) == self.get_normal_input_shape(
-                ind=0
-            ), f"Input shape mismatch for {node.input[0]}"
+            if self.lhs_style == "input":
+                lhs = self._reshape_dynamic_input(lhs, 0)
+            else:
+                assert list(lhs.shape) == self.get_normal_input_shape(
+                    ind=0
+                ), f"Input shape mismatch for {node.input[0]}"
             if self.rhs_style != "const":
-                assert list(rhs.shape) == self.get_normal_input_shape(
-                    ind=1
-                ), f"Input shape mismatch for {node.input[1]}"
+                rhs = self._reshape_dynamic_input(rhs, 1)
 
             out_shape = self.get_normal_output_shape(ind=0)
 
