@@ -9,6 +9,7 @@ how qonnx.custom_op.general provides execution for Brevitas-exported ops.
 """
 
 import numpy as np
+from onnx import helper
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.base import CustomOp
 
@@ -191,9 +192,13 @@ class PWPolyFunction(CustomOp):
         }
 
     def make_shape_compatible_op(self, model):
-        """Return a standard op that produces the same output shape."""
+        """Return a standard op that produces the same output shape.
+
+        PWPolyFunction is an element-wise activation, so output shape equals input shape.
+        Using Identity allows shape inference to work even when input shape is unknown.
+        """
         node = self.onnx_node
-        return super().make_const_shape_op(model.get_tensor_shape(node.input[0]))
+        return helper.make_node("Identity", [node.input[0]], [node.output[0]])
 
     def infer_node_datatype(self, model):
         """Infer and set output datatype (always FLOAT32)."""
