@@ -34,22 +34,22 @@ Two export paths are supported:
 
 .. code-block:: text
 
-   Path A: Brevitas PWPolyFGELU /       Path B: nn.GELU / nn.SiLU / etc.
-           PWPolyFSiLU / etc.               |  torch.onnx.export
-       |  export_finn_onnx                  |  (dynamo=True or False)
-       |  (dynamo=True or False)            v
-       v                               Standard ONNX ops (Gelu, Sigmoid,
-   finn.pwpolyf::PWPolyF node          Tanh, Sigmoid+Mul for SiLU,
-       |                               Div+Erf+Add+Mul+Mul for GELU)
+   Path A: PWPolyFActivation           Path B: nn.GELU / nn.SiLU / etc.
+       |  (util/torch_hw_modules.py)        |  torch.onnx.export
+       |  torch.onnx.export                 |  (dynamo=True or False)
+       v                                    v
+   PWPolyFunction node                 Standard ONNX ops (Gelu, Sigmoid,
+   (custom_op/general/)                Tanh, Sigmoid+Mul for SiLU,
+                                       Div+Erf+Add+Mul+Mul for GELU)
        |                                      |
        +------------- both paths -------------+
                          |
                    InferPWPolyFLayer
                          v
-               PWPolyF HW op (finn.custom_op.fpgadataflow)
+               PWPolyF HW op (custom_op/fpgadataflow)
                          |  SpecializeLayers
                          v
-               PWPolyF_rtl (finn.custom_op.fpgadataflow.rtl)
+               PWPolyF_rtl (custom_op/fpgadataflow/rtl)
                          |  generate_hdl
                          v
                finn-rtllib/pwpolyf/hdl/ SystemVerilog IP
@@ -141,16 +141,15 @@ ONNX Export
 
 Two export paths are supported:
 
-* Brevitas ``PWPolyFGELU``, ``PWPolyFSiLU``, ``PWPolyFSigmoid``, and
-  ``PWPolyFTanh`` export with ``export_finn_onnx`` as a single
-  ``finn.pwpolyf::PWPolyF`` custom op at custom opset version 1. Both the
-  legacy and Dynamo exporters preserve ``func``, ``K``, and ``degree``.
+* ``PWPolyFActivation`` from ``finn.util.torch_hw_modules`` exports as a
+  ``PWPolyFunction`` custom op in domain ``finn.custom_op.general``. The
+  exporter preserves ``func``, ``K``, and ``degree`` attributes.
 * Standard PyTorch modules (``nn.GELU``, ``nn.SiLU``, ``nn.Sigmoid``,
   ``nn.Tanh``) export with ``dynamo=True`` or ``dynamo=False`` and produce
   standard ONNX ops that ``InferPWPolyFLayer`` converts to PWPolyF with
   default ``K=3``.
 
-Attributes on the explicit PWPolyF ONNX node are:
+Attributes on the exported PWPolyFunction ONNX node are:
 
 * ``func``: one of ``gelu``, ``silu``, ``sigmoid``, ``tanh``
 * ``K``: mantissa subdivision bits, default 3
@@ -225,14 +224,14 @@ Python files:
 
    * - File
      - Purpose
+   * - ``custom_op/general/pwpolyfunction.py``
+     - ONNX custom op for graph execution, constants, coefficient fitting
    * - ``util/torch_hw_modules.py``
-     - Internal PyTorch reference model, compatibility export, software simulation
+     - PyTorch module for training and ONNX export
    * - ``custom_op/fpgadataflow/pwpolyf.py``
      - Base HW op for shape, folding, resource estimates, cppsim
    * - ``custom_op/fpgadataflow/rtl/pwpolyf_rtl.py``
      - RTL backend for HDL generation, package generation, rtlsim, IPI
-   * - ``util/pwpolyf.py``
-     - Compatibility imports for existing PWPolyF utility users
    * - ``transformation/fpgadataflow/convert_to_hw_layers.py``
      - ``InferPWPolyFLayer`` transformation
    * - ``builder/build_dataflow_steps.py``
@@ -264,7 +263,7 @@ Tests
 
 * cppsim for all supported functions, channel counts, spatial shapes, and
   foldings
-* ONNX export against the Brevitas ``finn.pwpolyf`` opset-1 contract
+* ONNX export of ``PWPolyFActivation`` as ``PWPolyFunction`` custom op
 * ``InferPWPolyFLayer`` conversion and execution
 * standard op inference for Gelu, Sigmoid, Tanh, SiLU, and Erf-based GELU
 * execution correctness against ``PWPolyFActivation``

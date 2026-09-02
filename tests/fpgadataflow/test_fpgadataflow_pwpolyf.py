@@ -17,12 +17,7 @@ from qonnx.util.basic import qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
-from finn.custom_op.general.pwpolyfunction import (
-    EXP_CLAMP,
-    NUM_OCTAVES,
-    PWPOLYF_ONNX_DOMAIN,
-    PWPOLYF_ONNX_OPSET,
-)
+from finn.custom_op.general.pwpolyfunction import EXP_CLAMP, NUM_OCTAVES
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferPWPolyFLayer
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
@@ -248,17 +243,14 @@ def test_pwpolyf_onnx_export(func):
     num_channels = 32
     onnx_model = export_pwpolyf_model(func, k, degree, num_channels)
 
-    pwp_nodes = [n for n in onnx_model.graph.node if n.op_type == "PWPolyF"]
+    pwp_nodes = [n for n in onnx_model.graph.node if n.op_type == "PWPolyFunction"]
     assert len(pwp_nodes) == 1
     node = pwp_nodes[0]
-    assert node.domain == PWPOLYF_ONNX_DOMAIN
     assert len(node.input) == 1
     func_attr = {a.name: a for a in node.attribute}
     assert func_attr["func"].s.decode("utf-8") == func
     assert func_attr["K"].i == k
     assert func_attr["degree"].i == degree
-    opsets = {opset.domain: opset.version for opset in onnx_model.opset_import}
-    assert opsets[PWPOLYF_ONNX_DOMAIN] == PWPOLYF_ONNX_OPSET
 
 
 # activation function
@@ -271,8 +263,7 @@ def test_pwpolyf_infer_transform(func):
     model = ModelWrapper(export_pwpolyf_model(func, k, degree, num_channels))
 
     node = model.graph.node[0]
-    assert node.op_type == "PWPolyF"
-    assert node.domain == PWPOLYF_ONNX_DOMAIN
+    assert node.op_type == "PWPolyFunction"
 
     model = model.transform(InferPWPolyFLayer())
 

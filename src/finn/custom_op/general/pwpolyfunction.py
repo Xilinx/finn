@@ -20,10 +20,6 @@ EXP_CLAMP = 130
 
 SUPPORTED_FUNCS = ("gelu", "silu", "sigmoid", "tanh")
 
-# ONNX domain and opset for exported PWPolyF nodes
-PWPOLYF_ONNX_DOMAIN = "finn.pwpolyf"
-PWPOLYF_ONNX_OPSET = 1
-
 # Clamping configuration per activation function
 CLAMP_CFG = {
     "gelu": {"neg_clamp": 0.0, "pos_clamp": 0.0, "pos_passthrough": True},

@@ -17,7 +17,6 @@ import torch.nn.functional as F
 from finn.custom_op.general.pwpolyfunction import (
     CLAMP_CFG,
     NUM_OCTAVES,
-    PWPOLYF_ONNX_DOMAIN,
     SUPPORTED_FUNCS,
     _segment_boundaries,
 )
@@ -112,7 +111,7 @@ class PWPolyFFunction(torch.autograd.Function):
     @staticmethod
     def symbolic(g, x, coeffs, neg_clamp_val, pos_clamp_val, func, K, degree):
         ret = g.op(
-            "%s::PWPolyF" % PWPOLYF_ONNX_DOMAIN,
+            "finn.custom_op.general::PWPolyFunction",
             x,
             func_s=func,
             K_i=K,
