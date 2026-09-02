@@ -32,6 +32,28 @@ replacement for ``nn.GELU``, ``nn.SiLU``, ``nn.Sigmoid``, or ``nn.Tanh``:
 Export via Brevitas ``export_qonnx``. The resulting ``PWPolyFunction`` node
 is converted to a ``PWPolyF`` HW op by ``InferPWPolyFLayer``.
 
+.. code-block:: text
+
+   Path A: PWPolyFActivation           Path B: nn.GELU / nn.SiLU / etc.
+       |  (util/torch_hw_modules.py)        |  torch.onnx.export
+       |  export_qonnx                      |  (dynamo=True or False)
+       v                                    v
+   PWPolyFunction node                 Standard ONNX ops (Gelu, Sigmoid,
+   (qonnx.custom_op.general)           Tanh, Sigmoid+Mul for SiLU,
+                                       Div+Erf+Add+Mul+Mul for GELU)
+       |                                      |
+       +------------- both paths -------------+
+                         |
+                   InferPWPolyFLayer
+                         v
+               PWPolyF HW op (custom_op/fpgadataflow)
+                         |  SpecializeLayers
+                         v
+               PWPolyF_rtl (custom_op/fpgadataflow/rtl)
+                         |  generate_hdl
+                         v
+               finn-rtllib/pwpolyf/hdl/ SystemVerilog IP
+
 Standard ONNX Op Inference
 --------------------------
 
