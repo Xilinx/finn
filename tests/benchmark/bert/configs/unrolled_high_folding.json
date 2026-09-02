@@ -87,20 +87,17 @@
   "MVAU_rtl_0": {
     "PE": 16,
     "SIMD": 24,
-    "TH": 8,
-    "mem_mode": "external_mem"
+    "TH": 8
   },
   "MVAU_rtl_1": {
     "PE": 16,
     "SIMD": 24,
-    "TH": 8,
-    "mem_mode": "external_mem"
+    "TH": 8
   },
   "MVAU_rtl_2": {
     "PE": 16,
     "SIMD": 24,
-    "TH": 8,
-    "mem_mode": "external_mem"
+    "TH": 8
   },
   "MVAU_rtl_3": {
     "PE": 8,
@@ -117,20 +114,17 @@
   "MVAU_rtl_5": {
     "PE": 16,
     "SIMD": 24,
-    "TH": 4,
-    "mem_mode": "external_mem"
+    "TH": 4
   },
   "MVAU_rtl_6": {
     "PE": 32,
     "SIMD": 48,
-    "TH": 8,
-    "mem_mode": "external_mem"
+    "TH": 8
   },
   "MVAU_rtl_7": {
     "PE": 32,
     "SIMD": 48,
-    "TH": 8,
-    "mem_mode": "external_mem"
+    "TH": 8
   },
   "MVAU_rtl_8": {
     "PE": 8,
