@@ -82,6 +82,9 @@ def _determine_impl_style(node, fpgapart, model):
                     return "rtl"
                 else:
                     return "hls"
+            elif optype == "PWPolyF":
+                _pwpolyf_rtl_possible(node, fpgapart)
+                return "rtl"
             elif optype == "HWSoftmax":
                 if _softmax_rtl_possible(node, fpgapart):
                     return "rtl"
@@ -111,6 +114,8 @@ def _determine_impl_style(node, fpgapart, model):
         if hls_variant:
             return "hls"
         elif rtl_variant:
+            if optype == "PWPolyF":
+                _pwpolyf_rtl_possible(node, fpgapart)
             warn_str = """There is no HLS variant of %s. Node %s will automatically be
                         set to RTL variant.""" % (
                 node.op_type,
@@ -163,6 +168,9 @@ def _determine_impl_style(node, fpgapart, model):
                 warnings.warn(warn_str)
                 return "hls"
 
+        elif optype == "PWPolyF":
+            _pwpolyf_rtl_possible(node, fpgapart)
+            return "rtl"
         elif optype == "LayerNorm":
             if _layernorm_rtl_possible(node, fpgapart):
                 return "rtl"
@@ -374,6 +382,17 @@ def _layernorm_rtl_possible(n, fpgapart):
         return False
     else:
         return True
+
+
+def _pwpolyf_rtl_possible(n, fpgapart):
+    # PWPolyF uses the Versal DSPFP32 primitive.
+    if not is_versal(fpgapart):
+        raise Exception(
+            "PWPolyF node %s cannot be specialized for FPGA part %s. "
+            "PWPolyF_rtl uses the Versal DSPFP32 primitive and is only supported "
+            "on Versal devices." % (n.name, fpgapart)
+        )
+    return True
 
 
 def _softmax_rtl_possible(n, fpgapart):
