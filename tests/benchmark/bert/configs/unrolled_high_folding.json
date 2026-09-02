@@ -85,38 +85,38 @@
     "SIMD": 4
   },
   "MVAU_rtl_0": {
-    "PE": 32,
-    "SIMD": 48,
+    "PE": 16,
+    "SIMD": 24,
     "TH": 8,
     "mem_mode": "external_mem"
   },
   "MVAU_rtl_1": {
-    "PE": 32,
-    "SIMD": 48,
+    "PE": 16,
+    "SIMD": 24,
     "TH": 8,
     "mem_mode": "external_mem"
   },
   "MVAU_rtl_2": {
-    "PE": 32,
-    "SIMD": 48,
+    "PE": 16,
+    "SIMD": 24,
     "TH": 8,
     "mem_mode": "external_mem"
   },
   "MVAU_rtl_3": {
-    "PE": 32,
-    "SIMD": 16,
+    "PE": 8,
+    "SIMD": 8,
     "TH": 1,
     "mem_mode": "dynamic"
   },
   "MVAU_rtl_4": {
-    "PE": 32,
-    "SIMD": 16,
+    "PE": 8,
+    "SIMD": 8,
     "TH": 1,
     "mem_mode": "dynamic"
   },
   "MVAU_rtl_5": {
-    "PE": 32,
-    "SIMD": 16,
+    "PE": 16,
+    "SIMD": 24,
     "TH": 4,
     "mem_mode": "external_mem"
   },
@@ -127,14 +127,14 @@
     "mem_mode": "external_mem"
   },
   "MVAU_rtl_7": {
-    "PE": 64,
+    "PE": 32,
     "SIMD": 48,
     "TH": 8,
     "mem_mode": "external_mem"
   },
   "MVAU_rtl_8": {
-    "PE": 64,
-    "SIMD": 48,
+    "PE": 8,
+    "SIMD": 24,
     "TH": 1,
     "mem_mode": "internal_decoupled"
   },
