@@ -329,6 +329,11 @@ if [ ! -z "$IMAGENET_VAL_PATH" ];then
   DOCKER_EXEC+="-v $IMAGENET_VAL_PATH:$IMAGENET_VAL_PATH "
   DOCKER_EXEC+="-e IMAGENET_VAL_PATH=$IMAGENET_VAL_PATH "
 fi
+if [ ! -z "$FINN_VERSAL_GOLDEN_DIR" ];then
+  # golden reference shell for the Versal (VCK190) flow, consumed by MakeVersalProject
+  DOCKER_EXEC+="-v $FINN_VERSAL_GOLDEN_DIR:$FINN_VERSAL_GOLDEN_DIR "
+  DOCKER_EXEC+="-e FINN_VERSAL_GOLDEN_DIR=$FINN_VERSAL_GOLDEN_DIR "
+fi
 if [ ! -z "$FINN_XILINX_PATH" ];then
   if [[ "$FINN_XILINX_VERSION" =~ ^20([0-9]{2})\.(1|2)$ ]]; then
     year="${BASH_REMATCH[1]}"

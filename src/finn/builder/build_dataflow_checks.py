@@ -17,6 +17,7 @@ from finn.builder.build_dataflow_config import (
 )
 from finn.util.basic import (
     get_vivado_version,
+    is_versal,
     part_map,
     pynq_part_map,
     retired_pynq_boards,
@@ -198,31 +199,20 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
             )
         )
 
-    if (
-        has_bitfile
-        and cfg.board in pynq_boards
-        and cfg.shell_flow_type != ShellFlowType.VIVADO_ZYNQ
-    ):
+    if has_bitfile and cfg.board in pynq_boards:
+        expected_flow = (
+            ShellFlowType.VIVADO_VERSAL
+            if is_versal(pynq_part_map[cfg.board])
+            else ShellFlowType.VIVADO_ZYNQ
+        )
         checks.append(
             _check(
                 "pynq_shell",
                 Severity.ERROR,
-                False,
-                f"Zynq board '{cfg.board}' requires VIVADO_ZYNQ shell flow, "
+                cfg.shell_flow_type == expected_flow,
+                f"PYNQ board '{cfg.board}' requires {expected_flow.name} shell flow, "
                 f"but {cfg.shell_flow_type} was specified",
-                "Set shell_flow_type=ShellFlowType.VIVADO_ZYNQ for Zynq/PYNQ boards",
-            )
-        )
-
-    if cfg.board in ("VEK280", "VCK190") and has_bitfile:
-        checks.append(
-            _check(
-                "versal_deploy",
-                Severity.ERROR,
-                False,
-                f"Versal board '{cfg.board}' does not yet support bitfile generation. "
-                "System deployment is not available for Versal devices",
-                "Remove BITFILE from generate_outputs, or use a non-Versal board",
+                f"Set shell_flow_type=ShellFlowType.{expected_flow.name} for this board",
             )
         )
 

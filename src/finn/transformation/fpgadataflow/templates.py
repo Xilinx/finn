@@ -229,6 +229,205 @@ report_utilization -hierarchical -hierarchical_depth 4 -file synth_report.xml -f
 close_project
 """
 
+# Versal (embedded, e.g. VCK190) overlay shell template.
+custom_versal_shell_template = """
+set FREQ_MHZ @FREQ_MHZ@
+set NUM_AXILITE @NUM_AXILITE@
+if {$NUM_AXILITE > 16} {
+    error "Maximum 16 AXI-Lite interfaces supported"
+}
+set NUM_AXIMM @NUM_AXIMM@
+set BOARD @BOARD@
+set FPGA_PART @FPGA_PART@
+set GOLDEN_DIR @GOLDEN_DIR@
+set OVERLAY_NAME finn_link
+set design_name $OVERLAY_NAME
+
+# Source the golden reference design.
+source [file join $GOLDEN_DIR golden_ref.tcl]
+
+# Remove the golden tie-offs on the interfaces FINN drives with real logic
+delete_bd_objs [get_bd_cells pl_tieoff_fpd]
+delete_bd_objs [get_bd_cells pl_tieoff_dma0]
+delete_bd_objs [get_bd_cells pl_tieoff_dma1]
+
+# Control path: M_AXI_FPD -> control SmartConnect -> kernel AXI-Lite ports
+set smartconnect_vlnv [get_property VLNV [get_ipdefs "xilinx.com:ip:smartconnect:*"]]
+create_bd_cell -type ip -vlnv $smartconnect_vlnv axi_interconnect_0
+set_property -dict [list CONFIG.NUM_SI {1} CONFIG.NUM_MI $NUM_AXILITE CONFIG.NUM_CLKS {2}] [get_bd_cells axi_interconnect_0]
+connect_bd_intf_net [get_bd_intf_pins versal_cips_0/M_AXI_FPD] [get_bd_intf_pins axi_interconnect_0/S00_AXI]
+
+# DDR path: FINN I/O DMA masters -> SmartConnect -> axi_noc_pl/S00_AXI
+create_bd_cell -type ip -vlnv $smartconnect_vlnv smartconnect_0
+set_property -dict [list CONFIG.NUM_SI $NUM_AXIMM CONFIG.NUM_MI {1} CONFIG.NUM_CLKS {2}] [get_bd_cells smartconnect_0]
+connect_bd_intf_net [get_bd_intf_pins smartconnect_0/M00_AXI] [get_bd_intf_pins axi_noc_pl/S00_AXI]
+
+# Kernel clock domain: derive the compute clock (FREQ_MHZ) from pl0_ref_clk with
+# a clocking wizard, plus a reset synchronizer in the new domain. The NoC/CIPS
+# ports stay in the pl0_ref_clk domain; the SmartConnects below straddle the two
+# domains and insert clock converters. Read the wizard's input frequency straight
+# from the pl0_ref_clk pin (set by the golden preset, ~333.33 MHz) so the MMCM
+# divide ratios are chosen for the true runtime input clock.
+set pl0_freq_hz [get_property CONFIG.FREQ_HZ [get_bd_pins versal_cips_0/pl0_ref_clk]]
+set pl0_freq_mhz [expr {$pl0_freq_hz / 1000000.0}]
+set clk_wizard_vlnv [get_property VLNV [get_ipdefs "xilinx.com:ip:clk_wizard:*"]]
+create_bd_cell -type ip -vlnv $clk_wizard_vlnv clk_wizard_0
+set_property -dict [list \
+    CONFIG.PRIM_IN_FREQ $pl0_freq_mhz \
+    CONFIG.CLKOUT_REQUESTED_OUT_FREQUENCY [expr int($FREQ_MHZ)] \
+    CONFIG.USE_LOCKED {true} \
+    CONFIG.USE_RESET {true} \
+    CONFIG.RESET_TYPE {ACTIVE_LOW} \
+    CONFIG.RESET_PORT {resetn} \
+] [get_bd_cells clk_wizard_0]
+connect_bd_net [get_bd_pins clk_wizard_0/clk_in1] [get_bd_pins versal_cips_0/pl0_ref_clk]
+connect_bd_net [get_bd_pins clk_wizard_0/resetn] [get_bd_pins rst_pl0/peripheral_aresetn]
+
+set proc_sys_reset_vlnv [get_property VLNV [get_ipdefs "xilinx.com:ip:proc_sys_reset:*"]]
+create_bd_cell -type ip -vlnv $proc_sys_reset_vlnv rst_kernel
+# ext_reset_in defaults to active-low, matching rst_pl0/peripheral_aresetn
+connect_bd_net [get_bd_pins rst_kernel/slowest_sync_clk] [get_bd_pins clk_wizard_0/clk_out1]
+connect_bd_net [get_bd_pins rst_kernel/dcm_locked] [get_bd_pins clk_wizard_0/locked]
+connect_bd_net [get_bd_pins rst_kernel/ext_reset_in] [get_bd_pins rst_pl0/peripheral_aresetn]
+
+# Procedure to assign AXI-Lite register apertures in the M_AXI_FPD space.
+# PL peripherals live in the 0xA4000000 window in the golden address map.
+set axi_peripheral_base 0xA4000000
+proc assign_axi_addr_proc {axi_intf_path} {
+    global axi_peripheral_base
+    set range [expr 2**[get_property CONFIG.ADDR_WIDTH [get_bd_intf_pins $axi_intf_path]]]
+    set range [expr $range < 4096 ? 4096 : $range]
+    set offset [expr ($axi_peripheral_base + ($range-1)) & ~($range-1)]
+    assign_bd_address [get_bd_addr_segs $axi_intf_path/Reg*] \
+        -target_address_space [get_bd_addr_spaces versal_cips_0/M_AXI_FPD] \
+        -offset $offset -range $range -force
+    set axi_peripheral_base [expr $offset + $range]
+}
+
+# Procedure to map an aximm master onto DDR through the PS NoC inter-NoC port.
+# Maps both DDR_LOW0 (0-2 GB) and DDR_LOW1 (32 GB+) so the DMA can reach any
+# buffer the runtime CMA allocator hands out.
+# TODO. look into auto assignment
+proc assign_ddr_addr_proc {aximm_intf_path} {
+    set space [get_bd_addr_spaces -of_objects [get_bd_intf_pins $aximm_intf_path]]
+    assign_bd_address -offset 0x00000000 -range 0x80000000 \
+        -target_address_space $space \
+        [get_bd_addr_segs axi_noc_ps/S00_INI/C0_DDR_LOW0] -force
+    assign_bd_address -offset 0x000800000000 -range 0x180000000 \
+        -target_address_space $space \
+        [get_bd_addr_segs axi_noc_ps/S00_INI/C0_DDR_LOW1] -force
+}
+
+# custom IP instantiations/connections start here
+@CONFIG@
+
+foreach gmem_pin [get_bd_intf_pins -quiet -of_objects [get_bd_cells] \
+    -filter {MODE == Master && NAME == m_axi_gmem0}] {
+    assign_ddr_addr_proc [get_property PATH $gmem_pin]
+}
+
+# MLO (Multi-Layer Offload) weight streaming -> axi_noc_pl/S01_AXI
+set mlo_mm_pins [get_bd_intf_pins -quiet -of_objects [get_bd_cells] \
+    -filter {MODE == Master && (NAME == m_axi_intermediate_frame || NAME =~ m_axi_MVAU_*)}]
+if {[llength $mlo_mm_pins] > 0} {
+    create_bd_cell -type ip -vlnv $smartconnect_vlnv smartconnect_mlo
+    set_property -dict [list CONFIG.NUM_SI [llength $mlo_mm_pins] CONFIG.NUM_MI {1} CONFIG.NUM_CLKS {2}] [get_bd_cells smartconnect_mlo]
+    connect_bd_intf_net [get_bd_intf_pins smartconnect_mlo/M00_AXI] [get_bd_intf_pins axi_noc_pl/S01_AXI]
+    set mlo_si_idx 0
+    foreach mlo_mm_pin $mlo_mm_pins {
+        set mlo_si_name [format "S%02d_AXI" $mlo_si_idx]
+        connect_bd_intf_net $mlo_mm_pin [get_bd_intf_pins smartconnect_mlo/$mlo_si_name]
+        assign_ddr_addr_proc [get_property PATH $mlo_mm_pin]
+        incr mlo_si_idx
+    }
+    connect_bd_net [get_bd_pins smartconnect_mlo/aclk] [get_bd_pins clk_wizard_0/clk_out1]
+    connect_bd_net [get_bd_pins smartconnect_mlo/aclk1] [get_bd_pins versal_cips_0/pl0_ref_clk]
+    connect_bd_net [get_bd_pins smartconnect_mlo/aresetn] [get_bd_pins rst_kernel/peripheral_aresetn]
+} else {
+    # keep the second NoC PL slave port driven so the locked NoC solution
+    # remains valid (matches the golden 2-SI topology)
+    create_bd_cell -type ip -vlnv xilinx.com:ip:axi_vip:1.1 pl_dma1_tieoff
+    set_property -dict [list CONFIG.INTERFACE_MODE {MASTER} CONFIG.PROTOCOL {AXI4} CONFIG.ADDR_WIDTH {64} CONFIG.DATA_WIDTH {128}] [get_bd_cells pl_dma1_tieoff]
+    connect_bd_intf_net [get_bd_intf_pins pl_dma1_tieoff/M_AXI] [get_bd_intf_pins axi_noc_pl/S01_AXI]
+    connect_bd_net [get_bd_pins pl_dma1_tieoff/aclk] [get_bd_pins versal_cips_0/pl0_ref_clk]
+    connect_bd_net [get_bd_pins pl_dma1_tieoff/aresetn] [get_bd_pins rst_pl0/peripheral_aresetn]
+    assign_ddr_addr_proc pl_dma1_tieoff/M_AXI
+}
+
+# clock/reset for the control + DDR SmartConnects.
+# aclk  = kernel clock (clk_wizard output)
+# aclk1 = pl0_ref_clk (~333 MHz)
+# SmartConnect inserts clock converters across the two domains automatically.
+connect_bd_net [get_bd_pins clk_wizard_0/clk_out1] \
+    [get_bd_pins axi_interconnect_0/aclk] \
+    [get_bd_pins smartconnect_0/aclk]
+connect_bd_net [get_bd_pins versal_cips_0/pl0_ref_clk] \
+    [get_bd_pins axi_interconnect_0/aclk1] \
+    [get_bd_pins smartconnect_0/aclk1]
+connect_bd_net [get_bd_pins rst_kernel/peripheral_aresetn] \
+    [get_bd_pins axi_interconnect_0/aresetn] \
+    [get_bd_pins smartconnect_0/aresetn]
+
+# set up debug
+if {@ENABLE_DEBUG@ == 1} {
+    set_property HDL_ATTRIBUTE.DEBUG true [get_bd_intf_nets -quiet {idma0_m_axis_0}]
+}
+
+validate_bd_design
+save_bd_design
+
+# Build flow: wrapper, segmented configuration, lock golden NoC, implement,
+# verify against the golden routed checkpoint, export the PL PDI.
+make_wrapper -files [get_files $OVERLAY_NAME.bd] -import -fileset sources_1 -top
+set_property top ${OVERLAY_NAME}_wrapper [current_fileset]
+update_compile_order -fileset sources_1
+
+set_property platform.default_output_type "sd_card" [current_project]
+set_property platform.design_intent.embedded "true" [current_project]
+set_property platform.design_intent.server_managed "false" [current_project]
+set_property platform.design_intent.external_host "false" [current_project]
+set_property platform.design_intent.datacenter "false" [current_project]
+set_property segmented_configuration true [current_project]
+
+# lock the NoC solution to the golden reference -- mandatory for the PLD PDI
+# to be compatible with the golden boot PDI
+set golden_ncr [file join $GOLDEN_DIR golden_noc.ncr]
+if {[file exists $golden_ncr]} {
+    set_property NOC_SOLUTION_FILE [file normalize $golden_ncr] [get_runs impl_1]
+} else {
+    error "golden_noc.ncr not found in $GOLDEN_DIR"
+}
+
+set_property strategy Flow_PerfOptimized_high [get_runs synth_1]
+set_property strategy Performance_ExtraTimingOpt [get_runs impl_1]
+
+launch_runs impl_1 -to_step write_device_image -jobs @NUM_WORKERS@
+wait_on_run [get_runs impl_1]
+
+set impl_status [get_property STATUS [get_runs impl_1]]
+if { [string match "*Complete*" $impl_status] == 0 } {
+    error "Implementation did not complete (status: $impl_status)"
+}
+
+# verify NoC/static compatibility with the golden routed checkpoint
+set golden_dcp [file join $GOLDEN_DIR golden_routed.dcp]
+set overlay_dcps [glob -nocomplain ./${OVERLAY_NAME}/${OVERLAY_NAME}.runs/impl_1/*_routed.dcp]
+if {[file exists $golden_dcp] && [llength $overlay_dcps] > 0} {
+    if {[catch {pr_verify [file normalize $golden_dcp] [lindex $overlay_dcps 0]} msg]} {
+        error "pr_verify FAILED -- overlay incompatible with golden reference: $msg"
+    }
+    puts "pr_verify PASSED -- overlay compatible with golden reference"
+} else {
+    error "golden_routed.dcp or overlay routed checkpoint missing, cannot pr_verify"
+}
+
+# synthesis utilization report
+open_run impl_1
+report_utilization -hierarchical -hierarchical_depth 4 -file synth_report.xml -format xml
+report_timing_summary -file timing_summary_routed.rpt
+close_project
+"""
+
 vitis_gen_xml_report_tcl_template = """
 open_project $VITIS_PROJ_PATH$/_x/link/vivado/vpl/prj/prj.xpr
 open_run impl_1
