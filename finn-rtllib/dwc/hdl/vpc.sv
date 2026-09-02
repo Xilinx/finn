@@ -265,6 +265,10 @@ module vpc #(
 	else begin : genGeneric
 		//===============================================================
 		// Full buffered implementation: sustained full-rate operation.
+		// Single capacity counter with deposit mask and IRot barrel.
+
+		localparam int unsigned  CAP  = PI0 + PO0;
+		localparam int unsigned  PMAX = (PI0 > PO0)? PI0 : PO0;
 
 		// Transaction counters only needed for sync when padding differs.
 		uwire  nxt;
@@ -289,8 +293,8 @@ module vpc #(
 		else begin : genTrn
 			localparam int unsigned  ITRN_W = $clog2((TRNI > 2)? TRNI-1 : 2);
 			localparam int unsigned  OTRN_W = $clog2((TRNO > 2)? TRNO-1 : 2);
-			logic signed [ITRN_W:0]  ITrn = 1-TRNI;	// -TRNI+1, .., 0 (last), 1 (done)
-			logic signed [OTRN_W:0]  OTrn = 1-TRNO;	// -TRNO+1, .., 0 (last), 1 (done)
+			logic signed [ITRN_W:0]  ITrn = 1-TRNI;
+			logic signed [OTRN_W:0]  OTrn = 1-TRNO;
 
 			uwire  ilast = !ITrn[$left(ITrn)] && !ITrn[0];
 			assign  olast = !OTrn[$left(OTrn)] && !OTrn[0];
@@ -310,41 +314,110 @@ module vpc #(
 			end
 		end : genTrn
 
-		localparam int unsigned  CAP  = PI0 + PO0;
-		localparam int unsigned  PMAX = (PI0 > PO0)? PI0 : PO0;
+		//---------------------------------------------------------------
+		// Single capacity counter (signed, count up from negative).
 		typedef logic signed [$clog2(PMAX+1):0]  cap_t;
-		logic [W0-1:0]  Buf[CAP];
-		cap_t  ICap = PO0;	// PO0 (empty), .., 0, .., -PI0; >= 0: room
-		cap_t  OAvl = -PO0;	// -PO0 (empty), .., 0, .., PI0; >= 0: available
+		cap_t  ICap = PO0;
 
 		always_ff @(posedge clk) begin
-			if(rst) begin
-				Buf <= '{ default: 'x };
-				ICap <= PO0;
-				OAvl <= -PO0;
-			end
-			else begin
-				// Buffer shift and deposit.
-				if(1) begin
-					automatic logic [W0-1:0]  n_buf[CAP] = Buf;
-					if(otrn)  n_buf[0 +: CAP-PO0] = n_buf[PO0 +: CAP-PO0];
-					if(1) begin
-						automatic int unsigned  ofs = OAvl + (otrn? 0 : $signed(PO0));
-						for(int unsigned  p = 0; p < PI0; p++)
-							if(ofs + p < CAP)  n_buf[ofs + p] = idat[p*GCD +: GCD];
-					end
-					Buf <= n_buf;
-				end
+			if(rst)  ICap <= PO0;
+			else     ICap <= (nxt? 0 : ICap) + cap_t'(nxt? PO0 : otrn? (itrn? PO0-PI0 : PO0) : itrn? -PI0 : 0);
+		end
 
-				// Capacity counters: base + constant delta.
-				ICap <= (nxt? 0 : ICap) + cap_t'(nxt?  PO0 : otrn? (itrn? PO0-PI0 :  PO0) : itrn? -PI0 : 0);
-				OAvl <= (nxt? 0 : OAvl) + cap_t'(nxt? -PO0 : otrn? (itrn? PI0-PO0 : -PO0) : itrn?  PI0 : 0);
+		// OR-reduction for ovld: ICap > 0 without full comparator.
+		uwire  icap_positive = !ICap[$left(ICap)] && (|ICap[$left(ICap)-1:0]);
+		assign  irdy = !idone && !ICap[$left(ICap)];
+		assign  ovld = !odone && !(icap_positive && !idone);
+
+		//---------------------------------------------------------------
+		// Deposit mask: CAP-bit register tracking the write window.
+		// DepMask tracks the deposit window for the itrn-only case.
+		// On concurrent otrn, the effective mask is shifted right by
+		// PO0 — the deposit window sits at positions >= PO0 when
+		// enough data is available for output, so no wrap occurs.
+		localparam bit [CAP-1:0]  DEPMASK_INIT = {(PI0){1'b1}};
+		logic [CAP-1:0]  DepMask = DEPMASK_INIT;
+		always_ff @(posedge clk) begin
+			localparam int unsigned  MSTEP_SINGLE = PI0 % CAP;
+			localparam int unsigned  MSTEP_DOUBLE = (2*PI0) % CAP;
+
+			if(rst || nxt)  DepMask <= DEPMASK_INIT;
+			else begin
+				DepMask <=
+					itrn && otrn? {DepMask[CAP-1-MSTEP_DOUBLE:0], DepMask[CAP-1:CAP-MSTEP_DOUBLE]} :
+					itrn || otrn? {DepMask[CAP-1-MSTEP_SINGLE:0], DepMask[CAP-1:CAP-MSTEP_SINGLE]} :
+					/* else */    DepMask;
 			end
 		end
 
-		assign  irdy = !idone && !ICap[$left(ICap)];
-		assign  ovld = !odone && !(OAvl[$left(OAvl)] && !idone);
+		uwire [CAP-1:0]  dep_eff = otrn? (DepMask >> PO0) : DepMask;
 
+		//---------------------------------------------------------------
+		// Rotation logic for input placement.
+		// The deposit mask selects which buffer positions receive input
+		// but not which input lane maps to which position. When PO0 is
+		// not a multiple of PI0, successive output drains rotate the
+		// deposit window relative to the input lanes. IRot tracks this
+		// rotation as a mod-PI0 counter, advancing by PO0 mod PI0 on
+		// each otrn. The barrel shifter permutes idat by IRot so that
+		// rot[j % PI0] aligns with the otrn deposit target at Buf[j].
+		// When otrn is absent, a static offset of NO_OTR_OFS into rot
+		// compensates for the missing buffer shift; this selection is
+		// fused into the Buf loading mux.
+		localparam int unsigned  NO_OTR_OFS = (PI0 >= 2)? (PI0 - PO0 % PI0) % PI0 : 0;
+		uwire [W0-1:0]  rot[PI0];
+		if(PI0 == 1)  assign  rot[0] = idat;
+		else begin : genRotBarrel
+			localparam int unsigned  PO0_MOD = PO0 % PI0;
+			localparam int unsigned  IROT_W = $clog2(PI0);
+
+			// Signed rotation counter: SIRot = IRot - NO_OTR_OFS.
+			// Range [-NO_OTR_OFS, PO0_MOD-1]; sign bit replaces the
+			// comparator IRot >= NO_OTR_OFS in the modular wrap.
+			localparam int  SIROT_INIT = PO0_MOD - NO_OTR_OFS;
+			logic signed [IROT_W:0]  SIRot = SIROT_INIT;
+			if(PO0_MOD) begin : genIRotDyn
+				// At nxt, SIRot is at one of two known values depending on concurrent otrn.
+				localparam int  NXT_INC_A = SIROT_INIT - ((TRNO + 1) * PO0_MOD) % PI0 + NO_OTR_OFS;
+				localparam int  NXT_INC_B = SIROT_INIT - ( TRNO      * PO0_MOD) % PI0 + NO_OTR_OFS;
+				always_ff @(posedge clk) begin
+					if(rst)              SIRot <= SIROT_INIT;
+					else if(nxt || otrn) SIRot <= SIRot +
+						(nxt? (otrn? NXT_INC_B : NXT_INC_A) :
+						 !SIRot[$left(SIRot)]? PO0_MOD - PI0 : PO0_MOD);
+				end
+			end : genIRotDyn
+
+			// Per-position LUT indexed by SIRot.
+			// NO_OTR_OFS is absorbed into the static input wiring.
+			for(genvar  i = 0; i < PI0; i++) begin : genRot
+				localparam int  LUT_LO = -(1 << IROT_W);
+				localparam int  LUT_HI =  (1 << IROT_W) - 1;
+				uwire [W0-1:0]  lut[LUT_LO:LUT_HI];
+				for(genvar  k = LUT_LO; k <= LUT_HI; k++) begin : genLut
+					assign	lut[k] = (-int'(NO_OTR_OFS) <= k && k < int'(PI0 - NO_OTR_OFS))? idat[((i + k + NO_OTR_OFS) % PI0) * GCD +: GCD] : 'x;
+				end : genLut
+				assign	rot[i] = lut[SIRot];
+			end : genRot
+
+		end : genRotBarrel
+
+		//---------------------------------------------------------------
+		// Structural per-position buffer with genvar.
+		logic [W0-1:0]  Buf[CAP];
+		// Positions j<PI0 can shift (on otrn) or deposit; j>=PI0 deposit only.
+		for(genvar  j = 0; j < CAP; j++) begin : genPos
+			uwire           deposit = itrn && dep_eff[j];
+			uwire           we  = deposit || (otrn && (j < PI0));
+			uwire [W0-1:0]  dat = deposit? (otrn? rot[j % PI0] : rot[(j + NO_OTR_OFS) % PI0]) : Buf[(j + PO0) % CAP];
+			always_ff @(posedge clk) begin
+				if(rst)      Buf[j] <= 'x;
+				else if(we)  Buf[j] <= dat;
+			end
+		end : genPos
+
+		//---------------------------------------------------------------
+		// Output Assignment
 		for(genvar  p = 0; p < PO; p++) begin : genOdat
 			assign  odat[p] = (OLAST == PO || p < OLAST || !olast)? Buf[p/GCD][(p%GCD)*W +: W] : '0;
 		end : genOdat
