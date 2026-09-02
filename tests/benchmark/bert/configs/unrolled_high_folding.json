@@ -192,7 +192,10 @@
   "DuplicateStreams_hls_1": {
     "PE": 8
   },
-  "Crop_hls_0": {
+  "DuplicateStreams_hls_2": {
+    "PE": 8
+  },
+  "SelectToken_rtl_0": {
     "SIMD": 4
   }
 }
