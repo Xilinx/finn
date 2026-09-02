@@ -30,7 +30,7 @@
 //===----------------------------------------------------------------------===//
 // Single DSPFP32 FMA wrapper: r = c + a * b
 //===----------------------------------------------------------------------===//
-module pwpolyf_dspfp32 (
+module softmax_pwpolyf_dspfp32 (
 	input  logic         clk,
 	input  logic         rst,
 
@@ -116,13 +116,13 @@ module pwpolyf_dspfp32 (
 		end
 	end
 
-endmodule : pwpolyf_dspfp32
+endmodule : softmax_pwpolyf_dspfp32
 
 //===----------------------------------------------------------------------===//
 // Full PE-wide streaming activation with piecewise polynomial approximation.
 // Degree D derived from DEGREE in pwpolyf_pkg.
 //===----------------------------------------------------------------------===//
-module pwpolyf #(
+module softmax_pwpolyf #(
 	int unsigned  PE = 1,
 	string  FUNC = "gelu"
 )(
@@ -141,7 +141,7 @@ module pwpolyf #(
 	input	logic  yrdy
 );
 
-	import pwpolyf_pkg::*;
+	import pwpolyf_k3_pkg::*;
 
 	localparam int unsigned  NUM_SUBS    = 1 << K;
 	localparam int unsigned  DSP_LAT     = 4;
@@ -272,7 +272,7 @@ module pwpolyf #(
 				assign  dsp_c = CDly[j*DSP_LAT - 1];
 			end : genCdly
 
-			pwpolyf_dspfp32  dsp (
+			softmax_pwpolyf_dspfp32  dsp (
 				.clk, .rst,
 				.a(dsp_a), .b(dsp_b), .c(dsp_c),
 				.r(s[j]), .rvld(Vld[(j+1)*DSP_LAT - 1])
@@ -323,4 +323,4 @@ module pwpolyf #(
 		end
 	end
 
-endmodule : pwpolyf
+endmodule : softmax_pwpolyf

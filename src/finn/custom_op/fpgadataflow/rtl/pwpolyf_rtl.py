@@ -14,12 +14,8 @@ from finn.custom_op.general.pwpolyfunction import (
     SUPPORTED_FUNCS,
     _fit_coefficients,
 )
+from finn.util.basic import fifo_rtl_files
 from finn.util.data_packing import array2hexstring
-
-
-def _float_to_hex(f):
-    """Convert a Python float to a 32-bit IEEE 754 hex string."""
-    return array2hexstring(np.array([f]), DataType["FLOAT32"], 32, prefix="").upper()
 
 
 def _generate_coeffs_pkg_data(K, degree=2, num_samples=1000):
@@ -55,8 +51,12 @@ def _generate_coeffs_pkg_data(K, degree=2, num_samples=1000):
         cfg = CLAMP_CFG[func_name]
         coeffs = _fit_coefficients(func_name, K, degree=degree, num_samples=num_samples)
         label = func_name.upper()
-        neg_hex = _float_to_hex(cfg["neg_clamp"])
-        pos_hex = _float_to_hex(cfg["pos_clamp"])
+        neg_hex = array2hexstring(
+            np.array([cfg["neg_clamp"]]), DataType["FLOAT32"], 32, prefix=""
+        ).upper()
+        pos_hex = array2hexstring(
+            np.array([cfg["pos_clamp"]]), DataType["FLOAT32"], 32, prefix=""
+        ).upper()
         passthrough = 1 if cfg["pos_passthrough"] else 0
 
         lines.append("")
@@ -68,7 +68,10 @@ def _generate_coeffs_pkg_data(K, degree=2, num_samples=1000):
         for seg in range(num_segs):
             coeff_strs = []
             for c in range(degree + 1):
-                coeff_strs.append("32'h%s" % _float_to_hex(coeffs[seg, c]))
+                hex_val = array2hexstring(
+                    np.array([coeffs[seg, c]]), DataType["FLOAT32"], 32, prefix=""
+                ).upper()
+                coeff_strs.append("32'h%s" % hex_val)
             comma = "," if seg < num_segs - 1 else ""
             lines.append("            '{ %s }%s\t// seg %d" % (", ".join(coeff_strs), comma, seg))
         lines.append("        }")
@@ -126,8 +129,7 @@ class PWPolyF_rtl(PWPolyF, RTLBackend):
             f.write(template)
 
         # copy RTL source files
-        for sv_file in ["pwpolyf.sv", "queue.sv"]:
-            shutil.copy(rtllib_dir + sv_file, code_gen_dir)
+        shutil.copy(rtllib_dir + "pwpolyf.sv", code_gen_dir)
 
         # generate package with coefficients matching the node's K and degree
         pkg_data = self._generate_coeffs_pkg()
@@ -148,10 +150,9 @@ class PWPolyF_rtl(PWPolyF, RTLBackend):
         verilog_files = [
             code_gen_dir + "pwpolyf_pkg.sv",
             rtllib_dir + "pwpolyf.sv",
-            rtllib_dir + "queue.sv",
             code_gen_dir + self.get_nodeattr("gen_top_module") + ".v",
         ]
-        return verilog_files
+        return verilog_files + fifo_rtl_files(abspath=abspath)
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")

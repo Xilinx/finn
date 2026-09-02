@@ -311,10 +311,11 @@ module pwpolyf #(
 
 	//=== Credit-backing Elastic Output Queue =================================
 	uwire  rrdy;
-	queue #(.DATA_WIDTH($bits(fp_vec_t)), .ELASTICITY(CREDIT)) obuf (
+	fifo #(.DATA_WIDTH($bits(fp_vec_t)), .DEPTH(CREDIT)) obuf (
 		.clk, .rst,
 		.idat(r), .ivld(rvld), .irdy(rrdy),
-		.odat(ydat), .ovld(yvld), .ordy(yrdy)
+		.odat(ydat), .ovld(yvld), .ordy(yrdy),
+		.count(), .maxcount()
 	);
 	always_ff @(posedge clk) begin
 		assert(rrdy || !rvld) else begin
