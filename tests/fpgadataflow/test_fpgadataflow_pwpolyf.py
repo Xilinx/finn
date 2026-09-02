@@ -605,7 +605,8 @@ def test_pwpolyf_rtlsim_stitched_ip(func, fold):
     model = model.transform(CreateStitchedIP(TEST_FPGA_PART, TARGET_CLK_NS))
     model.set_metadata_prop("exec_mode", "rtlsim")
 
-    y_rtl = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
+    input_dict_stitched = {model.get_first_global_in(): x}
+    y_rtl = oxe.execute_onnx(model, input_dict_stitched)[model.graph.output[0].name]
     assert np.allclose(
         y_ref, y_rtl, atol=1e-4
     ), "Stitched IP output does not match cppsim reference"
