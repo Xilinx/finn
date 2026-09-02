@@ -40,7 +40,7 @@ Example: LayerNorm_rtl
 
 - Inherits from ``LayerNorm`` + ``RTLBackend``
 - ``generate_hdl()`` creates ``code_gen_dict`` with layer parameters and substitutes into template
-- Copies SystemVerilog files (``layernorm.sv``, ``queue.sv``, ``accuf.sv``, etc.) to code_gen_dir
+- Copies SystemVerilog files (``layernorm.sv``, ``accuf.sv``, etc.) to code_gen_dir
 - Returns HDL file list and Vivado IPI TCL commands
 
 **Reference implementation**: See ``src/finn/custom_op/fpgadataflow/rtl/layernorm_rtl.py`` for complete example.

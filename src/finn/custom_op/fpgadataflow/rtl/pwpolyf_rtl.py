@@ -167,10 +167,10 @@ class PWPolyF_rtl(PWPolyF, RTLBackend):
         sourcefiles = [
             "pwpolyf_pkg.sv",
             "pwpolyf.sv",
-            "queue.sv",
         ]
         sourcefiles.append(self.get_nodeattr("gen_top_module") + ".v")
         sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
+        sourcefiles += fifo_rtl_files(abspath=True)
 
         cmd = []
         for f in sourcefiles:

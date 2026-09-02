@@ -8,15 +8,12 @@ from qonnx.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 from finn.custom_op.general.pwpolyfunction import (
     CLAMP_CFG,
+    NUM_OCTAVES,
+    SUPPORTED_FUNCS,
     _fit_coefficients,
     _horner_eval_numpy,
     _segment_index_numpy,
 )
-
-# NUM_OCTAVES is fixed by the RTL segment decode and clamp range. K controls
-# the number of mantissa subdivisions inside each of these fixed octaves.
-_NUM_OCTAVES = 5
-_SUPPORTED_FUNCS = {"gelu", "silu", "sigmoid", "tanh"}
 
 
 class PWPolyF(HWCustomOp):
@@ -55,7 +52,7 @@ class PWPolyF(HWCustomOp):
 
     def get_num_segments(self):
         K = self.get_nodeattr("K")
-        return 1 + 2 * _NUM_OCTAVES * (1 << K)
+        return 1 + 2 * NUM_OCTAVES * (1 << K)
 
     def make_shape_compatible_op(self, model):
         oshape = self.get_normal_output_shape()
@@ -82,11 +79,11 @@ class PWPolyF(HWCustomOp):
             info_messages.append('Attribute backend should be set to "fpgadataflow"')
 
         func = self.get_nodeattr("func")
-        if func in _SUPPORTED_FUNCS:
+        if func in SUPPORTED_FUNCS:
             info_messages.append("Attribute func is set correctly")
         else:
             info_messages.append(
-                "Attribute func must be one of %s, got %s" % (_SUPPORTED_FUNCS, func)
+                "Attribute func must be one of %s, got %s" % (SUPPORTED_FUNCS, func)
             )
 
         pe = self.get_nodeattr("PE")

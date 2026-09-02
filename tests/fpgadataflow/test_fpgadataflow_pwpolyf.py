@@ -5,6 +5,7 @@ import pytest
 
 import numpy as np
 import os
+import re
 import tempfile
 import torch
 from onnx import TensorProto, helper, load
@@ -17,6 +18,8 @@ from qonnx.util.basic import qonnx_make_model
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.custom_op.general.pwpolyfunction import (
+    EXP_CLAMP,
+    NUM_OCTAVES,
     PWPOLYF_ONNX_DOMAIN,
     PWPOLYF_ONNX_OPSET,
 )
@@ -28,6 +31,7 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.basic import get_finn_root
 from finn.util.torch_hw_modules import PWPolyFActivation
 
 TEST_FPGA_PART = "xcvc1902-vsva2197-2MP-e-S"
@@ -519,7 +523,6 @@ def test_pwpolyf_generate_hdl(func, fold):
     assert code_gen_dir, "code_gen_dir_ipgen not set after PrepareIP"
     assert os.path.isfile(os.path.join(code_gen_dir, "pwpolyf_pkg.sv"))
     assert os.path.isfile(os.path.join(code_gen_dir, "pwpolyf.sv"))
-    assert os.path.isfile(os.path.join(code_gen_dir, "queue.sv"))
 
     topname = inst.get_nodeattr("gen_top_module")
     assert os.path.isfile(os.path.join(code_gen_dir, topname + ".v"))
@@ -610,3 +613,24 @@ def test_pwpolyf_rtlsim_stitched_ip(func, fold):
     assert np.allclose(
         y_ref, y_rtl, atol=1e-4
     ), "Stitched IP output does not match cppsim reference"
+
+
+@pytest.mark.fpgadataflow
+def test_pwpolyf_rtl_constants_match():
+    """Verify that constants hardcoded in pwpolyf.sv match the Python definitions."""
+    rtl_path = os.path.join(get_finn_root(), "finn-rtllib", "pwpolyf", "hdl", "pwpolyf.sv")
+
+    with open(rtl_path, "r") as f:
+        rtl_content = f.read()
+
+    # Check EXP_CLAMP matches
+    match = re.search(r"localparam\s+int\s+unsigned\s+EXP_CLAMP\s*=\s*(\d+)", rtl_content)
+    assert match is not None, "EXP_CLAMP not found in pwpolyf.sv"
+    rtl_exp_clamp = int(match.group(1))
+    assert (
+        rtl_exp_clamp == EXP_CLAMP
+    ), f"EXP_CLAMP mismatch: RTL has {rtl_exp_clamp}, Python has {EXP_CLAMP}"
+
+    # Check NUM_OCTAVES is used consistently (it comes from the generated package,
+    # but we verify the Python constant matches what we'd generate)
+    assert NUM_OCTAVES == 5, f"NUM_OCTAVES should be 5, got {NUM_OCTAVES}"

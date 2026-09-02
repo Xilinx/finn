@@ -252,7 +252,7 @@ RTL files:
      - ``func_cfg_t`` struct per activation, regenerated per K
    * - ``finn-rtllib/pwpolyf/hdl/pwpolyf.sv``
      - Polynomial evaluation pipeline using a Horner chain on DSPFP32
-   * - ``finn-rtllib/pwpolyf/hdl/queue.sv``
+   * - ``finn-rtllib/fifo/hdl/fifo.sv``
      - Elastic FIFO for backpressure
    * - ``finn-rtllib/pwpolyf/hdl/pwpolyf_template_wrapper.v``
      - AXI-Stream wrapper template
