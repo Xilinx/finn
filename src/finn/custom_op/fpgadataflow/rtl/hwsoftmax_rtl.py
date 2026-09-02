@@ -13,6 +13,7 @@ import shutil
 
 from finn.custom_op.fpgadataflow.hwsoftmax import HWSoftmax
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
+from finn.util.basic import fifo_rtl_files
 
 
 class HWSoftmax_rtl(HWSoftmax, RTLBackend):
@@ -37,7 +38,6 @@ class HWSoftmax_rtl(HWSoftmax, RTLBackend):
             "binopf.sv",
             "pwpolyf_pkg.sv",
             "pwpolyf.sv",
-            "queue.sv",
             "int_to_fp32.sv",
         ]
 
@@ -100,7 +100,7 @@ class HWSoftmax_rtl(HWSoftmax, RTLBackend):
 
         verilog_files = [rtllib_dir + f for f in self._rtllib_files()]
         verilog_files.append(code_gen_dir + self.get_nodeattr("gen_top_module") + ".v")
-        return verilog_files
+        return verilog_files + fifo_rtl_files(abspath)
 
     def code_generation_ipi(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
@@ -108,6 +108,7 @@ class HWSoftmax_rtl(HWSoftmax, RTLBackend):
         sourcefiles = list(self._rtllib_files())
         sourcefiles.append(self.get_nodeattr("gen_top_module") + ".v")
         sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
+        sourcefiles += fifo_rtl_files()
 
         cmd = []
         for f in sourcefiles:

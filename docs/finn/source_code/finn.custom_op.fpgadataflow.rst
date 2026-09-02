@@ -63,6 +63,14 @@ finn.custom\_op.fpgadataflow.convolutioninputgenerator
    :undoc-members:
    :show-inheritance:
 
+finn.custom\_op.fpgadataflow.crop
+-----------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.crop
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.custom\_op.fpgadataflow.duplicatestreams
 ----------------------------------------------
 
@@ -99,6 +107,22 @@ finn.custom\_op.fpgadataflow.labelselect
 -----------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.labelselect
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+finn.custom\_op.fpgadataflow.hwwhere
+-------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.hwwhere
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+finn.custom\_op.fpgadataflow.selecttoken
+------------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.selecttoken
    :members:
    :undoc-members:
    :show-inheritance:

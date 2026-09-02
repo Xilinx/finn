@@ -216,6 +216,7 @@ public:
 class Design {
 	using  Xsi = Kernel::Xsi;
 	Kernel &_kernel;
+	bool    _closed = false;
 
 public:
 	Design(
@@ -231,7 +232,21 @@ public:
 		.logFileName = const_cast<char*>(log_file),
 		.wdbFileName = const_cast<char*>(wdb_file)
 	}) {}
-	~Design() { _kernel.close(); }
+	~Design() { close(); }
+
+	// Explicitly finalize the design: _kernel.close() calls xsi_close, which
+	// flushes and closes the waveform database. Idempotent (guarded by _closed)
+	// so the destructor can also call it safely. Exposed to Python so callers
+	// can deterministically finalize the .wdb instead of relying on garbage
+	// collection of this object -- Port back-refs and the pybind use_map can
+	// keep it alive past `del`, leaving the wdb unflushed and its trace tail
+	// corrupt on a timeout/pdb exit.
+	void close() noexcept {
+		if(!_closed) {
+			_closed = true;
+			_kernel.close();
+		}
+	}
 
 private:
 	Design(Design const&) = delete;

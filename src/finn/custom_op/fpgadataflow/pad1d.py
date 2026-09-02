@@ -209,10 +209,10 @@ class Pad1D(HWCustomOp):
         oshape = self.get_normal_output_shape()
         context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)
 
-    def bram_estimation(self):
+    def bram_estimation(self, fpgapart):
         return 0
 
-    def lut_estimation(self):
+    def lut_estimation(self, fpgapart):
         pad_tokens = self.get_nodeattr("PadLeft") + self.get_nodeattr("PadRight")
         return int(128 + self.get_nodeattr("NumChannels") * max(1, pad_tokens))
 

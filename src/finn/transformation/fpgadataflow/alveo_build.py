@@ -345,11 +345,7 @@ class VitisLink(Transformation):
                 node_mem_port = sdp_node.get_nodeattr("mem_port")
                 if node_mem_port == "":
                     # configure good defaults based on board
-                    if (
-                        "u50" in self.vitis_platform
-                        or "u280" in self.vitis_platform
-                        or "u55c" in self.vitis_platform
-                    ):
+                    if "u50" in self.vitis_platform or "u55c" in self.vitis_platform:
                         # Use HBM where available (also U50 does not have DDR)
                         mem_type = "HBM"
                         node_mem_port = "%s[%d]" % (mem_type, mem_idx)
@@ -465,6 +461,36 @@ class VitisLink(Transformation):
         return (model, False)
 
 
+def _slash_link_command(tool, config_path, vbin_path, component_xml_paths, build_hardware):
+    """Build the argv for a single SLASH linker "link" invocation.
+
+    :parameter tool: command used to invoke the SLASH linker.
+    :parameter config_path: path to the generated connectivity config.
+    :parameter vbin_path: path the linker should write the VBIN to.
+    :parameter component_xml_paths: IP-XACT component.xml files, one per kernel.
+    :parameter build_hardware: if True, link a hardware image, otherwise a simulation image.
+    :return: argv list for a single linker subprocess invocation.
+    """
+    return [
+        tool,
+        "link",
+        "--config",
+        str(config_path),
+        "--platform",
+        "hw" if build_hardware else "sim",
+        "--out",
+        str(vbin_path),
+        "--kernels",
+    ] + [str(path) for path in component_xml_paths]
+
+
+def _slash_link_argv(config_path, vbin_path, component_xml_paths, build_hardware):
+    slash_linker = resolve_xilinx_tool("slashkit")
+    return _slash_link_command(
+        slash_linker, config_path, vbin_path, component_xml_paths, build_hardware
+    )
+
+
 class SlashLink(Transformation):
     """Create a VBIN file with SLASH.
 
@@ -565,17 +591,7 @@ class SlashLink(Transformation):
 
         # Construct the linker invocation
         vbin_path = link_dir / "finn.vbin"
-        command = [
-            "v80++",
-            "link",
-            "--config",
-            str(config_path),
-            "--platform",
-            "hw" if self.build_hardware else "sim",
-            "--out",
-            str(vbin_path),
-            "--kernels",
-        ] + [str(path) for path in component_xml_paths]
+        command = _slash_link_argv(config_path, vbin_path, component_xml_paths, self.build_hardware)
 
         # Run the linker
         log_path = link_dir / "slash.log"

@@ -89,6 +89,15 @@ class ApplyConfig(Transformation):
 
                 # set node attributes from specified configuration
                 for attr_name, value in node_config.items():
+                    if attr_name == "impl_style" and node.op_type.startswith("StreamingFIFO"):
+                        # impl_style was retired for FIFOs (fifo.sv is the only backend).
+                        # Tolerate it in old configs for now, but flag it as a no-op.
+                        warnings.warn(
+                            "Setting 'impl_style' on %s is meaningless and will raise an "
+                            "error in a future release; remove it from your config." % node.name,
+                            DeprecationWarning,
+                        )
+                        continue
                     inst.set_nodeattr(attr_name, value)
 
                 if node_config:

@@ -8,7 +8,7 @@ import os
 
 from finn.custom_op.fpgadataflow.requant import Requant
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.util.basic import get_dsp_block, make_build_dir
+from finn.util.basic import fifo_rtl_files, get_dsp_block, make_build_dir
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
@@ -136,18 +136,16 @@ class Requant_rtl(Requant, RTLBackend):
         rtllib_dir = os.environ["FINN_ROOT"] + "/finn-rtllib/requant/hdl/"
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
-        rtl_files = [
-            rtllib_dir + "queue.sv",
-            rtllib_dir + "requant.sv",
-            rtllib_dir + "requant_axi.sv",
-        ]
-
-        # Add generated wrappers (Verilog stub + SystemVerilog impl)
         top_module = self.get_nodeattr("gen_top_module")
         if top_module == "":
             top_module = self.get_verilog_top_module_name()
-        rtl_files.append(os.path.join(code_gen_dir, top_module + "_impl.sv"))
-        rtl_files.append(os.path.join(code_gen_dir, top_module + ".v"))
+
+        rtl_files = [
+            rtllib_dir + "requant.sv",
+            rtllib_dir + "requant_axi.sv",
+            os.path.join(code_gen_dir, top_module + "_impl.sv"),
+            os.path.join(code_gen_dir, top_module + ".v"),
+        ] + fifo_rtl_files()
 
         if abspath:
             return rtl_files

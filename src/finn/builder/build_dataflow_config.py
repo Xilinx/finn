@@ -35,7 +35,7 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
 from finn.transformation.fpgadataflow.alveo_build import VitisOptStrategy
-from finn.util.basic import part_map, vitis_default_platform
+from finn.util.basic import hbm_boards, part_map, vitis_default_platform
 
 
 class AutoFIFOSizingMethod(str, Enum):
@@ -76,15 +76,6 @@ class VitisOptStrategyCfg(str, Enum):
     PERFORMANCE_BEST = "performance_best"
     SIZE = "size"
     BUILD_SPEED = "quick"
-
-
-class LargeFIFOMemStyle(str, Enum):
-    """Type of memory resource to use for large FIFOs."""
-
-    AUTO = "auto"
-    BRAM = "block"
-    LUTRAM = "distributed"
-    URAM = "ultra"
 
 
 class VerificationStepType(str, Enum):
@@ -246,7 +237,7 @@ class DataflowBuildConfig:
 
     #: Target board, only needed for generating full bitfiles where the FINN
     #: design is integrated into a shell.
-    #: e.g. "Pynq-Z1" or "U250"
+    #: e.g. "AUP-ZU3_8GB" or "U55C"
     board: Optional[str] = None
 
     #: Target shell flow, only needed for generating full bitfiles where the FINN
@@ -264,17 +255,9 @@ class DataflowBuildConfig:
     #: for each FIFO.
     auto_fifo_depths: Optional[bool] = True
 
-    #: Whether FIFO nodes with depth larger than 32768 will be split.
-    #: Allow to configure very large FIFOs in the folding_config_file.
-    split_large_fifos: Optional[bool] = False
-
     #: When `auto_fifo_depths = True`, select which method will be used for
     #: setting the FIFO sizes.
     auto_fifo_strategy: Optional[AutoFIFOSizingMethod] = AutoFIFOSizingMethod.LARGEFIFO_RTLSIM
-
-    #: Memory resource type for large FIFOs
-    #: Only relevant when `auto_fifo_depths = True`
-    large_fifo_mem_style: Optional[LargeFIFOMemStyle] = LargeFIFOMemStyle.AUTO
 
     #: Enable input throttling for simulation-based FIFO sizing
     #: Only relevant if auto_fifo_strategy = LARGEFIFO_RTLSIM
@@ -369,14 +352,10 @@ class DataflowBuildConfig:
     #: run can measure latency and pipeline-fill throughput only.
     rtlsim_batch_size: Optional[int] = 2
 
-    #: If set to True, FIFOs with impl_style=vivado will be kept during
-    #: rtlsim, otherwise they will be replaced by RTL implementations.
-    rtlsim_use_vivado_comps: Optional[bool] = True
-
     #: Use behavioral simulation for RTLSim verification steps.
     #: When True, passes -define FINN_SIMULATION to xelab, enabling faster
     #: behavioral models for DSP-heavy modules (MVU, LayerNorm, Elementwise)
-    #: and fifo_gauge (with debug capabilities) instead of Q_srl.
+    #: and fifo_gauge (with debug capabilities) instead of the synthesizable fifo.sv.
     #: Does not affect FIFO sizing which always uses behavioral simulation.
     verify_rtlsim_behavioral: Optional[bool] = False
 
@@ -448,6 +427,12 @@ class DataflowBuildConfig:
         else:
             # return as-is when explicitly specified
             return self.fpga_part
+
+    def _resolve_mem_type(self):
+        """Resolve the memory type used to stream weights from the memories
+        available on the target board. When a board exposes more than one memory
+        type, HBM takes precedence over DDR."""
+        return "HBM" if self.board in hbm_boards else "DDR"
 
     def _resolve_cycles_per_frame(self):
         if self.target_fps is None:

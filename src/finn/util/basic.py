@@ -45,8 +45,8 @@ from finn.util.data_packing import finnpy_to_packed_bytearray
 pynq_part_map = dict()
 pynq_part_map["Ultra96"] = "xczu3eg-sbva484-1-e"
 pynq_part_map["Ultra96-V2"] = "xczu3eg-sbva484-1-i"
-pynq_part_map["Pynq-Z1"] = "xc7z020clg400-1"
-pynq_part_map["Pynq-Z2"] = "xc7z020clg400-1"
+pynq_part_map["Pynq-Z1"] = "xc7z020clg400-1"  # retired, see retired_pynq_boards
+pynq_part_map["Pynq-Z2"] = "xc7z020clg400-1"  # retired, see retired_pynq_boards
 pynq_part_map["ZCU102"] = "xczu9eg-ffvb1156-2-e"
 pynq_part_map["ZCU104"] = "xczu7ev-ffvc1156-2-e"
 pynq_part_map["ZCU111"] = "xczu28dr-ffvg1517-2-e"
@@ -54,6 +54,13 @@ pynq_part_map["RFSoC2x2"] = "xczu28dr-ffvg1517-2-e"
 pynq_part_map["RFSoC4x2"] = "xczu48dr-ffvg1517-2-e"
 pynq_part_map["KV260_SOM"] = "xck26-sfvc784-2LV-c"
 pynq_part_map["AUP-ZU3_8GB"] = "xczu3eg-sfvc784-2-e"
+
+# Zynq-7000 boards (Pynq-Z1/Z2) retired from official support with the move to
+# Vivado 2024.2. The build flow itself is unchanged and Vivado 2024.2 still
+# supports the xc7z020 part, so these remain in the maps above and the builder
+# only blocks them at config-check time. To re-enable a build for one of these
+# boards, remove it from this set (see finn.builder.build_dataflow_checks).
+retired_pynq_boards = {"Pynq-Z1", "Pynq-Z2"}
 
 
 # native AXI HP port width (in bits) for PYNQ boards
@@ -75,14 +82,15 @@ vitis_part_map = dict()
 vitis_part_map["U50"] = "xcu50-fsvh2104-2L-e"
 vitis_part_map["U200"] = "xcu200-fsgd2104-2-e"
 vitis_part_map["U250"] = "xcu250-figd2104-2L-e"
-vitis_part_map["U280"] = "xcu280-fsvh2892-2L-e"
 vitis_part_map["U55C"] = "xcu55c-fsvh2892-2L-e"
 
 vitis_default_platform = dict()
 vitis_default_platform["U50"] = "xilinx_u50_gen3x16_xdma_5_202210_1"
 vitis_default_platform["U200"] = "xilinx_u200_gen3x16_xdma_2_202110_1"
-vitis_default_platform["U250"] = "xilinx_u250_gen3x16_xdma_2_1_202010_1"
-vitis_default_platform["U280"] = "xilinx_u280_gen3x16_xdma_1_202211_1"
+# 2024.2 shell (bumped from 2_1_202010_1). The lfc BNN design hits a
+# [VPL 18-1000] routing crash (partially-conflicted nets) on this newer U250
+# shell, so the Alveo BNN CI tests run on U55C instead.
+vitis_default_platform["U250"] = "xilinx_u250_gen3x16_xdma_4_1_202210_1"
 vitis_default_platform["U55C"] = "xilinx_u55c_gen3x16_xdma_3_202210_1"
 
 # Slash device mappings
@@ -93,6 +101,11 @@ slash_part_map["V80"] = "xcv80-lsva4737-2MHP-e-s"
 part_map = {**pynq_part_map, **vitis_part_map, **slash_part_map}
 part_map["VEK280"] = "xcve2802-vsvh1760-2MP-e-S"
 part_map["VCK190"] = "xcvc1902-vsva2197-2MP-e-S"
+
+# Boards that expose HBM. Note that U50 has only HBM (no DDR), while the other
+# entries have HBM in addition to DDR. All boards not listed here are assumed to
+# be DDR-only (this includes U200/U250 and all Zynq/RFSoC boards).
+hbm_boards = {"U50", "U55C", "V80"}
 
 
 def get_rtlsim_trace_depth():
@@ -127,6 +140,16 @@ def get_finn_root():
         )
 
 
+def fifo_rtl_files(abspath=True, gauge=False):
+    """Return the shared FIFO RTL sources, referenced in place so that the flat
+    elaboration namespace only ever sees one declaration of module fifo."""
+    names = (["fifo_gauge.sv"] if gauge else []) + ["fifo.sv"]
+    if not abspath:
+        return names
+    rtlsrc = os.path.join(get_finn_root(), "finn-rtllib", "fifo", "hdl")
+    return [os.path.join(rtlsrc, n) for n in names]
+
+
 def get_vivado_root():
     "Return the root directory that Vivado is installed into."
 
@@ -148,10 +171,35 @@ def get_vivado_version() -> Optional[Tuple[int, int]]:
 
 
 def get_liveness_threshold_cycles():
-    """Return the number of no-output cycles rtlsim will wait before assuming
-    the simulation is not finishing and throwing an exception."""
+    """Return the ``LIVENESS_THRESHOLD`` environment override (in cycles) for the
+    rtlsim watchdog. Defaults to 10000 if unset."""
 
-    return int(os.getenv("LIVENESS_THRESHOLD", 1000000))
+    return int(os.getenv("LIVENESS_THRESHOLD", 10000))
+
+
+def get_watchdog_timeout_cycles(cycles_estimate=None):
+    """Return the effective number of no-output cycles rtlsim will wait before
+    assuming the simulation is not finishing and throwing an exception. This is
+    the derived cycle estimate raised to at least the ``LIVENESS_THRESHOLD``
+    override; with no estimate, the override alone is used."""
+
+    override = get_liveness_threshold_cycles()
+    if cycles_estimate is None:
+        return override
+    return max(int(cycles_estimate), override)
+
+
+def get_rtlsim_timeout_error_message(threshold, cycles_estimate=None):
+    """Return an actionable RTL simulation timeout error message."""
+
+    message = f"RTL simulation timed out after {int(threshold)} cycles"
+    if cycles_estimate is not None:
+        message += f" (derived estimate: {int(cycles_estimate)})"
+    return (
+        message
+        + ". If your model requires more cycles, set LIVENESS_THRESHOLD "
+        + "to a higher value."
+    )
 
 
 def make_build_dir(prefix=""):
@@ -307,6 +355,7 @@ def resolve_xilinx_tool(tool_name):
     - vitis-run
     - v++
     - xelab
+    - slashkit
 
     With FINN_TOOL_DIR_OVERRIDE set, the command resolves to
     <override>/<tool_name>, otherwise the bare tool_name is used.
@@ -487,3 +536,38 @@ def get_driver_shapes(model: ModelWrapper) -> Dict:
         "oshape_folded": oshape_folded,
         "oshape_packed": oshape_packed,
     }
+
+
+def resolve_resize_param_input(model, node):
+    """Identify which input of an ONNX Resize node carries the resampling
+    parameter, across the different opset input signatures, and whether that
+    parameter is a target output size (``sizes``) rather than ``scales``.
+
+    Returns a ``(param_index, is_sizes)`` tuple where ``param_index`` is the
+    index into ``node.input`` and ``is_sizes`` is True if the parameter is a
+    ``sizes`` input. Handles:
+
+    * ``(X, scales)`` (Resize-10)                  -> ``(1, False)``
+    * ``(X, roi, scales)`` (Resize-11+, no sizes)  -> ``(2, False)``
+    * ``(X, roi, scales, sizes)`` (Resize-11+)     -> ``(2, False)`` or ``(3, True)``
+    """
+    num_inputs = len(node.input)
+    if num_inputs == 2:
+        # Resize-10: (X, scales)
+        return 1, False
+    elif num_inputs == 3:
+        # Resize-11+: (X, roi, scales), no sizes input
+        return 2, False
+    elif num_inputs == 4:
+        # Resize-11+: (X, roi, scales, sizes); exactly one of scales/sizes is set
+        scales_init = model.get_initializer(node.input[2])
+        sizes_init = model.get_initializer(node.input[3])
+        scales_exists = scales_init is not None and len(scales_init) != 0
+        sizes_exists = sizes_init is not None and len(sizes_init) != 0
+        assert scales_exists ^ sizes_exists, (
+            "%s: Either scales or the target output size must be specified. "
+            "Specifying both is prohibited." % node.name
+        )
+        return (2, False) if scales_exists else (3, True)
+    else:
+        raise ValueError("%s: Unsupported number of Resize inputs (%d)." % (node.name, num_inputs))

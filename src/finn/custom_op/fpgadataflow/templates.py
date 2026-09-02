@@ -348,9 +348,11 @@ add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/mlo/infrastructure/intermedi
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/mlo/infrastructure/mux.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/mlo/infrastructure/demux.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/mlo/loop_control.sv"
+add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/mlo/address_config.sv"
+add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/axi/hdl/axilite.sv"
 add_files -norecurse "@TOP_VERILOG_FILE@"
-add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/fifo/hdl/Q_srl.v"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/fifo/hdl/fifo_gauge.sv"
+add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/fifo/hdl/fifo.sv"
 
 @IP_GEN@
 

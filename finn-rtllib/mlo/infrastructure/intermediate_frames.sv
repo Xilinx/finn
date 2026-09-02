@@ -31,6 +31,7 @@
  *****************************************************************************/
 
 module intermediate_frames #(
+    int unsigned                    ELEM_BITS,
     int unsigned                    ILEN_BITS,
     int unsigned                    OLEN_BITS,
 
@@ -39,13 +40,15 @@ module intermediate_frames #(
     int unsigned                    LEN_BITS,
     int unsigned                    IDX_BITS,
 
-    logic[LEN_BITS-1:0]             FM_SIZE,
+    int unsigned                    FM_SIZE,
 
     int unsigned                    N_OUTSTANDING_DMAS = 128,
 
     int unsigned                    QDEPTH = 8,
     int unsigned                    N_DCPL_STGS = 1,
-    int unsigned                    DBG = 0
+    int unsigned                    DBG = 0,
+
+    bit [ADDR_BITS-1:0]             ADDRESS_OFFSET = 0
 ) (
     input  logic                        aclk,
     input  logic                        aresetn,
@@ -103,7 +106,10 @@ module intermediate_frames #(
 
     output logic [ILEN_BITS-1:0]        m_axis_tdata,
     output logic                        m_axis_tvalid,
-    input  logic                        m_axis_tready
+    input  logic                        m_axis_tready,
+
+    // Base Address
+    input  logic [ADDR_BITS-1:0]        base_address
 );
 
 // Offsets
@@ -111,10 +117,16 @@ logic [N_OUTSTANDING_DMAS-1:0][ADDR_BITS-1:0] l_offsets;
 for(genvar i = 0; i < N_OUTSTANDING_DMAS; i++) begin
     assign l_offsets[i] = (i * FM_SIZE);
 end
-localparam integer N_OUTSTANDING_DMAS_BITS = $clog2(N_OUTSTANDING_DMAS);
+localparam int unsigned  N_OUTSTANDING_DMAS_BITS = $clog2(N_OUTSTANDING_DMAS);
 
-localparam integer FM_BEATS_IN = FM_SIZE/(OLEN_BITS/8);
-localparam integer FM_BEATS_IN_BITS = (FM_BEATS_IN == 1) ? 1 : $clog2(FM_BEATS_IN);
+localparam int unsigned  EBYTES       = (ELEM_BITS + 7)/8;
+localparam int unsigned  OELEM        = OLEN_BITS / ELEM_BITS;
+localparam int unsigned  IELEM        = ILEN_BITS / ELEM_BITS;
+localparam int unsigned  OLEN_BITS_BA = OELEM * EBYTES * 8;
+localparam int unsigned  ILEN_BITS_BA = IELEM * EBYTES * 8;
+
+localparam int unsigned  FM_BEATS_IN      = FM_SIZE/(OLEN_BITS_BA/8);
+localparam int unsigned  FM_BEATS_IN_BITS = (FM_BEATS_IN == 1)? 1 : $clog2(FM_BEATS_IN);
 
 //
 // Write side
@@ -124,26 +136,24 @@ localparam integer FM_BEATS_IN_BITS = (FM_BEATS_IN == 1) ? 1 : $clog2(FM_BEATS_I
 logic idx_in_tvalid, idx_in_tready;
 logic [IDX_BITS-1:0] idx_in_tdata;
 
-Q_srl #(
-    .depth(QDEPTH), .width(IDX_BITS)
-) inst_queue_seq (
-    .clock(aclk), .reset(!aresetn),
+fifo #(
+    .DEPTH(QDEPTH), .DATA_WIDTH(IDX_BITS)) inst_queue_seq (
+    .clk(aclk), .rst(!aresetn),
     .count(), .maxcount(),
-    .i_d(s_idx_tdata), .i_v(s_idx_tvalid), .i_r(s_idx_tready),
-    .o_d(idx_in_tdata), .o_v(idx_in_tvalid), .o_r(idx_in_tready)
+    .idat(s_idx_tdata), .ivld(s_idx_tvalid), .irdy(s_idx_tready),
+    .odat(idx_in_tdata), .ovld(idx_in_tvalid), .ordy(idx_in_tready)
 );
 
 // Circ buff
 logic wr_sent, wr_rdy;
 logic rd_done;
 
-Q_srl #(
-    .depth(N_OUTSTANDING_DMAS), .width(1)
-) inst_queue_outstanding (
-    .clock(aclk), .reset(!aresetn),
+fifo #(
+    .DEPTH(N_OUTSTANDING_DMAS), .DATA_WIDTH(1)) inst_queue_outstanding (
+    .clk(aclk), .rst(!aresetn),
     .count(), .maxcount(),
-    .i_d(1'b1), .i_v(wr_sent), .i_r(wr_rdy),
-    .o_d(), .o_v(), .o_r(rd_done)
+    .idat(1'b1), .ivld(wr_sent), .irdy(wr_rdy),
+    .odat(), .ovld(), .ordy(rd_done)
 );
 
 // FSM
@@ -157,13 +167,12 @@ logic [ADDR_BITS-1:0] s0_dma_in_tdata;
 logic s0_dma_out_tvalid, s0_dma_out_tready;
 logic [ADDR_BITS-1:0] s0_dma_out_tdata;
 
-Q_srl #(
-    .depth(QDEPTH), .width(ADDR_BITS)
-) inst_queue_s0_dma (
-    .clock(aclk), .reset(!aresetn),
+fifo #(
+    .DEPTH(QDEPTH), .DATA_WIDTH(ADDR_BITS)) inst_queue_s0_dma (
+    .clk(aclk), .rst(!aresetn),
     .count(), .maxcount(),
-    .i_d(s0_dma_in_tdata), .i_v(s0_dma_in_tvalid), .i_r(s0_dma_in_tready),
-    .o_d(s0_dma_out_tdata), .o_v(s0_dma_out_tvalid), .o_r(s0_dma_out_tready)
+    .idat(s0_dma_in_tdata), .ivld(s0_dma_in_tvalid), .irdy(s0_dma_in_tready),
+    .odat(s0_dma_out_tdata), .ovld(s0_dma_out_tvalid), .ordy(s0_dma_out_tready)
 );
 
 always_ff @(posedge aclk) begin: REG_WR
@@ -197,7 +206,7 @@ always_comb begin: DP_WR
     m_idx_tdata = idx_in_tdata + 1;
 
     s0_dma_in_tvalid = 1'b0;
-    s0_dma_in_tdata = l_offsets[wr_ptr_C];
+    s0_dma_in_tdata = base_address + ADDRESS_OFFSET + l_offsets[wr_ptr_C];
     wr_sent = 1'b0;
 
     case (state_wr_C)
@@ -232,13 +241,12 @@ end
 logic done_wr_in, done_wr_out;
 logic rd_start;
 
-Q_srl #(
-    .depth(N_OUTSTANDING_DMAS), .width(1)
-) inst_queue_done (
-    .clock(aclk), .reset(!aresetn),
+fifo #(
+    .DEPTH(N_OUTSTANDING_DMAS), .DATA_WIDTH(1)) inst_queue_done (
+    .clk(aclk), .rst(!aresetn),
     .count(), .maxcount(),
-    .i_d(1'b1), .i_v(done_wr_in), .i_r(),
-    .o_d(), .o_v(done_wr_out), .o_r(rd_start)
+    .idat(1'b1), .ivld(done_wr_in), .irdy(),
+    .odat(), .ovld(done_wr_out), .ordy(rd_start)
 );
 
 //
@@ -255,13 +263,12 @@ logic [ADDR_BITS-1:0] s1_dma_in_tdata;
 logic s1_dma_out_tvalid, s1_dma_out_tready;
 logic [ADDR_BITS-1:0] s1_dma_out_tdata;
 
-Q_srl #(
-    .depth(QDEPTH), .width(ADDR_BITS)
-) inst_queue_s1_dma (
-    .clock(aclk), .reset(!aresetn),
+fifo #(
+    .DEPTH(QDEPTH), .DATA_WIDTH(ADDR_BITS)) inst_queue_s1_dma (
+    .clk(aclk), .rst(!aresetn),
     .count(), .maxcount(),
-    .i_d(s1_dma_in_tdata), .i_v(s1_dma_in_tvalid), .i_r(s1_dma_in_tready),
-    .o_d(s1_dma_out_tdata), .o_v(s1_dma_out_tvalid), .o_r(s1_dma_out_tready)
+    .idat(s1_dma_in_tdata), .ivld(s1_dma_in_tvalid), .irdy(s1_dma_in_tready),
+    .odat(s1_dma_out_tdata), .ovld(s1_dma_out_tvalid), .ordy(s1_dma_out_tready)
 );
 
 always_ff @(posedge aclk) begin: REG_RD
@@ -292,7 +299,7 @@ always_comb begin: DP_RD
 
     rd_start = 1'b0;
     s1_dma_in_tvalid = 1'b0;
-    s1_dma_in_tdata = l_offsets[rd_ptr_C];
+    s1_dma_in_tdata = base_address + ADDRESS_OFFSET + l_offsets[rd_ptr_C];
 
     case (state_rd_C)
         ST_RD_IDLE: begin
@@ -401,6 +408,25 @@ logic [OLEN_BITS-1:0] s_axis_int_tdata;
 logic m_axis_int_tvalid, m_axis_int_tready;
 logic [ILEN_BITS-1:0] m_axis_int_tdata;
 
+logic s_axis_ba_tvalid, s_axis_ba_tready;
+logic [OLEN_BITS_BA-1:0] s_axis_ba_tdata;
+logic m_axis_ba_tvalid, m_axis_ba_tready;
+logic [ILEN_BITS_BA-1:0] m_axis_ba_tdata;
+
+assign s_axis_ba_tvalid  = s_axis_int_tvalid;
+assign s_axis_int_tready = s_axis_ba_tready;
+for(genvar e = 0; e < OELEM; e++) begin : gen_wr_byte_align
+    assign s_axis_ba_tdata[e*EBYTES*8 +: EBYTES*8] =
+        { {(EBYTES*8-ELEM_BITS){1'b0}}, s_axis_int_tdata[e*ELEM_BITS +: ELEM_BITS] };
+end
+
+assign m_axis_int_tvalid = m_axis_ba_tvalid;
+assign m_axis_ba_tready  = m_axis_int_tready;
+for(genvar e = 0; e < IELEM; e++) begin : gen_rd_byte_align
+    assign m_axis_int_tdata[e*ELEM_BITS +: ELEM_BITS] =
+        m_axis_ba_tdata[e*EBYTES*8 +: ELEM_BITS];
+end
+
 logic [FM_BEATS_IN_BITS-1:0] cnt_dwc_C = '0;
 always_ff @(posedge aclk) begin
     if(~aresetn) cnt_dwc_C <= '0;
@@ -410,18 +436,19 @@ end
 logic last_dwc_in;
 assign last_dwc_in = (cnt_dwc_C == FM_BEATS_IN-1);
 
-// DWC write: OLEN_BITS -> DATA_BITS (body output -> DMA)
+
+// DWC write: OLEN_BITS_BA -> DATA_BITS (byte-aligned body output -> DMA)
 if_dwc_sink inst_dwc_wr (
     .aclk(aclk), .aresetn(aresetn),
-    .s_axis_tvalid(s_axis_int_tvalid), .s_axis_tready(s_axis_int_tready), .s_axis_tdata(s_axis_int_tdata), .s_axis_tkeep({(OLEN_BITS/8){1'b1}}), .s_axis_tlast(last_dwc_in),
+    .s_axis_tvalid(s_axis_ba_tvalid), .s_axis_tready(s_axis_ba_tready), .s_axis_tdata(s_axis_ba_tdata), .s_axis_tkeep({(OLEN_BITS_BA/8){1'b1}}), .s_axis_tlast(last_dwc_in),
     .m_axis_tvalid(axis_dma_wr_tvalid), .m_axis_tready(axis_dma_wr_tready), .m_axis_tdata(axis_dma_wr_tdata), .m_axis_tkeep(axis_dma_wr_tkeep), .m_axis_tlast(axis_dma_wr_tlast)
 );
 
-// DWC read: DATA_BITS -> ILEN_BITS (DMA -> body input)
+// DWC read: DATA_BITS -> ILEN_BITS_BA (DMA -> byte-aligned body input)
 if_dwc_source inst_dwc_rd (
     .aclk(aclk), .aresetn(aresetn),
     .s_axis_tvalid(axis_dma_rd_tvalid), .s_axis_tready(axis_dma_rd_tready), .s_axis_tdata(axis_dma_rd_tdata), .s_axis_tkeep(axis_dma_rd_tkeep), .s_axis_tlast(axis_dma_rd_tlast),
-    .m_axis_tvalid(m_axis_int_tvalid), .m_axis_tready(m_axis_int_tready), .m_axis_tdata(m_axis_int_tdata), .m_axis_tkeep(), .m_axis_tlast()
+    .m_axis_tvalid(m_axis_ba_tvalid), .m_axis_tready(m_axis_ba_tready), .m_axis_tdata(m_axis_ba_tdata), .m_axis_tkeep(), .m_axis_tlast()
 );
 
 // REG

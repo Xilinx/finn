@@ -23,7 +23,7 @@ from finn.transformation.fpgadataflow.raise_scalar_to_rank1 import RaiseScalarTo
 from finn.transformation.fpgadataflow.set_loop_boundary import SetLoopBoundary
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
-from finn.transformation.streamline.absorb import AbsorbSignBiasIntoMultiThreshold
+from finn.transformation.streamline.absorb import AbsorbScalarBiasIntoMultiThreshold
 from finn.transformation.streamline.collapse_repeated import (
     CollapseRepeatedAdd,
     CollapseRepeatedMul,
@@ -135,9 +135,6 @@ def test_loop_extraction_default_paths_are_unique():
 @pytest.mark.transform
 def test_finn_loop(input_size, num_layers):
     out_dir = Path(make_build_dir(prefix="test_finn_loop_"))
-    # fixed seed so the deep quantised configs stay within tolerance run to run
-    torch.manual_seed(0)
-    np.random.seed(0)
     hidden_size = input_size
 
     onnx_path, model = export_model_to_qonnx(out_dir, input_size, hidden_size, num_layers)
@@ -151,7 +148,7 @@ def test_finn_loop(input_size, num_layers):
     # Warning: Running standard streamlining here causes optimizations
     # across loop body boundaries that breaks current loop rolling assumptions.
     # instead of streamlining only apply some transformations and then convert to hw
-    model_wrapper = model_wrapper.transform(AbsorbSignBiasIntoMultiThreshold())
+    model_wrapper = model_wrapper.transform(AbsorbScalarBiasIntoMultiThreshold())
     model_wrapper = model_wrapper.transform(ConvertSubToAdd())
     model_wrapper = model_wrapper.transform(ConvertDivToMul())
     model_wrapper = model_wrapper.transform(MoveScalarMulPastMatMul())
@@ -328,6 +325,41 @@ def test_inconsistent_initializer_shape():
         match=(
             "LoopRolling: all loop-body initializers of the same index must have the " "same shape"
         ),
+    ):
+        model_wrapper = model_wrapper.transform(LoopRolling(loop_extraction.loop_body_template))
+
+    # on success (the expected raise fired) drop the scratch dir, kept otherwise
+    robust_rmtree(out_dir)
+
+
+@pytest.mark.transform
+def test_single_instance_loop_rolling_raises():
+    # A model with a single loop-body instance (num_layers=1) resolves to
+    # iteration=1, which the MLO infrastructure does not support.
+    out_dir = Path(make_build_dir(prefix="test_single_instance_loop_"))
+    input_size = 20
+    hidden_size = 20
+    num_layers = 1
+
+    onnx_path, model = export_model_to_qonnx(out_dir, input_size, hidden_size, num_layers)
+
+    qonnx_cleanup(onnx_path, out_file=onnx_path)
+    model_wrapper = ModelWrapper(onnx_path)
+
+    template_path = out_dir / "loop-body-template.onnx"
+    loop_extraction = LoopExtraction(
+        hierarchy_list=[["", "layers.0"]], loop_body_template_path=template_path
+    )
+    model_wrapper = model_wrapper.transform(loop_extraction)
+
+    # exactly one loop-body instance -> rolling would yield iteration=1
+    assert (
+        len(model_wrapper.get_nodes_by_op_type("fn_loop-body")) == 1
+    ), "Expected a single loop-body instance for num_layers=1"
+
+    with pytest.raises(
+        Exception,
+        match="LoopRolling: MLO requires at least 2 repetitions of the loop body",
     ):
         model_wrapper = model_wrapper.transform(LoopRolling(loop_extraction.loop_body_template))
 

@@ -100,7 +100,7 @@ The most relevant are summarized below:
 * (required) ``FINN_XILINX_VERSION`` sets the Xilinx tools version to be used (e.g. ``2022.2``)
 * (required for Vitis) ``PLATFORM_REPO_PATHS`` points to the Vitis platform files (DSA).
 * (required for Vitis) ``XRT_DEB_VERSION`` specifies the .deb to be installed for XRT inside the container (see default value in ``run-docker.sh``).
-* (required for Slash) ``V80PP_DEB_PACKAGE`` specifies the .deb to be installed for Slash's v80++ linker.
+* (required for Slash) ``SLASHKIT_DEB_PACKAGE`` specifies the .deb to be installed for Slash's slashkit linker. This replaces the former ``V80PP_DEB_PACKAGE`` variable, there is no backwards compatibility.
 * (optional) ``NUM_DEFAULT_WORKERS`` (default 4) specifies the degree of parallelization for the transformations that can be run in parallel, potentially reducing build time
 * (optional) ``FINN_XELAB_MT`` overrides the number of threads used by ``xelab`` when building XSI simulations. Defaults to ``NUM_DEFAULT_WORKERS`` or 8 if unset. Set to 1 to disable xelab multithreading.
 * (optional) ``FINN_HOST_BUILD_DIR`` specifies which directory on the host will be used as the build directory. Defaults to ``/tmp/finn_dev_<username>``
@@ -206,7 +206,13 @@ Supported FPGA Hardware
 =======================
 **Vivado IPI support for any Xilinx FPGA:** FINN generates a Vivado IP Integrator (IPI) design from the neural network with AXI stream (FIFO) in-out interfaces, which can be integrated onto any Xilinx-AMD FPGA as part of a larger system. It’s up to you to take the FINN-generated accelerator (what we call “stitched IP” in the tutorials), wire it up to your FPGA design and send/receive neural network data to/from the accelerator.
 
-**Shell-integrated accelerator + driver:** For quick deployment, we target boards supported by  `PYNQ <http://www.pynq.io/>`_ . For these platforms, we can build a full bitfile including DMAs to move data into and out of the FINN-generated accelerator, as well as a Python driver to launch the accelerator. We support the Pynq-Z1, Pynq-Z2, Kria SOM, Ultra96, ZCU102 and ZCU104 boards, as well as UltraScale+-based Alveo datacenter accelerator cards.
+**Shell-integrated accelerator + driver:** For quick deployment, we target boards supported by  `PYNQ <http://www.pynq.io/>`_ . For these platforms, we can build a full bitfile including DMAs to move data into and out of the FINN-generated accelerator, as well as a Python driver to launch the accelerator. We support the AUP-ZU3, Kria SOM, Ultra96, ZCU102 and ZCU104 boards, as well as UltraScale+-based Alveo datacenter accelerator cards.
+
+Retired boards (Pynq-Z1/Pynq-Z2)
+********************************
+The Zynq-7000 based Pynq-Z1 and Pynq-Z2 boards were retired from official support with the move to Vivado 2024.2. The AUP-ZU3 (a Zynq UltraScale+ board from the AMD University Program) is the recommended supported replacement for academic use.
+
+These boards are no longer officially supported and have been removed from our CI and testing, so we make no guarantees about them. That said, the build flow itself is unchanged and Vivado 2024.2 still supports the ``xc7z020`` part, so you can re-enable them at your own decision by removing them from the ``retired_pynq_boards`` set in ``src/finn/util/basic.py``. The board entries in ``pynq_part_map``, ``pynq_native_port_width`` and ``util/platforms.py`` are kept in place. You will also need to uncomment the Pynq-Z1/Pynq-Z2 board file downloads in ``fetch-repos.sh`` (and regenerate the ``EXP_BOARD_FILES_MD5`` checksum as described in that file) so the board files are fetched again.
 
 PYNQ board first-time setup
 ****************************
@@ -250,7 +256,7 @@ On the host side:
 
 Slash-based Alveo first-time setup
 ***********************************
-The Slash toolchain targets Versal-based Alveo cards such as the V80 using the V80++
+The Slash toolchain targets Versal-based Alveo cards such as the V80 using the ``slashkit``
 linker. We use *host* to refer to the PC running the FINN Docker environment, which will
 build the accelerator and package it up, and *target* to refer to the PC where the V80
 card is installed. These two can be the same PC, or connected over the network.
@@ -258,7 +264,7 @@ card is installed. These two can be the same PC, or connected over the network.
 Prior to first usage, you need to build the Slash packages from source and set up both
 the host and the target. Please refer to the `Slash GitHub repository
 <https://github.com/Xilinx/slash>`_ for instructions on how to build all Slash packages,
-including the ``v80++`` linker package.
+including the ``slashkit`` linker package.
 
 On the target side:
 
@@ -268,10 +274,10 @@ On the target side:
 
 On the host side:
 
-1. Build the ``v80++`` Debian package from the `Slash GitHub repository
+1. Build the ``slashkit`` Debian package from the `Slash GitHub repository
    <https://github.com/Xilinx/slash>`_ and copy it to a location accessible on the host.
-2. Set the ``V80PP_DEB_PACKAGE`` environment variable to the path of the ``v80++``
-   Debian package (e.g. ``export V80PP_DEB_PACKAGE=/path/to/v80++.deb``). The package
+2. Set the ``SLASHKIT_DEB_PACKAGE`` environment variable to the path of the ``slashkit``
+   Debian package (e.g. ``export SLASHKIT_DEB_PACKAGE=/path/to/slashkit.deb``). The package
    will be installed into the Docker image when ``run-docker.sh`` builds it.
 3. `Set up public key authentication <https://www.digitalocean.com/community/tutorials/how-to-configure-ssh-key-based-authentication-on-a-linux-server>`_.
    Copy your private key to the ``finn/ssh_keys`` folder on the host to get
