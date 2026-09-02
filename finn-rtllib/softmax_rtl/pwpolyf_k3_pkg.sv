@@ -20,7 +20,7 @@
  *	  1 .. 5*2^K              = positive octaves (exp 125..129)
  *	  5*2^K+1 .. end          = negative octaves (exp 125..129)
  ***************************************************************************/
-package pwpolyf_pkg;
+package pwpolyf_k3_pkg;
 
 	localparam int unsigned  DEGREE      = 2;
 	localparam int unsigned  K           = 3;
