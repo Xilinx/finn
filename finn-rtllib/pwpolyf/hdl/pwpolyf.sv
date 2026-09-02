@@ -314,8 +314,7 @@ module pwpolyf #(
 	fifo #(.DATA_WIDTH($bits(fp_vec_t)), .DEPTH(CREDIT)) obuf (
 		.clk, .rst,
 		.idat(r), .ivld(rvld), .irdy(rrdy),
-		.odat(ydat), .ovld(yvld), .ordy(yrdy),
-		.count(), .maxcount()
+		.odat(ydat), .ovld(yvld), .ordy(yrdy)
 	);
 	always_ff @(posedge clk) begin
 		assert(rrdy || !rvld) else begin
