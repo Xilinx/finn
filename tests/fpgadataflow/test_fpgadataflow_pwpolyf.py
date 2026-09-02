@@ -16,6 +16,10 @@ from qonnx.util.basic import qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
+from finn.custom_op.general.pwpolyfunction import (
+    PWPOLYF_ONNX_DOMAIN,
+    PWPOLYF_ONNX_OPSET,
+)
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferPWPolyFLayer
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
@@ -24,11 +28,7 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.torch_hw_modules import (
-    PWPOLYF_ONNX_DOMAIN,
-    PWPOLYF_ONNX_OPSET,
-    PWPolyFActivation,
-)
+from finn.util.torch_hw_modules import PWPolyFActivation
 
 TEST_FPGA_PART = "xcvc1902-vsva2197-2MP-e-S"
 NON_VERSAL_FPGA_PART = "xczu3eg-sbva484-1-e"

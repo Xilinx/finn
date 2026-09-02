@@ -13,58 +13,22 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# Constants matching the SystemVerilog pwpolyf module
-NUM_OCTAVES = 5
-EXP_BIAS = 127
-EXP_BASE = 125
-EXP_CLAMP = 130
+# Import constants from the ONNX custom op module
+from finn.custom_op.general.pwpolyfunction import (
+    CLAMP_CFG,
+    NUM_OCTAVES,
+    PWPOLYF_ONNX_DOMAIN,
+    SUPPORTED_FUNCS,
+    _segment_boundaries,
+)
 
-SUPPORTED_FUNCS = ("gelu", "silu", "sigmoid", "tanh")
-PWPOLYF_ONNX_DOMAIN = "finn.pwpolyf"
-PWPOLYF_ONNX_OPSET = 1
-
+# PyTorch reference functions for coefficient fitting
 REFERENCE_FUNCS = {
     "gelu": lambda x: F.gelu(x),
     "silu": lambda x: F.silu(x),
     "sigmoid": lambda x: torch.sigmoid(x),
     "tanh": lambda x: torch.tanh(x),
 }
-
-CLAMP_CFG = {
-    "gelu": {"neg_clamp": 0.0, "pos_clamp": 0.0, "pos_passthrough": True},
-    "silu": {"neg_clamp": 0.0, "pos_clamp": 0.0, "pos_passthrough": True},
-    "sigmoid": {"neg_clamp": 0.0, "pos_clamp": 1.0, "pos_passthrough": False},
-    "tanh": {"neg_clamp": -1.0, "pos_clamp": 1.0, "pos_passthrough": False},
-}
-
-
-def _segment_boundaries(K):
-    """Return (lo, hi) bounds for every PWPolyF segment."""
-    num_subs = 1 << K
-    bounds = []
-
-    # Segment 0: near-zero
-    bounds.append((-0.25, 0.25))
-
-    # Positive segments
-    for octave in range(NUM_OCTAVES):
-        exp_val = EXP_BASE + octave - EXP_BIAS
-        base = 2.0**exp_val
-        for sub in range(num_subs):
-            lo = base * (1.0 + sub / num_subs)
-            hi = base * (1.0 + (sub + 1) / num_subs)
-            bounds.append((lo, hi))
-
-    # Negative segments (mirror of positive)
-    for octave in range(NUM_OCTAVES):
-        exp_val = EXP_BASE + octave - EXP_BIAS
-        base = 2.0**exp_val
-        for sub in range(num_subs):
-            lo = base * (1.0 + sub / num_subs)
-            hi = base * (1.0 + (sub + 1) / num_subs)
-            bounds.append((-hi, -lo))
-
-    return bounds
 
 
 def _fit_coefficients(func_name, K, degree=2, num_samples=1000):

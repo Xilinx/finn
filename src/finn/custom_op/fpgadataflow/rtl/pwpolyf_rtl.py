@@ -8,13 +8,13 @@ from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.pwpolyf import PWPolyF
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.util.data_packing import array2hexstring
-from finn.util.torch_hw_modules import (
+from finn.custom_op.general.pwpolyfunction import (
     CLAMP_CFG,
     NUM_OCTAVES,
     SUPPORTED_FUNCS,
     _fit_coefficients,
 )
+from finn.util.data_packing import array2hexstring
 
 
 def _float_to_hex(f):

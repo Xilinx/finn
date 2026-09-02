@@ -6,6 +6,12 @@ import numpy as np
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.custom_op.general.pwpolyfunction import (
+    CLAMP_CFG,
+    _fit_coefficients,
+    _horner_eval_numpy,
+    _segment_index_numpy,
+)
 
 # NUM_OCTAVES is fixed by the RTL segment decode and clamp range. K controls
 # the number of mantissa subdivisions inside each of these fixed octaves.
@@ -172,15 +178,20 @@ class PWPolyF(HWCustomOp):
 
         func = self.get_nodeattr("func")
         K = self.get_nodeattr("K")
-
-        # lazy import to avoid hard dependency on torch at module level
-        import torch  # noqa: PLC0415
-
-        from finn.util.torch_hw_modules import PWPolyFActivation  # noqa: PLC0415
-
         degree = self.get_nodeattr("degree")
-        mod = PWPolyFActivation(func, K=K, degree=degree)
-        with torch.no_grad():
-            x = torch.from_numpy(inp.astype(np.float32))
-            y = mod(x)
-        context[node.output[0]] = y.numpy()
+        cfg = CLAMP_CFG[func]
+
+        coeffs = _fit_coefficients(func, K, degree=degree)
+        orig_shape = inp.shape
+        x_flat = inp.flatten().astype(np.float32)
+
+        seg_idx, is_neg_clamp, is_pos_clamp = _segment_index_numpy(x_flat, K)
+        y = _horner_eval_numpy(x_flat, coeffs, seg_idx, degree, func)
+
+        if cfg["pos_passthrough"]:
+            y = np.where(is_pos_clamp, x_flat, y)
+        else:
+            y = np.where(is_pos_clamp, cfg["pos_clamp"], y)
+        y = np.where(is_neg_clamp, cfg["neg_clamp"], y)
+
+        context[node.output[0]] = y.reshape(orig_shape).astype(np.float32)
