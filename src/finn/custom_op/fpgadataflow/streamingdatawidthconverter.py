@@ -70,6 +70,15 @@ class StreamingDataWidthConverter(HWCustomOp):
         return oshape
 
     def _folded_shape_for_width(self, width):
+        """Compute folded shape for a given stream width.
+
+        When the number of channels divides evenly by the number of elements
+        per stream word, returns shape[:-1] + [channels // elems, elems].
+
+        When channels don't divide evenly (e.g., wide streams spanning multiple
+        spatial dimensions), falls back to flattening the entire tensor:
+        (total_elems // elems, elems).
+        """
         shape = self.get_normal_input_shape()
         bits = self.get_input_datatype().bitwidth()
         assert (

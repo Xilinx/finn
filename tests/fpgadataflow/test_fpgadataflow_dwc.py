@@ -82,20 +82,28 @@ def prepare_inputs(input_tensor, dt):
 
 
 @pytest.mark.parametrize(
+    # config: (shape, inWidth, outWidth, dtype)
     "config",
     [
-        ([1, 24], 6, 4, DataType["INT2"]),
-        ([1, 24], 4, 6, DataType["INT2"]),
-        ([1, 4], 2, 4, DataType["BIPOLAR"]),
-        ([1, 4], 4, 2, DataType["INT2"]),
-        ([1, 2, 8], 4, 4, DataType["INT2"]),
-        ([1, 2, 8], 8, 16, DataType["INT2"]),
-        # A 32-bit word holds 16 INT2 elements and spans both 8-channel rows.
+        # Non-integer ratio (RTL uses vpc genGeneric path)
+        pytest.param(([1, 24], 24, 16, DataType["INT4"]), id="non-integer-ratio-down"),
+        pytest.param(([1, 24], 16, 24, DataType["INT4"]), id="non-integer-ratio-up"),
+        # Integer ratio - deserialization (RTL uses vpc genDes path)
+        pytest.param(([1, 4], 2, 4, DataType["BIPOLAR"]), id="deserialize-2to4"),
+        pytest.param(([1, 8], 24, 48, DataType["INT6"]), id="deserialize-24to48"),
+        # Integer ratio - serialization (RTL uses vpc genSer path)
+        pytest.param(([1, 4], 8, 4, DataType["UINT4"]), id="serialize-8to4"),
+        pytest.param(([1, 4], 4, 2, DataType["INT2"]), id="serialize-4to2"),
+        # Same width - wire-through (RTL uses vpc genWire path)
+        pytest.param(([1, 2, 8], 16, 16, DataType["INT8"]), id="wire-through"),
+        # Integer ratio - deserialization
+        pytest.param(([1, 2, 8], 8, 16, DataType["INT2"]), id="deserialize-8to16"),
+        # Wide stream spanning multiple spatial dimensions
         pytest.param(([1, 2, 8], 32, 16, DataType["INT2"]), id="wide-input-stream"),
-        # lcm(128, 130) = 8320, which exercises HLS element-width splitting.
+        # lcm(128, 130) = 8320 > 8191, exercises HLS element-width splitting
         pytest.param(
             ([1, 65, 128], 128, 130, DataType["BINARY"]),
-            id="wide-output-stream-oversized-lcm",
+            id="oversized-lcm-hls-splitting",
         ),
     ],
 )
@@ -145,9 +153,9 @@ def test_fpgadataflow_dwc(config, exec_mode, impl_style):
     "config",
     [
         ([1, 4], 2, 4, DataType["BIPOLAR"]),
-        ([1, 4], 4, 2, DataType["INT2"]),
-        ([1, 2, 8], 4, 4, DataType["INT2"]),
-        ([1, 2, 8], 8, 16, DataType["INT2"]),
+        ([1, 4], 16, 8, DataType["UINT4"]),
+        ([1, 2, 8], 16, 16, DataType["INT8"]),
+        ([1, 2, 8], 4, 8, DataType["INT2"]),
     ],
 )
 @pytest.mark.parametrize("impl_style", ["hls", "rtl"])

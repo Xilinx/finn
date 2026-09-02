@@ -51,8 +51,6 @@ def _determine_impl_style(node, fpgapart, model):
     # if impl_style not set, for "simple" layers always try
     # to use rtl variant if available
     if impl_style == "":
-        if optype == "StreamingDataWidthConverter":
-            return _dwc_determine_impl_style(node)
         if rtl_variant:
             if optype == "MVAU":
                 idt = node_inst.get_input_datatype(0)
@@ -130,9 +128,7 @@ def _determine_impl_style(node, fpgapart, model):
                 )
             )
     elif impl_style == "rtl":
-        if optype == "StreamingDataWidthConverter":
-            return "rtl"
-        elif optype == "MVAU":
+        if optype == "MVAU":
             if _mvu_rtl_possible(node, fpgapart, model):
                 return "rtl"
             else:
@@ -228,10 +224,6 @@ def _determine_impl_style(node, fpgapart, model):
                 impl_style
             )
         )
-
-
-def _dwc_determine_impl_style(node):
-    return "rtl"
 
 
 def _mvu_rtl_possible(n, fpgapart, model):
