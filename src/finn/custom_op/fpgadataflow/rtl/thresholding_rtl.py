@@ -502,10 +502,11 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             if thresholds.shape[0] == 1:
                 thresholds = np.broadcast_to(thresholds, (pe, expected_thresholds))
                 num_channels = pe
-            # Calculate width_padded to match RTL address space allocation.
-            # RTL uses clog2(n_thres_steps) bits for threshold addressing, so we need
-            # to pad to 2^clog2(n_thres_steps) to align with the RTL memory layout.
-            width_padded = 1 << math.ceil(math.log2(max(n_thres_steps, 2)))
+            # Calculate width_padded to match RTL AXI address space allocation.
+            # RTL uses $clog2(N) bits for threshold addressing in the AXI interface,
+            # so the address space per channel is 2^clog2(n_thres_steps).
+            # For N=1, clog2(1)=0, so only 1 slot per channel.
+            width_padded = 1 << max(0, math.ceil(math.log2(n_thres_steps)))
             thresh_padded = np.zeros((thresholds.shape[0], width_padded))
             thresh_padded[: thresholds.shape[0], :n_thres_steps] = thresholds[:, :n_thres_steps]
             thresh_stream = []

@@ -132,7 +132,10 @@ def make_single_thresholding_modelwrapper(impl_style, T, idt, odt, actval, n_inp
 @pytest.mark.parametrize(
     "idt_odt_nsteps",
     [
-        # TFC-like config: UINT8 input, INT2 output (4 values), but only 2 thresholds
+        # TFC w1a1: UINT8 input, BINARY output (1 bit), only 1 threshold
+        # RTL has $clog2(1)=0 threshold address bits, so only 1 slot per channel
+        (DataType["UINT8"], DataType["BINARY"], 1),
+        # TFC w2a2: UINT8 input, INT2 output (4 values), but only 2 thresholds
         # This exposes mismatch when n_steps < 2^output_bits
         (DataType["UINT8"], DataType["INT2"], 2),
         # Another edge case: 3 thresholds with 2-bit output
