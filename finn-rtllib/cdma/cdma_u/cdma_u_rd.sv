@@ -35,8 +35,7 @@ module cdma_u_rd #(
     parameter integer                   DATA_BITS = 256,
     parameter integer                   ADDR_BITS = 64,
     parameter integer                   LEN_BITS = 32,
-    parameter integer                   ID_BITS = 2,
-    parameter integer                   BURST_OUTSTANDING = 64
+    parameter integer                   ID_BITS = 2
 ) (
     input  logic                        aclk,
     input  logic                        aresetn,
