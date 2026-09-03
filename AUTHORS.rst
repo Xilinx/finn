@@ -39,6 +39,7 @@ Contributors
 * Lukas Stasytis (@lstasytis)
 * Marco Blackwell (@merkelmarrow)
 * Matthias Gehre (@mgehre-amd)
+* Michail Rontionov (@mrontio)
 * Michal Danilowicz (@mdanilow)
 * Mirza Mrahorovic (@mmrahorovic)
 * Neil Kim Nielsen (@neilkimn)
