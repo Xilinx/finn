@@ -59,6 +59,16 @@ def get_platform(board_str):
     return "vitis-xrt" if "U55C" in board_str else "zynq-iodma"
 
 
+def get_dataset(test_dir):
+    """Determine the dataset based on the model topology in the test directory name."""
+    if "tfc" in test_dir or "lfc" in test_dir:
+        return "mnist"
+    elif "cnv" in test_dir:
+        return "cifar10"
+    else:
+        return None
+
+
 def get_full_parameterized_test_list(marker, test_dir_list, batch_size_list, platform_list):
     test_cases = [
         (
@@ -244,3 +254,57 @@ class TestBnn:
         with open(throughput_results_formatted_file, "w") as f:
             f.write(ret_str)
         assert os.path.exists(throughput_results_formatted_file)
+
+    def test_type_validate(self, test_dir, batch_size, platform):
+        """Validate top-1 accuracy on the full test dataset (MNIST or CIFAR-10)."""
+        os.chdir(os.path.join(base_dir_global, test_dir))
+
+        # Check if validate.py exists in the deployment package
+        if not os.path.exists("validate.py"):
+            pytest.skip("validate.py not found in deployment package")
+
+        # Determine dataset based on topology
+        dataset = get_dataset(test_dir)
+        if dataset is None:
+            pytest.skip(f"Unknown dataset for test_dir={test_dir}")
+
+        bitfile = "a.xclbin" if platform == "vitis-xrt" else "resizer.bit"
+
+        # Validation runs through the full test set, so use a longer timeout
+        validate_timeout = 600  # 10 minutes
+
+        result = subprocess.run(
+            [
+                "python",
+                "validate.py",
+                f"--dataset={dataset}",
+                f"--batchsize={batch_size}",
+                f"--bitfile={bitfile}",
+                f"--platform={platform}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=validate_timeout,
+        )
+
+        # Print output for debugging
+        if result.stdout:
+            print(result.stdout)
+        if result.stderr:
+            print(result.stderr)
+
+        assert (
+            result.returncode == 0
+        ), f"validate.py failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
+
+        # Check that accuracy is reported and reasonable (> 80% for these models)
+        if "Final accuracy:" in result.stdout:
+            # Extract accuracy from output
+            for line in result.stdout.split("\n"):
+                if "Final accuracy:" in line:
+                    accuracy = float(line.split(":")[-1].strip())
+                    print(f"Top-1 accuracy: {accuracy}%")
+                    assert (
+                        accuracy > 80.0
+                    ), f"Accuracy {accuracy}% is below expected threshold of 80%"
+                    break
