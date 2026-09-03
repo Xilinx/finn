@@ -127,6 +127,34 @@ localparam int unsigned  ILEN_BITS_BA = IELEM * EBYTES * 8;
 
 localparam int unsigned  FM_BEATS_IN  = FM_SIZE/(OLEN_BITS_BA/8);
 
+initial begin
+    if(FM_SIZE % (OLEN_BITS_BA/8) != 0) begin
+        $error("%m: FM_SIZE (%0d) not a multiple of write-side byte width (%0d).",
+            FM_SIZE, OLEN_BITS_BA/8);
+        $finish;
+    end
+    if(FM_SIZE % (ILEN_BITS_BA/8) != 0) begin
+        $error("%m: FM_SIZE (%0d) not a multiple of read-side byte width (%0d).",
+            FM_SIZE, ILEN_BITS_BA/8);
+        $finish;
+    end
+    if(FM_SIZE % (DATA_BITS/8) != 0) begin
+        $error("%m: FM_SIZE (%0d) not a multiple of DMA bus width (%0d).",
+            FM_SIZE, DATA_BITS/8);
+        $finish;
+    end
+    if(DATA_BITS < OLEN_BITS_BA) begin
+        $error("%m: DATA_BITS (%0d) must be >= OLEN_BITS_BA (%0d).",
+            DATA_BITS, OLEN_BITS_BA);
+        $finish;
+    end
+    if(DATA_BITS < ILEN_BITS_BA) begin
+        $error("%m: DATA_BITS (%0d) must be >= ILEN_BITS_BA (%0d).",
+            DATA_BITS, ILEN_BITS_BA);
+        $finish;
+    end
+end
+
 //
 // Write side
 //
@@ -143,17 +171,18 @@ fifo #(
     .odat(idx_in_tdata), .ovld(idx_in_tvalid), .ordy(idx_in_tready)
 );
 
-// Circ buff
-logic wr_sent, wr_rdy;
-logic rd_done;
-
-fifo #(
-    .DEPTH(N_OUTSTANDING_DMAS), .DATA_WIDTH(1)) inst_queue_outstanding (
-    .clk(aclk), .rst(!aresetn),
-    .count(), .maxcount(),
-    .idat(1'b1), .ivld(wr_sent), .irdy(wr_rdy),
-    .odat(), .ovld(), .ordy(rd_done)
-);
+// Outstanding DMA frame credit
+logic  wr_sent;
+uwire  rd_done;
+uwire  wr_rdy;
+if(1) begin : blkCredit
+    logic signed [$clog2(N_OUTSTANDING_DMAS):0]  DmaCredit = -N_OUTSTANDING_DMAS;  // -N_OUTSTANDING_DMAS, .., -1, 0 (exhausted)
+    always_ff @(posedge aclk) begin
+        if(!aresetn)  DmaCredit <= -N_OUTSTANDING_DMAS;
+        else          DmaCredit <= DmaCredit + (wr_sent == rd_done? 0 : wr_sent? 1 : -1);
+    end
+    assign  wr_rdy = DmaCredit[$left(DmaCredit)];
+end : blkCredit
 
 // FSM
 typedef enum logic[0:0] {ST_WR_IDLE, ST_WR_SEND} state_wr_t;
@@ -237,16 +266,17 @@ end
 // Completion queue
 //
 
-logic done_wr_in, done_wr_out;
-logic rd_start;
-
-fifo #(
-    .DEPTH(N_OUTSTANDING_DMAS), .DATA_WIDTH(1)) inst_queue_done (
-    .clk(aclk), .rst(!aresetn),
-    .count(), .maxcount(),
-    .idat(1'b1), .ivld(done_wr_in), .irdy(),
-    .odat(), .ovld(done_wr_out), .ordy(rd_start)
-);
+uwire  done_wr_in;
+uwire  done_wr_out;
+logic  rd_start;
+if(1) begin : blkCompletion
+    logic signed [$clog2(N_OUTSTANDING_DMAS):0]  WritesDone = 0;  // 0 (none), -1, .., -N_OUTSTANDING_DMAS
+    always_ff @(posedge aclk) begin
+        if(!aresetn)  WritesDone <= 0;
+        else          WritesDone <= WritesDone + (done_wr_in == rd_start? 0 : done_wr_in? -1 : 1);
+    end
+    assign  done_wr_out = WritesDone[$left(WritesDone)];
+end : blkCompletion
 
 //
 // Read side
