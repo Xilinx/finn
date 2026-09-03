@@ -126,6 +126,7 @@ localparam int unsigned  OLEN_BITS_BA = OELEM * EBYTES * 8;
 localparam int unsigned  ILEN_BITS_BA = IELEM * EBYTES * 8;
 
 localparam int unsigned  FM_BEATS_IN  = FM_SIZE/(OLEN_BITS_BA/8);
+localparam int unsigned  FM_BEATS_OUT = FM_SIZE/(ILEN_BITS_BA/8);
 
 initial begin
     if(ELEM_BITS == 0) begin
@@ -154,11 +155,6 @@ initial begin
     if(FM_SIZE % (ILEN_BITS_BA/8) != 0) begin
         $error("%m: FM_SIZE (%0d) not a multiple of read-side byte width (%0d).",
             FM_SIZE, ILEN_BITS_BA/8);
-        $finish;
-    end
-    if(FM_SIZE % (DATA_BITS/8) != 0) begin
-        $error("%m: FM_SIZE (%0d) not a multiple of DMA bus width (%0d).",
-            FM_SIZE, DATA_BITS/8);
         $finish;
     end
     if(DATA_BITS < OLEN_BITS_BA) begin
@@ -480,7 +476,7 @@ vpc #(.W(OLEN_BITS_BA), .N(FM_BEATS_IN), .PI(1), .PO(DATA_BITS/OLEN_BITS_BA)) in
 );
 
 // VPC read: DATA_BITS -> ILEN_BITS_BA (DMA -> byte-aligned body input)
-vpc #(.W(ILEN_BITS_BA), .N(DATA_BITS/ILEN_BITS_BA), .PI(DATA_BITS/ILEN_BITS_BA), .PO(1)) inst_dwc_rd (
+vpc #(.W(ILEN_BITS_BA), .N(FM_BEATS_OUT), .PI(DATA_BITS/ILEN_BITS_BA), .PO(1)) inst_dwc_rd (
     .clk(aclk), .rst(!aresetn),
     .ivld(axis_dma_rd_tvalid), .irdy(axis_dma_rd_tready),
     .idat(axis_dma_rd_tdata),
