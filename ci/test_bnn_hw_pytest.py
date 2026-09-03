@@ -34,7 +34,14 @@ def find_model_dirs(parent_dir):
     # A directory carrying none of them is a cache, or anything else the unpacked
     # board zip happens to contain, and was never a test.
     dirs = {}
+    # Get model exclusion list from environment (comma-separated substrings)
+    model_exclude_raw = os.environ.get("FINN_CI_MODEL_EXCLUDE", "")
+    model_exclude = [x.strip() for x in model_exclude_raw.split(",") if x.strip()]
     for name in os.listdir(parent_dir):
+        # Skip models matching any exclusion pattern
+        if model_exclude and any(excl in name for excl in model_exclude):
+            logger.info(f"Excluding model directory '{name}' (matches FINN_CI_MODEL_EXCLUDE)")
+            continue
         missing = [
             m for m in model_dir_markers if not os.path.isfile(os.path.join(parent_dir, name, m))
         ]
