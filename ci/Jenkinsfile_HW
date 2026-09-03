@@ -146,6 +146,8 @@ pipeline {
            description: 'Substring filter for test types. E.g. "full" to run only bnn_build_full (end2end), skipping sanity. Leave empty for all test types.')
     string(name: 'MODEL_EXCLUDE', defaultValue: '',
            description: 'Comma-separated list of model substrings to exclude from testing. E.g. "tfc" to skip all tfc models. Leave empty to test all models.')
+    string(name: 'TEST_SKIP', defaultValue: '',
+           description: 'Comma-separated list of test methods to skip. Options: execute, validate, throughput. E.g. "validate" to skip accuracy validation, "execute,throughput" to run only validation. Leave empty to run all tests.')
   }
   stages {
     stage('Get node status') {
@@ -794,11 +796,14 @@ void createTestScript(Map row, String testResultsFilename) {
       : sourceBoardProfiles
   String modelExclude = paramString('MODEL_EXCLUDE')
   String modelExcludeEnv = modelExclude ? "export FINN_CI_MODEL_EXCLUDE=${shellQuote(modelExclude)}\n" : ''
+  String testSkip = paramString('TEST_SKIP')
+  String testSkipEnv = testSkip ? "export FINN_CI_TEST_SKIP=${shellQuote(testSkip)}\n" : ''
   String script =
       "#!/bin/bash\n${setup}\n" +
       boardPreflight(row) +
       "export FINN_CI_MARKER=${shellQuote(row.marker as String)}\n" +
       modelExcludeEnv +
+      testSkipEnv +
       pytestInvocation(row, testResultsFilename)
   writeFile file: 'run-tests.sh', text: script
 }
