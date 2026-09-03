@@ -99,7 +99,7 @@ def select_build_steps():
         "phase_convert_to_hardware",  # convert_to_hw + partition + specialize + loop_rolling (MLO)
         "phase_optimize_hardware",  # fps + folding + minimize_bit_width + transpose + estimates
         "phase_build_hardware",  # MLO:loop-body set_fifo_depths+ipgen/stitch, then main fifo+ipgen
-        "phase_generate_outputs",  # stitched IP + rtlsim perf
+        "phase_generate_outputs",  # stitched IP + rtlsim perf + bitfile + driver + deploy pkg
         # --- at_end (custom V80 shell integration + build) ---
         # custom_steps.step_stage_reference_io,
         # custom_steps.step_v80_hw_build,
@@ -123,12 +123,13 @@ def test_build_bert():
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=output_dir,
         steps=select_build_steps(),
-        # clock / board / shell (VCK190 -> VIVADO_ZYNQ; fpga_part resolved from board).
+        # clock / board / shell (VCK190 -> VIVADO_VERSAL; fpga_part resolved from board).
         # VCK190 is DDR-only (not in hbm_boards), so FINNLoop mem_type auto-resolves
         # to "DDR" in step_set_fifo_depths; no explicit mem_type needed.
+        # The Versal flow reads the golden reference shell from $FINN_VERSAL_GOLDEN_DIR.
         synth_clk_period_ns=5.0,  # 200 MHz
         board="VCK190",
-        shell_flow_type=ShellFlowType.VIVADO_ZYNQ,
+        shell_flow_type=ShellFlowType.VIVADO_VERSAL,
         # MLO -- DISABLED for the 1-layer BERT (single encoder layer, nothing to
         # roll). Re-enable these three args for a multi-layer BERT.
         # mlo=True,
@@ -144,7 +145,7 @@ def test_build_bert():
         fifosim_n_inferences=2,
         # fifosim_save_waveform=True,
         # debug_fifo=True,
-        stitched_ip_gen_dcp=True,
+        # stitched_ip_gen_dcp=True,
         verification_atol=0.1,
         mute_config_assertions=True,
         # verification (reference IO produced by step_generate_reference_io)
@@ -154,10 +155,15 @@ def test_build_bert():
         ],
         verify_input_npy=os.path.join(output_dir, "input.npy"),
         verify_expected_output_npy=os.path.join(output_dir, "expected_output.npy"),
-        # outputs (the bitfile is produced by the custom V80 steps into deployment/)
+        # outputs (VCK190 .pdi produced by step_synthesize_bitfile into bitfile/).
+        # PYNQ_DRIVER + DEPLOYMENT_PACKAGE produce driver/ and deploy/ (the deploy
+        # package bundles the existing bitfile/ with the generated driver/).
         generate_outputs=[
             DataflowOutputType.ESTIMATE_REPORTS,
             DataflowOutputType.STITCHED_IP,
+            DataflowOutputType.BITFILE,
+            DataflowOutputType.PYNQ_DRIVER,
+            DataflowOutputType.DEPLOYMENT_PACKAGE,
         ],
         save_intermediate_models=True,
     )
