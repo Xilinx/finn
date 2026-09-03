@@ -123,6 +123,109 @@ def make_single_thresholding_modelwrapper(impl_style, T, idt, odt, actval, n_inp
     return model
 
 
+# Additional test configurations that exercise edge cases found in TFC model:
+# - Large channel counts with non-power-of-2 PE
+# - numSteps < 2^output_bits (e.g., 2 thresholds with 2-bit output)
+# These configurations test the address space calculation alignment between
+# Python weight generation and RTL.
+@pytest.mark.parametrize("impl_style", ["rtl"])
+@pytest.mark.parametrize(
+    "idt_odt_nsteps",
+    [
+        # TFC-like config: UINT8 input, INT2 output (4 values), but only 2 thresholds
+        # This exposes mismatch when n_steps < 2^output_bits
+        (DataType["UINT8"], DataType["INT2"], 2),
+        # Another edge case: 3 thresholds with 2-bit output
+        (DataType["UINT8"], DataType["UINT2"], 3),
+    ],
+)
+@pytest.mark.parametrize("cfg", [(16, 4), (64, 8), (784, 49)])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_runtime_thresholds_tfc_like(impl_style, idt_odt_nsteps, cfg):
+    """Test runtime threshold read with TFC-like configurations.
+
+    These test cases specifically target the edge case where numSteps is less than
+    2^output_bits, which can cause address space mismatch between Python weight
+    generation and RTL if not handled correctly.
+
+    The TFC w2a2 model has:
+    - NumChannels=784, PE=49
+    - numSteps=2 (only 2 thresholds)
+    - outputDataType=INT2 (2 bits, 4 possible values)
+    """
+    ch = cfg[0]
+    pe = cfg[1]
+    n_inp_vecs = [1, 1, 1]
+    idt = idt_odt_nsteps[0]
+    odt = idt_odt_nsteps[1]
+    n_steps = idt_odt_nsteps[2]
+
+    # Generate random thresholds with explicit n_steps
+    T = np.random.randint(
+        idt.min(),
+        idt.max() + 1,
+        (ch, n_steps),
+    ).astype(np.float32)
+    T = np.sort(T, axis=1)
+
+    actval = odt.min()
+
+    model = make_single_thresholding_modelwrapper(impl_style, T, idt, odt, actval, n_inp_vecs, ch)
+    model = model.transform(SpecializeLayers(test_fpga_part))
+
+    assert model.graph.node[0].op_type == "Thresholding_rtl"
+
+    node = model.get_nodes_by_op_type("Thresholding_rtl")[0]
+    op_inst = getCustomOp(node)
+    op_inst.set_nodeattr("PE", pe)
+    op_inst.set_nodeattr("runtime_writeable_weights", 1)
+
+    old_weight_stream = make_runtime_weight_stream(op_inst, T)
+
+    # Build and run RTL simulation
+    model = model.transform(InsertFIFO(True))
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
+    model = model.transform(PrepareRTLSim())
+    model.set_metadata_prop("exec_mode", "rtlsim")
+
+    in_tensor = gen_finn_dt_tensor(idt, tuple(n_inp_vecs + [ch]))
+    in_tensor = np.tile(in_tensor, (2, 1, 1, 1))
+
+    exec_ctx = {model.get_first_global_in(): in_tensor}
+    extracted_weight_stream = []
+
+    def read_weights(sim):
+        addr = 0
+        read_handles = []
+        addresses = []
+        for i in range(len(old_weight_stream)):
+            addresses.append(addr)
+            addr += 4
+        read_handles.append(sim.read_axilite("s_axilite_0", iter(addresses)))
+        sim.run()
+        for addr in addresses:
+            extracted_weight_stream.append(int(read_handles[0][addr], 16))
+
+    rtlsim_exec(model, exec_ctx, pre_hook=read_weights)
+
+    # Validate the AXI Read weights match what was written
+    first_mismatch = next(
+        (i for i, (w, r) in enumerate(zip(old_weight_stream, extracted_weight_stream)) if w != r),
+        "N/A",
+    )
+    assert extracted_weight_stream == old_weight_stream, (
+        f"Weight mismatch! Written {len(old_weight_stream)} entries, "
+        f"read back {len(extracted_weight_stream)} entries. "
+        f"First mismatch at index {first_mismatch}"
+    )
+
+
 @pytest.mark.parametrize("impl_style", ["rtl", "hls"])
 @pytest.mark.parametrize(
     "idt_act_cfg", [(DataType["INT16"], DataType["INT4"]), (DataType["UINT8"], DataType["UINT4"])]
