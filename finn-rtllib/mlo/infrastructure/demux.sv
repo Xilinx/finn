@@ -68,6 +68,27 @@ module demux #(
 localparam int unsigned EBYTES = (ELEM_BITS + 7)/8;
 localparam int unsigned OELEM  = OLEN_BITS / ELEM_BITS;
 localparam int unsigned FM_BEATS = FM_SIZE / (OELEM*EBYTES);
+
+initial begin
+    if(ELEM_BITS == 0 || OLEN_BITS == 0 || FM_SIZE == 0) begin
+        $error("%m: ELEM_BITS, OLEN_BITS, and FM_SIZE must all be non-zero.");
+        $finish;
+    end
+    if(OLEN_BITS % ELEM_BITS != 0) begin
+        $error("%m: OLEN_BITS (%0d) not a multiple of ELEM_BITS (%0d).",
+            OLEN_BITS, ELEM_BITS);
+        $finish;
+    end
+    if(FM_SIZE % (OELEM*EBYTES) != 0) begin
+        $error("%m: FM_SIZE (%0d) not a multiple of beat byte width (%0d).",
+            FM_SIZE, OELEM*EBYTES);
+        $finish;
+    end
+    if(N_LAYERS < 1) begin
+        $error("%m: N_LAYERS must be >= 1.");
+        $finish;
+    end
+end
 localparam int unsigned FM_BEATS_BITS = (FM_BEATS == 1) ? 1 : $clog2(FM_BEATS);
 
 //

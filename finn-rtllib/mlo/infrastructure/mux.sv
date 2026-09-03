@@ -72,6 +72,23 @@ module mux #(
 localparam int unsigned EBYTES = (ELEM_BITS + 7)/8;
 localparam int unsigned IELEM  = ILEN_BITS / ELEM_BITS;
 localparam int unsigned FM_BEATS = FM_SIZE / (IELEM*EBYTES);
+
+initial begin
+    if(ELEM_BITS == 0 || ILEN_BITS == 0 || FM_SIZE == 0) begin
+        $error("%m: ELEM_BITS, ILEN_BITS, and FM_SIZE must all be non-zero.");
+        $finish;
+    end
+    if(ILEN_BITS % ELEM_BITS != 0) begin
+        $error("%m: ILEN_BITS (%0d) not a multiple of ELEM_BITS (%0d).",
+            ILEN_BITS, ELEM_BITS);
+        $finish;
+    end
+    if(FM_SIZE % (IELEM*EBYTES) != 0) begin
+        $error("%m: FM_SIZE (%0d) not a multiple of beat byte width (%0d).",
+            FM_SIZE, IELEM*EBYTES);
+        $finish;
+    end
+end
 localparam int unsigned FM_BEATS_BITS = (FM_BEATS == 1) ? 1 : $clog2(FM_BEATS);
 
 //

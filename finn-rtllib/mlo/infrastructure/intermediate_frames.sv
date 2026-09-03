@@ -128,6 +128,24 @@ localparam int unsigned  ILEN_BITS_BA = IELEM * EBYTES * 8;
 localparam int unsigned  FM_BEATS_IN  = FM_SIZE/(OLEN_BITS_BA/8);
 
 initial begin
+    if(ELEM_BITS == 0) begin
+        $error("%m: ELEM_BITS must be non-zero.");
+        $finish;
+    end
+    if(FM_SIZE == 0) begin
+        $error("%m: FM_SIZE must be non-zero.");
+        $finish;
+    end
+    if(OLEN_BITS % ELEM_BITS != 0) begin
+        $error("%m: OLEN_BITS (%0d) not a multiple of ELEM_BITS (%0d).",
+            OLEN_BITS, ELEM_BITS);
+        $finish;
+    end
+    if(ILEN_BITS % ELEM_BITS != 0) begin
+        $error("%m: ILEN_BITS (%0d) not a multiple of ELEM_BITS (%0d).",
+            ILEN_BITS, ELEM_BITS);
+        $finish;
+    end
     if(FM_SIZE % (OLEN_BITS_BA/8) != 0) begin
         $error("%m: FM_SIZE (%0d) not a multiple of write-side byte width (%0d).",
             FM_SIZE, OLEN_BITS_BA/8);

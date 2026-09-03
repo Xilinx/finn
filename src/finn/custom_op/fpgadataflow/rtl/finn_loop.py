@@ -384,19 +384,9 @@ class FINNLoop(HWCustomOp, RTLBackend):
         code_gen_dict["$ADDRESS_OFFSET$"] = [str(self.get_nodeattr("address_offset"))]
 
         input_elem_bytes = (self.get_input_datatype(0).bitwidth() + 7) // 8
-        output_elem_bytes = (self.get_output_datatype(0).bitwidth() + 7) // 8
         input_elements = int(np.prod(self.get_normal_input_shape(0)))
         input_bytes = input_elements * input_elem_bytes
-        output_elements = int(np.prod(self.get_normal_output_shape(0)))
-        output_bytes = output_elements * output_elem_bytes
         code_gen_dict["$INPUT_BYTES$"] = [str(input_bytes)]
-        code_gen_dict["$OUTPUT_BYTES$"] = [str(output_bytes)]
-
-        # round up to next power of 2
-        input_bytes_rounded_to_power_of_2 = 2 ** (math.ceil(math.log2(input_bytes)))
-        code_gen_dict["$LAYER_OFFS_INT$"] = [
-            str(input_bytes_rounded_to_power_of_2)
-        ]  # need to get correct value
 
         template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mlo/loop_control_wrapper.v"
         with open(template_path, "r") as f:

@@ -33,7 +33,6 @@
 module $LOOP_CONTROL_WRAPPER_NAME$ #(
     parameter N_MAX_LAYERS   = $N_MAX_LAYERS$,
     parameter INPUT_BYTES    = $INPUT_BYTES$, // number of bytes in the input shape
-    parameter OUTPUT_BYTES   = $OUTPUT_BYTES$, // number of bytes in the output shape
     parameter N_LAYERS       = $N_LAYERS$,
 
     parameter ADDR_BITS      = 64,
