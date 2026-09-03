@@ -270,15 +270,20 @@ class TestBnn:
 
         bitfile = "a.xclbin" if platform == "vitis-xrt" else "resizer.bit"
 
+        # Use larger batch size for validation efficiency (default in validate.py is 100)
+        # batch_size=1 would require 10000 inference calls for CIFAR-10
+        validate_batchsize = 100
+
         # Validation runs through the full test set, so use a longer timeout
-        validate_timeout = 600  # 10 minutes
+        # CIFAR-10 download + 100 batches can take a while
+        validate_timeout = 1200  # 20 minutes
 
         result = subprocess.run(
             [
                 "python",
                 "validate.py",
                 f"--dataset={dataset}",
-                f"--batchsize={batch_size}",
+                f"--batchsize={validate_batchsize}",
                 f"--bitfile={bitfile}",
                 f"--platform={platform}",
             ],
