@@ -1120,11 +1120,14 @@ class MVAU(HWCustomOp):
                         if fname.endswith(file_suffix):
                             strm_tmpl = fname
                     strm_tmpl_name = strm_tmpl[:-2]
+                    dwc_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/dwc/hdl/")
                     sourcefiles = [
                         os.path.join(code_gen_dir, strm_tmpl),
                         reg_rtllib_dir + "skid.sv",
                         fwg_rtllib_dir + "fetch_weights.sv",
                         fwg_rtllib_dir + "local_weight_buffer.sv",
+                        dwc_rtllib_dir + "vpc.sv",
+                        dwc_rtllib_dir + "dwc_axi.sv",
                     ] + fifo_rtl_files()
                     # Create Vivado axis_dwidth_converter IP
                     theight = self.get_nodeattr("TH")

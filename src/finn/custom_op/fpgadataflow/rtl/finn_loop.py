@@ -159,7 +159,6 @@ class FINNLoop(HWCustomOp, RTLBackend):
             else:
                 ishape = loop_body.get_tensor_shape(node.input[0])
         else:
-            loop_body = self.get_nodeattr("body")
             tensor = loop_body.graph.input[ind].name
             # get consumer, assuming the second input is the parameter input
             param_node = loop_body.find_consumer(tensor)
@@ -383,20 +382,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # Intermediate frame address offset
         code_gen_dict["$ADDRESS_OFFSET$"] = [str(self.get_nodeattr("address_offset"))]
 
-        input_elem_bytes = (self.get_input_datatype(0).bitwidth() + 7) // 8
-        output_elem_bytes = (self.get_output_datatype(0).bitwidth() + 7) // 8
         input_elements = int(np.prod(self.get_normal_input_shape(0)))
-        input_bytes = input_elements * input_elem_bytes
-        output_elements = int(np.prod(self.get_normal_output_shape(0)))
-        output_bytes = output_elements * output_elem_bytes
-        code_gen_dict["$INPUT_BYTES$"] = [str(input_bytes)]
-        code_gen_dict["$OUTPUT_BYTES$"] = [str(output_bytes)]
-
-        # round up to next power of 2
-        input_bytes_rounded_to_power_of_2 = 2 ** (math.ceil(math.log2(input_bytes)))
-        code_gen_dict["$LAYER_OFFS_INT$"] = [
-            str(input_bytes_rounded_to_power_of_2)
-        ]  # need to get correct value
+        code_gen_dict["$INPUT_ELEMS$"] = [str(input_elements)]
 
         template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mlo/loop_control_wrapper.v"
         with open(template_path, "r") as f:
@@ -626,46 +613,6 @@ class FINNLoop(HWCustomOp, RTLBackend):
 
         cmd = []
 
-        # Create Vivado axis_dwidth_converter IPs for intermediate_frames DWCs
-        olen_bits = self.get_outstream_width(0)
-        ilen_bits = self.get_instream_width(0)
-        data_bits = 256
-        # Intermediate frames pad each element to a whole number of bytes, so the
-        # DWCs must be sized on the byte-aligned widths (OLEN_BITS_BA/ILEN_BITS_BA
-        # in intermediate_frames.sv), matching the per-element FM_SIZE layout.
-        elem_bits = self.get_input_datatype(0).bitwidth()
-        elem_bytes = (elem_bits + 7) // 8
-        oelem = olen_bits // elem_bits
-        ielem = ilen_bits // elem_bits
-        # DWC write path: byte-aligned body output width -> DMA width (256)
-        dwc_sink_s_bytes = oelem * elem_bytes
-        dwc_sink_m_bytes = data_bits // 8
-        cmd += [
-            "create_ip -name axis_dwidth_converter -vendor xilinx.com "
-            "-library ip -version 1.1 -module_name if_dwc_sink",
-            "set_property -dict [list "
-            "CONFIG.S_TDATA_NUM_BYTES {%d} "
-            "CONFIG.M_TDATA_NUM_BYTES {%d} "
-            "CONFIG.HAS_TLAST {1} "
-            "CONFIG.HAS_TKEEP {1} "
-            "] [get_ips if_dwc_sink]" % (dwc_sink_s_bytes, dwc_sink_m_bytes),
-            "generate_target all [get_ips if_dwc_sink]",
-        ]
-        # DWC read path: DMA width (256) -> byte-aligned body input width
-        dwc_source_s_bytes = data_bits // 8
-        dwc_source_m_bytes = ielem * elem_bytes
-        cmd += [
-            "create_ip -name axis_dwidth_converter -vendor xilinx.com "
-            "-library ip -version 1.1 -module_name if_dwc_source",
-            "set_property -dict [list "
-            "CONFIG.S_TDATA_NUM_BYTES {%d} "
-            "CONFIG.M_TDATA_NUM_BYTES {%d} "
-            "CONFIG.HAS_TLAST {1} "
-            "CONFIG.HAS_TKEEP {1} "
-            "] [get_ips if_dwc_source]" % (dwc_source_s_bytes, dwc_source_m_bytes),
-            "generate_target all [get_ips if_dwc_source]",
-        ]
-
         # add all the generated IP dirs to ip_repo_paths
         ip_dirs = ["list"]
         # add RTL streamer IP
@@ -692,7 +639,6 @@ class FINNLoop(HWCustomOp, RTLBackend):
         node_intf = self.get_verilog_top_module_intf_names()
         m_axis_intfs = node_intf["m_axis"]
         s_axis_intfs = node_intf["s_axis"]
-        control_intfs = node_intf["ap_none"]
         mm_intfs = node_intf["aximm"]
         for intf in m_axis_intfs:
             cmd.append(
@@ -709,13 +655,6 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 "create_bd_intf_pin -mode Master "
                 "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s" % (self.onnx_node.name, intf[0])
             )
-        for intf in control_intfs:
-            if intf == "done_if":
-                cmd.append(
-                    "create_bd_pin -from 1 -to 0 -dir O -type data /%s/%s"
-                    % (self.onnx_node.name, intf)
-                )
-
         # instantiate loop shell
         loop_shell_name = f"{self.onnx_node.name}/{self.onnx_node.name}_loop_cont_wrapper"
         cmd.append(
@@ -733,18 +672,11 @@ class FINNLoop(HWCustomOp, RTLBackend):
         )
         # "externalize" some of the loop shell signals
         ext_intf_signals = ["in0_V", "out0_V", "m_axi_intermediate_frame"]
-        ext_signals = ["done_if"]
         for sig in ext_intf_signals:
             cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/%s] [get_bd_intf_pins %s/%s]"
                 % (self.onnx_node.name, sig, loop_shell_name, sig)
             )
-        for sig in ext_signals:
-            cmd.append(
-                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
-                % (self.onnx_node.name, sig, loop_shell_name, sig)
-            )
-
         # stream tap graph generation
         loop_body = self.get_nodeattr("body")
         source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
@@ -789,7 +721,12 @@ class FINNLoop(HWCustomOp, RTLBackend):
             if fname.endswith(file_suffix):
                 st_verilog_files.append(os.path.join(code_gen_dir, fname))
                 st_tmpl_names.append(fname[:-2])
-        sourcefiles = st_verilog_files + [stream_tap_dir + "stream_tap.sv", skid_file]
+        dwc_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/dwc/hdl/")
+        sourcefiles = st_verilog_files + [
+            stream_tap_dir + "stream_tap.sv",
+            skid_file,
+            dwc_rtllib_dir + "vpc.sv",
+        ]
         for f in sourcefiles:
             cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
 
@@ -1146,7 +1083,6 @@ class FINNLoop(HWCustomOp, RTLBackend):
             "set_property name m_axi_intermediate_frame "
             "[get_bd_intf_ports m_axi_intermediate_frame_0]"
         )
-        cmd.append("set_property name done_if [get_bd_ports done_if_0]")
         cmd.append("set_property name sim_finish [get_bd_ports sim_finish_0]")
         if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
             cmd.append("set_property name s_axilite [get_bd_intf_ports s_axilite_0]")
@@ -1266,11 +1202,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         offset_attr = get_by_name(self.onnx_node.attribute, "address_offset") is not None
         intf_names["axilite"] = ["s_axilite"] if offset_attr else []
 
-        # using ap_none field to add control signals
         intf_names["ap_none"] = []
-        # done_if should be externalize to a block diagram port
-        # and connected to the axil_iw_slv_mlo component
-        intf_names["ap_none"].append("done_if")
 
         loop_body = self.get_nodeattr("body")
         loop_body_intf = eval(loop_body.get_metadata_prop("vivado_stitch_ifnames"))
@@ -1303,7 +1235,11 @@ class FINNLoop(HWCustomOp, RTLBackend):
 
     def intermediate_frame_bytes(self):
         N_OUTSTANDING_DMAS = 128  # Currently hard-coded in intermediate_frames.sv
-        input_elem_bytes = (self.get_input_datatype(0).bitwidth() + 7) // 8
+        DATA_BITS = 256  # DMA bus width, hard-coded in loop_control_wrapper.v
         input_elements = int(np.prod(self.get_normal_input_shape(0)))
-        input_bytes = input_elements * input_elem_bytes
-        return N_OUTSTANDING_DMAS * input_bytes
+        elem_bits = self.get_input_datatype(0).bitwidth()
+        dma_pe = DATA_BITS // elem_bits
+        dma_beats = (input_elements + dma_pe - 1) // dma_pe
+        dma_beat_bytes = DATA_BITS // 8
+        slot_bytes = dma_beats * dma_beat_bytes
+        return N_OUTSTANDING_DMAS * slot_bytes

@@ -28,6 +28,49 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
+ * @brief	Ping-pong frame buffer for intermediate activations in DDR/HBM.
+ *
+ * @description
+ *  Buffers activation frames between loop body iterations via external memory.
+ *  A write-side DMA stores each outgoing frame; a read-side DMA retrieves it
+ *  once the write completes, feeding the next iteration's input.
+ *
+ *  Expected memory layout (managed internally via a circular slot allocator):
+ *
+ *    base_address + ADDRESS_OFFSET
+ *    ├── Slot 0   @ offset 0
+ *    ├── Slot 1   @ offset FM_BYTES
+ *    ├── Slot 2   @ offset 2 * FM_BYTES
+ *    │   ...
+ *    └── Slot N-1 @ offset (N-1) * FM_BYTES    (N = N_OUTSTANDING_DMAS)
+ *
+ *  Each slot holds one activation frame of FM_ELEMS elements, each ELEM_BITS
+ *  wide.  The DMA transfer size per slot is:
+ *
+ *    FM_BYTES = ceil(FM_ELEMS / DMA_PE) * (DATA_BITS / 8)
+ *
+ *  where DMA_PE = DATA_BITS / ELEM_BITS is the number of elements per AXI
+ *  beat.  FM_BYTES is always a whole number of AXI beats — when FM_ELEMS is
+ *  not a multiple of DMA_PE, the last beat carries a partial payload.
+ *
+ *  Two VPC width converters bridge the compute stream widths (OPE, IPE) to
+ *  the DMA bus width (DMA_PE), both parameterized with N=FM_ELEMS to crop
+ *  partial last beats:
+ *    - Write path: OPE elements/beat → DMA_PE elements/beat (body → DDR)
+ *    - Read path:  DMA_PE elements/beat → IPE elements/beat (DDR → body)
+ *
+ *  PAD_ZEROS=0 on both VPCs because the downstream consumer discards excess
+ *  lanes — zero-padding would waste logic.
+ *
+ *  Alignment assumptions:
+ *    - FM_BYTES is always a multiple of DATA_BITS/8 (AXI bus width in bytes),
+ *      so every slot starts at a bus-aligned address.
+ *    - Partial last AXI beats occur when FM_ELEMS does not divide evenly by
+ *      DMA_PE; the VPCs (N=FM_ELEMS) crop them.
+ *    - ELEM_BITS must evenly divide DATA_BITS so that DMA_PE is an integer.
+ *      OLEN_BITS and ILEN_BITS are multiples of ELEM_BITS by construction
+ *      (= PE * ELEM_BITS).  All three are checked by initial-block assertions.
+ *
  *****************************************************************************/
 
 module intermediate_frames #(
@@ -40,7 +83,7 @@ module intermediate_frames #(
     int unsigned                    LEN_BITS,
     int unsigned                    IDX_BITS,
 
-    int unsigned                    FM_SIZE,
+    int unsigned                    FM_ELEMS,
 
     int unsigned                    N_OUTSTANDING_DMAS = 128,
 
@@ -112,21 +155,54 @@ module intermediate_frames #(
     input  logic [ADDR_BITS-1:0]        base_address
 );
 
-// Offsets
+// Derived: element counts per stream beat and DMA beat
+localparam int unsigned  OPE    = OLEN_BITS / ELEM_BITS;
+localparam int unsigned  IPE    = ILEN_BITS / ELEM_BITS;
+localparam int unsigned  DMA_PE = DATA_BITS / ELEM_BITS;
+
+// DMA transfer sizing: each beat carries DMA_PE elements
+localparam int unsigned  DMA_BEATS      = (FM_ELEMS + DMA_PE - 1) / DMA_PE;
+localparam int unsigned  DMA_BEAT_BYTES = DATA_BITS / 8;
+localparam int unsigned  FM_BYTES       = DMA_BEATS * DMA_BEAT_BYTES;
+
+// Offsets — spaced at DMA-beat-aligned boundaries to prevent read overrun
+// into adjacent slots (DMA reads in whole beats, rounding up FM_BYTES).
 logic [N_OUTSTANDING_DMAS-1:0][ADDR_BITS-1:0] l_offsets;
 for(genvar i = 0; i < N_OUTSTANDING_DMAS; i++) begin
-    assign l_offsets[i] = (i * FM_SIZE);
+    assign l_offsets[i] = (i * FM_BYTES);
 end
 localparam int unsigned  N_OUTSTANDING_DMAS_BITS = $clog2(N_OUTSTANDING_DMAS);
 
-localparam int unsigned  EBYTES       = (ELEM_BITS + 7)/8;
-localparam int unsigned  OELEM        = OLEN_BITS / ELEM_BITS;
-localparam int unsigned  IELEM        = ILEN_BITS / ELEM_BITS;
-localparam int unsigned  OLEN_BITS_BA = OELEM * EBYTES * 8;
-localparam int unsigned  ILEN_BITS_BA = IELEM * EBYTES * 8;
-
-localparam int unsigned  FM_BEATS_IN      = FM_SIZE/(OLEN_BITS_BA/8);
-localparam int unsigned  FM_BEATS_IN_BITS = (FM_BEATS_IN == 1)? 1 : $clog2(FM_BEATS_IN);
+initial begin
+    if(ELEM_BITS == 0) begin
+        $error("%m: ELEM_BITS must be non-zero.");
+        $finish;
+    end
+    if(FM_ELEMS == 0) begin
+        $error("%m: FM_ELEMS must be non-zero.");
+        $finish;
+    end
+    if(OLEN_BITS % ELEM_BITS != 0) begin
+        $error("%m: OLEN_BITS (%0d) not a multiple of ELEM_BITS (%0d).",
+            OLEN_BITS, ELEM_BITS);
+        $finish;
+    end
+    if(ILEN_BITS % ELEM_BITS != 0) begin
+        $error("%m: ILEN_BITS (%0d) not a multiple of ELEM_BITS (%0d).",
+            ILEN_BITS, ELEM_BITS);
+        $finish;
+    end
+    if(DATA_BITS < OLEN_BITS) begin
+        $error("%m: DATA_BITS (%0d) must be >= OLEN_BITS (%0d).",
+            DATA_BITS, OLEN_BITS);
+        $finish;
+    end
+    if(DATA_BITS < ILEN_BITS) begin
+        $error("%m: DATA_BITS (%0d) must be >= ILEN_BITS (%0d).",
+            DATA_BITS, ILEN_BITS);
+        $finish;
+    end
+end
 
 //
 // Write side
@@ -144,17 +220,18 @@ fifo #(
     .odat(idx_in_tdata), .ovld(idx_in_tvalid), .ordy(idx_in_tready)
 );
 
-// Circ buff
-logic wr_sent, wr_rdy;
-logic rd_done;
-
-fifo #(
-    .DEPTH(N_OUTSTANDING_DMAS), .DATA_WIDTH(1)) inst_queue_outstanding (
-    .clk(aclk), .rst(!aresetn),
-    .count(), .maxcount(),
-    .idat(1'b1), .ivld(wr_sent), .irdy(wr_rdy),
-    .odat(), .ovld(), .ordy(rd_done)
-);
+// Outstanding DMA frame credit
+logic  wr_sent;
+uwire  rd_done;
+uwire  wr_rdy;
+if(1) begin : blkCredit
+    logic signed [$clog2(N_OUTSTANDING_DMAS):0]  DmaCredit = -N_OUTSTANDING_DMAS;  // -N_OUTSTANDING_DMAS, .., -1, 0 (exhausted)
+    always_ff @(posedge aclk) begin
+        if(!aresetn)  DmaCredit <= -N_OUTSTANDING_DMAS;
+        else          DmaCredit <= DmaCredit + (wr_sent == rd_done? 0 : wr_sent? 1 : -1);
+    end
+    assign  wr_rdy = DmaCredit[$left(DmaCredit)];
+end : blkCredit
 
 // FSM
 typedef enum logic[0:0] {ST_WR_IDLE, ST_WR_SEND} state_wr_t;
@@ -238,16 +315,17 @@ end
 // Completion queue
 //
 
-logic done_wr_in, done_wr_out;
-logic rd_start;
-
-fifo #(
-    .DEPTH(N_OUTSTANDING_DMAS), .DATA_WIDTH(1)) inst_queue_done (
-    .clk(aclk), .rst(!aresetn),
-    .count(), .maxcount(),
-    .idat(1'b1), .ivld(done_wr_in), .irdy(),
-    .odat(), .ovld(done_wr_out), .ordy(rd_start)
-);
+uwire  done_wr_in;
+uwire  done_wr_out;
+logic  rd_start;
+if(1) begin : blkCompletion
+    logic signed [$clog2(N_OUTSTANDING_DMAS):0]  WritesDone = 0;  // 0 (none), -1, .., -N_OUTSTANDING_DMAS
+    always_ff @(posedge aclk) begin
+        if(!aresetn)  WritesDone <= 0;
+        else          WritesDone <= WritesDone + (done_wr_in == rd_start? 0 : done_wr_in? -1 : 1);
+    end
+    assign  done_wr_out = WritesDone[$left(WritesDone)];
+end : blkCompletion
 
 //
 // Read side
@@ -325,13 +403,9 @@ end
 
 logic axis_dma_rd_tvalid, axis_dma_rd_tready;
 logic [DATA_BITS-1:0] axis_dma_rd_tdata;
-logic [DATA_BITS/8-1:0] axis_dma_rd_tkeep;
-logic axis_dma_rd_tlast;
 
 logic axis_dma_wr_tvalid, axis_dma_wr_tready;
 logic [DATA_BITS-1:0] axis_dma_wr_tdata;
-logic [DATA_BITS/8-1:0] axis_dma_wr_tkeep;
-logic axis_dma_wr_tlast;
 
 cdma_u #(
     .ADDR_BITS(ADDR_BITS),
@@ -379,76 +453,56 @@ cdma_u #(
     .rd_valid(s1_dma_out_tvalid),
     .rd_ready(s1_dma_out_tready),
     .rd_paddr(s1_dma_out_tdata),
-    .rd_len  (FM_SIZE),
+    .rd_len  (FM_BYTES),
     .rd_done (rd_done),
 
     .wr_valid(s0_dma_out_tvalid),
     .wr_ready(s0_dma_out_tready),
     .wr_paddr(s0_dma_out_tdata),
-    .wr_len  (FM_SIZE),
+    .wr_len  (FM_BYTES),
     .wr_done (done_wr_in),
 
     .m_axis_ddr_tvalid(axis_dma_rd_tvalid),
     .m_axis_ddr_tready(axis_dma_rd_tready),
     .m_axis_ddr_tdata (axis_dma_rd_tdata),
-    .m_axis_ddr_tkeep (axis_dma_rd_tkeep),
-    .m_axis_ddr_tlast (axis_dma_rd_tlast),
+    .m_axis_ddr_tkeep (),
+    .m_axis_ddr_tlast (),
 
     .s_axis_ddr_tvalid(axis_dma_wr_tvalid),
     .s_axis_ddr_tready(axis_dma_wr_tready),
     .s_axis_ddr_tdata (axis_dma_wr_tdata),
-    .s_axis_ddr_tkeep (axis_dma_wr_tkeep),
-    .s_axis_ddr_tlast (axis_dma_wr_tlast)
+    .s_axis_ddr_tkeep ('1),
+    .s_axis_ddr_tlast ('0)
 );
 
-// DWC
+// Width conversion: body stream <-> DMA bus
+// W=ELEM_BITS guarantees ELEM_BITS as a common factor in the VPC's GCD
+// normalization, reducing buffer depth and shift complexity for non-power-of-2
+// element widths (e.g. 3, 5, 7-bit quantization).
 logic s_axis_int_tvalid, s_axis_int_tready;
 logic [OLEN_BITS-1:0] s_axis_int_tdata;
 
 logic m_axis_int_tvalid, m_axis_int_tready;
 logic [ILEN_BITS-1:0] m_axis_int_tdata;
 
-logic s_axis_ba_tvalid, s_axis_ba_tready;
-logic [OLEN_BITS_BA-1:0] s_axis_ba_tdata;
-logic m_axis_ba_tvalid, m_axis_ba_tready;
-logic [ILEN_BITS_BA-1:0] m_axis_ba_tdata;
-
-assign s_axis_ba_tvalid  = s_axis_int_tvalid;
-assign s_axis_int_tready = s_axis_ba_tready;
-for(genvar e = 0; e < OELEM; e++) begin : gen_wr_byte_align
-    assign s_axis_ba_tdata[e*EBYTES*8 +: EBYTES*8] =
-        { {(EBYTES*8-ELEM_BITS){1'b0}}, s_axis_int_tdata[e*ELEM_BITS +: ELEM_BITS] };
-end
-
-assign m_axis_int_tvalid = m_axis_ba_tvalid;
-assign m_axis_ba_tready  = m_axis_int_tready;
-for(genvar e = 0; e < IELEM; e++) begin : gen_rd_byte_align
-    assign m_axis_int_tdata[e*ELEM_BITS +: ELEM_BITS] =
-        m_axis_ba_tdata[e*EBYTES*8 +: ELEM_BITS];
-end
-
-logic [FM_BEATS_IN_BITS-1:0] cnt_dwc_C = '0;
-always_ff @(posedge aclk) begin
-    if(~aresetn) cnt_dwc_C <= '0;
-    else cnt_dwc_C <= (s_axis_int_tvalid && s_axis_int_tready) ? ((cnt_dwc_C == FM_BEATS_IN-1) ? 0 : cnt_dwc_C + 1) : cnt_dwc_C;
-end
-
-logic last_dwc_in;
-assign last_dwc_in = (cnt_dwc_C == FM_BEATS_IN-1);
-
-
-// DWC write: OLEN_BITS_BA -> DATA_BITS (byte-aligned body output -> DMA)
-if_dwc_sink inst_dwc_wr (
-    .aclk(aclk), .aresetn(aresetn),
-    .s_axis_tvalid(s_axis_ba_tvalid), .s_axis_tready(s_axis_ba_tready), .s_axis_tdata(s_axis_ba_tdata), .s_axis_tkeep({(OLEN_BITS_BA/8){1'b1}}), .s_axis_tlast(last_dwc_in),
-    .m_axis_tvalid(axis_dma_wr_tvalid), .m_axis_tready(axis_dma_wr_tready), .m_axis_tdata(axis_dma_wr_tdata), .m_axis_tkeep(axis_dma_wr_tkeep), .m_axis_tlast(axis_dma_wr_tlast)
+// VPC write: OPE -> DMA_PE elements (body output -> DMA)
+logic [DMA_PE-1:0][ELEM_BITS-1:0]  vpc_wr_odat;
+vpc #(.W(ELEM_BITS), .N(FM_ELEMS), .PI(OPE), .PO(DMA_PE), .PAD_ZEROS(0)) inst_dwc_wr (
+    .clk(aclk), .rst(!aresetn),
+    .ivld(s_axis_int_tvalid), .irdy(s_axis_int_tready),
+    .idat(s_axis_int_tdata),
+    .ovld(axis_dma_wr_tvalid), .ordy(axis_dma_wr_tready),
+    .odat(vpc_wr_odat)
 );
+assign  axis_dma_wr_tdata = DATA_BITS'(vpc_wr_odat);
 
-// DWC read: DATA_BITS -> ILEN_BITS_BA (DMA -> byte-aligned body input)
-if_dwc_source inst_dwc_rd (
-    .aclk(aclk), .aresetn(aresetn),
-    .s_axis_tvalid(axis_dma_rd_tvalid), .s_axis_tready(axis_dma_rd_tready), .s_axis_tdata(axis_dma_rd_tdata), .s_axis_tkeep(axis_dma_rd_tkeep), .s_axis_tlast(axis_dma_rd_tlast),
-    .m_axis_tvalid(m_axis_ba_tvalid), .m_axis_tready(m_axis_ba_tready), .m_axis_tdata(m_axis_ba_tdata), .m_axis_tkeep(), .m_axis_tlast()
+// VPC read: DMA_PE -> IPE elements (DMA -> body input)
+vpc #(.W(ELEM_BITS), .N(FM_ELEMS), .PI(DMA_PE), .PO(IPE), .PAD_ZEROS(0)) inst_dwc_rd (
+    .clk(aclk), .rst(!aresetn),
+    .ivld(axis_dma_rd_tvalid), .irdy(axis_dma_rd_tready),
+    .idat(axis_dma_rd_tdata[DMA_PE*ELEM_BITS-1:0]),
+    .ovld(m_axis_int_tvalid), .ordy(m_axis_int_tready),
+    .odat(m_axis_int_tdata)
 );
 
 // REG

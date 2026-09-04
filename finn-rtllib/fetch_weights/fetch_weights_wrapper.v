@@ -133,21 +133,21 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 // DMA <-> DWC internal wires
 wire  axis_dma_tvalid;
 wire  axis_dma_tready;
-wire [DATA_BITS  -1:0]  axis_dma_tdata;
-wire [DATA_BITS/8-1:0]  axis_dma_tkeep;
-wire  axis_dma_tlast;
+wire [DATA_BITS-1:0]  axis_dma_tdata;
 
 wire  axis_dwc_tvalid;
 wire  axis_dwc_tready;
-wire [DS_BITS_BA    -1:0]  axis_dwc_tdata;
-wire [(DS_BITS_BA)/8-1:0]  axis_dwc_tkeep;
-wire  axis_dwc_tlast;
+wire [DS_BITS_BA-1:0]  axis_dwc_tdata;
 
-// Width converter
-$DWC_MODULE_NAME$ inst_dwc (
-	.aclk(ap_clk), .aresetn(ap_rst_n),
-	.s_axis_tvalid(axis_dma_tvalid), .s_axis_tready(axis_dma_tready), .s_axis_tdata(axis_dma_tdata), .s_axis_tkeep(axis_dma_tkeep), .s_axis_tlast(axis_dma_tlast),
-	.m_axis_tvalid(axis_dwc_tvalid), .m_axis_tready(axis_dwc_tready), .m_axis_tdata(axis_dwc_tdata), .m_axis_tkeep(axis_dwc_tkeep), .m_axis_tlast(axis_dwc_tlast)
+// Width converter: VPC with N=MH*MW properly crops the partial last AXI beat
+// so that consecutive DMA transfers don't bleed stale data across boundaries.
+localparam  IWSIMD = DS_BITS_BA / WEIGHT_WIDTH;
+vpc #(.W(WEIGHT_WIDTH), .N(MH*MW), .PI(DATA_BITS/WEIGHT_WIDTH), .PO(IWSIMD)) inst_dwc (
+	.clk(ap_clk), .rst(!ap_rst_n),
+	.ivld(axis_dma_tvalid), .irdy(axis_dma_tready),
+	.idat(axis_dma_tdata[DATA_BITS-1:0]),
+	.ovld(axis_dwc_tvalid), .ordy(axis_dwc_tready),
+	.odat(axis_dwc_tdata)
 );
 
 fetch_weights #(
@@ -204,14 +204,10 @@ fetch_weights #(
 	.axis_dma_tvalid(axis_dma_tvalid),
 	.axis_dma_tready(axis_dma_tready),
 	.axis_dma_tdata(axis_dma_tdata),
-	.axis_dma_tkeep(axis_dma_tkeep),
-	.axis_dma_tlast(axis_dma_tlast),
 
 	.axis_dwc_tvalid(axis_dwc_tvalid),
 	.axis_dwc_tready(axis_dwc_tready),
 	.axis_dwc_tdata(axis_dwc_tdata),
-	.axis_dwc_tkeep(axis_dwc_tkeep),
-	.axis_dwc_tlast(axis_dwc_tlast),
 
 	.m_axis_tvalid(out0_V_tvalid),
 	.m_axis_tready(out0_V_tready),

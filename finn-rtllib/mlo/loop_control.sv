@@ -31,8 +31,8 @@
  *****************************************************************************/
 
 module loop_control #(
-    // COMPILER SET, this is the size of the global in, global out frames
-    int unsigned FM_SIZE,
+    // COMPILER SET, number of elements in the global in/out frames
+    int unsigned FM_ELEMS,
     // COMPILER SET, number of layers
     int unsigned N_LAYERS,
     // COMPILER SET, element bit width
@@ -138,7 +138,7 @@ logic [ILEN_BITS-1:0] axis_if_out_tdata;
 
 mux #(
     .IDX_BITS(IDX_BITS),
-    .FM_SIZE(FM_SIZE),
+    .FM_ELEMS(FM_ELEMS),
     .ELEM_BITS(ELEM_BITS),
     .ILEN_BITS(ILEN_BITS)
 ) inst_mux_in (
@@ -175,7 +175,7 @@ mux #(
 demux #(
     .N_LAYERS(N_LAYERS),
     .IDX_BITS(IDX_BITS),
-    .FM_SIZE(FM_SIZE),
+    .FM_ELEMS(FM_ELEMS),
     .ELEM_BITS(ELEM_BITS),
     .OLEN_BITS(OLEN_BITS)
 ) inst_mux_out (
@@ -210,7 +210,7 @@ demux #(
 //  ================-----------------------------------------------------------------
 
 intermediate_frames #(
-    .FM_SIZE(FM_SIZE),
+    .FM_ELEMS(FM_ELEMS),
     .ELEM_BITS(ELEM_BITS),
     .ILEN_BITS(ILEN_BITS),
     .OLEN_BITS(OLEN_BITS),
