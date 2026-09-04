@@ -40,7 +40,7 @@ module intermediate_frames #(
     int unsigned                    LEN_BITS,
     int unsigned                    IDX_BITS,
 
-    int unsigned                    FM_SIZE,
+    int unsigned                    FM_ELEMS,
 
     int unsigned                    N_OUTSTANDING_DMAS = 128,
 
@@ -112,29 +112,31 @@ module intermediate_frames #(
     input  logic [ADDR_BITS-1:0]        base_address
 );
 
-// Offsets
+// Derived: element counts per stream beat and DMA beat
+localparam int unsigned  OPE    = OLEN_BITS / ELEM_BITS;
+localparam int unsigned  IPE    = ILEN_BITS / ELEM_BITS;
+localparam int unsigned  DMA_PE = DATA_BITS / ELEM_BITS;
+
+// DMA transfer sizing: each beat carries DMA_PE elements
+localparam int unsigned  DMA_BEATS      = (FM_ELEMS + DMA_PE - 1) / DMA_PE;
+localparam int unsigned  DMA_BEAT_BYTES = DATA_BITS / 8;
+localparam int unsigned  FM_BYTES       = DMA_BEATS * DMA_BEAT_BYTES;
+
+// Offsets — spaced at DMA-beat-aligned boundaries to prevent read overrun
+// into adjacent slots (DMA reads in whole beats, rounding up FM_BYTES).
 logic [N_OUTSTANDING_DMAS-1:0][ADDR_BITS-1:0] l_offsets;
 for(genvar i = 0; i < N_OUTSTANDING_DMAS; i++) begin
-    assign l_offsets[i] = (i * FM_SIZE);
+    assign l_offsets[i] = (i * FM_BYTES);
 end
 localparam int unsigned  N_OUTSTANDING_DMAS_BITS = $clog2(N_OUTSTANDING_DMAS);
-
-localparam int unsigned  EBYTES       = (ELEM_BITS + 7)/8;
-localparam int unsigned  OELEM        = OLEN_BITS / ELEM_BITS;
-localparam int unsigned  IELEM        = ILEN_BITS / ELEM_BITS;
-localparam int unsigned  OLEN_BITS_BA = OELEM * EBYTES * 8;
-localparam int unsigned  ILEN_BITS_BA = IELEM * EBYTES * 8;
-
-localparam int unsigned  FM_BEATS_IN  = FM_SIZE/(OLEN_BITS_BA/8);
-localparam int unsigned  FM_BEATS_OUT = FM_SIZE/(ILEN_BITS_BA/8);
 
 initial begin
     if(ELEM_BITS == 0) begin
         $error("%m: ELEM_BITS must be non-zero.");
         $finish;
     end
-    if(FM_SIZE == 0) begin
-        $error("%m: FM_SIZE must be non-zero.");
+    if(FM_ELEMS == 0) begin
+        $error("%m: FM_ELEMS must be non-zero.");
         $finish;
     end
     if(OLEN_BITS % ELEM_BITS != 0) begin
@@ -147,24 +149,14 @@ initial begin
             ILEN_BITS, ELEM_BITS);
         $finish;
     end
-    if(FM_SIZE % (OLEN_BITS_BA/8) != 0) begin
-        $error("%m: FM_SIZE (%0d) not a multiple of write-side byte width (%0d).",
-            FM_SIZE, OLEN_BITS_BA/8);
+    if(DATA_BITS < OLEN_BITS) begin
+        $error("%m: DATA_BITS (%0d) must be >= OLEN_BITS (%0d).",
+            DATA_BITS, OLEN_BITS);
         $finish;
     end
-    if(FM_SIZE % (ILEN_BITS_BA/8) != 0) begin
-        $error("%m: FM_SIZE (%0d) not a multiple of read-side byte width (%0d).",
-            FM_SIZE, ILEN_BITS_BA/8);
-        $finish;
-    end
-    if(DATA_BITS < OLEN_BITS_BA) begin
-        $error("%m: DATA_BITS (%0d) must be >= OLEN_BITS_BA (%0d).",
-            DATA_BITS, OLEN_BITS_BA);
-        $finish;
-    end
-    if(DATA_BITS < ILEN_BITS_BA) begin
-        $error("%m: DATA_BITS (%0d) must be >= ILEN_BITS_BA (%0d).",
-            DATA_BITS, ILEN_BITS_BA);
+    if(DATA_BITS < ILEN_BITS) begin
+        $error("%m: DATA_BITS (%0d) must be >= ILEN_BITS (%0d).",
+            DATA_BITS, ILEN_BITS);
         $finish;
     end
 end
@@ -418,13 +410,13 @@ cdma_u #(
     .rd_valid(s1_dma_out_tvalid),
     .rd_ready(s1_dma_out_tready),
     .rd_paddr(s1_dma_out_tdata),
-    .rd_len  (FM_SIZE),
+    .rd_len  (FM_BYTES),
     .rd_done (rd_done),
 
     .wr_valid(s0_dma_out_tvalid),
     .wr_ready(s0_dma_out_tready),
     .wr_paddr(s0_dma_out_tdata),
-    .wr_len  (FM_SIZE),
+    .wr_len  (FM_BYTES),
     .wr_done (done_wr_in),
 
     .m_axis_ddr_tvalid(axis_dma_rd_tvalid),
@@ -440,48 +432,34 @@ cdma_u #(
     .s_axis_ddr_tlast ('0)
 );
 
-// DWC
+// Width conversion: body stream <-> DMA bus
+// W=ELEM_BITS guarantees ELEM_BITS as a common factor in the VPC's GCD
+// normalization, reducing buffer depth and shift complexity for non-power-of-2
+// element widths (e.g. 3, 5, 7-bit quantization).
 logic s_axis_int_tvalid, s_axis_int_tready;
 logic [OLEN_BITS-1:0] s_axis_int_tdata;
 
 logic m_axis_int_tvalid, m_axis_int_tready;
 logic [ILEN_BITS-1:0] m_axis_int_tdata;
 
-logic s_axis_ba_tvalid, s_axis_ba_tready;
-logic [OLEN_BITS_BA-1:0] s_axis_ba_tdata;
-logic m_axis_ba_tvalid, m_axis_ba_tready;
-logic [ILEN_BITS_BA-1:0] m_axis_ba_tdata;
-
-assign s_axis_ba_tvalid  = s_axis_int_tvalid;
-assign s_axis_int_tready = s_axis_ba_tready;
-for(genvar e = 0; e < OELEM; e++) begin : gen_wr_byte_align
-    assign s_axis_ba_tdata[e*EBYTES*8 +: EBYTES*8] =
-        { {(EBYTES*8-ELEM_BITS){1'b0}}, s_axis_int_tdata[e*ELEM_BITS +: ELEM_BITS] };
-end
-
-assign m_axis_int_tvalid = m_axis_ba_tvalid;
-assign m_axis_ba_tready  = m_axis_int_tready;
-for(genvar e = 0; e < IELEM; e++) begin : gen_rd_byte_align
-    assign m_axis_int_tdata[e*ELEM_BITS +: ELEM_BITS] =
-        m_axis_ba_tdata[e*EBYTES*8 +: ELEM_BITS];
-end
-
-// VPC write: OLEN_BITS_BA -> DATA_BITS (byte-aligned body output -> DMA)
-vpc #(.W(OLEN_BITS_BA), .N(FM_BEATS_IN), .PI(1), .PO(DATA_BITS/OLEN_BITS_BA)) inst_dwc_wr (
+// VPC write: OPE -> DMA_PE elements (body output -> DMA)
+logic [DMA_PE-1:0][ELEM_BITS-1:0]  vpc_wr_odat;
+vpc #(.W(ELEM_BITS), .N(FM_ELEMS), .PI(OPE), .PO(DMA_PE), .PAD_ZEROS(0)) inst_dwc_wr (
     .clk(aclk), .rst(!aresetn),
-    .ivld(s_axis_ba_tvalid), .irdy(s_axis_ba_tready),
-    .idat(s_axis_ba_tdata),
+    .ivld(s_axis_int_tvalid), .irdy(s_axis_int_tready),
+    .idat(s_axis_int_tdata),
     .ovld(axis_dma_wr_tvalid), .ordy(axis_dma_wr_tready),
-    .odat(axis_dma_wr_tdata)
+    .odat(vpc_wr_odat)
 );
+assign  axis_dma_wr_tdata = DATA_BITS'(vpc_wr_odat);
 
-// VPC read: DATA_BITS -> ILEN_BITS_BA (DMA -> byte-aligned body input)
-vpc #(.W(ILEN_BITS_BA), .N(FM_BEATS_OUT), .PI(DATA_BITS/ILEN_BITS_BA), .PO(1)) inst_dwc_rd (
+// VPC read: DMA_PE -> IPE elements (DMA -> body input)
+vpc #(.W(ELEM_BITS), .N(FM_ELEMS), .PI(DMA_PE), .PO(IPE), .PAD_ZEROS(0)) inst_dwc_rd (
     .clk(aclk), .rst(!aresetn),
     .ivld(axis_dma_rd_tvalid), .irdy(axis_dma_rd_tready),
-    .idat(axis_dma_rd_tdata),
-    .ovld(m_axis_ba_tvalid), .ordy(m_axis_ba_tready),
-    .odat(m_axis_ba_tdata)
+    .idat(axis_dma_rd_tdata[DMA_PE*ELEM_BITS-1:0]),
+    .ovld(m_axis_int_tvalid), .ordy(m_axis_int_tready),
+    .odat(m_axis_int_tdata)
 );
 
 // REG

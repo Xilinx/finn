@@ -24,6 +24,7 @@ module vpc #(
 	int unsigned  N,	// total elements per vector
 	int unsigned  PI,	// input elements per beat
 	int unsigned  PO,	// output elements per beat
+	bit  PAD_ZEROS = 1,			// zero-pad excess output lanes on last beat
 	bit  RELAX_THROUGHPUT = 0	// allow recovery cycles
 )(
 	input	logic  clk,
@@ -66,12 +67,17 @@ module vpc #(
 
 	uwire  itrn = ivld && irdy;
 	uwire  otrn = ovld && ordy;
+
+	uwire [W0-1:0]  odat_raw[PO0];
+	uwire           olast_beat;
+
 	if((PI0 == 1) && (PO0 == 1)) begin : genWire
 		//===============================================================
 		// Wire-through: PI0 == PO0 == 1 → no conversion needed.
-		assign  odat = idat;
-		assign  ovld = ivld;
-		assign  irdy = ordy;
+		assign	odat_raw[0] = idat;
+		assign	olast_beat = 1;
+		assign	ovld = ivld;
+		assign	irdy = ordy;
 
 	end : genWire
 	else if((PO0 == 1) && (N0 <= PI0)) begin : genSer
@@ -99,17 +105,10 @@ module vpc #(
 				end
 			end
 
-			assign  irdy = !Cnt[$left(Cnt)];
-			assign  ovld = Cnt[$left(Cnt)];
-
-			if(OLAST == PO)  assign  odat = Buf[0];
-			else begin : genOpad
-				uwire  olast_beat = &Cnt;
-				for(genvar  p = 0; p < PO; p++) begin : genOdat
-					if(p < OLAST)  assign  odat[p] = Buf[0][p*W +: W];
-					else           assign  odat[p] = olast_beat? '0 : Buf[0][p*W +: W];
-				end : genOdat
-			end : genOpad
+			assign	irdy = !Cnt[$left(Cnt)];
+			assign	ovld = Cnt[$left(Cnt)];
+			assign	odat_raw[0] = Buf[0];
+			assign	olast_beat = &Cnt;
 
 		end : genRelax
 		else begin : genFull
@@ -157,17 +156,10 @@ module vpc #(
 				end
 			end
 
-			assign  irdy = !Cnt[$left(Cnt)];
-			assign  ovld = SVld;
-
-			if(OLAST == PO)  assign  odat = Side;
-			else begin : genOpad
-				uwire  olast_beat = !Cnt[$left(Cnt)];
-				for(genvar  p = 0; p < PO; p++) begin : genOdat
-					if(p < OLAST)  assign  odat[p] = Side[p*W +: W];
-					else           assign  odat[p] = olast_beat? '0 : Side[p*W +: W];
-				end : genOdat
-			end : genOpad
+			assign	irdy = !Cnt[$left(Cnt)];
+			assign	ovld = SVld;
+			assign	odat_raw[0] = Side;
+			assign	olast_beat = !Cnt[$left(Cnt)];
 
 		end : genFull
 
@@ -199,8 +191,8 @@ module vpc #(
 				end
 			end
 
-			assign  irdy = Cnt[$left(Cnt)];
-			assign  ovld = !Cnt[$left(Cnt)];
+			assign	irdy = Cnt[$left(Cnt)];
+			assign	ovld = !Cnt[$left(Cnt)];
 
 		end : genRelax
 		else begin : genFull
@@ -250,16 +242,16 @@ module vpc #(
 				end
 			end
 
-			assign  irdy = SRdy;
-			assign  ovld = full;
+			assign	irdy = SRdy;
+			assign	ovld = full;
 
 		end : genFull
 
-		// Output: N0 valid elements from shift register, zero-padded beyond.
-		for(genvar  p = 0; p < PO0; p++) begin : genOdat
-			if(p < N0)  assign  odat[p*GCD+:GCD] = Buf[p];
-			else        assign  odat[p*GCD+:GCD] = '0;
-		end : genOdat
+		// Output: N0 valid elements from shift register.
+		for(genvar  p = 0; p < PO0; p++) begin : genOraw
+			assign	odat_raw[p] = (p < N0)? Buf[p] : 'x;
+		end : genOraw
+		assign	olast_beat = 1;
 
 	end : genDes
 	else begin : genGeneric
@@ -283,11 +275,11 @@ module vpc #(
 			if(OLAST == PO)  assign  olast = 0;
 			else begin : genOlast
 				logic signed [$clog2((TRNO > 1)? TRNO : 2):0]  OBeat = 1-TRNO;
-				assign  olast = !OBeat[$left(OBeat)];
 				always_ff @(posedge clk) begin
 					if(rst)  OBeat <= 1-TRNO;
 					else     OBeat <= OBeat + ((olast && otrn)? -TRNO : 0) + otrn;
 				end
+				assign	olast = !OBeat[$left(OBeat)];
 			end : genOlast
 		end : genSimple
 		else begin : genTrn
@@ -326,8 +318,8 @@ module vpc #(
 
 		// OR-reduction for ovld: ICap > 0 without full comparator.
 		uwire  icap_positive = !ICap[$left(ICap)] && (|ICap[$left(ICap)-1:0]);
-		assign  irdy = !idone && !ICap[$left(ICap)];
-		assign  ovld = !odone && !(icap_positive && !idone);
+		assign	irdy = !idone && !ICap[$left(ICap)];
+		assign	ovld = !odone && !(icap_positive && !idone);
 
 		//---------------------------------------------------------------
 		// Deposit mask: CAP-bit register tracking the write window.
@@ -418,11 +410,14 @@ module vpc #(
 
 		//---------------------------------------------------------------
 		// Output Assignment
-		for(genvar  p = 0; p < PO; p++) begin : genOdat
-			assign  odat[p] = (OLAST == PO || p < OLAST || !olast)? Buf[p/GCD][(p%GCD)*W +: W] : '0;
-		end : genOdat
+		assign	odat_raw = Buf[0:PO0-1];
+		assign	olast_beat = olast;
 
 	end : genGeneric
+
+	for(genvar  p = 0; p < PO; p++) begin : genOdat
+		assign	odat[p] = (!PAD_ZEROS || p < OLAST || !olast_beat)? odat_raw[p/GCD][(p%GCD)*W +: W] : '0;
+	end : genOdat
 
 `default_nettype wire
 endmodule : vpc

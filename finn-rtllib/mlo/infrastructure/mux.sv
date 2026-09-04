@@ -32,7 +32,7 @@
 
 module mux #(
     int unsigned              IDX_BITS,
-    int unsigned              FM_SIZE,
+    int unsigned              FM_ELEMS,
 
     int unsigned              ELEM_BITS,
     int unsigned              ILEN_BITS,
@@ -69,13 +69,12 @@ module mux #(
     output logic [ILEN_BITS-1:0]        m_axis_tdata
 );
 
-localparam int unsigned EBYTES = (ELEM_BITS + 7)/8;
-localparam int unsigned IELEM  = ILEN_BITS / ELEM_BITS;
-localparam int unsigned FM_BEATS = FM_SIZE / (IELEM*EBYTES);
+localparam int unsigned  PE       = ILEN_BITS / ELEM_BITS;
+localparam int unsigned  FM_BEATS = FM_ELEMS / PE;
 
 initial begin
-    if(ELEM_BITS == 0 || ILEN_BITS == 0 || FM_SIZE == 0) begin
-        $error("%m: ELEM_BITS, ILEN_BITS, and FM_SIZE must all be non-zero.");
+    if(ELEM_BITS == 0 || ILEN_BITS == 0 || FM_ELEMS == 0) begin
+        $error("%m: ELEM_BITS, ILEN_BITS, and FM_ELEMS must all be non-zero.");
         $finish;
     end
     if(ILEN_BITS % ELEM_BITS != 0) begin
@@ -83,13 +82,12 @@ initial begin
             ILEN_BITS, ELEM_BITS);
         $finish;
     end
-    if(FM_SIZE % (IELEM*EBYTES) != 0) begin
-        $error("%m: FM_SIZE (%0d) not a multiple of beat byte width (%0d).",
-            FM_SIZE, IELEM*EBYTES);
+    if(FM_ELEMS % PE != 0) begin
+        $error("%m: FM_ELEMS (%0d) not a multiple of PE (%0d).",
+            FM_ELEMS, PE);
         $finish;
     end
 end
-localparam int unsigned FM_BEATS_BITS = (FM_BEATS == 1) ? 1 : $clog2(FM_BEATS);
 
 //
 // Generate idx from data
@@ -98,7 +96,7 @@ localparam int unsigned FM_BEATS_BITS = (FM_BEATS == 1) ? 1 : $clog2(FM_BEATS);
 typedef enum logic[0:0] {ST_GEN_IDLE, ST_GEN_DATA} state_gen_t;
 state_gen_t state_gen_C = ST_GEN_IDLE, state_gen_N;
 
-logic [FM_BEATS_BITS-1:0] cnt_gen_C = '0, cnt_gen_N;
+logic [(FM_BEATS > 1 ? $clog2(FM_BEATS) : 1)-1:0] cnt_gen_C = '0, cnt_gen_N;
 
 logic axis_fs_tvalid, axis_fs_tready;
 logic [ILEN_BITS-1:0] axis_fs_tdata;
@@ -272,7 +270,7 @@ assign m_idx_tdata = idx_C;
 typedef enum logic[1:0] {ST_DATA_IDLE, ST_DATA_MUX_FS, ST_DATA_MUX_IF} state_data_t;
 state_data_t state_data_C = ST_DATA_IDLE, state_data_N;
 
-logic [FM_BEATS_BITS-1:0] cnt_data_C = '0, cnt_data_N;
+logic [(FM_BEATS > 1 ? $clog2(FM_BEATS) : 1)-1:0] cnt_data_C = '0, cnt_data_N;
 
 logic m_axis_int_tvalid, m_axis_int_tready;
 logic [ILEN_BITS-1:0] m_axis_int_tdata;
