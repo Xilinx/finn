@@ -139,13 +139,15 @@ wire  axis_dwc_tvalid;
 wire  axis_dwc_tready;
 wire [DS_BITS_BA-1:0]  axis_dwc_tdata;
 
-// Width converter
-dwc_axi #(.IBITS(DATA_BITS), .OBITS(DS_BITS_BA)) inst_dwc (
-	.ap_clk(ap_clk), .ap_rst_n(ap_rst_n),
-	.s_axis_tvalid(axis_dma_tvalid), .s_axis_tready(axis_dma_tready),
-	.s_axis_tdata(axis_dma_tdata),
-	.m_axis_tvalid(axis_dwc_tvalid), .m_axis_tready(axis_dwc_tready),
-	.m_axis_tdata(axis_dwc_tdata)
+// Width converter: VPC with N=MH*MW properly crops the partial last AXI beat
+// so that consecutive DMA transfers don't bleed stale data across boundaries.
+localparam  IWSIMD = DS_BITS_BA / WEIGHT_WIDTH;
+vpc #(.W(WEIGHT_WIDTH), .N(MH*MW), .PI(DATA_BITS/WEIGHT_WIDTH), .PO(IWSIMD)) inst_dwc (
+	.clk(ap_clk), .rst(!ap_rst_n),
+	.ivld(axis_dma_tvalid), .irdy(axis_dma_tready),
+	.idat(axis_dma_tdata[DATA_BITS-1:0]),
+	.ovld(axis_dwc_tvalid), .ordy(axis_dwc_tready),
+	.odat(axis_dwc_tdata)
 );
 
 fetch_weights #(

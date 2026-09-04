@@ -1,6 +1,52 @@
 /******************************************************************************
  * Copyright Advanced Micro Devices, Inc.
  * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * @brief	DMA engine for fetching weight matrices from external memory.
+ *
+ * @description
+ *  Reads weight matrices from external memory (DDR/HBM) via AXI-MM and
+ *  delivers them as a narrow stream to the MVU/VVU compute path.
+ *
+ *  Expected memory layout (produced by make_weight_file in the FINN compiler):
+ *
+ *    base_address + ADDRESS_OFFSET
+ *    ├── Layer 0   @ offset 0
+ *    ├── Layer 1   @ offset LAYER_OFFS
+ *    ├── Layer 2   @ offset 2 * LAYER_OFFS
+ *    │   ...
+ *    └── Layer N-1 @ offset (N-1) * LAYER_OFFS
+ *
+ *  Within each layer, MH*MW weight elements are stored as MH*MW/IWSIMD
+ *  consecutive IWSIMD-groups, each byte-aligned to ceil(IWSIMD*WEIGHT_WIDTH, 8)
+ *  bits (= DS_BITS_BA).  The tight per-layer size is:
+ *
+ *    dma_len = (MH*MW / IWSIMD) * ceil(IWSIMD * WEIGHT_WIDTH, 8) / 8  bytes
+ *
+ *  LAYER_OFFS rounds dma_len up to the AXI bus width (DATA_BITS/8) so that
+ *  each layer's start address is bus-aligned.  The gap between dma_len and
+ *  LAYER_OFFS is padding (zeros); it is never fetched.
+ *
+ *  Because dma_len is generally not a multiple of the bus width, the last AXI
+ *  beat of each DMA transfer carries a partial payload.  The external VPC
+ *  width converter (instantiated in the wrapper with N=MH*MW) crops the
+ *  partial beat, preventing stale data from bleeding across consecutive
+ *  transfers.
+ *
+ *  IWSIMD depends on the operating mode:
+ *    TH > 1 (tiled): IWSIMD = (PE * SIMD) / TH — one tile's worth of weights
+ *    TH = 1 (direct): IWSIMD = SIMD — one dot-product group
+ *
+ *  Alignment assumptions:
+ *    - LAYER_OFFS is a multiple of DATA_BITS/8 (AXI bus width in bytes),
+ *      so every layer starts at a bus-aligned address.
+ *    - Partial last AXI beats occur when dma_len does not divide evenly by
+ *      the bus width; the external VPC (N=MH*MW) crops them.
+ *    - MH*MW must be divisible by IWSIMD (guaranteed by the FINN compiler's
+ *      folding constraints: MH is divisible by PE, MW by SIMD).
+ *    - WEIGHT_WIDTH * IWSIMD need not be a multiple of 8; per-group byte
+ *      padding is applied in both the memory image and dma_len calculation.
+ *
  *****************************************************************************/
 
 module fetch_weights #(
@@ -101,6 +147,46 @@ module fetch_weights #(
 	// Base Address
 	input logic [ADDR_BITS-1:0]      base_address
 );
+
+	//=== Parameter Assertions ==============================================
+	initial begin
+		if(PE == 0 || SIMD == 0 || TH == 0) begin
+			$error("%m: PE (%0d), SIMD (%0d), and TH (%0d) must be non-zero.", PE, SIMD, TH);
+			$finish;
+		end
+		if(MH == 0 || MW == 0) begin
+			$error("%m: MH (%0d) and MW (%0d) must be non-zero.", MH, MW);
+			$finish;
+		end
+		if(WEIGHT_WIDTH == 0) begin
+			$error("%m: WEIGHT_WIDTH must be non-zero.");
+			$finish;
+		end
+		if((PE * SIMD) % TH != 0) begin
+			$error("%m: PE*SIMD (%0d) must be divisible by TH (%0d).", PE * SIMD, TH);
+			$finish;
+		end
+		if((MH * MW) % IWSIMD != 0) begin
+			$error("%m: MH*MW (%0d) must be divisible by IWSIMD (%0d).", MH * MW, IWSIMD);
+			$finish;
+		end
+		if(DATA_BITS % WEIGHT_WIDTH != 0) begin
+			$error("%m: DATA_BITS (%0d) must be divisible by WEIGHT_WIDTH (%0d).", DATA_BITS, WEIGHT_WIDTH);
+			$finish;
+		end
+		if(DS_BITS_BA % WEIGHT_WIDTH != 0) begin
+			$error("%m: DS_BITS_BA (%0d) must be divisible by WEIGHT_WIDTH (%0d).", DS_BITS_BA, WEIGHT_WIDTH);
+			$finish;
+		end
+		if(N_REPS == 0) begin
+			$error("%m: N_REPS must be non-zero.");
+			$finish;
+		end
+		if(DATA_BITS == 0 || (DATA_BITS & (DATA_BITS - 1)) != 0) begin
+			$error("%m: DATA_BITS (%0d) must be a power of two.", DATA_BITS);
+			$finish;
+		end
+	end
 
 	//=== Layer Offsets =====================================================
 	localparam int unsigned  LAYER_OFFS = ((MH*MW/IWSIMD)*((IWSIMD*WEIGHT_WIDTH+7)/8) + (DATA_BITS/8-1)) & ~(DATA_BITS/8-1); // AXI bus-width aligned

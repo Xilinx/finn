@@ -28,6 +28,49 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
+ * @brief	Ping-pong frame buffer for intermediate activations in DDR/HBM.
+ *
+ * @description
+ *  Buffers activation frames between loop body iterations via external memory.
+ *  A write-side DMA stores each outgoing frame; a read-side DMA retrieves it
+ *  once the write completes, feeding the next iteration's input.
+ *
+ *  Expected memory layout (managed internally via a circular slot allocator):
+ *
+ *    base_address + ADDRESS_OFFSET
+ *    ├── Slot 0   @ offset 0
+ *    ├── Slot 1   @ offset FM_BYTES
+ *    ├── Slot 2   @ offset 2 * FM_BYTES
+ *    │   ...
+ *    └── Slot N-1 @ offset (N-1) * FM_BYTES    (N = N_OUTSTANDING_DMAS)
+ *
+ *  Each slot holds one activation frame of FM_ELEMS elements, each ELEM_BITS
+ *  wide.  The DMA transfer size per slot is:
+ *
+ *    FM_BYTES = ceil(FM_ELEMS / DMA_PE) * (DATA_BITS / 8)
+ *
+ *  where DMA_PE = DATA_BITS / ELEM_BITS is the number of elements per AXI
+ *  beat.  FM_BYTES is always a whole number of AXI beats — when FM_ELEMS is
+ *  not a multiple of DMA_PE, the last beat carries a partial payload.
+ *
+ *  Two VPC width converters bridge the compute stream widths (OPE, IPE) to
+ *  the DMA bus width (DMA_PE), both parameterized with N=FM_ELEMS to crop
+ *  partial last beats:
+ *    - Write path: OPE elements/beat → DMA_PE elements/beat (body → DDR)
+ *    - Read path:  DMA_PE elements/beat → IPE elements/beat (DDR → body)
+ *
+ *  PAD_ZEROS=0 on both VPCs because the downstream consumer discards excess
+ *  lanes — zero-padding would waste logic.
+ *
+ *  Alignment assumptions:
+ *    - FM_BYTES is always a multiple of DATA_BITS/8 (AXI bus width in bytes),
+ *      so every slot starts at a bus-aligned address.
+ *    - Partial last AXI beats occur when FM_ELEMS does not divide evenly by
+ *      DMA_PE; the VPCs (N=FM_ELEMS) crop them.
+ *    - ELEM_BITS must evenly divide DATA_BITS so that DMA_PE is an integer.
+ *      OLEN_BITS and ILEN_BITS are multiples of ELEM_BITS by construction
+ *      (= PE * ELEM_BITS).  All three are checked by initial-block assertions.
+ *
  *****************************************************************************/
 
 module intermediate_frames #(
