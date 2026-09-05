@@ -1,4 +1,4 @@
-# Copyright (C) 2024, Advanced Micro Devices, Inc.
+# Copyright (C) 2025, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -29,9 +29,7 @@
 import pytest
 
 import numpy as np
-import os
 from onnx import TensorProto, helper
-from pyverilator.util.axi_utils import axilite_read, axilite_write
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.multithreshold import multithreshold
@@ -39,6 +37,7 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
+from finn import xsi
 from finn.core.rtlsim_exec import rtlsim_exec
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
@@ -46,6 +45,9 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.test import make_runtime_weight_stream
+
+finnxsi = xsi if xsi.is_available() else None
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -121,14 +123,123 @@ def make_single_thresholding_modelwrapper(impl_style, T, idt, odt, actval, n_inp
     return model
 
 
+# Additional test configurations that exercise edge cases found in TFC model:
+# - Large channel counts with non-power-of-2 PE
+# - numSteps < 2^output_bits (e.g., 2 thresholds with 2-bit output)
+# These configurations test the address space calculation alignment between
+# Python weight generation and RTL.
+@pytest.mark.parametrize("impl_style", ["rtl"])
+@pytest.mark.parametrize(
+    "idt_odt_nsteps",
+    [
+        # TFC w1a1: UINT8 input, BINARY output (1 bit), only 1 threshold
+        # RTL has $clog2(1)=0 threshold address bits, so only 1 slot per channel
+        (DataType["UINT8"], DataType["BINARY"], 1),
+        # TFC w2a2: UINT8 input, INT2 output (4 values), but only 2 thresholds
+        # This exposes mismatch when n_steps < 2^output_bits
+        (DataType["UINT8"], DataType["INT2"], 2),
+        # Another edge case: 3 thresholds with 2-bit output
+        (DataType["UINT8"], DataType["UINT2"], 3),
+    ],
+)
+@pytest.mark.parametrize("cfg", [(16, 4), (64, 8), (784, 49)])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_runtime_thresholds_tfc_like(impl_style, idt_odt_nsteps, cfg):
+    """Test runtime threshold read with TFC-like configurations.
+
+    These test cases specifically target the edge case where numSteps is less than
+    2^output_bits, which can cause address space mismatch between Python weight
+    generation and RTL if not handled correctly.
+
+    The TFC w2a2 model has:
+    - NumChannels=784, PE=49
+    - numSteps=2 (only 2 thresholds)
+    - outputDataType=INT2 (2 bits, 4 possible values)
+    """
+    ch = cfg[0]
+    pe = cfg[1]
+    n_inp_vecs = [1, 1, 1]
+    idt = idt_odt_nsteps[0]
+    odt = idt_odt_nsteps[1]
+    n_steps = idt_odt_nsteps[2]
+
+    # Generate random thresholds with explicit n_steps
+    T = np.random.randint(
+        idt.min(),
+        idt.max() + 1,
+        (ch, n_steps),
+    ).astype(np.float32)
+    T = np.sort(T, axis=1)
+
+    actval = odt.min()
+
+    model = make_single_thresholding_modelwrapper(impl_style, T, idt, odt, actval, n_inp_vecs, ch)
+    model = model.transform(SpecializeLayers(test_fpga_part))
+
+    assert model.graph.node[0].op_type == "Thresholding_rtl"
+
+    node = model.get_nodes_by_op_type("Thresholding_rtl")[0]
+    op_inst = getCustomOp(node)
+    op_inst.set_nodeattr("PE", pe)
+    op_inst.set_nodeattr("runtime_writeable_weights", 1)
+
+    old_weight_stream = make_runtime_weight_stream(op_inst, T)
+
+    # Build and run RTL simulation
+    model = model.transform(InsertFIFO(True))
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
+    model = model.transform(PrepareRTLSim())
+    model.set_metadata_prop("exec_mode", "rtlsim")
+
+    in_tensor = gen_finn_dt_tensor(idt, tuple(n_inp_vecs + [ch]))
+    in_tensor = np.tile(in_tensor, (2, 1, 1, 1))
+
+    exec_ctx = {model.get_first_global_in(): in_tensor}
+    extracted_weight_stream = []
+
+    def read_weights(sim):
+        addr = 0
+        read_handles = []
+        addresses = []
+        for i in range(len(old_weight_stream)):
+            addresses.append(addr)
+            addr += 4
+        read_handles.append(sim.read_axilite("s_axilite_0", iter(addresses)))
+        sim.run()
+        for addr in addresses:
+            extracted_weight_stream.append(int(read_handles[0][addr], 16))
+
+    rtlsim_exec(model, exec_ctx, pre_hook=read_weights)
+
+    # Validate the AXI Read weights match what was written
+    first_mismatch = next(
+        (i for i, (w, r) in enumerate(zip(old_weight_stream, extracted_weight_stream)) if w != r),
+        "N/A",
+    )
+    assert extracted_weight_stream == old_weight_stream, (
+        f"Weight mismatch! Written {len(old_weight_stream)} entries, "
+        f"read back {len(extracted_weight_stream)} entries. "
+        f"First mismatch at index {first_mismatch}"
+    )
+
+
 @pytest.mark.parametrize("impl_style", ["rtl", "hls"])
+@pytest.mark.parametrize(
+    "idt_act_cfg", [(DataType["INT16"], DataType["INT4"]), (DataType["UINT8"], DataType["UINT4"])]
+)
 # configuration (ch, pe)
-@pytest.mark.parametrize("cfg", [(1, 1), (6, 2), (6, 3)])
+@pytest.mark.parametrize("cfg", [(1, 1), (6, 2), (6, 6)])
 @pytest.mark.parametrize("narrow", [True, False])
 @pytest.mark.parametrize("per_tensor", [True, False])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_runtime_thresholds_read(impl_style, cfg, narrow, per_tensor):
+def test_runtime_thresholds_read(impl_style, idt_act_cfg, cfg, narrow, per_tensor):
     """Read back threshold weights during runtime
 
     1. Create random initial weights T
@@ -140,8 +251,8 @@ def test_runtime_thresholds_read(impl_style, cfg, narrow, per_tensor):
     pe = cfg[1]
     n_inp_vecs = [1, 2, 2]
     hls_mem_mode = "internal_decoupled"
-    act = DataType["INT4"]
-    idt = DataType["INT16"]
+    act = idt_act_cfg[1]
+    idt = idt_act_cfg[0]
     odt = act
     n_steps = act.get_num_possible_values() - 1
     # Generate random thresholds and sort in ascending order
@@ -151,7 +262,7 @@ def test_runtime_thresholds_read(impl_style, cfg, narrow, per_tensor):
     T = sort_thresholds_increasing(T)
 
     actval = act.min()
-    if narrow:
+    if narrow and act.signed():
         actval += 1
 
     model = make_single_thresholding_modelwrapper(impl_style, T, idt, odt, actval, n_inp_vecs, ch)
@@ -167,13 +278,7 @@ def test_runtime_thresholds_read(impl_style, cfg, narrow, per_tensor):
         op_inst.set_nodeattr("mem_mode", hls_mem_mode)
     op_inst.set_nodeattr("runtime_writeable_weights", 1)
 
-    dat_fname = f"old_weights_{cfg}.dat"
-    op_inst.make_weight_file(T, "decoupled_runtime", dat_fname)
-    with open(dat_fname, "r") as f:
-        old_weight_stream = f.read().strip()
-    os.remove(dat_fname)
-    old_weight_stream = map(lambda x: int(x, 16), old_weight_stream.split("\n"))
-    old_weight_stream = list(old_weight_stream)
+    old_weight_stream = make_runtime_weight_stream(op_inst, T)
     # need to create stitched IP for runtime weight testing
     model = model.transform(InsertFIFO(True))
     model = model.transform(SpecializeLayers(test_fpga_part))
@@ -190,14 +295,20 @@ def test_runtime_thresholds_read(impl_style, cfg, narrow, per_tensor):
     in_tensor = gen_finn_dt_tensor(idt, tuple(n_inp_vecs + [ch]))
     in_tensor = np.tile(in_tensor, (2, 1, 1, 1))
 
-    exec_ctx = {"inp": in_tensor}
+    exec_ctx = {model.get_first_global_in(): in_tensor}
     extracted_weight_stream = []
 
     def read_weights(sim):
         addr = 0
+        read_handles = []
+        addresses = []
         for i in range(len(old_weight_stream)):
-            extracted_weight_stream.append(axilite_read(sim, addr, basename="s_axilite_0_"))
+            addresses.append(addr)
             addr += 4
+        read_handles.append(sim.read_axilite("s_axilite_0", iter(addresses)))
+        sim.run()
+        for addr in addresses:
+            extracted_weight_stream.append(int(read_handles[0][addr], 16))
 
     rtlsim_exec(model, exec_ctx, pre_hook=read_weights)
 
@@ -219,13 +330,16 @@ def test_runtime_thresholds_read(impl_style, cfg, narrow, per_tensor):
 
 
 @pytest.mark.parametrize("impl_style", ["rtl", "hls"])
+@pytest.mark.parametrize(
+    "idt_act_cfg", [(DataType["INT16"], DataType["INT4"]), (DataType["UINT8"], DataType["UINT4"])]
+)
 # configuration (ch, pe)
-@pytest.mark.parametrize("cfg", [(1, 1), (6, 2), (6, 3)])
+@pytest.mark.parametrize("cfg", [(1, 1), (6, 2), (6, 6)])
 @pytest.mark.parametrize("narrow", [True, False])
 @pytest.mark.parametrize("per_tensor", [True, False])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_runtime_thresholds_write(impl_style, cfg, narrow, per_tensor):
+def test_runtime_thresholds_write(impl_style, idt_act_cfg, cfg, narrow, per_tensor):
     """Write threshold weights during runtime
 
     1. Create random initial weights T_init
@@ -241,8 +355,8 @@ def test_runtime_thresholds_write(impl_style, cfg, narrow, per_tensor):
 
     n_inp_vecs = [1, 2, 2]
     hls_mem_mode = "internal_decoupled"
-    act = DataType["INT4"]
-    idt = DataType["INT16"]
+    act = idt_act_cfg[1]
+    idt = idt_act_cfg[0]
 
     odt = act
     n_steps = act.get_num_possible_values() - 1
@@ -253,7 +367,7 @@ def test_runtime_thresholds_write(impl_style, cfg, narrow, per_tensor):
     T_init = sort_thresholds_increasing(T_init)
 
     actval = act.min()
-    if narrow:
+    if narrow and act.signed():
         actval += 1
 
     model = make_single_thresholding_modelwrapper(
@@ -275,14 +389,7 @@ def test_runtime_thresholds_write(impl_style, cfg, narrow, per_tensor):
     # provide non-decreasing/ascending thresholds
     T_write = sort_thresholds_increasing(T_write)
 
-    dat_fname = f"T_write_{cfg}.dat"  # distinguish fname per paramter for distributed testing
-    op_inst.make_weight_file(T_write, "decoupled_runtime", dat_fname)
-    with open(dat_fname, "r") as f:
-        T_write_stream = f.read().strip()
-    os.remove(dat_fname)
-
-    T_write_stream = map(lambda x: int(x, 16), T_write_stream.split("\n"))
-    T_write_stream = list(T_write_stream)
+    T_write_stream = make_runtime_weight_stream(op_inst, T_write)
 
     # need to create stitched IP for runtime weight testing
     model = model.transform(InsertFIFO(True))
@@ -300,21 +407,33 @@ def test_runtime_thresholds_write(impl_style, cfg, narrow, per_tensor):
     in_tensor = gen_finn_dt_tensor(idt, tuple(n_inp_vecs + [ch]))
     in_tensor = np.tile(in_tensor, (2, 1, 1, 1))
 
-    exec_ctx_write = {"inp": in_tensor}
+    exec_ctx_write = {model.get_first_global_in(): in_tensor}
 
     def write_weights(sim):
         addr = 0
+        writes = []
         for nw in T_write_stream:
-            axilite_write(sim, addr, nw, basename="s_axilite_0_")
+            # convert value to hex value and without '0x' prefix
+            hex_val = format(nw, "x")
+            writes.append((addr, hex_val))
             addr += 4
+        sim.write_axilite("s_axilite_0", iter(writes))
+        sim.run()
+        finnxsi.reset_rtlsim(sim)
 
     T_read_stream = []
 
     def read_weights(sim):
         addr = 0
+        read_handles = []
+        addresses = []
         for i in range(len(T_write_stream)):
-            T_read_stream.append(axilite_read(sim, addr, basename="s_axilite_0_"))
+            addresses.append(addr)
             addr += 4
+        read_handles.append(sim.read_axilite("s_axilite_0", iter(addresses)))
+        sim.run()
+        for addr in addresses:
+            T_read_stream.append(int(read_handles[0][addr], 16))
 
     rtlsim_exec(model, exec_ctx_write, pre_hook=write_weights, post_hook=read_weights)
 

@@ -41,8 +41,7 @@ from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
-
-export_onnx_path = "test_brevitas_relu_act_export.onnx"
+from finn.util.basic import make_build_dir
 
 
 @pytest.mark.brevitas_export
@@ -55,52 +54,85 @@ def test_brevitas_act_export_relu(
     b_act = QuantReLU(
         bit_width=abits,
     )
-    m_path = export_onnx_path
+    build_dir = make_build_dir(prefix="test_brevitas_act_export_relu")
+    m_path = os.path.join(build_dir, "test_brevitas_relu_act_export.onnx")
     export_qonnx(b_act, torch.randn(ishape), m_path)
     qonnx_cleanup(m_path, out_file=m_path)
     model = ModelWrapper(m_path)
     model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(InferShapes())
     inp_tensor = np.random.uniform(low=-1.0, high=6.0, size=ishape).astype(np.float32)
-    idict = {model.graph.input[0].name: inp_tensor}
+    idict = {model.get_first_global_in(): inp_tensor}
     odict = oxe.execute_onnx(model, idict, True)
-    produced = odict[model.graph.output[0].name]
+    produced = odict[model.get_first_global_out()]
     inp_tensor = torch.from_numpy(inp_tensor).float()
     b_act.eval()
     expected = b_act.forward(inp_tensor).detach().numpy()
 
     assert np.isclose(produced, expected, atol=1e-3).all()
-    os.remove(export_onnx_path)
 
 
 @pytest.mark.brevitas_export
 @pytest.mark.parametrize("abits", [2, 4, 8])
-@pytest.mark.parametrize("ishape", [(1, 15, 4, 4), (1, 32, 1, 1)])
+# The per-channel scale shape decides the channel axis (and thus the derived
+# MultiThreshold data layout), so cover channels-first and channels-last in
+# both 3D and 4D as well as the 2D-collapsed case.
+@pytest.mark.parametrize(
+    "ishape, channel_shape",
+    [
+        pytest.param((1, 8, 4, 4), (1, 8, 1, 1), id="nchw"),
+        pytest.param((1, 4, 4, 8), (1, 1, 1, 8), id="nhwc"),
+        pytest.param((1, 4, 8), (1, 1, 8), id="nwc"),
+        pytest.param((1, 8, 4), (1, 8, 1), id="ncw"),
+        pytest.param((1, 32, 1, 1), (1, 32, 1, 1), id="nchw-singleton"),
+    ],
+)
+# When True, drop leading unit dims from the scale (e.g. (1,1,1,8) -> (8,)) to
+# cover the broadcasting right-alignment path in _get_channel_axis.
+@pytest.mark.parametrize("squeeze_leading", [False, True])
 def test_brevitas_act_export_relu_channel(
     abits,
     ishape,
+    channel_shape,
+    squeeze_leading,
 ):
-    ch = ishape[1]
     b_act = QuantReLU(
         bit_width=abits,
         max_val=6.0,
-        scaling_impl_type=ScalingImplType.CONST,
+        scaling_impl_type=ScalingImplType.PARAMETER,
         scaling_per_output_channel=True,
-        per_channel_broadcastable_shape=(1, ch, 1, 1),
+        per_channel_broadcastable_shape=channel_shape,
     )
-    m_path = export_onnx_path
+    build_dir = make_build_dir(prefix="test_brevitas_act_export_relu_channel")
+    m_path = os.path.join(build_dir, "test_brevitas_relu_act_export.onnx")
     export_qonnx(b_act, torch.randn(ishape), m_path)
     qonnx_cleanup(m_path, out_file=m_path)
     model = ModelWrapper(m_path)
+    # brevitas must export the per-channel scale with the intended (broadcast)
+    # shape, otherwise this layout case would not actually exercise the target
+    # channel axis in the Quant op
+    quant_scale = model.get_initializer(model.get_nodes_by_op_type("Quant")[0].input[1])
+    padded_scale_shape = (1,) * (len(ishape) - quant_scale.ndim) + tuple(quant_scale.shape)
+    assert padded_scale_shape == tuple(channel_shape), (
+        "brevitas did not preserve the per-channel scale shape in the Quant node: "
+        f"{quant_scale.shape} vs expected {channel_shape}"
+    )
+    if squeeze_leading:
+        # Strip only leading unit dims; trailing ones fix the channel position.
+        q_scale_name = model.get_nodes_by_op_type("Quant")[0].input[1]
+        scale = model.get_initializer(q_scale_name)
+        reduced_shape = tuple(scale.shape)
+        while len(reduced_shape) > 1 and reduced_shape[0] == 1:
+            reduced_shape = reduced_shape[1:]
+        model.set_initializer(q_scale_name, scale.reshape(reduced_shape))
     model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(InferShapes())
     inp_tensor = np.random.uniform(low=-1.0, high=6.0, size=ishape).astype(np.float32)
-    idict = {model.graph.input[0].name: inp_tensor}
+    idict = {model.get_first_global_in(): inp_tensor}
     odict = oxe.execute_onnx(model, idict, True)
-    produced = odict[model.graph.output[0].name]
+    produced = odict[model.get_first_global_out()]
     inp_tensor = torch.from_numpy(inp_tensor).float()
     b_act.eval()
     expected = b_act.forward(inp_tensor).detach().numpy()
 
     assert np.isclose(produced, expected, atol=1e-3).all()
-    os.remove(export_onnx_path)

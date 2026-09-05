@@ -25,7 +25,7 @@ def create_maxpool(ifm_dim, ifm_ch, kernel_shape, pads, strides, ceil_mode, idt)
     maxpool_node = oh.make_node(
         "MaxPool",
         inputs=["inp"],
-        outputs=["out_mp"],
+        outputs=["outp_mp"],
         ceil_mode=ceil_mode,
         kernel_shape=kernel_shape,
         pads=pads,
@@ -34,7 +34,7 @@ def create_maxpool(ifm_dim, ifm_ch, kernel_shape, pads, strides, ceil_mode, idt)
 
     transpose_node = onnx.helper.make_node(
         "Transpose",
-        inputs=["out_mp"],
+        inputs=["outp_mp"],
         outputs=["outp"],
         name="Transpose1",
         perm=[0, 2, 3, 1],
@@ -89,7 +89,7 @@ def test_maxpool_nhwc(ifm_dim, ifm_ch, kernel_shape, pads, strides, ceil_mode, i
     maxpool_model = maxpool_model.transform(MakeMaxPoolNHWC())
 
     # execute transformed model
-    output_node_name = maxpool_model.graph.output[0].name
+    output_node_name = maxpool_model.get_first_global_out()
     output_dict = oxe.execute_onnx(maxpool_model, input_dict, return_full_exec_context=False)
     output = output_dict[output_node_name]
 

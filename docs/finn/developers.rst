@@ -11,7 +11,7 @@ Prerequisites
 Before starting to do development on FINN it is a good idea to start
 with understanding the basics as a user. Going through all of the
 :ref:`tutorials` is strongly recommended if you haven't already done so.
-Additionally, please review the documentation available on :ref:`internals`.
+Additionally, please review the :ref:`concepts` documentation and the :doc:`/implementation/index`.
 
 Repository structure
 =====================
@@ -116,6 +116,25 @@ checks and fixes. In some cases pre-commit won't be able to fix the issues and
 you may have to fix it manually, then run `git commit` once again.
 The checks are configured in .pre-commit-config.yaml under the repo root.
 
+Coding Standards
+================
+
+FINN follows specific coding conventions for Python, HLS/C++, and SystemVerilog code.
+Please refer to the style guides in the repository root for detailed guidelines:
+
+* `PYTHON_STYLE_GUIDE.md <https://github.com/Xilinx/finn/blob/dev/PYTHON_STYLE_GUIDE.md>`_
+
+  - Python naming conventions, docstrings, type hints, and error handling
+  - FINN-specific patterns: CustomOps, transformations, node attributes, testing
+
+* `HDL_STYLE_GUIDE.md <https://github.com/Xilinx/finn/blob/dev/HDL_STYLE_GUIDE.md>`_
+
+  - HLS/C++ template parameters, function naming, and pragma usage
+  - SystemVerilog module structure, signal naming, and design patterns
+
+Following these standards ensures consistency across the codebase and makes code
+easier to read, review, and maintain.
+
 Testing
 ========
 
@@ -158,7 +177,7 @@ If you want to run tests in parallel (e.g. to take advantage of a multi-core CPU
 you can use:
 
 * pytest-parallel for any rtlsim tests, e.g. `pytest -k rtlsim --workers auto`
-* pytest-xdist for anything else, make sure to add `--dist=loadfile` if you have tests in the same file that have dependencies on each other e.g. `pytest -k mytest -n auto --dist=loadfile`
+* pytest-xdist for anything else, using `--dist=loadgroup`. e.g. `pytest -k mytest -n auto --dist=loadgroup`. Tests that exchange checkpoints must share an `xdist_group` marker so they stay on one worker.
 
 Finally, the full test suite with appropriate parallelization can be run inside the container by:
 

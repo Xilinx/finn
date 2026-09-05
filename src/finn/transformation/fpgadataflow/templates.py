@@ -28,58 +28,6 @@
 
 # flake8: noqa
 
-# template for the PYNQ shell integration configuration tcl script
-ip_config_tcl_template = """
-variable config_ip_repo
-variable config_ip_vlnv
-variable config_ip_bytes_in
-variable config_ip_bytes_out
-variable config_ip_axis_name_in
-variable config_ip_axis_name_out
-variable config_ip_use_axilite
-variable config_ip_axilite_name
-variable config_ip_project_dir
-variable config_output_products_dir
-variable config_remote_cache
-variable config_util_report_filename
-variable config_ip_fclk
-
-# for arguments involving paths below: use absolute paths or relative to the
-# platform/overlay/bitstream folder
-# where to create the project
-set config_ip_project_dir %s
-# IP repositories that the project depends on
-set config_ip_repo %s
-# where the produced bitfile and .hwh file will be placed
-set config_output_products_dir %s
-# where the synth util XML report will be written
-set config_util_report_filename %s
-
-# non-path arguments
-# VLNV of the IP block
-set config_ip_vlnv %s
-# width of the AXI stream into the IP, in bytes
-set config_ip_bytes_in %d
-# width of the AXI stream out of the IP, in bytes
-set config_ip_bytes_out %d
-# the name of the input AXI stream interface
-set config_ip_axis_name_in %s
-# the name of the output AXI stream interface
-set config_ip_axis_name_out %s
-# the name of the clock signal
-set config_ip_clk_name %s
-# the name of the active-low reset signal
-set config_ip_nrst_name %s
-# whether the IP needs an AXI Lite interface for control
-set config_ip_use_axilite 1
-# name of AXI Lite interface
-set config_ip_axilite_name %s
-# Vivado OOC IP cache
-set config_remote_cache "%s"
-# clock frequency
-set config_ip_fclk %f
-"""
-
 call_pynqshell_makefile_template = """
 #!/bin/bash
 cd %s
@@ -135,6 +83,9 @@ if {$BOARD == "ZCU104"} {
 } elseif {$BOARD == "KV260_SOM"} {
     set ZYNQ_TYPE "zynq_us+"
     set_property board_part xilinx.com:kv260_som:part0:1.3 [current_project]
+} elseif {$BOARD == "AUP-ZU3_8GB"} {
+    set ZYNQ_TYPE "zynq_us+"
+    set_property board_part realdigital.org:aup-zu3-8gb:part0:1.0 [current_project]
 } else {
     puts "Unrecognized board"
 }
@@ -147,6 +98,11 @@ if {$ZYNQ_TYPE == "zynq_us+"} {
     #activate one slave port, deactivate the second master port
     set_property -dict [list CONFIG.PSU__USE__S_AXI_GP2 {1}] [get_bd_cells zynq_ps]
     set_property -dict [list CONFIG.PSU__USE__M_AXI_GP1 {0}] [get_bd_cells zynq_ps]
+    #activate one master port and deactivate third master port for AUP-ZU3
+    if {$BOARD == "AUP-ZU3_8GB"} {
+        set_property -dict [list CONFIG.PSU__USE__M_AXI_GP0 {1}] [get_bd_cells zynq_ps]
+        set_property -dict [list CONFIG.PSU__USE__M_AXI_GP2 {0}] [get_bd_cells zynq_ps]
+    }
     #set frequency of PS clock (this can't always be exactly met)
     set_property -dict [list CONFIG.PSU__OVERRIDE__BASIC_CLOCK {0}] [get_bd_cells zynq_ps]
     set_property -dict [list CONFIG.PSU__CRL_APB__PL0_REF_CTRL__FREQMHZ [expr int($FREQ_MHZ)]] [get_bd_cells zynq_ps]
@@ -206,6 +162,27 @@ proc assign_axi_addr_proc {axi_intf_path} {
 #custom IP instantiations/connections start here
 %s
 
+#MLO (Multi-Layer Offload) weight streaming
+if {$ZYNQ_TYPE == "zynq_us+"} {
+    set mlo_mm_pins [get_bd_intf_pins -quiet -of_objects [get_bd_cells] \
+        -filter {MODE == Master && (NAME == m_axi_intermediate_frame || NAME =~ m_axi_MVAU_*)}]
+    if {[llength $mlo_mm_pins] > 0} {
+        set_property -dict [list CONFIG.PSU__USE__S_AXI_GP3 {1}] [get_bd_cells zynq_ps]
+        create_bd_cell -type ip -vlnv $smartconnect_vlnv smartconnect_mlo
+        set_property -dict [list CONFIG.NUM_SI [llength $mlo_mm_pins]] [get_bd_cells smartconnect_mlo]
+        connect_bd_intf_net [get_bd_intf_pins smartconnect_mlo/M00_AXI] [get_bd_intf_pins zynq_ps/S_AXI_HP1_FPD]
+        set mlo_si_idx 0
+        foreach mlo_mm_pin $mlo_mm_pins {
+            set mlo_si_name [format "S%%02d_AXI" $mlo_si_idx]
+            connect_bd_intf_net $mlo_mm_pin [get_bd_intf_pins smartconnect_mlo/$mlo_si_name]
+            incr mlo_si_idx
+        }
+        connect_bd_net [get_bd_pins smartconnect_mlo/aclk] [get_bd_pins zynq_ps/pl_clk0]
+        connect_bd_net [get_bd_pins zynq_ps/saxihp1_fpd_aclk] [get_bd_pins zynq_ps/pl_clk0]
+        connect_bd_net [get_bd_pins smartconnect_mlo/aresetn] [get_bd_pins axi_interconnect_0/ARESETN]
+    }
+}
+
 # set up debug
 if {%d == 1} {
     set_property HDL_ATTRIBUTE.DEBUG true [get_bd_intf_nets {idma0_m_axis_0}]
@@ -243,7 +220,7 @@ set_property STEPS.POST_ROUTE_PHYS_OPT_DESIGN.IS_ENABLED true [get_runs impl_1]
 
 # out-of-context synth can't be used for bitstream generation
 # set_property -name {STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS} -value {-mode out_of_context} -objects [get_runs synth_1]
-launch_runs -to_step write_bitstream impl_1
+launch_runs -to_step write_bitstream impl_1 -jobs %d
 wait_on_run [get_runs impl_1]
 
 # generate synthesis report

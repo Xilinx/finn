@@ -31,9 +31,8 @@ import pytest
 import copy
 import numpy as np
 import onnx.parser as oprs
-import os
+from bitstring import BitArray
 from onnx import TensorProto, helper
-from pyverilator.util.axi_utils import axilite_write, reset_rtlsim
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
@@ -41,15 +40,18 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.transformation.lower_convs_to_matmul import (
-    LowerConvsToMatMul,
-    _auto_pad_to_explicit_padding,
+from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
+from qonnx.util.basic import (
+    auto_pad_to_explicit_padding,
+    gen_finn_dt_tensor,
+    get_by_name,
+    qonnx_make_model,
 )
-from qonnx.util.basic import gen_finn_dt_tensor, get_by_name, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
+from finn import xsi
 from finn.core.onnx_exec import execute_onnx
 from finn.core.rtlsim_exec import rtlsim_exec
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
@@ -61,19 +63,21 @@ from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.basic import pyverilate_get_liveness_threshold_cycles
+
+finnxsi = xsi if xsi.is_available() else None
 
 
-def create_conv_model(idim_h, idim_w, ifm, k, stride, ofm, idt, wdt, pad_mode, depthwise):
-    np.random.seed(0)
+def create_conv_model(
+    idim_h, idim_w, ifm, k, stride, ofm, idt, wdt, pad_mode, depthwise, weight_0, weight_1
+):
     group = ifm if depthwise else 1
     group_str = str(group)
     ishp = (1, ifm, idim_h, idim_w)
-    pad_0 = _auto_pad_to_explicit_padding(pad_mode, idim_h, idim_w, k, k, stride, stride, 2)
+    pad_0 = auto_pad_to_explicit_padding(pad_mode, idim_h, idim_w, k, k, stride, stride, 2)
     int_dim_h = compute_conv_output_dim(idim_h, k, stride, total_pad=pad_0[0] + pad_0[2])
     int_dim_w = compute_conv_output_dim(idim_w, k, stride, total_pad=pad_0[1] + pad_0[3])
 
-    pad_1 = _auto_pad_to_explicit_padding(pad_mode, int_dim_h, int_dim_w, k, k, stride, stride, 2)
+    pad_1 = auto_pad_to_explicit_padding(pad_mode, int_dim_h, int_dim_w, k, k, stride, stride, 2)
     odim_h = compute_conv_output_dim(int_dim_h, k, stride, total_pad=pad_1[0] + pad_1[2])
     odim_w = compute_conv_output_dim(int_dim_w, k, stride, total_pad=pad_1[1] + pad_1[3])
     oshp = (1, ifm, odim_h, odim_w) if depthwise else (1, ofm, odim_h, odim_w)
@@ -117,8 +121,8 @@ def create_conv_model(idim_h, idim_w, ifm, k, stride, ofm, idt, wdt, pad_mode, d
     model.set_tensor_datatype("in0", idt)
     model.set_tensor_datatype("param_c0_weight", wdt)
     model.set_tensor_datatype("param_c1_weight", wdt)
-    model.set_initializer("param_c0_weight", gen_finn_dt_tensor(wdt, wshp))
-    model.set_initializer("param_c1_weight", gen_finn_dt_tensor(wdt, wshp_1))
+    model.set_initializer("param_c0_weight", weight_0)
+    model.set_initializer("param_c1_weight", weight_1)
     return model
 
 
@@ -157,13 +161,23 @@ def config_hook(configs):
         return None
 
     def write_swg_config(sim):
-        reset_rtlsim(sim)
+        finnxsi.reset_rtlsim(sim)
         for axi_name, config in configs:
+            writes = []
             # Write config registers to the SWG/FMPadding dict
             # defines (addr, value) tuples
             for config_entry in config.values():
-                axilite_write(sim, config_entry[0], config_entry[1], basename=axi_name)
-        reset_rtlsim(sim)
+                addr, val = config_entry
+                if val < 0:
+                    # ensure any negative vals are expressed as two's complement,
+                    # SWG control regs are currently always 32 bits
+                    val = BitArray(int=val, length=32).uint
+                # convert value to hex value and without '0x' prefix
+                hex_val = format(val, "x")
+                writes.append((addr, hex_val))
+            sim.write_axilite(axi_name, iter(writes))
+            sim.run()
+        finnxsi.reset_rtlsim(sim)
 
     return write_swg_config
 
@@ -207,7 +221,7 @@ cfg2 = {
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.fpgadataflow
-def test_fpgadataflow_conv_dynamic(cfg):
+def test_fpgadataflow_conv_dynamic(cfg, monkeypatch):
     do_synth = cfg["do_synth"]
     pad_mode = cfg["pad_mode"]
     depthwise = cfg["depthwise"]
@@ -218,15 +232,29 @@ def test_fpgadataflow_conv_dynamic(cfg):
     ofm = cfg["ofm"]
     idt = DataType["UINT4"]
     wdt = DataType["INT2"]
+    wshp = (ifm, 1, k, k) if depthwise else (ofm, ifm, k, k)
+    wshp_1 = (ifm, 1, k, k) if depthwise else (ofm, ofm, k, k)
+    weight_0 = gen_finn_dt_tensor(wdt, wshp)
+    weight_1 = gen_finn_dt_tensor(wdt, wshp_1)
     exp_cfgs = []
     largest_model = None
     for idim in idims:
         idim_h, idim_w = idim
         ishp = (1, ifm, idim_h, idim_w)
-        np.random.seed(0)
         inp = gen_finn_dt_tensor(idt, ishp)
         model = create_conv_model(
-            idim_h, idim_w, ifm, k, stride, ofm, idt, wdt, pad_mode, depthwise
+            idim_h,
+            idim_w,
+            ifm,
+            k,
+            stride,
+            ofm,
+            idt,
+            wdt,
+            pad_mode,
+            depthwise,
+            weight_0,
+            weight_1,
         )
         _, _, int_dim_h, int_dim_w = model.get_tensor_shape("conv0")
         _, _, odim_h, odim_w = model.get_tensor_shape("out0")
@@ -286,7 +314,7 @@ def test_fpgadataflow_conv_dynamic(cfg):
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))
     model = model.transform(HLSSynthIP())
-    model = model.transform(CreateStitchedIP("xc7z020clg400-1", 5, vitis=do_synth))
+    model = model.transform(CreateStitchedIP("xc7z020clg400-1", 5, run_synth=do_synth))
     model.set_metadata_prop("exec_mode", "rtlsim")
 
     # loop through experiment configurations
@@ -325,13 +353,13 @@ def test_fpgadataflow_conv_dynamic(cfg):
             update_tensor_dim(model, padder1.onnx_node.output[0], (conv1_idim_h, conv1_idim_w))
             pad_config1 = padder1.get_dynamic_config((int_dim_h, int_dim_w), pad1)
             configs = [
-                ("s_axilite_0_", pad_config0),
-                ("s_axilite_1_", swg_config0),
-                ("s_axilite_2_", pad_config1),
-                ("s_axilite_3_", swg_config1),
+                ("s_axilite_0", pad_config0),
+                ("s_axilite_1", swg_config0),
+                ("s_axilite_2", pad_config1),
+                ("s_axilite_3", swg_config1),
             ]
         else:
-            configs = [("s_axilite_0_", swg_config0), ("s_axilite_1_", swg_config1)]
+            configs = [("s_axilite_0", swg_config0), ("s_axilite_1", swg_config1)]
         # adjust folded shapes for I/O FIFOs
         # (since rtlsim_exec uses folded shape info to fold global i/o tensors)
         first_node = getCustomOp(model.graph.node[0])
@@ -347,10 +375,8 @@ def test_fpgadataflow_conv_dynamic(cfg):
         update_tensor_dim(model, last_node.onnx_node.output[0], (odim_h, odim_w))
         last_node.set_nodeattr("folded_shape", last_node_shp)
         ctx = {"global_in": inp.transpose(0, 2, 3, 1)}
-        liveness_prev = pyverilate_get_liveness_threshold_cycles()
-        os.environ["LIVENESS_THRESHOLD"] = "100000"
+        monkeypatch.setenv("LIVENESS_THRESHOLD", "100000")
         rtlsim_exec(model, ctx, pre_hook=config_hook(configs))
-        os.environ["LIVENESS_THRESHOLD"] = str(liveness_prev)
         ret = ctx["global_out"].transpose(0, 3, 1, 2)
         assert np.isclose(golden, ret).all()
 
@@ -551,7 +577,7 @@ def test_fpgadataflow_slidingwindow_rtl_dynamic(
 
             # Generate config, also overwrites IFMDim/OFMDim attributes:
             config = swg_inst.get_dynamic_config(ifm_dim)
-            configs = [("s_axilite_0_", config)]
+            configs = [("s_axilite_0", config)]
 
             # Also update FIFO nodes and corresponding tensors
             fifo_node = model.get_nodes_by_op_type("StreamingFIFO_rtl")[0]

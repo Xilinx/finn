@@ -83,7 +83,7 @@ def test_brevitas_mobilenet():
     preproc_model = ModelWrapper(preproc_onnx)
     preproc_model = preproc_model.transform(ConvertQONNXtoFINN())
     # set input finn datatype to UINT8
-    preproc_model.set_tensor_datatype(preproc_model.graph.input[0].name, DataType["UINT8"])
+    preproc_model.set_tensor_datatype(preproc_model.get_first_global_in(), DataType["UINT8"])
     preproc_model = preproc_model.transform(InferShapes())
     preproc_model = preproc_model.transform(GiveUniqueNodeNames())
     preproc_model = preproc_model.transform(GiveUniqueParameterTensors())
@@ -121,9 +121,9 @@ def test_brevitas_mobilenet():
     model.save(export_onnx_path + "/quant_mobilenet_v1_4b_wo_preproc.onnx")
     model = model.transform(MergeONNXModels(preproc_model))
     model.save(export_onnx_path + "/quant_mobilenet_v1_4b.onnx")
-    idict = {model.graph.input[0].name: img_np}
+    idict = {model.get_first_global_in(): img_np}
     odict = oxe.execute_onnx(model, idict, True)
-    produced = odict[model.graph.output[0].name]
+    produced = odict[model.get_first_global_out()]
     produced_prob = odict["TopK_0_out0"] * a0
     assert (produced.flatten() == expected_top5).all()
     assert np.isclose(produced_prob.flatten(), expected_top5_prob, atol=2.2 * 1e-1).all()
