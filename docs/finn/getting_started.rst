@@ -8,7 +8,7 @@ Quickstart
 ==========
 
 1. Install Docker to run `without root <https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user>`_
-2. Set up ``FINN_XILINX_PATH`` and ``FINN_XILINX_VERSION`` environment variables pointing respectively to the Xilinx tools installation directory and version (e.g. ``FINN_XILINX_PATH=/opt/Xilinx`` and ``FINN_XILINX_VERSION=2022.2``)
+2. Set up ``FINN_XILINX_PATH`` and ``FINN_XILINX_VERSION`` environment variables pointing respectively to the Xilinx tools installation directory and version (e.g. ``FINN_XILINX_PATH=/opt/Xilinx`` and ``FINN_XILINX_VERSION=2024.2``)
 3. Clone the FINN compiler from the repo: ``git clone https://github.com/Xilinx/finn/`` and go into the directory where it is cloned
 4. Execute ``./run-docker.sh quicktest verify`` to verify your installation. It is normal to see warnings during the tests - FINN uses warnings to inform users about certain conditions. As long as all tests pass, your installation is successful.
 5. Optionally, follow the instructions on :ref:`getting_started:PYNQ board first-time setup`, :ref:`getting_started:Vitis-based Alveo first-time setup`, or :ref:`getting_started:Slash-based Alveo first-time setup` for board setup.
@@ -97,7 +97,7 @@ For a complete list, please have a look in the `run-docker.sh <https://github.co
 The most relevant are summarized below:
 
 * (required) ``FINN_XILINX_PATH`` points to your Xilinx tools installation on the host (e.g. ``/opt/Xilinx``)
-* (required) ``FINN_XILINX_VERSION`` sets the Xilinx tools version to be used (e.g. ``2022.2``)
+* (required) ``FINN_XILINX_VERSION`` sets the Xilinx tools version to be used (e.g. ``2024.2``)
 * (required for Vitis) ``PLATFORM_REPO_PATHS`` points to the Vitis platform files (DSA).
 * (required for Vitis) ``XRT_DEB_VERSION`` specifies the .deb to be installed for XRT inside the container (see default value in ``run-docker.sh``).
 * (required for Slash) ``SLASHKIT_DEB_PACKAGE`` specifies the .deb to be installed for Slash's slashkit linker. This replaces the former ``V80PP_DEB_PACKAGE`` variable, there is no backwards compatibility.
@@ -135,7 +135,7 @@ Prerequisites
 * Ubuntu 22.04 (other distributions may work but are not officially tested)
 * Python 3.10
 * System dependencies (see below)
-* Vivado/Vitis 2022.2 or later (for synthesis and simulation)
+* Vivado/Vitis 2024.2 or later (for synthesis and simulation)
 
 Quick Start
 ***********
@@ -147,7 +147,7 @@ Quick Start
 2. Set up Xilinx tools environment variables::
 
     export FINN_XILINX_PATH=/opt/Xilinx
-    export FINN_XILINX_VERSION=2022.2
+    export FINN_XILINX_VERSION=2024.2
 
 3. Clone FINN and run the local setup script::
 
@@ -248,7 +248,7 @@ On the target side:
 
 On the host side:
 
-1. Install Vitis 2022.2 and set up the ``VITIS_PATH`` environment variable to point to your installation.
+1. Install Vitis 2024.2 and set up the ``VITIS_PATH`` environment variable to point to your installation.
 2. Install Xilinx XRT. Ensure that the ``XRT_DEB_VERSION`` environment variable reflects which version of XRT you have installed.
 3. Install the Vitis platform files for Alveo and set up the ``PLATFORM_REPO_PATHS`` environment variable to point to your installation. *This must be the same path as the target's platform files (target step 2)*
 4. `Set up public key authentication <https://www.digitalocean.com/community/tutorials/how-to-configure-ssh-key-based-authentication-on-a-linux-server>`_. Copy your private key to the ``finn/ssh_keys`` folder on the host to get password-less deployment and remote execution.
@@ -299,9 +299,9 @@ value of the ``XILINXD_LICENSE_FILE`` environment variable.
 System Requirements
 ====================
 
-* Ubuntu 18.04 with ``bash`` installed
+* A Linux host with ``bash`` (the FINN Docker image provides the required OS environment, so the host distribution/version is not critical)
 * Docker `without root <https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user>`_
-* A working Vitis/Vivado 2022.2 installation
+* A working Vitis/Vivado 2024.2 installation
 * ``FINN_XILINX_PATH`` and ``FINN_XILINX_VERSION`` environment variables correctly set, see `Quickstart`_
 * *(optional)* `Vivado/Vitis license`_ if targeting non-WebPack FPGA parts.
 * *(optional)* A PYNQ board with a network connection, see `PYNQ board first-time setup`_
