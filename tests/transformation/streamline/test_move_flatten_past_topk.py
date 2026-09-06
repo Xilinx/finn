@@ -81,7 +81,7 @@ def test_move_flatten_past_topk(data_layout, batch_size):
 
     # compare execution before and after transformation
     inp_values = gen_finn_dt_tensor(DataType["INT2"], ishape)
-    idict = {model.graph.input[0].name: inp_values}
+    idict = {model.get_first_global_in(): inp_values}
     model_transformed = model.transform(MoveFlattenPastTopK())
     assert oxe.compare_execution(model, model_transformed, idict)
 

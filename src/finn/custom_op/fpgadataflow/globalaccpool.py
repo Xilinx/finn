@@ -87,13 +87,6 @@ class GlobalAccPool(HWCustomOp):
         oshape = tuple(unfolded_shape[:-1] + [folds, pe])
         return oshape
 
-    def make_shape_compatible_op(self, model):
-        exp_ishape = self.get_normal_input_shape()
-        oshape = self.get_normal_output_shape()
-        ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == exp_ishape, "Unexpected input shape."
-        return super().make_const_shape_op(oshape)
-
     def infer_node_datatype(self, model):
         node = self.onnx_node
         idt = model.get_tensor_datatype(node.input[0])
@@ -107,9 +100,6 @@ class GlobalAccPool(HWCustomOp):
         self.set_nodeattr("inputDataType", idt.name)
         odt = self.get_output_datatype()
         model.set_tensor_datatype(self.onnx_node.output[0], odt)
-
-    def verify_node(self):
-        pass
 
     def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
@@ -140,9 +130,6 @@ class GlobalAccPool(HWCustomOp):
         pe = self.get_nodeattr("PE")
         out_width = pe * obits
         return out_width
-
-    def get_number_output_values(self):
-        return np.prod(self.get_folded_output_shape()[1:-1])
 
     def get_exp_cycles(self):
         # Channels/PE * batch size * idim * idim + Channels/PE

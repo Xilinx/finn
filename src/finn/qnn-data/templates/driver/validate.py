@@ -40,7 +40,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--dataset", help="dataset to use (mnist of cifar10)", required=True)
     parser.add_argument(
-        "--platform", help="Target platform: zynq-iodma alveo", default="zynq-iodma"
+        "--platform", help="Target platform: zynq-iodma vitis-xrt", default="zynq-iodma"
     )
     parser.add_argument(
         "--bitfile", help='name of bitfile (i.e. "resizer.bit")', default="resizer.bit"
@@ -83,7 +83,7 @@ if __name__ == "__main__":
         platform=platform,
         io_shape_dict=io_shape_dict,
         batch_size=bsize,
-        runtime_weight_dir="runtime_weights/",
+        weight_dir="weights/",
     )
 
     n_batches = int(total / bsize)
@@ -98,9 +98,9 @@ if __name__ == "__main__":
         driver.execute_on_buffers()
         obuf_normal = np.empty_like(driver.obuf_packed_device[0])
         driver.copy_output_data_from_device(obuf_normal)
-        ret = np.bincount(obuf_normal.flatten() == exp.flatten())
-        nok += ret[0]
-        ok += ret[1]
+        batch_ok = (obuf_normal.flatten() == exp.flatten()).sum()
+        ok += batch_ok
+        nok += bsize - batch_ok
         print("batch %d / %d : total OK %d NOK %d" % (i + 1, n_batches, ok, nok))
 
     acc = 100.0 * ok / (total)

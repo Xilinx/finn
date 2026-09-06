@@ -1,0 +1,1115 @@
+// FINN HW CI pipeline. Tethered to physical boards. HW_SHARDS comes from
+// finn_ci.config's BOARDS table, shared Groovy helpers from ci/common.groovy.
+
+import groovy.transform.Field
+
+
+// ============================================================================
+// Module-level imports and shared-helper cache
+// ============================================================================
+
+@Field
+def _common = null
+
+// All finn_ci CLI calls go through this one invocation. Runs from the workspace
+// root with ci/ on PYTHONPATH, so the package imports by bare name.
+@Field
+String CI_TOOL = 'PYTHONPATH=ci python3 -m finn_ci'
+
+private def loadCommonOnce() {
+  if (_common == null) { _common = load 'ci/common.groovy' }
+  return _common
+}
+
+
+// ============================================================================
+// Configuration fields
+// ============================================================================
+
+@Field
+List<Map> HW_SHARDS = []
+
+// Populated from finn_ci's hw-config-json so both pipelines stay in sync.
+@Field
+List<String> HW_TEST_TYPES = []
+
+// Populated from finn_ci's hw-config-json. A new HW test type is a one-line edit
+// of HW_TEST_TYPE_LABELS in finn_ci.config, which validate_config() requires to
+// cover every hwTestType.
+@Field
+Map<String, String> HW_TEST_TYPE_LABELS = [:]
+
+// Keyed by agentLabel. Populated by refreshNodeOnlineFlags().
+@Field
+Map<String, Boolean> NODE_ONLINE = [:]
+
+// Keyed by agentLabel. Set by runReboot() only once the reboot command has come
+// back, so the readiness wait watches exactly the boards that were rebooted.
+@Field
+Map<String, Boolean> REBOOTED = [:]
+
+// Keyed by "${testType}::${board}", value is that pair's resolve-build-zips entry
+// ([:] when none resolved). Filled once in Collect so later helpers do no I/O.
+// validate_config() rejects '::' in either name, so the key splits one way only.
+@Field
+Map<String, Map> BUILD_BOARD_ZIP_PATHS = [:]
+
+// Agent label every non-board stage runs on. Mirrors the @Field in Jenkinsfile.
+// Not env-overridable: `env` is not bound during @Field init under Jenkins CPS.
+@Field
+static final String FINN_BUILD_LABEL = 'finn-build'
+
+// The commit every stage checks out. Resolved once from the branch tip on the
+// first checkoutPinned() call (Get node status) and reused unchanged for the
+// rest of the build, so the test file Collect stashes and the reports
+// aggregated at the end all come from one commit even if the branch moves
+// mid-run. @Field so the SHA survives CPS replay across stages/agents. Mirrors
+// the same field in Jenkinsfile.
+@Field
+String PINNED_SCM_COMMIT = ''
+
+// The only test file a board runs: stashed by Collect, given to pytest on the board.
+@Field
+static final String HW_TEST_FILE = 'test_bnn_hw_pytest.py'
+
+// Boards without a battery-backed clock can come up years out, which breaks TLS.
+@Field
+static final int MAX_CLOCK_SKEW_SECONDS = 7 * 24 * 60 * 60
+
+// Bounds board work on silence, not wall clock, and covers the wait for the
+// board's agent too. Boards reattach in about 18 seconds, worst observed 270.
+@Field
+static final int HW_TEST_INACTIVITY_MINUTES = 15
+
+// A chown and a one-file stash, after a shard that may already have lost its board.
+@Field
+static final int HW_CLEANUP_INACTIVITY_MINUTES = 5
+
+// Post-reboot agent readiness. `shutdown -r +1` leaves the agent up for about a
+// minute, so the wait must see it drop before trusting it being back.
+@Field
+static final int AGENT_POLL_SECONDS = 15
+
+@Field
+static final int AGENT_DROP_WAIT_MINUTES = 3
+
+// The slowest board takes over four minutes to boot and reattach.
+@Field
+static final int AGENT_RETURN_WAIT_MINUTES = 10
+
+// An agent can flap online for a poll while its channel is still being replaced.
+@Field
+static final int AGENT_STABLE_POLLS = 2
+
+// Wall clock, not inactivity: a reboot branch is one command. Clear of the 270
+// seconds a board has taken at worst to reattach.
+@Field
+static final int HW_REBOOT_BRANCH_MINUTES = 10
+
+// Bounds the optional FINN_HW_RECOVERY_JOB, which can queue behind unrelated site
+// work: a board has to lose power, boot and rejoin.
+@Field
+static final int HW_RECOVERY_WAIT_MINUTES = 20
+
+// Keyed on board name. One recovery per board per build, claimed at the point of
+// decision so nothing thrown in between can leak a second.
+@Field
+Map<String, Boolean> RECOVERY_ATTEMPTED = [:]
+
+
+// ============================================================================
+// Pipeline declaration
+// ============================================================================
+
+pipeline {
+  agent none
+  options {
+    // A second build would reboot the boards out from under this one's shards.
+    disableConcurrentBuilds()
+    // Backstop only. Every board-facing step is bounded already.
+    timeout(time: 4, unit: 'HOURS')
+    // Every stage checks out through checkoutPinned() instead of the implicit
+    // per-agent checkout, so the whole build stashes and tests one commit even
+    // if the branch is pushed mid-run. See checkoutPinned() / PINNED_SCM_COMMIT.
+    skipDefaultCheckout()
+  }
+  parameters {
+    string(name: 'build_job_name', defaultValue: 'finn',
+           description: 'Build pipeline Jenkins job feeding this HW build. Scans the build job\'s ci_runs tree on shared NFS for per-board READY zips.')
+    string(name: 'build_dir', defaultValue: '',
+           description: 'Optional explicit path to a single build directory. Overrides build_job_name auto-discovery and forces every board to be read from this one directory. Use for off-Jenkins recovery or pinning a specific build.')
+    booleanParam(name: 'allow_fallback', defaultValue: false,
+                 description: 'Allow a board to test an older READY build when the newest build did not produce that board zip. Default false marks the HW build unstable if fallback is used.')
+    string(name: 'BOARD_FILTER', defaultValue: '',
+           description: 'Substring filter for debugging a single board. Matches against the board name. Leave empty for a normal build.')
+  }
+  stages {
+    stage('Get node status') {
+      agent { label "${FINN_BUILD_LABEL}" }
+      steps { script { checkoutPinned(); loadHwShards(); validateBoardFilter(); refreshNodeOnlineFlags() } }
+    }
+    stage('Reboot Zynq platforms') {
+      steps { script { runRebootParallelStage() } }
+    }
+    stage('Wait for Nodes to reboot') {
+      // No checkoutPinned(): this stage touches only board agents, not the source.
+      agent { label "${FINN_BUILD_LABEL}" }
+      steps { script { waitForRebootedNodes() } }
+    }
+    // checkoutPinned() puts ci/test_bnn_hw_pytest.py in the workspace to stash.
+    stage('Collect build information for HW testing') {
+      agent { label "${FINN_BUILD_LABEL}" }
+      steps { script { checkoutPinned(); collectBuildArtifacts() } }
+    }
+    // Nested `stage(name)` per test type so each gets its own row in the UI.
+    stage('Run Hardware Tests') {
+      steps {
+        script {
+          HW_TEST_TYPES.each { testType ->
+            String label = hwTestTypeLabel(testType)
+            stage("${label} - Run Hardware Tests") {
+              runHwParallelStage(testType)
+            }
+          }
+        }
+      }
+    }
+  }
+  // post so boards that did report still publish when an earlier stage fails.
+  // checkoutPinned() replaces the checkout a stage agent would have implied.
+  post {
+    always {
+      node("${FINN_BUILD_LABEL}") {
+        script {
+          stage('Check Stage Results') {
+            checkoutPinned()
+            aggregateReports()
+          }
+        }
+      }
+    }
+  }
+}
+
+
+// ============================================================================
+// Checkout
+// ============================================================================
+
+// Single checkout entry point for every stage (skipDefaultCheckout() is set, so
+// nothing else clones). The first call (Get node status) resolves the branch
+// tip and records it in PINNED_SCM_COMMIT; every later call — on any agent —
+// checks out that exact SHA, reusing the job's configured
+// remotes/extensions/browser so credentials, refspecs and tag fetching match a
+// plain `checkout scm`. Keeps the stashed test file and finn_ci behaviour
+// constant across stages even if the branch moves mid-build. Mirrors the helper
+// in Jenkinsfile.
+void checkoutPinned() {
+  if (!PINNED_SCM_COMMIT) {
+    def vars = checkout scm
+    PINNED_SCM_COMMIT = vars.GIT_COMMIT
+    echo "checkoutPinned: pinned build to ${PINNED_SCM_COMMIT}"
+    return
+  }
+  checkout([
+    $class: 'GitSCM',
+    branches: [[name: PINNED_SCM_COMMIT]],
+    userRemoteConfigs: scm.userRemoteConfigs,
+    extensions: scm.extensions,
+  ])
+}
+
+
+// ============================================================================
+// Get-node-status / Reboot stage helpers
+// ============================================================================
+
+void loadHwShards() {
+  // One subprocess loads shards, test types and labels, validating the BOARDS
+  // and STAGES tables once.
+  String raw = sh(returnStdout: true, script:
+    "${CI_TOOL} hw-config-json"
+  ).trim()
+  Map cfg = readJSON(text: raw) as Map
+  HW_SHARDS = (cfg.shards as List).collect { normaliseShard(it as Map) }
+  HW_TEST_TYPES = (cfg.test_types as List).collect { it as String }
+  HW_TEST_TYPE_LABELS = cfg.labels as Map
+}
+
+// readJSON turns a null credentialsId into JSONNull, which is truthy under Groovy.
+// Flattened to a real null here rather than guarded at each use site.
+Map normaliseShard(Map row) {
+  Map out = [:]
+  out.putAll(row)
+  out.credentialsId = optionalString(row.credentialsId)
+  return out
+}
+
+String optionalString(Object value) {
+  String s = (value == null) ? '' : value.toString().trim()
+  return (s && s != 'null') ? s : null
+}
+
+String hwTestTypeLabel(String testType) {
+  String label = HW_TEST_TYPE_LABELS[testType]
+  if (!label) {
+    error "hwTestTypeLabel: no HW_TEST_TYPE_LABELS entry for ${testType}"
+  }
+  return label
+}
+
+// A BOARD_FILTER typo must fail here rather than degrade to "no shards run".
+void validateBoardFilter() {
+  String filter = paramString('BOARD_FILTER')
+  if (!filter) { return }
+  if (selectedShards().isEmpty()) {
+    error "BOARD_FILTER='${filter}' matched no boards. Available: " +
+          HW_SHARDS.collect { it.board }.join(', ')
+  }
+}
+
+// Boards this run is expected to test. A filtered-out board is not missing hardware.
+List<Map> selectedShards() {
+  String filter = paramString('BOARD_FILTER')
+  if (!filter) { return HW_SHARDS }
+  return HW_SHARDS.findAll { (it.board as String).contains(filter) }
+}
+
+// Every board, not only the selected ones, so the stage reports the whole lab.
+void refreshNodeOnlineFlags() {
+  HW_SHARDS.each { row ->
+    NODE_ONLINE[row.agentLabel as String] = isNodeOnline(row.agentLabel as String)
+  }
+}
+
+// Answers for the last refreshNodeOnlineFlags(), not for now. Anything about to
+// enter node() must use the live isNodeOnline() instead.
+boolean isOnlineCached(String agentLabel) {
+  Boolean v = NODE_ONLINE[agentLabel]
+  return v != null && v
+}
+
+// UNSTABLE, never fatal, so the boards that are up still run.
+void reportOfflineBoards() {
+  def offline = selectedShards().findAll { !isOnlineCached(it.agentLabel as String) }
+  if (offline.isEmpty()) { return }
+  unstable "No hardware tests will run on " +
+           offline.collect { "${it.board} (agent label ${it.agentLabel})" }.join(', ') +
+           ": agent offline. Check the board is powered and reachable and that its " +
+           "Jenkins agent is connected."
+}
+
+// A reboot is a side effect on shared hardware, so an excluded board gets none.
+Map<String, Closure> buildRebootMap() {
+  def branches = [:]
+  selectedShards().each { row ->
+    if (!row.restartPrep) { return }
+    String stage = row.board == 'KV260_SOM' ? "Kria ${row.board}" : row.board
+    branches[stage] = { runReboot(row, stage) }
+  }
+  return branches
+}
+
+// parallel() must not be given an empty branch map. Not a fault, so stays green.
+void runRebootParallelStage() {
+  Map<String, Closure> branches = buildRebootMap()
+  if (!branches) {
+    echo 'runRebootParallelStage: no selected board needs a reboot'
+    return
+  }
+  parallel(branches)
+}
+
+// Waits on observed agent state, not a fixed sleep, and on the boards runReboot()
+// reported rebooting rather than on those that looked online a stage ago.
+// reportOfflineBoards() stays the only place a board is marked UNSTABLE.
+void waitForRebootedNodes() {
+  List<String> labels = selectedShards()
+      .findAll { REBOOTED[it.agentLabel as String] }
+      .collect { it.agentLabel as String }
+  if (labels.isEmpty()) {
+    echo 'waitForRebootedNodes: no selected board was rebooted'
+    return
+  }
+  int returnWait = rebootReturnWaitMinutes()
+  List<String> neverDropped = waitForAgentState(labels, false, 1, AGENT_DROP_WAIT_MINUTES)
+  if (!neverDropped.isEmpty()) {
+    echo "waitForRebootedNodes: ${neverDropped.join(', ')} never went offline, so the reboot " +
+         "may not have taken. Continuing to the readiness wait."
+  }
+  List<String> notBack = waitForAgentState(labels, true, AGENT_STABLE_POLLS, returnWait)
+  if (!notBack.isEmpty()) {
+    echo "waitForRebootedNodes: ${notBack.join(', ')} did not reconnect within ${returnWait} " +
+         "minutes of the reboot"
+    recoverBoardsThatMissedTheirReboot(notBack)
+  }
+}
+
+// A board that missed the readiness wait has already had a warm reboot fail on it.
+// Nothing is retried: a board that does come back rejoins the run by itself.
+void recoverBoardsThatMissedTheirReboot(List<String> labels) {
+  selectedShards().each { row ->
+    if (!labels.contains(row.agentLabel as String)) { return }
+    requestBoardRecovery(row, 'it did not come back from its reboot')
+  }
+}
+
+// REBOOT_WAIT_CAP_MINUTES caps the wait rather than setting its length. The
+// legacy REBOOT_SLEEP is deliberately not read: it named a fixed sleep, and a
+// value chosen for one would cut the wait below the slowest board's boot time.
+int rebootReturnWaitMinutes() {
+  String raw = (env.REBOOT_WAIT_CAP_MINUTES ?: '').trim()
+  if (!raw) { return AGENT_RETURN_WAIT_MINUTES }
+  int minutes = 0
+  try {
+    minutes = raw.toInteger()
+  } catch (NumberFormatException ignored) {
+    minutes = 0
+  }
+  if (minutes <= 0) {
+    echo "waitForRebootedNodes: ignoring reboot wait cap '${raw}', using " +
+         "${AGENT_RETURN_WAIT_MINUTES} minutes"
+    return AGENT_RETURN_WAIT_MINUTES
+  }
+  return minutes
+}
+
+// Polls until every label reports `online` on `stablePolls` consecutive checks,
+// returning those that never did. Only booleans and strings cross a poll, so no
+// non-serialisable Jenkins object enters the CPS program.
+List<String> waitForAgentState(List<String> labels, boolean online, int stablePolls, int capMinutes) {
+  List<String> pending = labels
+  Map<String, Integer> streak = [:]
+  int maxPolls = (capMinutes * 60).intdiv(AGENT_POLL_SECONDS)
+  for (int i = 0; i < maxPolls && !pending.isEmpty(); i++) {
+    sleep(time: AGENT_POLL_SECONDS, unit: 'SECONDS')
+    List<String> stillPending = []
+    pending.each { String label ->
+      int seen = (isNodeOnline(label) == online) ? ((streak[label] ?: 0) + 1) : 0
+      streak[label] = seen
+      if (seen >= stablePolls) {
+        echo "waitForAgentState: ${label} is ${online ? 'online' : 'offline'}"
+      } else {
+        stillPending.add(label)
+      }
+    }
+    pending = stillPending
+  }
+  return pending
+}
+
+// Containment sits outside node() because the node step itself raises when the
+// agent goes or its queue wait is cut short. catchInterruptions:false catches
+// those, being interruptions Jenkins raised, but lets an operator's stop through.
+void runReboot(Map row, String stageName) {
+  catchError(stageResult: 'FAILURE', catchInterruptions: false) {
+    stage(stageName) {
+      String label = row.agentLabel as String
+      if (!isNodeOnline(label)) {
+        echo "${stageName} reboot skipped: agent ${label} offline"
+        return
+      }
+      timeout(time: HW_REBOOT_BRANCH_MINUTES, unit: 'MINUTES') {
+        node(row.agentLabel) {
+          withHwCredentials(row) {
+            restartZynqPlatform()
+          }
+        }
+      }
+      // last, so a reboot that threw is not waited for or recovered
+      REBOOTED[label] = true
+    }
+  }
+}
+
+
+// ============================================================================
+// Collect-build-information stage helpers
+// ============================================================================
+
+void collectBuildArtifacts() {
+  refreshNodeOnlineFlags()
+  reportOfflineBoards()
+  resolveBuildBoardZipPaths()
+  archiveBuildInfo()
+  dir('ci') {
+    stash name: 'bnn_test_files', includes: HW_TEST_FILE
+  }
+  HW_TEST_TYPES.each { testType -> stashBuildArtifacts(testType) }
+}
+
+// One shellout walks the per-job ci_runs tree once, for selected boards only.
+void resolveBuildBoardZipPaths() {
+  BUILD_BOARD_ZIP_PATHS = [:]
+  String rawJob = paramString('build_job_name').trim() ?: 'finn'
+  String jobKey = sh(returnStdout: true, script:
+    "${CI_TOOL} job-key ${shellQuote(rawJob)}"
+  ).trim()
+  String override = paramString('build_dir').trim()
+  String artifactDir = loadCommonOnce().finnArtifactsRoot()
+  if (!artifactDir && !override) {
+    error "resolveBuildBoardZipPaths: FINN_CI_NFS_ROOT is unset. The HW pipeline cannot " +
+          "locate build artifacts. Set FINN_CI_NFS_ROOT in the HW job's environment " +
+          "to the same path as the build job, or pass build_dir explicitly to pin a " +
+          "single build directory (useful for off-NFS recovery)."
+  }
+  String tests = HW_TEST_TYPES.join(',')
+  String boards = selectedShards().collect { it.board }.join(',')
+  String cmd = "${CI_TOOL} resolve-build-zips " +
+               "--artifact-dir ${shellQuote(artifactDir)} --job-key ${shellQuote(jobKey)} " +
+               "--tests ${shellQuote(tests)} --boards ${shellQuote(boards)} " +
+               "--build-dir ${shellQuote(override)}"
+  Map resolved = readJSON(text: sh(returnStdout: true, script: cmd).trim()) as Map
+  def fallbackMessages = []
+  HW_TEST_TYPES.each { testType ->
+    selectedShards().each { row ->
+      String board = row.board as String
+      String key = "${testType}::${board}"
+      Map entry = ((resolved[testType] ?: [:])[board] ?: [:]) as Map
+      BUILD_BOARD_ZIP_PATHS[key] = entry
+      if (entry.zip) {
+        String fallback = entry.fallback ? " fallback_from=${entry.build} latest=${entry.latestBuild}" : ""
+        echo "resolveBuildBoardZipPaths: ${key} -> ${entry.zip}${fallback}"
+        if (entry.fallback) {
+          fallbackMessages << "${key} uses build ${entry.build}, latest available for ${testType} is ${entry.latestBuild}"
+        }
+      } else if (override) {
+        // reportSkippedShards() says what this costs the board, so this only adds
+        // the input that was searched
+        echo "resolveBuildBoardZipPaths: ${key} not READY under explicit build_dir=${override}"
+      }
+    }
+  }
+  if (!fallbackMessages.isEmpty() && !paramBool('allow_fallback')) {
+    unstable "HW fallback used without allow_fallback=true:\n  - " + fallbackMessages.join('\n  - ')
+  }
+}
+
+// First writer of currentBuild.description. Boards may resolve to different
+// builds, so each distinct build's BUILD_INFO.txt is archived.
+void archiveBuildInfo() {
+  catchError(buildResult: null, stageResult: null,
+             message: 'archiveBuildInfo failed, non-fatal') {
+    // the HW pipeline does not git-clean between runs
+    sh 'rm -f build_info_*.txt'
+    Set<String> buildDirs = new LinkedHashSet<>()
+    Map<String, String> boardToBuild = [:]
+    BUILD_BOARD_ZIP_PATHS.each { key, entry ->
+      // entry is [:] when no READY zip was resolved for this pair.
+      String dir = entry.buildDir as String
+      if (!dir) { return }
+      buildDirs.add(dir)
+      String fallback = entry.fallback ? " fallback=true latest=${entry.latestBuild}" : " fallback=false"
+      boardToBuild[key] = "${dir}${fallback}"
+    }
+    int n = 0
+    buildDirs.each { dir ->
+      String info = "${dir}/BUILD_INFO.txt"
+      if (!fileExists(info)) {
+        echo "archiveBuildInfo: ${info} not present, skipping"
+        return
+      }
+      String localName = "build_info_${n}.txt"
+      sh "cp ${shellQuote(info)} ${shellQuote(localName)}"
+      archiveArtifacts artifacts: localName, allowEmptyArchive: true
+      n++
+    }
+    if (!boardToBuild.isEmpty()) {
+      // Jenkins' default markup formatter renders a newline as a line break and
+      // a literal <br> as four characters.
+      List<String> lines = boardToBuild.collect { k, v -> "${k}=${v}" }.sort()
+      currentBuild.description = (['build per board:'] + lines).join('\n')
+    }
+  }
+}
+
+// The one definition of a shard that can run. The per-board stash, the branch map
+// and the expected report set must agree exactly, so all three read it from here.
+List<Map> runnableShards(String testType) {
+  return selectedShards().findAll { row ->
+    isOnlineCached(row.agentLabel as String) && buildBoardZip(testType, row.board as String)
+  }
+}
+
+// The only place a skipped board is reported, so no caller of runnableShards()
+// and no earlier stage says it again.
+void reportSkippedShards(String testType) {
+  selectedShards().each { row ->
+    String board = row.board as String
+    if (!buildBoardZip(testType, board)) {
+      echo "runnableShards[${testType}]: no READY zip for ${board}, HW will skip this board"
+    } else if (!isOnlineCached(row.agentLabel as String)) {
+      echo "runnableShards[${testType}]: READY zip exists for ${board}, but agent " +
+           "${row.agentLabel} is offline"
+    }
+  }
+}
+
+// Per-board skip keeps the rest of the matrix running.
+void stashBuildArtifacts(String testType) {
+  reportSkippedShards(testType)
+  runnableShards(testType).each { row ->
+    String board = row.board as String
+    String src = buildBoardZip(testType, board)
+    String zipName = "${board}.zip"
+    sh "cp ${shellQuote(src)} ${shellQuote(zipName)}"
+    echo "stashBuildArtifacts[${testType}]: ${board} <- ${src}"
+    stash name: hwZipStashName(testType, board), includes: zipName
+    sh "rm -f ${shellQuote(zipName)}"
+  }
+}
+
+
+// ============================================================================
+// Run-Hardware-Tests stage helpers
+// ============================================================================
+
+// Pure map lookup, no filesystem stats: this runs from the no-agent orchestrator.
+Map<String, Closure> buildHwStageMap(String testType) {
+  String label = hwTestTypeLabel(testType)
+  def branches = [:]
+  runnableShards(testType).each { row ->
+    String stage = "BNN ${label} - ${row.board}"
+    branches[stage] = { runHwShard(row, testType, stage) }
+  }
+  return branches
+}
+
+void runHwParallelStage(String testType) {
+  Map<String, Closure> branches = buildHwStageMap(testType)
+  if (!branches) {
+    unstable "No hardware shards will run for ${testType}: no selected board has both a " +
+             "READY zip and an online agent"
+    echo "runHwParallelStage[${testType}]: no branches"
+    return
+  }
+  parallel(branches)
+}
+
+String buildBoardZip(String testType, String board) {
+  Map entry = BUILD_BOARD_ZIP_PATHS["${testType}::${board}"] as Map
+  return entry?.zip ?: ''
+}
+
+// A branch that throws would leave the remaining test types unattempted, so the
+// containment sits outside node(), which raises when the agent is removed or its
+// queue wait is cut short. The live online check only narrows that race, which the
+// bound around node() closes.
+void runHwShard(Map row, String testType, String stageName) {
+  catchError(stageResult: 'FAILURE', catchInterruptions: false) {
+    stage(stageName) {
+      if (!isNodeOnline(row.agentLabel as String)) {
+        unstable "${stageName} cannot run: agent ${row.agentLabel} is offline"
+        return
+      }
+      runBoundedHwTest(row, testType, stageName)
+    }
+  }
+}
+
+// The bound wraps node() so it covers the wait for the agent too, and the cleanup
+// is told whether an error is already pending so it cannot displace it.
+// timeout() interrupts with ABORTED, which would mark the whole build aborted, so
+// this bound firing returns false instead. Other interruptions propagate, and since
+// the build's backstop is also a timeout, elapsed time has to rule that out.
+boolean attemptBoundedHwTest(Map row, String testType) {
+  long startedAt = System.currentTimeMillis()
+  try {
+    timeout(time: HW_TEST_INACTIVITY_MINUTES, unit: 'MINUTES', activity: true) {
+      node(row.agentLabel) {
+        Exception pending = null
+        try {
+          withHwCredentials(row) {
+            runHwTest(row, testType)
+          }
+        } catch (Exception e) {
+          pending = e
+        }
+        cleanUpShard(row, testType, hwStashName(testType, row.board as String), pending != null)
+        if (pending != null) { throw pending }
+      }
+    }
+  } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
+    if (!isTimeoutInterruption(e) ||
+        System.currentTimeMillis() - startedAt < HW_TEST_INACTIVITY_MINUTES * 60000L) {
+      throw e
+    }
+    return false
+  }
+  return true
+}
+
+// A shard that went quiet is evidence the board stopped answering. Recovery
+// restores a board rather than a shard, so the shard is retried once.
+void runBoundedHwTest(Map row, String testType, String stageName) {
+  if (attemptBoundedHwTest(row, testType)) { return }
+  String silence = "${HW_TEST_INACTIVITY_MINUTES} minutes without output from agent " +
+                   "${row.agentLabel}"
+  if (!requestBoardRecovery(row, "its shard went ${silence}")) {
+    error "${stageName}: ${silence}. Either the board never came back to run the shard, or it " +
+          "stopped responding partway through and needs a power cycle before the next run."
+  }
+  echo "${stageName}: retrying once now that ${row.board} has been recovered"
+  if (attemptBoundedHwTest(row, testType)) { return }
+  error "${stageName}: ${silence}, again after the board was recovered, so it needs a human."
+}
+
+// chown before stash so a root-owned report (sudo'd pytest under a restrictive
+// umask) is readable. A board that died mid-test must not make this hang, and
+// errorPending says the shard already has an error worth more than anything here.
+void cleanUpShard(Map row, String testType, String stash, boolean errorPending) {
+  try {
+    if (!isNodeOnline(row.agentLabel as String)) {
+      echo "cleanUpShard: agent ${row.agentLabel} is offline, skipping chown and report stash"
+      return
+    }
+    timeout(time: HW_CLEANUP_INACTIVITY_MINUTES, unit: 'MINUTES', activity: true) {
+      chownWorkspaceIfPossible(row)
+      dir("${testType}/${row.board}") {
+        safeStashReport(stash, hwReportBase(testType, row.board as String))
+      }
+    }
+  } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
+    // FlowInterruptedException is an InterruptedException, so the catch below would
+    // swallow the interrupt this cleanup was already running under
+    echo "cleanUpShard: ${row.board} cleanup interrupted before the report was stashed"
+    if (!errorPending) { throw e }
+  } catch (Exception e) {
+    echo "cleanUpShard: ${row.board} cleanup skipped (${e.message})"
+  }
+}
+
+// The chown is a permissions fix, so its failure must not cost the board the
+// report it already produced. Residue it leaves is caught by the next shard's
+// cleanBoardWorkdirHw.
+void chownWorkspaceIfPossible(Map row) {
+  try {
+    withHwCredentials(row) { cleanUpWorkspaceOwnership(row) }
+  } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
+    // the cleanup bound has fired, so the stash after this would be cut short too
+    throw e
+  } catch (Exception e) {
+    echo "cleanUpShard: ${row.board} chown skipped (${e.message}), still stashing the report"
+  }
+}
+
+// Boards with credentialsId get a withCredentials wrapper. Alveo has none. The
+// echo matters: without it a credentialsId with no Jenkins credential behind it
+// silently no-ops the later chown and leaves root-owned residue.
+void withHwCredentials(Map row, Closure body) {
+  if (!row.credentialsId) {
+    echo "[hw] ${row.board}: no credentialsId bound. Running without sudo wrapper"
+    body.call()
+    return
+  }
+  withCredentials([usernamePassword(
+      credentialsId: row.credentialsId as String,
+      usernameVariable: 'USER_CREDENTIALS_USR',
+      passwordVariable: 'USER_CREDENTIALS_PSW')]) {
+    withEnv(['USER_CREDENTIALS=true']) {
+      body.call()
+    }
+  }
+}
+
+void runHwTest(Map row, String testType) {
+  sh "mkdir -p ${shellQuote(testType)}"
+  dir("${testType}") {
+    cleanBoardWorkdir(row.board as String)
+    String zipName = "${row.board}.zip"
+    unstash name: hwZipStashName(testType, row.board as String)
+    sh "unzip -o ${shellQuote(zipName)}"
+    dir("${row.board}") {
+      unstash name: 'bnn_test_files'
+      createTestScript(row, hwReportBase(testType, row.board as String))
+      if (env.USER_CREDENTIALS) {
+        sh 'echo "${USER_CREDENTIALS_PSW}" | sudo -S bash run-tests.sh'
+      } else {
+        sh 'bash run-tests.sh'
+      }
+    }
+  }
+}
+
+// Prepended to run-tests.sh. Failed board setup otherwise surfaces deep in a
+// driver as an unrelated "No devices found".
+String boardPreflight(Map row) {
+  long reference = currentBuild.startTimeInMillis / 1000
+  // Only Alveo goes through XRT. Zynq drives the design through PYNQ's Overlay, so
+  // XILINX_XRT is checked there only when the image sets it at all.
+  String xrtCheck = (row.setupScript == 'alveo')
+      ? '[ -d "$XILINX_XRT" ] || preflight_fail "XILINX_XRT=$XILINX_XRT is not a directory, so' +
+        ' device discovery will report no devices"'
+      : '[ -z "$XILINX_XRT" ] || [ -d "$XILINX_XRT" ] || preflight_fail "XILINX_XRT=$XILINX_XRT' +
+        ' is set but is not a directory"'
+  // single-quoted so the shell, not Groovy, expands the variables
+  List<String> lines = [
+    'preflight_fail() {',
+    '  echo "[preflight] ' + row.board + ': $1" >&2',
+    '  exit 1',
+    '}',
+    '[ -n "$VIRTUAL_ENV" ] || preflight_fail "no virtualenv active after board setup, check' +
+      ' VENV_ACTIVATE on Alveo or /etc/profile.d on Pynq (a non-login shell skips profiles)"',
+    'case "$(command -v python)" in',
+    '  "$VIRTUAL_ENV"/*) ;;',
+    '  *) preflight_fail "python on PATH ($(command -v python)) is not inside' +
+      ' VIRTUAL_ENV=$VIRTUAL_ENV" ;;',
+    'esac',
+    xrtCheck,
+    'clock_skew=$(( $(date +%s) - ' + reference + ' ))',
+    '[ "$clock_skew" -ge 0 ] || clock_skew=$(( -clock_skew ))',
+    '[ "$clock_skew" -le ' + MAX_CLOCK_SKEW_SECONDS + ' ] || preflight_fail "clock reads' +
+      ' $(date -u), over ' + MAX_CLOCK_SKEW_SECONDS + 's from the build start time. Correct the' +
+      ' board clock, a wrong one breaks TLS verification"',
+    // a positive record of the environment the tests actually ran against
+    'echo "[preflight] ' + row.board + ': ok, ip=$(hostname -I | cut -d" " -f1)' +
+      ' venv=$VIRTUAL_ENV python=$(command -v python) xrt=$XILINX_XRT' +
+      ' clock_skew=${clock_skew}s"',
+  ]
+  return lines.join('\n') + '\n'
+}
+
+// Marker via env var to prevent shell injection.
+void createTestScript(Map row, String testResultsFilename) {
+  // Only the fragments an image ships are sourced: the KV260 has no xrt_setup.sh
+  // and exports XILINX_XRT from pynq_venv.sh.
+  String sourceBoardProfiles =
+      'for profile in /etc/profile.d/pynq_venv.sh /etc/profile.d/xrt_setup.sh; do\n' +
+      '  if [ -r "$profile" ]; then . "$profile"; fi\n' +
+      'done'
+  String setup = (row.setupScript == 'alveo')
+      ? '. /opt/xilinx/xrt/setup.sh\n. ${VENV_ACTIVATE}'
+      : sourceBoardProfiles
+  String script =
+      "#!/bin/bash\n${setup}\n" +
+      boardPreflight(row) +
+      "export FINN_CI_MARKER=${shellQuote(row.marker as String)}\n" +
+      pytestInvocation(row, testResultsFilename)
+  writeFile file: 'run-tests.sh', text: script
+}
+
+// pytest is pointed at the harness file rather than left to walk the unpacked
+// board zip, whose vendored test files would abort collection. Not every board
+// image ships pytest-html, and passing --html without it writes neither report.
+String pytestInvocation(Map row, String testResultsFilename) {
+  // single-quoted so the shell, not Groovy, expands the variables
+  List<String> lines = [
+    'html_args=()',
+    'if python -c "import pytest_html" >/dev/null 2>&1; then',
+    '  html_args=(--html=' + testResultsFilename + '.html --self-contained-html)',
+    'else',
+    '  echo "[hw] ' + row.board + ': pytest-html not installed, HTML report skipped"',
+    'fi',
+    'python -m pytest -m "$FINN_CI_MARKER" --junitxml=' + testResultsFilename +
+      '.xml "${html_args[@]}" ' + HW_TEST_FILE,
+    'status=$?',
+    '[ "$status" -le 1 ] || echo "[hw] ' + row.board + ': pytest exited $status, a harness' +
+      ' error rather than a test failure" >&2',
+    'exit $status',
+  ]
+  return lines.join('\n') + '\n'
+}
+
+String hwStashName(String testType, String board) {
+  return "${testType}_${board}"
+}
+
+// Basename of the report files a shard writes on the board, which the aggregator
+// has to predict to notice a shard that published nothing.
+String hwReportBase(String testType, String board) {
+  return "${testType}_hw_${board}"
+}
+
+String hwZipStashName(String testType, String board) {
+  return "${testType}_${board}_zip"
+}
+
+
+// ============================================================================
+// Check-Stage-Results helpers
+// ============================================================================
+
+// junit first (workspace-local, never flakes), then merge and archive.
+void aggregateReports() {
+  List<Map> expected = expectedShardReports()
+  if (expected.isEmpty()) {
+    echo 'aggregateReports: no shard could have produced a report'
+  }
+  // clean first, or the mkdir is undone and the unstash lands in a stale parent.
+  cleanReportsDir('reports')
+  sh 'mkdir -p reports'
+  dir('reports') {
+    expected.each { entry -> unstashIfPresent(entry.stash as String) }
+  }
+  reportSilentShards(expected)
+  stripCollectionErrors('reports')
+  reportPackagingSkips('reports')
+  reportBoardParticipation()
+  junit allowEmptyResults: true, testResults: 'reports/*.xml'
+  mergeHwReports('reports')
+  catchError(buildResult: null, stageResult: 'UNSTABLE',
+             message: 'archiveArtifacts (xml) failed') {
+    archiveArtifacts artifacts: 'reports/*.xml', allowEmptyArchive: true
+  }
+  catchError(buildResult: null, stageResult: 'UNSTABLE',
+             message: 'archiveArtifacts (html) failed') {
+    archiveArtifacts artifacts: 'reports/*.html', allowEmptyArchive: true
+  }
+}
+
+// The merger errors on a directory with nothing to merge. Tests the directory
+// rather than the expected shard set, since a shard can publish nothing.
+void mergeHwReports(String reportsDir) {
+  if (!anyFileMatches(reportsDir, '*.html')) {
+    echo "mergeHwReports: no HTML report under ${reportsDir}, nothing to merge"
+    return
+  }
+  catchError(buildResult: null, stageResult: 'UNSTABLE',
+             message: 'pytest_html_merger failed, per-stage HTMLs still archived') {
+    runDockerCommand("./run-docker.sh pytest_html_merger -i ${reportsDir}/ " +
+                     "-o ${reportsDir}/test_report_hw_final.html")
+  }
+}
+
+// fileExists() takes a path, not a pattern, and the glob must expand on the agent.
+boolean anyFileMatches(String dir, String glob) {
+  String found = sh(returnStdout: true, script:
+    "ls -1 ${shellQuote(dir)}/${glob} 2>/dev/null | head -1"
+  ).trim()
+  return found != ''
+}
+
+// A pytest that dies during collection still writes a JUnit XML whose entries name
+// a file rather than a test, so publishing them turns a harness error into extra
+// hardware failures. Only those entries go, and their removal is flagged UNSTABLE.
+void stripCollectionErrors(String reportsDir) {
+  catchError(buildResult: null, stageResult: 'UNSTABLE',
+             message: 'strip-collection-errors failed, the published report may count ' +
+                      'harness errors as test failures') {
+    String dropped = sh(returnStdout: true, script:
+      "${CI_TOOL} strip-collection-errors ${shellQuote(reportsDir)}"
+    ).trim()
+    if (!dropped) { return }
+    unstable "pytest failed during collection on at least one board. The entries below are " +
+             "import failures rather than hardware tests and have been removed from the " +
+             "published report so they are not counted as test failures. The shard that " +
+             "produced them has failed:\n  " + dropped.replace('\n', '\n  ')
+  }
+}
+
+// A skipped test does not fail a build, so a board whose models all packaged
+// without a driver would publish a green run that touched no hardware. Runs after
+// the strip and before junit, so it reads what Jenkins is about to publish.
+void reportPackagingSkips(String reportsDir) {
+  catchError(buildResult: null, stageResult: 'UNSTABLE',
+             message: 'packaging-skips failed, an unpackaged model may go unflagged') {
+    String skipped = sh(returnStdout: true, script:
+      "${CI_TOOL} packaging-skips ${shellQuote(reportsDir)}"
+    ).trim()
+    if (!skipped) { return }
+    unstable "A model directory was skipped because the build did not package the files its " +
+             "test needs. Those models were not exercised on hardware, and the defect is in " +
+             "the build that produced the board zip rather than in the board. Each line below " +
+             "names the report it came from and the model directory it concerns:\n  " +
+             skipped.replace('\n', '\n  ')
+  }
+}
+
+// A shard that published nothing otherwise reads as a smaller run rather than as
+// a problem. Never fatal, so the boards that did report still publish.
+void reportSilentShards(List<Map> expected) {
+  def silent = expected.findAll { !fileExists("reports/${it.base}.xml") }
+  if (silent.isEmpty()) { return }
+  unstable "No test report from " +
+           silent.collect { it.base as String }.join(', ') +
+           ". Each of those shards had an online agent and a READY zip, so it was expected to " +
+           "run, and its tests are missing from the published counts rather than passing. " +
+           "Read the shard's own console for the reason."
+}
+
+// Whether each selected board contributed anything, and if not which of the four
+// causes applies. Read after the strip, so a report holding no test counts as none.
+List<Map> boardParticipation() {
+  return selectedShards().collect { row ->
+    String board = row.board as String
+    // the test types that declared this board, not every configured one
+    List<String> declared = HW_TEST_TYPES.findAll { buildBoardZip(it, board) }
+    List<String> tested = declared.findAll {
+      reportHasTests("reports/${hwReportBase(it, board)}.xml")
+    }
+    if (!tested.isEmpty()) {
+      return [board: board, reported: true,
+              detail: "reported ${tested.size()} of ${declared.size()} test types"]
+    }
+    if (!isOnlineCached(row.agentLabel as String)) {
+      return [board: board, reported: false,
+              detail: "no result, agent ${row.agentLabel} was offline"]
+    }
+    if (declared.isEmpty()) {
+      return [board: board, reported: false,
+              detail: 'no result, the build published no READY zip for it']
+    }
+    if (declared.any { fileExists("reports/${hwReportBase(it, board)}.xml") }) {
+      return [board: board, reported: false,
+              detail: 'no result, its shard published a report with no test in it']
+    }
+    return [board: board, reported: false,
+            detail: 'no result, its shard ran and published no report']
+  }
+}
+
+// A pytest that died during collection publishes a report whose every entry the
+// strip removes, so file existence alone would count a board that tested nothing.
+boolean reportHasTests(String path) {
+  if (!fileExists(path)) { return false }
+  return readFile(path).contains('<testcase')
+}
+
+// Board-level coverage, where reportSilentShards() covers one shard. unstable
+// never shows through the FAILURE a real test failure sets, so the count also
+// goes to the description and the display name.
+void reportBoardParticipation() {
+  List<Map> rows = boardParticipation()
+  if (rows.isEmpty()) {
+    echo 'reportBoardParticipation: no board selection was loaded, coverage is unknown'
+    return
+  }
+  List<Map> missing = rows.findAll { !it.reported }
+  int reported = rows.size() - missing.size()
+  publishCoverageSummary(rows, reported)
+  if (missing.isEmpty()) { return }
+  unstable "Hardware coverage is incomplete: ${reported} of ${rows.size()} expected boards " +
+           "contributed a test report, so the published test counts describe the boards that " +
+           "did report and say nothing about the rest. An offline agent is a lab fault, a " +
+           "missing build zip is a defect in the build feeding this one, and a shard that ran " +
+           "and published nothing needs its own console read:\n  " +
+           missing.collect { "${it.board}: ${it.detail}" }.join('\n  ')
+}
+
+// Newlines, because the default markup formatter renders <br> as four characters.
+void publishCoverageSummary(List<Map> rows, int reported) {
+  catchError(buildResult: null, stageResult: null,
+             message: 'publishCoverageSummary failed, non-fatal') {
+    String existing = (currentBuild.description ?: '').trim()
+    List<String> block = ["hardware coverage: ${reported} of ${rows.size()} boards reported"]
+    rows.each { block << "  ${it.board}: ${it.detail}" }
+    if (existing) { block << existing }
+    currentBuild.description = block.join('\n')
+    currentBuild.displayName = "#${currentBuild.number} (${reported}/${rows.size()} boards)"
+  }
+}
+
+// The same selection buildHwStageMap() branches on, so this is exactly the set of
+// shards that could have stashed a report.
+List<Map> expectedShardReports() {
+  def expected = []
+  HW_TEST_TYPES.each { testType ->
+    runnableShards(testType).each { row ->
+      String board = row.board as String
+      expected << [stash: hwStashName(testType, board), base: hwReportBase(testType, board)]
+    }
+  }
+  return expected
+}
+
+
+// ============================================================================
+// Optional board recovery
+// ============================================================================
+
+// Asks the downstream job named by FINN_HW_RECOVERY_JOB to recover a board, and
+// reports whether it came back. Unset by default, in which case this is one echo
+// and a false. The job is told the board name and the agent label and nothing
+// else, and propagate is false so a site that cannot recover one is reported here.
+boolean requestBoardRecovery(Map row, String reason) {
+  String board = row.board as String
+  String job = (env.FINN_HW_RECOVERY_JOB ?: '').trim()
+  if (!job) {
+    echo "requestBoardRecovery: ${board} needs manual attention (${reason}). No recovery job is " +
+         "configured, so nothing further will be attempted."
+    return false
+  }
+  if (RECOVERY_ATTEMPTED[board]) {
+    echo "requestBoardRecovery: ${board} has already been through recovery in this build, so " +
+         "${reason} will not trigger another attempt. It needs a human."
+    return false
+  }
+  RECOVERY_ATTEMPTED[board] = true
+  echo "requestBoardRecovery: asking ${job} to recover ${board} (${reason})"
+  String result = null
+  long startedAt = System.currentTimeMillis()
+  try {
+    // the bound covers the downstream queue as well as its run, and cancels the
+    // downstream build with it
+    timeout(time: HW_RECOVERY_WAIT_MINUTES, unit: 'MINUTES') {
+      def recovery = build(job: job, wait: true, propagate: false, parameters: [
+        string(name: 'board', value: board),
+        string(name: 'agent_label', value: row.agentLabel as String),
+      ])
+      result = recovery?.result
+    }
+  } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
+    // the same discriminator the shard bound uses, for the same reason
+    if (!isTimeoutInterruption(e) ||
+        System.currentTimeMillis() - startedAt < HW_RECOVERY_WAIT_MINUTES * 60000L) {
+      throw e
+    }
+    echo "requestBoardRecovery: ${job} did not finish for ${board} within " +
+         "${HW_RECOVERY_WAIT_MINUTES} minutes and was cancelled, so the board needs a human."
+    return false
+  } catch (Exception e) {
+    echo "requestBoardRecovery: ${job} could not be run for ${board} (${e.message}). Check that " +
+         "the job exists and that this one may trigger it. The board needs a human."
+    return false
+  }
+  if (result != 'SUCCESS') {
+    echo "requestBoardRecovery: ${job} reported ${result ?: 'no result'} for ${board}, so it has " +
+         "not been recovered and needs a human."
+    return false
+  }
+  echo "requestBoardRecovery: ${job} reports ${board} recovered"
+  return true
+}
+
+
+// ============================================================================
+// Cross-cutting helpers
+// ============================================================================
+
+void cleanUpWorkspaceOwnership(Map row) {
+  if (!row.credentialsId) {
+    echo "cleanUpWorkspaceOwnership: ${row.board} has no sudo credentials, skipping chown"
+    return
+  }
+  if (env.USER_CREDENTIALS) {
+    sh 'echo "${USER_CREDENTIALS_PSW}" | sudo -S chown -R $(id -u):$(id -g) "${WORKSPACE}"'
+  } else {
+    error "cleanUpWorkspaceOwnership: USER_CREDENTIALS unset. Wrap the call in withHwCredentials() so the chown has a password to feed sudo."
+  }
+}
+
+void restartZynqPlatform() {
+  if (env.USER_CREDENTIALS) {
+    sh 'echo "${USER_CREDENTIALS_PSW}" | sudo -S shutdown -r +1'
+  } else {
+    error "restartZynqPlatform: USER_CREDENTIALS unset. Wrap the call in withHwCredentials() so the shutdown has a password to feed sudo."
+  }
+}
+
+// Thin wrappers over ci/common.groovy.
+boolean paramBool(String name)                { return loadCommonOnce().paramBool(name) }
+String paramString(String name)               { return loadCommonOnce().paramString(name) }
+String shellQuote(String s)                   { return loadCommonOnce().shellQuote(s) }
+void   runDockerCommand(String command)       { loadCommonOnce().runDockerCommand(command) }
+void   unstashIfPresent(String stashName)     { loadCommonOnce().unstashIfPresent(stashName) }
+void   cleanBoardWorkdir(String buildDir)     { loadCommonOnce().cleanBoardWorkdirHw(buildDir) }
+void   cleanReportsDir(String dir)            { loadCommonOnce().cleanReportsDirHw(dir) }
+boolean isNodeOnline(String labelName)        { return loadCommonOnce().isNodeOnline(labelName) }
+
+boolean isTimeoutInterruption(Throwable e) {
+  return loadCommonOnce().isTimeoutInterruption(e)
+}
+
+void safeStashReport(String stashName, String fileBase) {
+  loadCommonOnce().safeStashHwReport(stashName, fileBase)
+}

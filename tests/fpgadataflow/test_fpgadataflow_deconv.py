@@ -29,7 +29,6 @@
 import pytest
 
 import numpy as np
-import os
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -59,7 +58,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import pynq_part_map
 
-test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
+test_pynq_board = "AUP-ZU3_8GB"
 test_fpga_part = pynq_part_map[test_pynq_board]
 target_clk_ns = 10
 
@@ -112,7 +111,7 @@ def set_up_reference_model(idt, wdt, k, idim, ifm_ch, ofm_ch, stride, padding):
 
     # initialize model
     model.set_tensor_datatype("inp", idt)
-    model.set_tensor_datatype(model.graph.output[0].name, odt)
+    model.set_tensor_datatype(model.get_first_global_out(), odt)
     model.set_tensor_datatype("W", wdt)
 
     w_tensor = gen_finn_dt_tensor(wdt, [ifm_ch, ofm_ch, k, k])

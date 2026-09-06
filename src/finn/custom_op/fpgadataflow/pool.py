@@ -131,10 +131,6 @@ class Pool(HWCustomOp):
         folded_oshape = normal_oshape[:-1] + [fold, pe]
         return tuple(folded_oshape)
 
-    def get_number_output_values(self):
-        folded_oshape = self.get_folded_output_shape()
-        return np.prod(folded_oshape[1:-1])
-
     def get_exp_cycles(self):
         # (Channels * kernel * kernel) / PE * odim * odim * batch_size
         ifm_ch = self.get_nodeattr("Channels")
@@ -157,13 +153,6 @@ class Pool(HWCustomOp):
         pe = self.get_nodeattr("PE")
         out_width = int(dt_bits * pe)
         return out_width
-
-    def make_shape_compatible_op(self, model):
-        exp_ishape = self.get_normal_input_shape()
-        oshape = self.get_normal_output_shape()
-        ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == exp_ishape, "Unexpected input shape for Pool_Batch."
-        return super().make_const_shape_op(oshape)
 
     def infer_node_datatype(self, model):
         node = self.onnx_node

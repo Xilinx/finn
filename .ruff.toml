@@ -1,0 +1,8 @@
+line-length = 100
+
+exclude = [
+    "*.ipynb",
+]
+
+[lint]
+select = ["E", "F", "PLC"]

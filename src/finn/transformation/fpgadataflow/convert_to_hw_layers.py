@@ -1,4 +1,4 @@
-# Copyright (C) 2023-2024, Advanced Micro Devices, Inc.
+# Copyright (C) 2023-2026, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -30,8 +30,11 @@
 import numpy as np
 import qonnx.core.data_layout as DataLayout
 import warnings
-from onnx import TensorProto, helper
+from onnx import AttributeProto, NodeProto, TensorProto, helper, numpy_helper
 from qonnx.core.datatype import DataType
+
+# QONNX wrapper to ONNX model graphs
+from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import SortGraph
@@ -39,6 +42,10 @@ from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import get_by_name
 from qonnx.util.onnx import nchw_to_nhwc
+
+# Module containing specializations of elementwise binary operations
+import finn.custom_op.fpgadataflow.elementwise_binary as elementwise_binary
+from finn.util.basic import resolve_resize_param_input
 
 
 class InferConvInpGen(Transformation):
@@ -120,56 +127,26 @@ class InferConvInpGen(Transformation):
                     )
                     graph.node.insert(node_ind, padding_node)
 
-                is_kernel_pointwise = k_h == 1 and k_w == 1
-                is_square_image = ConvInpGen_idim_h == ConvInpGen_idim_w
-                is_equal_stride = stride_h == stride_w
-
                 is_1D = (ifm_dim_h == 1) or (ifm_dim_w == 1)
-                if (stride_h > 1 or stride_w > 1) and is_kernel_pointwise:
-                    downsample_1D = is_1D
-                    is1D_unitx = ifm_dim_w == 1
-                    downsample_2D = (not downsample_1D) and is_square_image and is_equal_stride
-                    if not (downsample_1D or downsample_2D):
-                        warnings.warn(f"Couldn't infer Downsample from {n.name},check config.")
-                        continue
-                    ConvInpGen_idim = max(ConvInpGen_idim_h, ConvInpGen_idim_w)
-                    stride = max(stride_h, stride_w)
-                    # create DownSampler node
-                    ConvInpGen_node = helper.make_node(
-                        "DownSampler",
-                        [ConvInpGen_input],
-                        [i2c_output],
-                        domain="finn.custom_op.fpgadataflow",
-                        backend="fpgadataflow",
-                        ImgDim=ConvInpGen_idim,
-                        NumChannels=ifm_ch,
-                        SIMD=ifm_ch,
-                        Stride=stride,
-                        inputDataType=dt.name,
-                        name="DownSampler_" + n.name,
-                        is1D=downsample_1D,
-                        is1D_unitx=is1D_unitx,
-                    )
-                else:
-                    ConvInpGen_node = helper.make_node(
-                        "ConvolutionInputGenerator",
-                        [ConvInpGen_input],
-                        [i2c_output],
-                        domain="finn.custom_op.fpgadataflow",
-                        backend="fpgadataflow",
-                        ConvKernelDim=[k_h, k_w],
-                        IFMChannels=ifm_ch,
-                        IFMDim=[ConvInpGen_idim_h, ConvInpGen_idim_w],
-                        OFMDim=[ofm_dim_h, ofm_dim_w],
-                        SIMD=ifm_ch,
-                        Stride=[stride_h, stride_w],
-                        Dilation=[dilation_h, dilation_w],
-                        inputDataType=dt.name,
-                        outputDataType=dt.name,
-                        depthwise=depthwise,
-                        is1D=is_1D,
-                        name="ConvolutionInputGenerator_" + n.name,
-                    )
+                ConvInpGen_node = helper.make_node(
+                    "ConvolutionInputGenerator",
+                    [ConvInpGen_input],
+                    [i2c_output],
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    ConvKernelDim=[k_h, k_w],
+                    IFMChannels=ifm_ch,
+                    IFMDim=[ConvInpGen_idim_h, ConvInpGen_idim_w],
+                    OFMDim=[ofm_dim_h, ofm_dim_w],
+                    SIMD=ifm_ch,
+                    Stride=[stride_h, stride_w],
+                    Dilation=[dilation_h, dilation_w],
+                    inputDataType=dt.name,
+                    outputDataType=dt.name,
+                    depthwise=depthwise,
+                    is1D=is_1D,
+                    name="ConvolutionInputGenerator_" + n.name,
+                )
                 graph.node.insert(ConvInpGen_node_idx, ConvInpGen_node)
                 # remove old nodes
                 graph.node.remove(n)
@@ -181,7 +158,7 @@ class InferConvInpGen(Transformation):
 
 
 class InferThresholdingLayer(Transformation):
-    """Convert any MultiThreshold into a standalone thresholding HLS layer."""
+    """Convert any MultiThreshold into a standalone thresholding HW layer."""
 
     def __init__(self):
         super().__init__()
@@ -200,15 +177,18 @@ class InferThresholdingLayer(Transformation):
                 thl_thres_shape = model.get_tensor_shape(thl_threshold)
                 idt = model.get_tensor_datatype(thl_input)
                 tdt = model.get_tensor_datatype(thl_threshold)
-                # skip conversion for layers with float input
-                if not idt.is_integer():
+
+                # only infer layers where input and thresholds are integers, floats, or fixed-point
+                idt_int = idt.is_integer()
+                tdt_int = tdt.is_integer()
+                idt_fp = idt in ["FLOAT32", "FLOAT16"]
+                tdt_fp = tdt in ["FLOAT32", "FLOAT16"]
+                idt_fxp = idt.is_fixed_point()
+                tdt_fxp = tdt.is_fixed_point()
+                if not (idt_int or idt_fp or idt_fxp):
                     continue
-                assert tdt.is_integer(), (
-                    node.name
-                    + """: MultiThreshold cannot be converted
-                    because thresholds are float type. Input data type is integer,
-                    please run RoundAndClipThresholds to convert thresholds to integer."""
-                )
+                if not (tdt_int or tdt_fp or tdt_fxp):
+                    continue
 
                 # check layout of inputs/outputs, and convert if needed
                 # check layout and convert if necessary
@@ -218,7 +198,7 @@ class InferThresholdingLayer(Transformation):
                     node_ind += 1
                     thl_in_shape = model.get_tensor_shape(thl_input)
 
-                # keep track of where we need to insert the HLS Op
+                # keep track of where we need to insert the HW Op
                 # it has to be ahead of the output transform
                 insert_point = node_ind
                 thl_output_layout = model.get_tensor_layout(thl_output)
@@ -234,11 +214,15 @@ class InferThresholdingLayer(Transformation):
                 odt = model.get_tensor_datatype(thl_output)
                 scale = getCustomOp(node).get_nodeattr("out_scale")
                 assert scale == 1.0, (
-                    node.name + ": MultiThreshold out_scale must be 1 for HLS conversion."
+                    f"{node.name}: MultiThreshold out_scale must be 1 for HW conversion. "
+                    f"Hint: Consider running ExtractMultiThresholdScaleBias() transformation "
+                    f"as a custom step to extract scale/bias into separate Add/Mul nodes."
                 )
                 actval = getCustomOp(node).get_nodeattr("out_bias")
                 assert int(actval) == actval, (
-                    node.name + ": MultiThreshold out_bias must be integer for HLS conversion."
+                    f"{node.name}: MultiThreshold out_bias must be integer for HW conversion. "
+                    f"Hint: Consider running ExtractMultiThresholdScaleBias() transformation "
+                    f"as a custom step to extract scale/bias into separate Add/Mul nodes."
                 )
                 actval = int(actval)
 
@@ -265,11 +249,494 @@ class InferThresholdingLayer(Transformation):
                     ActVal=actval,
                     name="Thresholding_" + node.name,
                 )
-
                 graph.node.insert(insert_point, new_node)
                 # remove old node
                 graph.node.remove(node)
                 graph_modified = True
+
+        return (model, graph_modified)
+
+
+class InferPWPolyFLayer(Transformation):
+    """Convert activations to piecewise polynomial HW layers."""
+
+    _SINGLE_OP_MAP = {"Gelu": "gelu", "Tanh": "tanh"}
+
+    def __init__(self):
+        super().__init__()
+
+    @staticmethod
+    def _is_const_scalar(model, tensor_name, value, tol=1e-3):
+        """Check if *tensor_name* is a constant initializer equal to *value*."""
+        init = model.get_initializer(tensor_name)
+        if init is None:
+            return False
+        return init.size == 1 and abs(float(init.flat[0]) - value) < tol
+
+    def _match_erf_gelu(self, model, erf_node):
+        """Match Erf-based GELU: Div(x,sqrt(2))→Erf→Add(_,1)→Mul(0.5,_)→Mul(x,_).
+        Returns (pwp_input, pwp_output, nodes_to_remove) or None."""
+        # backward: Erf input must come from Div(x, sqrt(2))
+        div_node = model.find_producer(erf_node.input[0])
+        if div_node is None or div_node.op_type != "Div":
+            return None
+        if self._is_const_scalar(model, div_node.input[1], 1.4142135):
+            gelu_input = div_node.input[0]
+        elif self._is_const_scalar(model, div_node.input[0], 1.4142135):
+            gelu_input = div_node.input[1]
+        else:
+            return None
+
+        # forward: Erf → Add(_, 1)
+        erf_consumers = model.find_consumers(erf_node.output[0])
+        if len(erf_consumers) != 1 or erf_consumers[0].op_type != "Add":
+            return None
+        add_node = erf_consumers[0]
+        other_add = [i for i in add_node.input if i != erf_node.output[0]]
+        if len(other_add) != 1 or not self._is_const_scalar(model, other_add[0], 1.0):
+            return None
+
+        # Add → Mul(0.5, _)
+        add_consumers = model.find_consumers(add_node.output[0])
+        if len(add_consumers) != 1 or add_consumers[0].op_type != "Mul":
+            return None
+        mul_half = add_consumers[0]
+        other_mul_half = [i for i in mul_half.input if i != add_node.output[0]]
+        if len(other_mul_half) != 1 or not self._is_const_scalar(model, other_mul_half[0], 0.5):
+            return None
+
+        # Mul(0.5,_) → Mul(x, _)
+        half_consumers = model.find_consumers(mul_half.output[0])
+        if len(half_consumers) != 1 or half_consumers[0].op_type != "Mul":
+            return None
+        mul_x = half_consumers[0]
+        other_mul_x = [i for i in mul_x.input if i != mul_half.output[0]]
+        if len(other_mul_x) != 1 or other_mul_x[0] != gelu_input:
+            return None
+
+        nodes_to_remove = [div_node, erf_node, add_node, mul_half, mul_x]
+        return (gelu_input, mul_x.output[0], nodes_to_remove)
+
+    @staticmethod
+    def _make_pwpolyf_node(pwp_input, pwp_output, func, in_shape, idt, name, K=3, degree=2):
+        num_channels = in_shape[-1]
+        return helper.make_node(
+            "PWPolyF",
+            [pwp_input],
+            [pwp_output],
+            domain="finn.custom_op.fpgadataflow",
+            backend="fpgadataflow",
+            func=func,
+            K=K,
+            degree=degree,
+            NumChannels=num_channels,
+            PE=1,
+            inputDataType=idt.name,
+            outputDataType=idt.name,
+            numInputVectors=list(in_shape[:-1]),
+            name=name,
+        )
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+
+            # Case 1: explicit PWPolyFunction custom op from PWPolyFActivation export
+            if node.op_type == "PWPolyFunction":
+                pwp_input = node.input[0]
+                pwp_output = node.output[0]
+                pwp_in_shape = model.get_tensor_shape(pwp_input)
+                idt = model.get_tensor_datatype(pwp_input)
+
+                func = get_by_name(node.attribute, "func").s.decode("utf-8")
+                K_attr = get_by_name(node.attribute, "K")
+                K = K_attr.i if K_attr is not None else 3
+                degree_attr = get_by_name(node.attribute, "degree")
+                degree = degree_attr.i if degree_attr is not None else 2
+
+                new_node = self._make_pwpolyf_node(
+                    pwp_input,
+                    pwp_output,
+                    func,
+                    pwp_in_shape,
+                    idt,
+                    "PWPolyF_" + node.name,
+                    K,
+                    degree,
+                )
+                graph.node.insert(node_ind, new_node)
+                graph.node.remove(node)
+                graph_modified = True
+
+            # Case 2: single-node standard ONNX activations (Gelu, Tanh)
+            elif node.op_type in self._SINGLE_OP_MAP:
+                pwp_input = node.input[0]
+                pwp_output = node.output[0]
+                pwp_in_shape = model.get_tensor_shape(pwp_input)
+                if pwp_in_shape is None or len(pwp_in_shape) < 1:
+                    continue
+                idt = model.get_tensor_datatype(pwp_input)
+                if idt != DataType["FLOAT32"]:
+                    continue
+
+                func = self._SINGLE_OP_MAP[node.op_type]
+                new_node = self._make_pwpolyf_node(
+                    pwp_input,
+                    pwp_output,
+                    func,
+                    pwp_in_shape,
+                    idt,
+                    "PWPolyF_" + node.name,
+                )
+                graph.node.insert(node_ind, new_node)
+                graph.node.remove(node)
+                graph_modified = True
+
+            # Case 3: Sigmoid — standalone or part of SiLU pattern
+            elif node.op_type == "Sigmoid":
+                sig_input = node.input[0]
+                sig_output = node.output[0]
+                pwp_in_shape = model.get_tensor_shape(sig_input)
+                if pwp_in_shape is None or len(pwp_in_shape) < 1:
+                    continue
+                idt = model.get_tensor_datatype(sig_input)
+                if idt != DataType["FLOAT32"]:
+                    continue
+
+                nodes_to_remove = [node]
+                func = "sigmoid"
+                pwp_output = sig_output
+
+                # Probe for SiLU: Sigmoid feeds a Mul whose other input
+                # is the same tensor x that enters the Sigmoid.
+                sig_consumers = model.find_consumers(sig_output)
+                if len(sig_consumers) == 1:
+                    mul_cand = sig_consumers[0]
+                    if mul_cand.op_type == "Mul":
+                        mul_inputs = list(mul_cand.input)
+                        other_idx = 1 if mul_inputs[0] == sig_output else 0
+                        if mul_inputs[other_idx] == sig_input:
+                            func = "silu"
+                            pwp_output = mul_cand.output[0]
+                            nodes_to_remove.append(mul_cand)
+
+                new_node = self._make_pwpolyf_node(
+                    sig_input,
+                    pwp_output,
+                    func,
+                    pwp_in_shape,
+                    idt,
+                    "PWPolyF_" + node.name,
+                )
+                graph.node.insert(node_ind, new_node)
+                for nd in nodes_to_remove:
+                    graph.node.remove(nd)
+                graph_modified = True
+
+            # Case 4: Erf-based GELU (dynamo=True / opset < 20)
+            # Div(x, sqrt(2)) → Erf → Add(_, 1) → Mul(0.5, _) → Mul(x, _)
+            elif node.op_type == "Erf":
+                match = self._match_erf_gelu(model, node)
+                if match is None:
+                    continue
+                pwp_input, pwp_output, nodes_to_remove = match
+                pwp_in_shape = model.get_tensor_shape(pwp_input)
+                if pwp_in_shape is None or len(pwp_in_shape) < 1:
+                    continue
+                idt = model.get_tensor_datatype(pwp_input)
+                if idt != DataType["FLOAT32"]:
+                    continue
+
+                new_node = self._make_pwpolyf_node(
+                    pwp_input,
+                    pwp_output,
+                    "gelu",
+                    pwp_in_shape,
+                    idt,
+                    "PWPolyF_" + node.name,
+                )
+                graph.node.insert(node_ind, new_node)
+                for nd in nodes_to_remove:
+                    graph.node.remove(nd)
+                graph_modified = True
+
+        return (model, graph_modified)
+
+
+def _check_uniform_thresholds(thresholds, rtol=1e-2):
+    """Check if thresholds have uniform (equal) step sizes per channel.
+
+    For requant conversion, thresholds must be uniform (equal step sizes)
+    within each channel. Different channels may have different step sizes.
+
+    Args:
+        thresholds: numpy array of shape (num_channels, num_thresholds)
+        rtol: relative tolerance for comparing step sizes (default 1%)
+
+    Returns:
+        tuple: (is_uniform, step_sizes, first_thresholds) where:
+            - is_uniform: True if all channels have uniform steps
+            - step_sizes: array of step size per channel
+            - first_thresholds: array of first threshold per channel
+    """
+    num_channels = thresholds.shape[0]
+    num_thresholds = thresholds.shape[1]
+
+    if num_thresholds < 2:
+        # Single threshold, trivially uniform with step=1
+        return True, np.ones(num_channels), thresholds[:, 0]
+
+    step_sizes = []
+    first_thresholds = []
+    is_uniform = True
+
+    for ch in range(num_channels):
+        ch_thresholds = np.sort(thresholds[ch])
+        diffs = np.diff(ch_thresholds)
+
+        if len(diffs) > 0:
+            step_size = diffs[0]
+            step_sizes.append(step_size)
+            first_thresholds.append(ch_thresholds[0])
+
+            # Check if all steps are equal (within tolerance)
+            if not np.allclose(diffs, step_size, rtol=rtol):
+                is_uniform = False
+        else:
+            step_sizes.append(1.0)
+            first_thresholds.append(ch_thresholds[0])
+
+    return is_uniform, np.array(step_sizes), np.array(first_thresholds)
+
+
+class InferRequantLayer(Transformation):
+    """Convert MultiThreshold or Quant nodes to Requant.
+
+    For MultiThreshold nodes where all channels have uniform (equal-step) thresholds,
+    the comparison-based threshold lookup can be replaced with a simpler
+    requantization operation:
+
+        output = clip(round(input * scale + bias), min, max)
+
+    where:
+        scale = 1.0 / step_size
+        bias = 0.5 - first_threshold / step_size
+
+    For Quant nodes with scale=1 and zeropt=0 (after ExtractQuantScaleZeroPt),
+    the operation simplifies to:
+
+        output = clip(round(input), min, max)
+
+    which is Requant with scale=1 and bias=0.
+
+    This transformation is optional and provides an alternative implementation
+    to InferThresholdingLayer. The Requant node can then be specialized to
+    either HLS or RTL backend.
+
+    Args:
+        bitwidth_threshold: If set, only convert MultiThreshold nodes with
+            output bitwidth >= bitwidth_threshold. If None, convert all
+            nodes with uniform thresholds. This allows using Thresholding
+            for low-bitwidth outputs (more efficient) and Requant for
+            high-bitwidth outputs.
+    """
+
+    def __init__(self, bitwidth_threshold=None):
+        super().__init__()
+        self.bitwidth_threshold = bitwidth_threshold
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+
+        for node in graph.node:
+            node_ind += 1
+
+            # Variables to be set by either MultiThreshold or Quant handling
+            inp_name = None
+            out_name = None
+            in_shape = None
+            idt = None
+            odt = None
+            scales = None
+            biases = None
+            narrow = None
+
+            if node.op_type == "MultiThreshold":
+                inp_name = node.input[0]
+                mt_threshold = node.input[1]
+                out_name = node.output[0]
+                in_shape = model.get_tensor_shape(inp_name)
+                mt_thres_shape = model.get_tensor_shape(mt_threshold)
+
+                idt = model.get_tensor_datatype(inp_name)
+                odt = model.get_tensor_datatype(out_name)
+
+                # Skip based on bitwidth threshold if set
+                # This allows using Thresholding for low-bitwidth (<threshold)
+                # and Requant for high-bitwidth (>=threshold) outputs
+                if self.bitwidth_threshold is not None:
+                    if odt.bitwidth() < self.bitwidth_threshold:
+                        continue
+
+                # Only infer layers where input is integer, fixed-point, or float
+                idt_ok = (
+                    idt.is_integer()
+                    or idt.is_fixed_point()
+                    or idt in [DataType["FLOAT32"], DataType["FLOAT16"]]
+                )
+                if not idt_ok:
+                    continue
+
+                # Get threshold values
+                thresholds = model.get_initializer(mt_threshold)
+                if thresholds is None:
+                    warnings.warn(
+                        f"{node.name}: Thresholds not found as initializer. "
+                        "Cannot infer RequantLayer."
+                    )
+                    continue
+
+                # Check if thresholds are uniform (per channel)
+                is_uniform, step_sizes, first_thresholds = _check_uniform_thresholds(thresholds)
+
+                if not is_uniform:
+                    # Thresholds are not uniform, cannot use requant
+                    continue
+
+                # Check MultiThreshold out_scale and out_bias
+                mt_inst = getCustomOp(node)
+                out_scale = mt_inst.get_nodeattr("out_scale")
+                out_bias = mt_inst.get_nodeattr("out_bias")
+
+                if out_scale != 1.0:
+                    warnings.warn(
+                        f"{node.name}: MultiThreshold out_scale must be 1 for "
+                        "RequantLayer conversion."
+                    )
+                    continue
+
+                # Compute requant scale and bias per channel
+                # For uniform thresholds: output = floor((input - T0) / step) + 1
+                # which is equivalent to: round(input * (1/step) + (0.5 - T0/step))
+                scales = 1.0 / step_sizes
+                biases = 0.5 - first_thresholds / step_sizes
+
+                # Adjust for out_bias (ActVal in Thresholding)
+                biases = biases + out_bias
+
+                # Determine narrow range from number of thresholds
+                # Full range: num_thresholds = 2^bitwidth - 1
+                # Narrow range: num_thresholds = 2^bitwidth - 2
+                num_thresholds = mt_thres_shape[1]
+                bitwidth = odt.bitwidth()
+                expected_full_range = 2**bitwidth - 1
+                narrow = 1 if num_thresholds < expected_full_range else 0
+
+            elif node.op_type == "Quant":
+                # Handle Quant nodes with scale=1 and zeropt=0
+                # (typically after ExtractQuantScaleZeroPt transformation)
+                node_inst = getCustomOp(node)
+
+                # Check rounding mode
+                rmode = node_inst.get_nodeattr("rounding_mode")
+                if rmode.upper() != "ROUND":
+                    continue
+
+                # Get scale, zeropt, bitwidth from initializers
+                scale = model.get_initializer(node.input[1])
+                if scale is None:
+                    continue
+                zeropt = model.get_initializer(node.input[2])
+                if zeropt is None:
+                    continue
+                bitwidth = model.get_initializer(node.input[3])
+                if bitwidth is None:
+                    continue
+
+                # Check scale=1 and zeropt=0
+                if not (np.all(scale == 1.0) and np.all(zeropt == 0.0)):
+                    # Need ExtractQuantScaleZeroPt first
+                    continue
+
+                # Extract bitwidth
+                if bitwidth.size != 1:
+                    continue
+                bitwidth = int(bitwidth.item())
+
+                inp_name = node.input[0]
+                out_name = node.output[0]
+                in_shape = model.get_tensor_shape(inp_name)
+
+                idt = model.get_tensor_datatype(inp_name)
+                odt = model.get_tensor_datatype(out_name)
+
+                # For Quant with scale=1, zeropt=0: output = clip(round(input), min, max)
+                # This is Requant with scale=1 and bias=0
+                num_channels = int(in_shape[-1])
+                scales = np.ones(num_channels, dtype=np.float32)
+                biases = np.zeros(num_channels, dtype=np.float32)
+
+                # Get narrow from Quant node attribute
+                narrow = node_inst.get_nodeattr("narrow")
+
+            else:
+                # Not a supported node type
+                continue
+
+            # Common code for both MultiThreshold and Quant
+
+            # Check layout and convert if necessary
+            in_layout = model.get_tensor_layout(inp_name)
+            if in_layout == DataLayout.NCHW:
+                inp_name = nchw_to_nhwc(inp_name, model, node_ind)
+                node_ind += 1
+                in_shape = model.get_tensor_shape(inp_name)
+
+            # Keep track of where we need to insert the HW Op
+            insert_point = node_ind
+            out_layout = model.get_tensor_layout(out_name)
+            if out_layout == DataLayout.NCHW:
+                out_name = nchw_to_nhwc(out_name, model, node_ind, reverse=True)
+                node_ind += 1
+
+            # Now safe to assume number of channels is in last dimension
+            num_channels = int(in_shape[-1])
+
+            # Create scale and bias tensors as initializers
+            scale_tensor = scales.astype(np.float32)
+            bias_tensor = biases.astype(np.float32)
+
+            scale_name = f"{node.name}_scale"
+            bias_name = f"{node.name}_bias"
+
+            model.set_initializer(scale_name, scale_tensor)
+            model.set_initializer(bias_name, bias_tensor)
+
+            # Create the Requant node
+            new_node = helper.make_node(
+                "Requant",
+                [inp_name, scale_name, bias_name],
+                [out_name],
+                domain="finn.custom_op.fpgadataflow",
+                backend="fpgadataflow",
+                NumChannels=num_channels,
+                PE=1,
+                inputDataType=idt.name,
+                outputDataType=odt.name,
+                numInputVectors=list(in_shape[:-1]),
+                narrow=narrow,
+                name="Requant_" + node.name,
+            )
+
+            graph.node.insert(insert_point, new_node)
+            # Remove old node
+            graph.node.remove(node)
+            graph_modified = True
 
         return (model, graph_modified)
 
@@ -286,11 +753,24 @@ class InferUpsample(Transformation):
             if n.op_type == "Upsample" or n.op_type == "Resize":
                 # Extract mode and scales and input shape
                 mode = get_by_name(n.attribute, "mode").s.decode("ascii")
+                in_shape = model.get_tensor_shape(n.input[0])
                 if n.op_type == "Upsample":
                     scales = model.get_initializer(n.input[1])
                 else:
-                    scales = model.get_initializer(n.input[2])
-                in_shape = model.get_tensor_shape(n.input[0])
+                    param_ind, is_sizes = resolve_resize_param_input(model, n)
+                    if is_sizes:
+                        # Convert target output sizes to equivalent scales. Only
+                        # integer-multiple upsampling is supported (see the scales
+                        # asserts below), so require sizes to divide the input
+                        # shape cleanly rather than silently rounding later.
+                        sizes = model.get_initializer(n.input[param_ind])
+                        assert (sizes % in_shape == 0).all(), (
+                            "%s: target sizes must be an integer multiple of the "
+                            "input shape (only integer upsampling is supported)." % n.name
+                        )
+                        scales = sizes / in_shape
+                    else:
+                        scales = model.get_initializer(n.input[param_ind])
 
                 dt = model.get_tensor_datatype(n.input[0])
                 if not dt.is_integer():
@@ -319,33 +799,19 @@ class InferUpsample(Transformation):
                 )
 
                 # Assumes nhwc layout for scales and input
-                is_scale_square_2d = scales[1] == scales[2]
-                is_scale_1d = scales[1] > 1 and scales[2] == 1
-                assert is_scale_square_2d or is_scale_1d, (
-                    "%s: Upsampling only supported for 1D H, or 2D square scaling" % n.name
-                )
                 assert scales[0] == scales[3] == 1, (
                     n.name + ": Upsampling is only supported for scales with "
                     "the first and last dimensions being 1 in NHWC."
                 )
-                spatial_scale = scales[1]
-                assert spatial_scale == int(spatial_scale), (
-                    "%s: Upsampling is only supported for integer scales." % n.name
-                )
-                is_shape_square_2d = in_shape[1] == in_shape[2]
-                is_shape_1d = in_shape[1] > 1 and in_shape[2] == 1
-
-                assert is_shape_square_2d or is_shape_1d, (
-                    "%s: Upsampling is only supported for 1D H or 2D square inputs." % n.name
-                )
 
                 # Extract information for HW node
-                IFMDim = in_shape[1]
-                OFMDim = int(round(in_shape[1] * spatial_scale))
+                HI = in_shape[1]
+                WI = in_shape[2]
+                HO = int(round(HI * scales[1]))
+                WO = int(round(WI * scales[2]))
                 NumChannels = in_shape[-1]
-                numInputVectors = in_shape[0]
+                batchSize = in_shape[0]
                 inputDataType = dt.name
-                dim_mode = 0 if is_shape_square_2d else 1
 
                 # Insert the HWCustomOp node
                 Upsample_HW_node = helper.make_node(
@@ -354,13 +820,17 @@ class InferUpsample(Transformation):
                     [n.output[0]],
                     domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
-                    OFMDim=OFMDim,
-                    IFMDim=IFMDim,
+                    SIMD=1,
+                    HO=HO,
+                    WO=WO,
+                    HI=HI,
+                    WI=WI,
                     NumChannels=NumChannels,
                     inputDataType=inputDataType,
-                    numInputVectors=numInputVectors,
-                    DimMode=dim_mode,
+                    batchSize=batchSize,
                     name="UpsampleNearestNeighbour_" + n.name,
+                    cpp_interface="hls_vector",
+                    hls_style="freerunning",
                 )
 
                 # Remove the old node
@@ -371,155 +841,28 @@ class InferUpsample(Transformation):
         return (model, graph_modified)
 
 
-class InferStreamingMaxPool(Transformation):
-    """Convert MaxPoolNHWC layers to StreamingMaxPool HW layers."""
-
-    def apply(self, model):
-        graph = model.graph
-        node_ind = 0
-        graph_modified = False
-        for node in graph.node:
-            node_ind += 1
-            if node.op_type == "MaxPoolNHWC":
-                mp_input = node.input[0]
-                mp_output = node.output[0]
-                mp_in_shape = model.get_tensor_shape(mp_input)
-                dt = model.get_tensor_datatype(mp_input)
-                mp_inst = getCustomOp(node)
-                k_h, k_w = mp_inst.get_nodeattr("kernel_shape")
-                s_h, s_w = mp_inst.get_nodeattr("strides")
-                if k_h != s_h or k_w != s_w:
-                    warn_str = """Stride is not equal to kernel. Node cannot be converted to
-                        StreamingMaxPool layer."""
-                    warnings.warn(warn_str)
-                    continue
-                ifm_ch = mp_in_shape[-1]
-                ifm_dim_h = mp_in_shape[1]
-                ifm_dim_w = mp_in_shape[2]
-                pe = 1
-                ceil_mode = mp_inst.get_nodeattr("ceil_mode")
-                is_1d = (ifm_dim_h == 1 and k_h == 1) or (ifm_dim_w == 1 and k_w == 1)
-                is_divisable = (ifm_dim_h % k_h == 0) or (ifm_dim_w % k_w == 0)
-                is_bipolar = dt == DataType["BIPOLAR"]
-                pass_1d = is_1d and (not is_bipolar)
-                pass_2d = (not is_1d) and is_divisable
-                if pass_1d or pass_2d:
-                    # create equivalent StreamingMaxPool node
-                    new_node = helper.make_node(
-                        "StreamingMaxPool",
-                        [mp_input],
-                        [mp_output],
-                        domain="finn.custom_op.fpgadataflow",
-                        backend="fpgadataflow",
-                        PoolDim=(k_h, k_w),
-                        NumChannels=ifm_ch,
-                        ImgDim=(ifm_dim_h, ifm_dim_w),
-                        dataType=dt.name,
-                        PE=pe,
-                        CeilMode=ceil_mode,
-                        name="StreamingMaxPool_" + node.name,
-                    )
-                    graph.node.insert(node_ind, new_node)
-                    # remove old nodes
-                    graph.node.remove(node)
-                    graph_modified = True
-                else:
-                    warnings.warn(node.name + ": could not convert to HW")
-        if graph_modified:
-            model = model.transform(InferShapes())
-            model = model.transform(InferDataTypes())
-        return (model, graph_modified)
-
-
 class InferAddStreamsLayer(Transformation):
-    """Convert any Add into a AddStreams HW layer."""
+    """
+    DEPRECATED: This transformation is deprecated and now redirects to
+    InferElementwiseBinaryOperation.
+
+    AddStreams functionality is now covered by ElementwiseAdd operations
+    (with both inputs as streaming). This wrapper is kept for backward compatibility.
+
+    The ElementwiseBinary operations provide the same functionality with additional
+    features like broadcasting support and more operation types.
+    """
 
     def apply(self, model):
-        graph = model.graph
-        node_ind = 0
-        graph_modified = False
-        for node in graph.node:
-            node_ind += 1
-            if node.op_type == "Add":
-                in0 = node.input[0]
-                in1 = node.input[1]
-                result = node.output[0]
-                in0_shape = model.get_tensor_shape(in0)
-                in1_shape = model.get_tensor_shape(in1)
-                in0_static = not (model.get_initializer(in0) is None)
-                in1_static = not (model.get_initializer(in1) is None)
-
-                # skip if different shapes on inputs
-                if in0_shape != in1_shape:
-                    continue
-                # skip if any of inputs have initializers
-                # (this node is meant for adding two dynamic streams)
-                if in0_static or in1_static:
-                    continue
-
-                idt0 = model.get_tensor_datatype(in0)
-                idt1 = model.get_tensor_datatype(in1)
-
-                # skip if different data types on inputs
-                if idt0 != idt1:
-                    continue
-
-                idt = idt0
-
-                # skip conversion for layers with float input
-                if not idt.is_integer():
-                    continue
-
-                # check layout and convert if necessary
-                in0_layout = model.get_tensor_layout(in0)
-                in1_layout = model.get_tensor_layout(in1)
-                result_layout = model.get_tensor_layout(result)
-
-                if in0_layout == DataLayout.NCHW:
-                    in0 = nchw_to_nhwc(in0, model, node_ind)
-                    node_ind += 1
-                    in0_shape = model.get_tensor_shape(in0)
-
-                if in1_layout == DataLayout.NCHW:
-                    in1 = nchw_to_nhwc(in1, model, node_ind)
-                    node_ind += 1
-                    in1_shape = model.get_tensor_shape(in1)
-
-                # keep track of where we need to insert the HW Op
-                # it has to be ahead of the output transform
-                insert_point = node_ind
-
-                if result_layout == DataLayout.NCHW:
-                    result = nchw_to_nhwc(result, model, node_ind, reverse=True)
-                    node_ind += 1
-
-                # now safe to assume num_channels is size of last dimension
-                num_channels = int(in0_shape[-1])
-                # create node with no parallelization first
-                pe = 1
-
-                # create and insert new AddStreams node
-                new_node = helper.make_node(
-                    "AddStreams",
-                    [in0, in1],
-                    [result],
-                    domain="finn.custom_op.fpgadataflow",
-                    backend="fpgadataflow",
-                    NumChannels=num_channels,
-                    PE=pe,
-                    inputDataType=idt.name,
-                    numInputVectors=in0_shape[:-1],
-                    name="AddStreams_" + node.name,
-                )
-                graph.node.insert(insert_point, new_node)
-                # remove old node
-                graph.node.remove(node)
-                graph_modified = True
-
-        if graph_modified:
-            model = model.transform(InferShapes())
-            model = model.transform(InferDataTypes())
-        return (model, graph_modified)
+        warnings.warn(
+            "InferAddStreamsLayer is deprecated. "
+            "Use InferElementwiseBinaryOperation instead. "
+            "AddStreams is being replaced by ElementwiseAdd operations.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        # Delegate to the new transformation
+        return InferElementwiseBinaryOperation().apply(model)
 
 
 class InferDuplicateStreamsLayer(Transformation):
@@ -529,65 +872,137 @@ class InferDuplicateStreamsLayer(Transformation):
         graph = model.graph
         node_ind = 0
         graph_modified = False
+        # check first if global input is split
+        successors = model.find_consumers(graph.input[0].name)
+        dt = model.get_tensor_datatype(graph.input[0].name)
+        if successors is not None and len(successors) >= 2:
+            output_tensor = graph.input[0].name
+            n_outputs = len(successors)
+
+            # create clone tensors
+            out_shape = model.get_tensor_shape(output_tensor)
+            out_tensor_clones = []
+            for i in range(n_outputs):
+                clone = helper.make_tensor_value_info(
+                    model.make_new_valueinfo_name(), TensorProto.FLOAT, out_shape
+                )
+                model.graph.value_info.append(clone)
+                out_tensor_clones += [clone.name]
+
+            num_ch = int(out_shape[-1])
+            vecs = out_shape[:-1]
+
+            # create node with no parallelization first
+            pe = 1
+
+            dup_node = helper.make_node(
+                "DuplicateStreams",
+                [output_tensor],
+                out_tensor_clones,
+                domain="finn.custom_op.fpgadataflow",
+                backend="fpgadataflow",
+                NumChannels=num_ch,
+                PE=pe,
+                inputDataType=dt.name,
+                numInputVectors=vecs,
+                NumOutputStreams=n_outputs,
+                outFIFODepths=[2] * n_outputs,
+                name="DuplicateStreams_" + output_tensor,
+                cpp_interface="hls_vector",
+                hls_style="freerunning",
+            )
+
+            graph.node.insert(0, dup_node)
+
+            # connect successors to out tensor clone
+            clone_idx = 0
+            for successor in successors:
+                for i, succ_input in enumerate(successor.input):
+                    if succ_input == output_tensor:
+                        successor.input[i] = out_tensor_clones[clone_idx]
+                        clone_idx += 1
+                        # if one node has multiple connections to the same output
+                        # find_direct_successors will return one node per input
+                        # so break the inner loop will result in correct behaviour
+                        break
+            graph_modified = True
+
         for node in graph.node:
             node_ind += 1
-            successors = model.find_consumers(node.output[0])
-            if successors is not None and len(successors) >= 2:
-                output_tensor = node.output[0]
-                n_outputs = len(successors)
+            for output_tensor in node.output:
+                successors = model.find_consumers(output_tensor)
+                # check if this tensor is also a global output
+                is_global_output = any(out.name == output_tensor for out in graph.output)
+                # determine total number of consumers (successors + global output)
+                num_successors = len(successors) if successors is not None else 0
+                total_consumers = num_successors + (1 if is_global_output else 0)
 
-                dt = model.get_tensor_datatype(output_tensor)
+                if total_consumers >= 2:
+                    n_outputs = total_consumers
 
-                # skip conversion for layers with float input
-                if not dt.is_integer():
-                    continue
+                    dt = model.get_tensor_datatype(output_tensor)
 
-                # create clone tensors
-                out_shape = model.get_tensor_shape(output_tensor)
-                out_tensor_clones = []
-                for i in range(n_outputs):
-                    clone = helper.make_tensor_value_info(
-                        model.make_new_valueinfo_name(), TensorProto.FLOAT, out_shape
+                    # create clone tensors
+                    out_shape = model.get_tensor_shape(output_tensor)
+                    out_tensor_clones = []
+                    for i in range(n_outputs):
+                        clone = helper.make_tensor_value_info(
+                            model.make_new_valueinfo_name(), TensorProto.FLOAT, out_shape
+                        )
+                        # if one is a global output reserve
+                        # the last out tensor clone for that connection
+                        if i == (n_outputs - 1) and is_global_output:
+                            new_global_output_tensor = clone
+                        # else add it to the value info container
+                        else:
+                            model.graph.value_info.append(clone)
+                        out_tensor_clones += [clone.name]
+
+                    num_ch = int(out_shape[-1])
+                    vecs = out_shape[:-1]
+
+                    # create node with no parallelization first
+                    pe = 1
+
+                    dup_node = helper.make_node(
+                        "DuplicateStreams",
+                        [output_tensor],
+                        out_tensor_clones,
+                        domain="finn.custom_op.fpgadataflow",
+                        backend="fpgadataflow",
+                        NumChannels=num_ch,
+                        PE=pe,
+                        inputDataType=dt.name,
+                        numInputVectors=vecs,
+                        NumOutputStreams=n_outputs,
+                        outFIFODepths=[2] * n_outputs,
+                        name="DuplicateStreams_" + node.name,
+                        cpp_interface="hls_vector",
+                        hls_style="freerunning",
                     )
-                    model.graph.value_info.append(clone)
-                    out_tensor_clones += [clone.name]
 
-                num_ch = int(out_shape[-1])
-                vecs = out_shape[:-1]
+                    graph.node.insert(node_ind, dup_node)
 
-                # create node with no parallelization first
-                pe = 1
+                    # connect successors to out tensor clone
+                    clone_idx = 0
+                    for successor in successors:
+                        for i, succ_input in enumerate(successor.input):
+                            if succ_input == output_tensor:
+                                successor.input[i] = out_tensor_clones[clone_idx]
+                                clone_idx += 1
+                                # if one node has multiple connections to the same output
+                                # find_direct_successors will return one node per input
+                                # so break the inner loop will result in correct behaviour
+                                break
 
-                dup_node = helper.make_node(
-                    "DuplicateStreams",
-                    [output_tensor],
-                    out_tensor_clones,
-                    domain="finn.custom_op.fpgadataflow",
-                    backend="fpgadataflow",
-                    NumChannels=num_ch,
-                    PE=pe,
-                    inputDataType=dt.name,
-                    numInputVectors=vecs,
-                    NumOutputStreams=n_outputs,
-                    outFIFODepths=[2] * n_outputs,
-                    name="DuplicateStreams_" + node.name,
-                )
+                    # if the tensor is a global output, connect the last clone to it
+                    if is_global_output:
+                        for i, graph_out in enumerate(graph.output):
+                            if graph_out.name == output_tensor:
+                                graph.output[i].CopyFrom(new_global_output_tensor)
+                                break
 
-                graph.node.insert(node_ind, dup_node)
-
-                # connect successors to out tensor clone
-                clone_idx = 0
-                for successor in successors:
-                    for i, succ_input in enumerate(successor.input):
-                        if succ_input == output_tensor:
-                            successor.input[i] = out_tensor_clones[clone_idx]
-                            clone_idx += 1
-                            # if one node has multiple connections to the same output
-                            # find_direct_successors will return one node per input
-                            # so break the inner loop will result in correct behaviour
-                            break
-
-                graph_modified = True
+                    graph_modified = True
 
         if graph_modified:
             model = model.transform(SortGraph())
@@ -597,157 +1012,27 @@ class InferDuplicateStreamsLayer(Transformation):
 
 
 class InferChannelwiseLinearLayer(Transformation):
-    """Convert any channel-wise Add/Mul into a HW layer."""
+    """
+    DEPRECATED: This transformation is deprecated and now redirects to
+    InferElementwiseBinaryOperation.
 
-    def get_smallest_possible(self, vals):
-        """Returns smallest (fewest bits) possible DataType that can represent
-        value. Prefers unsigned integers where possible."""
-        vals = np.array(vals, dtype=np.float64)
-        for v in vals:
-            assert int(v) == v, "Error float value"
+    ChannelwiseOp functionality is now covered by ElementwiseBinary operations
+    (Add/Mul with const mode). This wrapper is kept for backward compatibility.
 
-        for k in DataType.get_accumulator_dt_cands():
-            dt = DataType[k]
-
-            if dt in [DataType["BIPOLAR"], DataType["TERNARY"], DataType["FLOAT32"]]:
-                # not currently supported
-                continue
-
-            if (dt.min() <= vals).all() and (vals <= dt.max()).all():
-                return dt
-
-        warnings.warn(
-            """InferChannelwiseLinearLayer: Output values may not be
-        representable with supported data types.
-        Setting maximum width data type available.
-        This will lead to errors if there are no constrains on the input
-        """
-        )
-
-        if (0 <= vals).all():
-            return DataType["UINT64"]
-        else:
-            return DataType["INT64"]
+    The ElementwiseBinary operations provide the same functionality with additional
+    features like broadcasting support and more operation types.
+    """
 
     def apply(self, model):
-        graph = model.graph
-        node_ind = 0
-        graph_modified = False
-        for node in graph.node:
-            node_ind += 1
-            if node.op_type == "Add" or node.op_type == "Mul":
-                # assuming input[0] is dynamic
-                ll_input = node.input[0]
-                ll_output = node.output[0]
-                ll_in_shape = model.get_tensor_shape(ll_input)
-
-                # check if input 1 has an initializer
-                ll_const = node.input[1]
-                if ll_const is not None:
-                    ll_cinit = model.get_initializer(ll_const)
-                    if ll_cinit is None:
-                        # input 1 is also dynamic
-                        continue
-                else:
-                    continue
-
-                # get number of channels and channel index from input
-                ll_in_layout = model.get_tensor_layout(ll_input)
-                if ll_in_layout == DataLayout.NHWC or ll_in_layout == DataLayout.NC:
-                    ch_index = -1
-                    ch = ll_in_shape[-1]
-                elif ll_in_layout == DataLayout.NCHW:
-                    ch_index = 1
-                    ch = ll_in_shape[1]
-                else:
-                    continue
-
-                # check if the shape of initializer is compatible
-                ll_cinit_shape = list(ll_cinit.shape)
-                if np.prod(ll_cinit_shape) == 1:
-                    warnings.warn("Broadcasting " + str(node.op_type) + "(" + node.name + ")")
-                    ll_cinit = np.full((ch), ll_cinit.flatten()[0])
-                elif np.prod(ll_cinit_shape) != ch or ll_cinit_shape[ch_index] != ch:
-                    # parameter shape not compatible with Channelwise
-                    continue
-
-                # check initializer contains integers as floats
-                if not (ll_cinit.astype(np.int32) == ll_cinit).all():
-                    continue
-                # all initializer conditions are met
-
-                # check inputs
-                idt = model.get_tensor_datatype(ll_input)
-                if not idt.is_integer():
-                    # skip conversion for layers with float input
-                    continue
-
-                # check layout of inputs/outputs, and convert if needed
-                # check layout and convert if necessary
-                if ll_in_layout == DataLayout.NCHW:
-                    ll_input = nchw_to_nhwc(ll_input, model, node_ind)
-                    node_ind += 1
-                    ll_in_shape = model.get_tensor_shape(ll_input)
-
-                # keep track of where we need to insert the HW Op
-                # it has to be ahead of the output transform
-                insert_point = node_ind
-                ll_output_layout = model.get_tensor_layout(ll_output)
-                if ll_output_layout == DataLayout.NCHW:
-                    ll_output = nchw_to_nhwc(ll_output, model, node_ind, reverse=True)
-                    node_ind += 1
-
-                # get parameter data type
-                param_min = min(ll_cinit.flatten())
-                param_max = max(ll_cinit.flatten())
-                pdt = self.get_smallest_possible([param_min, param_max])
-
-                # set function and determine output data type
-                if node.op_type == "Add":
-                    func = "add"
-                    out_min = idt.min() + param_min
-                    out_max = idt.max() + param_max
-                    odt = self.get_smallest_possible([out_min, out_max])
-                elif node.op_type == "Mul":
-                    func = "mul"
-                    possible_limits = []
-                    possible_limits += [idt.min() * param_min]
-                    possible_limits += [idt.min() * param_max]
-                    possible_limits += [idt.max() * param_min]
-                    possible_limits += [idt.max() * param_max]
-                    odt = self.get_smallest_possible(possible_limits)
-
-                model.set_initializer(ll_const, ll_cinit.reshape(ch))
-                model.set_tensor_datatype(ll_output, odt)
-
-                # create node with no parallelization first
-                pe = 1
-                assert ch % pe == 0, "Requirement IFC divisable by PE is violated."
-                # create and insert node
-                new_node = helper.make_node(
-                    "ChannelwiseOp",
-                    [ll_input, ll_const],
-                    [ll_output],
-                    domain="finn.custom_op.fpgadataflow",
-                    backend="fpgadataflow",
-                    Func=func,
-                    NumChannels=ch,
-                    PE=pe,
-                    inputDataType=idt.name,
-                    paramDataType=pdt.name,
-                    outputDataType=odt.name,
-                    numInputVectors=list(ll_in_shape[:-1]),
-                    name="ChannelwiseOp_" + node.name,
-                )
-                graph.node.insert(insert_point, new_node)
-                # remove old node
-                graph.node.remove(node)
-                graph_modified = True
-
-        if graph_modified:
-            model = model.transform(InferShapes())
-            model = model.transform(InferDataTypes())
-        return (model, graph_modified)
+        warnings.warn(
+            "InferChannelwiseLinearLayer is deprecated. "
+            "Use InferElementwiseBinaryOperation instead. "
+            "ChannelwiseOp is being replaced by ElementwiseBinary operations.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        # Delegate to the new transformation
+        return InferElementwiseBinaryOperation().apply(model)
 
 
 class InferLabelSelectLayer(Transformation):
@@ -1055,6 +1340,7 @@ class InferPool(Transformation):
                     AccumBits=accum_bits,
                     Size=pool_size_param,
                     BatchSize=1,
+                    cpp_interface="hls_vector",
                     name="Pool_" + node.name,
                 )
 
@@ -1157,21 +1443,24 @@ class InferConcatLayer(Transformation):
                 if (axis != -1) and (axis != last_axis):
                     continue
                 # check datatype coherence
-                dt0 = model.get_tensor_datatype(node.input[0])
-                if dt0 is None:
-                    continue
-                dt_coherent = all([model.get_tensor_datatype(x) == dt0 for x in node.input])
-                if not dt_coherent:
+                if any([model.get_tensor_datatype(x) is None for x in node.input]):
+                    warnings.warn(
+                        "Inputs with undefined datatype detected, skipping InferConcatLayer()"
+                    )
                     continue
                 # skip conversion if any inputs are static
-                all_static = all([model.get_initializer(x) is None for x in node.input])
-                if not all_static:
+                any_static = any([model.get_initializer(x) is not None for x in node.input])
+                if any_static:
                     continue
                 # skip conversion if inputs are not integers
-                if not dt0.is_integer():
+                all_integer = all([model.get_tensor_datatype(x).is_integer() for x in node.input])
+                if not all_integer:
+                    warnings.warn(
+                        "Inputs with non-integer datatype detected, skipping InferConcatLayer()"
+                    )
                     continue
                 # ready for conversion
-                elems_per_stream = [model.get_tensor_shape(x)[-1] for x in node.input]
+                channels_per_stream = [model.get_tensor_shape(x)[-1] for x in node.input]
                 inp_vec = list(model.get_tensor_shape(node.input[0])[:-1])
                 new_node = helper.make_node(
                     "StreamingConcat",
@@ -1179,11 +1468,14 @@ class InferConcatLayer(Transformation):
                     node.output,
                     domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
-                    name="Concat_" + node.name,
-                    ElemsPerStream=elems_per_stream,
-                    inputDataType=dt0.name,
+                    name="StreamingConcat_" + node.name,
+                    SIMD=1,
+                    ChannelsPerStream=channels_per_stream,
+                    inputDataTypes=[model.get_tensor_datatype(x).name for x in node.input],
                     numInputVectors=inp_vec,
                     inFIFODepths=[2] * len(node.input),
+                    cpp_interface="hls_vector",
+                    hls_style="freerunning",
                 )
                 graph.node.insert(node_ind, new_node)
                 # remove old node
@@ -1196,9 +1488,9 @@ class InferConcatLayer(Transformation):
         return (model, graph_modified)
 
 
-class InferStreamingEltwise(Transformation):
-    """Convert eltwise Sub or Sub -> Abs to StreamingEltwise layer
-    with SubEltwise or AbsDiffEltwise op."""
+class InferSplitLayer(Transformation):
+    """Convert suitable Split nodes (operating on last/-1 axis)
+    into StreamingConcat HW layers."""
 
     def apply(self, model):
         graph = model.graph
@@ -1206,89 +1498,343 @@ class InferStreamingEltwise(Transformation):
         graph_modified = False
         for node in graph.node:
             node_ind += 1
-            if node.op_type == "Sub":
-                in0 = node.input[0]
-                in1 = node.input[1]
-                result = node.output[0]
-                in0_shape = model.get_tensor_shape(in0)
-                in1_shape = model.get_tensor_shape(in1)
-                in0_static = not (model.get_initializer(in0) is None)
-                in1_static = not (model.get_initializer(in1) is None)
-
-                # skip if different shapes on inputs
-                if in0_shape != in1_shape:
+            if node.op_type == "Split":
+                split_param = node.input[1]
+                if model.get_initializer(split_param) is None:
+                    warnings.warn("Split param not constant, skipping InferSplitLayer()")
                     continue
-                # skip if any of inputs have initializers
-                # (this node is meant for two dynamic streams)
-                if in0_static or in1_static:
+                ishape = model.get_tensor_shape(node.input[0])
+                axis = get_by_name(node.attribute, "axis")
+                if (axis is None) or (ishape is None):
                     continue
-
-                idt0 = model.get_tensor_datatype(in0)
-                idt1 = model.get_tensor_datatype(in1)
-
-                # skip conversion for layers with float input
-                if not (idt0.is_integer() and idt1.is_integer()):
+                axis = axis.i
+                last_axis = len(ishape) - 1
+                # skip conversion if not using last axis
+                if (axis != -1) and (axis != last_axis):
+                    warnings.warn(
+                        "StreamingSplit supports only last axis, skipping InferSplitLayer()"
+                    )
                     continue
-
-                eltwiseOp = "Sub"
-                nodes_to_remove = [node]
-                # look for a downstream Abs node
-                res_consumer = model.find_consumer(result)
-                if (res_consumer is not None) and (res_consumer.op_type == "Abs"):
-                    eltwiseOp = "AbsDiff"
-                    result = res_consumer.output[0]
-                    nodes_to_remove.append(res_consumer)
-
-                # check layout and convert if necessary
-                in0_layout = model.get_tensor_layout(in0)
-                in1_layout = model.get_tensor_layout(in1)
-                result_layout = model.get_tensor_layout(result)
-
-                if in0_layout == DataLayout.NCHW:
-                    in0 = nchw_to_nhwc(in0, model, node_ind)
-                    node_ind += 1
-                    in0_shape = model.get_tensor_shape(in0)
-
-                if in1_layout == DataLayout.NCHW:
-                    in1 = nchw_to_nhwc(in1, model, node_ind)
-                    node_ind += 1
-                    in1_shape = model.get_tensor_shape(in1)
-
-                # keep track of where we need to insert the HW Op
-                # it has to be ahead of the output transform
-                insert_point = node_ind
-
-                if result_layout == DataLayout.NCHW:
-                    result = nchw_to_nhwc(result, model, node_ind, reverse=True)
-                    node_ind += 1
-
-                # now safe to assume num_channels is size of last dimension
-                num_channels = int(in0_shape[-1])
-                # create node with no parallelization first
-                pe = 1
-
-                # create and insert new Eltwise node
+                # only one input allowed (two including split_param)
+                if len(node.input) != 2:
+                    warnings.warn("Only one input allowed, skipping InferSplitLayer()")
+                    continue
+                # skip conversion if the input is static
+                if model.get_initializer(node.input[0]) is not None:
+                    warnings.warn("Static input detected, skipping InferSplitLayer()")
+                    continue
+                # skip conversion if inputs are not integers
+                if not model.get_tensor_datatype(node.input[0]).is_integer():
+                    warnings.warn("Non-integer input detected, skipping InferSplitLayer()")
+                    continue
+                # ready for conversion
+                channels_per_stream = [model.get_tensor_shape(x)[-1] for x in node.output]
+                inp_vec = list(model.get_tensor_shape(node.input[0])[:-1])
+                # when creating the fpgadataflow node we remove the second parameter input
                 new_node = helper.make_node(
-                    "StreamingEltwise",
-                    [in0, in1],
-                    [result],
+                    "StreamingSplit",
+                    [node.input[0]],
+                    node.output,
                     domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
-                    NumChannels=num_channels,
-                    PE=pe,
-                    inputDataType0=idt0.name,
-                    inputDataType1=idt1.name,
-                    eltwiseOp=eltwiseOp,
-                    numInputVectors=in0_shape[:-1],
-                    name="StreamingEltwise_" + node.name,
+                    name="StreamingSplit_" + node.name,
+                    SIMD=1,
+                    cpp_interface="hls_vector",
+                    hls_style="freerunning",
+                    ChannelsPerStream=channels_per_stream,
+                    inputDataType=model.get_tensor_datatype(node.input[0]).name,
+                    numInputVectors=inp_vec,
+                    outFIFODepths=[2] * len(node.output),
                 )
-                graph.node.insert(insert_point, new_node)
-                # remove old nodes
-                for nd in nodes_to_remove:
-                    graph.node.remove(nd)
+                graph.node.insert(node_ind, new_node)
+                # remove old node
+                graph.node.remove(node)
                 graph_modified = True
 
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
         return (model, graph_modified)
+
+
+class InferWhereLayer(Transformation):
+    """Convert ONNX Where(condition, X, Y) into a streaming HWWhere layer."""
+
+    @staticmethod
+    def _warn_skip(node, reason):
+        node_name = node.name if node.name else "<unnamed Where>"
+        warnings.warn("%s: %s. Can't infer HWWhere layer." % (node_name, reason))
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type != "Where":
+                continue
+            if len(node.input) != 3:
+                self._warn_skip(node, "Expected exactly three inputs")
+                continue
+
+            cond_name, x_name, y_name = node.input
+            if any(model.get_initializer(inp) is not None for inp in node.input):
+                self._warn_skip(node, "Initializer inputs are not supported by the streaming op")
+                continue
+
+            cond_shape = model.get_tensor_shape(cond_name)
+            x_shape = model.get_tensor_shape(x_name)
+            y_shape = model.get_tensor_shape(y_name)
+            out_shape = model.get_tensor_shape(node.output[0])
+            if any(s is None for s in [cond_shape, x_shape, y_shape, out_shape]):
+                self._warn_skip(node, "Input and output shapes must be known")
+                continue
+            all_dims = list(cond_shape) + list(x_shape) + list(y_shape) + list(out_shape)
+            if any(x is None for x in all_dims):
+                self._warn_skip(node, "Dynamic dimensions are not supported")
+                continue
+            try:
+                broadcast_shape = np.broadcast_shapes(
+                    tuple(cond_shape), tuple(x_shape), tuple(y_shape)
+                )
+            except ValueError:
+                self._warn_skip(node, "Input shapes are not broadcast-compatible")
+                continue
+            if list(out_shape) != [int(x) for x in broadcast_shape]:
+                self._warn_skip(node, "Output shape does not match the broadcast input shape")
+                continue
+            x_dt = model.get_tensor_datatype(x_name)
+            y_dt = model.get_tensor_datatype(y_name)
+            if x_dt is None or y_dt is None or x_dt != y_dt:
+                self._warn_skip(node, "X and Y must have the same known datatype")
+                continue
+            supported_dt = (
+                x_dt.is_integer()
+                or x_dt.is_fixed_point()
+                or x_dt in [DataType["FLOAT32"], DataType["FLOAT16"]]
+            )
+            if not supported_dt:
+                self._warn_skip(node, "X and Y datatype %s is not supported" % str(x_dt))
+                continue
+            out_dt = model.get_tensor_datatype(node.output[0])
+            if out_dt is not None and out_dt != x_dt:
+                self._warn_skip(node, "Output datatype must match X and Y")
+                continue
+
+            cond_dt = model.get_tensor_datatype(cond_name)
+            if cond_dt is None:
+                model.set_tensor_datatype(cond_name, DataType["BINARY"])
+                cond_dt = DataType["BINARY"]
+            if cond_dt != DataType["BINARY"]:
+                self._warn_skip(node, "Condition datatype must be BINARY")
+                continue
+
+            new_node = helper.make_node(
+                "HWWhere",
+                node.input,
+                node.output,
+                domain="finn.custom_op.fpgadataflow",
+                backend="fpgadataflow",
+                name="HWWhere_" + node.name,
+                CondRank=len(cond_shape),
+                XRank=len(x_shape),
+                YRank=len(y_shape),
+                PE=1,
+                conditionDataType=cond_dt.name,
+                inputDataType=x_dt.name,
+                outputDataType=x_dt.name,
+                inFIFODepths=[2, 2, 2],
+            )
+            for attr_name, attr_value in [
+                ("Shape", [int(x) for x in broadcast_shape]),
+                ("CondShape", [int(x) for x in cond_shape]),
+                ("XShape", [int(x) for x in x_shape]),
+                ("YShape", [int(x) for x in y_shape]),
+            ]:
+                new_node.attribute.append(
+                    helper.make_attribute(attr_name, attr_value, attr_type=AttributeProto.INTS)
+                )
+            graph.node.insert(node_ind, new_node)
+            graph.node.remove(node)
+            graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferPad1DLayer(Transformation):
+    """Convert 1D Concat padding patterns into Pad1D.
+
+    This covers class-token insertion as ``Concat([cls_token, tokens], axis=1)``
+    as well as constant left/right 1D padding around one streamed tensor.
+    """
+
+    def _make_pad_initializer(self, model, graph, values, idt):
+        values = np.asarray(values, dtype=np.float32)
+        pad_name = model.make_new_valueinfo_name()
+        graph.initializer.append(numpy_helper.from_array(values, name=pad_name))
+        model.set_tensor_datatype(pad_name, idt)
+        return pad_name
+
+    def _make_or_reuse_pad_initializer(self, model, graph, values, tensor_names, idt):
+        if len(tensor_names) == 1:
+            return tensor_names[0]
+        return self._make_pad_initializer(model, graph, values, idt)
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type != "Concat":
+                continue
+
+            axis = get_by_name(node.attribute, "axis")
+            if axis is None:
+                continue
+
+            stream_inds = [
+                ind for ind, inp in enumerate(node.input) if model.get_initializer(inp) is None
+            ]
+            if len(stream_inds) != 1:
+                continue
+            stream_ind = stream_inds[0]
+            stream_name = node.input[stream_ind]
+
+            stream_shape = model.get_tensor_shape(stream_name)
+            if stream_shape is None:
+                continue
+            if any(x is None for x in stream_shape):
+                continue
+
+            rank = len(stream_shape)
+            concat_axis = axis.i if axis.i >= 0 else axis.i + rank
+            if rank != 3 or concat_axis != 1:
+                continue
+            if stream_shape[0] != 1:
+                continue
+
+            const_values = []
+            valid_const_inputs = True
+            for inp in node.input:
+                init = model.get_initializer(inp)
+                if init is None:
+                    const_values.append(None)
+                    continue
+
+                const_shape = list(init.shape)
+                if (
+                    len(const_shape) != 3
+                    or const_shape[0] != 1
+                    or const_shape[2] != stream_shape[2]
+                ):
+                    valid_const_inputs = False
+                    break
+                const_values.append(np.asarray(init, dtype=np.float32))
+            if not valid_const_inputs:
+                continue
+
+            left_values = [const_values[ind] for ind in range(stream_ind)]
+            right_values = [const_values[ind] for ind in range(stream_ind + 1, len(node.input))]
+            left_names = [node.input[ind] for ind in range(stream_ind)]
+            right_names = [node.input[ind] for ind in range(stream_ind + 1, len(node.input))]
+            pad_left = sum(x.shape[1] for x in left_values)
+            pad_right = sum(x.shape[1] for x in right_values)
+            if pad_left == 0 and pad_right == 0:
+                continue
+
+            out_shape = model.get_tensor_shape(node.output[0])
+            exp_oshape = [1, stream_shape[1] + pad_left + pad_right, stream_shape[2]]
+            if out_shape is not None and list(out_shape) != exp_oshape:
+                continue
+
+            idt = model.get_tensor_datatype(stream_name)
+            if idt is None or not idt.is_integer():
+                continue
+
+            const_dtypes_valid = True
+            missing_const_dtypes = []
+            for inp in node.input:
+                if inp == stream_name:
+                    continue
+                pad_dt = model.get_tensor_datatype(inp)
+                if pad_dt is None:
+                    missing_const_dtypes.append(inp)
+                elif pad_dt != idt:
+                    const_dtypes_valid = False
+                    break
+            if not const_dtypes_valid:
+                continue
+
+            if pad_left == 0:
+                left_pad = np.zeros((1, 1, stream_shape[2]), dtype=np.float32)
+            else:
+                left_pad = np.concatenate(left_values, axis=1)
+            if pad_right == 0:
+                right_pad = np.zeros((1, 1, stream_shape[2]), dtype=np.float32)
+            else:
+                right_pad = np.concatenate(right_values, axis=1)
+
+            left_pad_name = self._make_or_reuse_pad_initializer(
+                model, graph, left_pad, left_names, idt
+            )
+            right_pad_name = self._make_or_reuse_pad_initializer(
+                model, graph, right_pad, right_names, idt
+            )
+
+            new_node = helper.make_node(
+                "Pad1D",
+                [stream_name, left_pad_name, right_pad_name],
+                node.output,
+                domain="finn.custom_op.fpgadataflow",
+                backend="fpgadataflow",
+                name="Pad1D_" + node.name,
+                NumTokens=int(stream_shape[1]),
+                NumChannels=int(stream_shape[2]),
+                PadLeft=int(pad_left),
+                PadRight=int(pad_right),
+                SIMD=1,
+                inputDataType=idt.name,
+                outputDataType=idt.name,
+            )
+            for inp in missing_const_dtypes:
+                model.set_tensor_datatype(inp, idt)
+            graph.node.insert(node_ind, new_node)
+            graph.node.remove(node)
+            graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferStreamingEltwise(Transformation):
+    """
+    DEPRECATED: This transformation is deprecated and now redirects to
+    InferElementwiseBinaryOperation.
+
+    StreamingEltwise functionality is now covered by ElementwiseSub and
+    ElementwiseAbsDiff operations (with both inputs as streaming).
+    This wrapper is kept for backward compatibility.
+
+    The ElementwiseBinary operations provide the same functionality with additional
+    features like broadcasting support and more operation types.
+    """
+
+    def apply(self, model):
+        warnings.warn(
+            "InferStreamingEltwise is deprecated. "
+            "Use InferElementwiseBinaryOperation instead. "
+            "StreamingEltwise is being replaced by ElementwiseSub/ElementwiseAbsDiff.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        # Delegate to the new transformation
+        return InferElementwiseBinaryOperation().apply(model)
 
 
 class InferBinaryMatrixVectorActivation(Transformation):
@@ -1443,15 +1989,21 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                 mm_out_shape = model.get_tensor_shape(mm_output)
                 idt = model.get_tensor_datatype(mm_input)
                 wdt = model.get_tensor_datatype(mm_weight)
+                W = model.get_initializer(mm_weight)
                 if idt.is_integer() and wdt.is_integer():
-                    mm_output = n.output[0]
-                    W = model.get_initializer(mm_weight)
                     # extract weight shape, note that ONNX and finn-hlslib
                     # make different assumptions about dim order here
                     # ONNX assumes W has (in, out) shape
                     # finn-hlslib assumes W has (out, in) shape
-                    mh = int(W.shape[1])
-                    mw = int(W.shape[0])
+                    if W is None:
+                        # dynamic
+                        mm_dyn_shape = model.get_tensor_shape(mm_weight)
+                        mh = int(mm_dyn_shape[-1])
+                        mw = int(mm_dyn_shape[-2])
+                    else:
+                        # static
+                        mh = int(W.shape[1])
+                        mw = int(W.shape[0])
                     # create node with no parallelization first
                     pe = 1
                     simd = 1
@@ -1479,7 +2031,7 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                         scale = getCustomOp(consumer).get_nodeattr("out_scale")
                         actval = getCustomOp(consumer).get_nodeattr("out_bias")
                         assert int(actval) == actval, (
-                            consumer.name + ": out_bias must be integer for HLS conversion."
+                            consumer.name + ": out_bias must be integer for HW conversion."
                         )
                         actval = int(actval)
                         odt_is_bipolar = odt == DataType["BIPOLAR"]
@@ -1515,6 +2067,8 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             noActivation=0,
                             numInputVectors=list(mm_in_shape[:-1]),
                             name="MVAU_" + n.name,
+                            mem_mode="dynamic" if W is None else "internal_decoupled",
+                            inFIFODepths=[2, 2] if W is None else [2],
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old nodes
@@ -1545,6 +2099,8 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             noActivation=1,
                             numInputVectors=list(mm_in_shape[:-1]),
                             name="MVAU_" + n.name,
+                            mem_mode="dynamic" if W is None else "internal_decoupled",
+                            inFIFODepths=[2, 2] if W is None else [2],
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old node
@@ -1631,11 +2187,11 @@ class InferVectorVectorActivation(Transformation):
                         odt = model.get_tensor_datatype(mt_output)
                         scale = getCustomOp(consumer).get_nodeattr("out_scale")
                         assert scale == 1.0, (
-                            consumer.name + ": out_scale must be equal to 1.0 for HLS conversion."
+                            consumer.name + ": out_scale must be equal to 1.0 for HW conversion."
                         )
                         actval = getCustomOp(consumer).get_nodeattr("out_bias")
                         assert int(actval) == actval, (
-                            consumer.name + ": out_bias must be integer for HLS conversion."
+                            consumer.name + ": out_bias must be integer for HW conversion."
                         )
                         actval = int(actval)
                         assert (not odt.signed()) or (actval < 0), (
@@ -1693,6 +2249,698 @@ class InferVectorVectorActivation(Transformation):
                         # remove old node
                         graph.node.remove(n)
                         graph_modified = True
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferHWSoftmax(Transformation):
+    """
+    Infers a regular softmax node without merging the multithreshold
+    and setting the softmax to perform the quantisation.
+    """
+
+    def __init__(self):
+        super().__init__()
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            if n.op_type == "Softmax":
+                input_shape = model.get_tensor_shape(n.input[0])
+                idt0 = model.get_tensor_datatype(n.input[0])
+                odt0 = model.get_tensor_datatype(n.output[0])
+                new_node = helper.make_node(
+                    "HWSoftmax",
+                    [n.input[0]],  # input tensor(s)
+                    [n.output[0]],  # output tensor(s)
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    ifm_dim=input_shape,
+                    input_data_type=idt0.name,
+                    output_data_type=odt0.name,
+                    name=n.name,
+                    SIMD=1,
+                    NumChannels=input_shape[-1],
+                )
+                graph.node.insert(node_ind, new_node)
+                graph.node.remove(n)
+        return (model, graph_modified)
+
+
+def skip_first_node_transpose(model, node):
+    """Default filter for InferShuffle: skip Transpose if it's the first node in the graph.
+    This is useful for image classification networks where the first transpose converts
+    NCHW to NHWC layout for data preprocessing."""
+    return node != model.graph.node[0]
+
+
+class InferShuffle(Transformation):
+    """
+    Find transpose layers with (optionally) reshape layers around them
+    and convert them into a shuffle operator
+    """
+
+    def __init__(self, _filter=skip_first_node_transpose):
+        super().__init__()
+        # Register the filter function as attribute
+        self._filter = _filter
+
+    def _is_streaming_ptranspose(self, perm, shape):
+        """
+        Check if the permutation represents a streaming InnerShuffle case.
+        A streaming InnerShuffle works when the last two dimensions are swapped,
+        regardless of how many outer dimensions there are.
+        """
+        if len(perm) < 2 or len(shape) < 2:
+            return False
+
+        # Check if last two dimensions are swapped while others stay in order
+        expected_perm = list(range(len(perm) - 2)) + [len(perm) - 1, len(perm) - 2]
+        return perm == expected_perm
+
+    def apply(self, model):
+        graph = model.graph
+        graph_modified = False
+        for node_ind, n in enumerate(graph.node, start=1):
+            if n.op_type == "Transpose":
+                # Apply filter function to decide whether to convert this node
+                if not self._filter(model, n):
+                    continue
+                to_remove = [n]
+
+                new_in_tensor = None
+                new_out_tensor = None
+
+                perm = n.attribute[0]
+
+                new_in_tensor = n.input[0]
+                in_shape = model.get_tensor_shape(n.input[0])
+                in_reshaped = in_shape
+
+                # Detect a reshape at the input and capture it
+                producer = model.find_producer(n.input[0])
+                if producer is not None:
+                    if producer.op_type == "Reshape":
+                        new_in_tensor = producer.input[0]
+                        in_shape = model.get_tensor_shape(new_in_tensor)
+                        in_reshaped = model.get_tensor_shape(n.input[0])
+                        to_remove.append(producer)
+
+                new_out_tensor = n.output[0]
+                out_shape = model.get_tensor_shape(new_out_tensor)
+                out_reshaped = out_shape
+
+                # Detect a reshape at the output and capture it
+                consumer = model.find_consumer(n.output[0])
+                if consumer is not None:
+                    if consumer.op_type == "Reshape":
+                        new_out_tensor = consumer.output[0]
+                        out_shape = model.get_tensor_shape(n.output[0])
+                        out_reshaped = model.get_tensor_shape(new_out_tensor)
+                        to_remove.append(consumer)
+
+                # Handle None shapes (shape inference might have failed)
+                assert (
+                    in_reshaped is not None
+                ), f"""Could not infer shape for tensor {n.input[0]}.
+                    Please run InferShapes first"""
+                assert (
+                    out_reshaped is not None
+                ), f"""Could not infer shape for tensor {new_out_tensor}.
+                    Please run InferShapes first"""
+
+                idt = model.get_tensor_datatype(new_in_tensor)
+                odt = model.get_tensor_datatype(new_out_tensor)
+
+                # Some sanity checks for the transformation
+                if idt != odt:
+                    raise RuntimeError(
+                        """
+                    Input datatype and output datatype of the shuffle must be the same,
+                    did something go wrong during transformation?
+                    """
+                    )
+
+                if len(perm.ints) != len(in_reshaped):
+                    raise RuntimeError(
+                        f"""
+                    Permutation list {perm.ints=} does not match the reshaped input dimension
+                    {in_reshaped=}
+                    """
+                    )
+
+                if len(perm.ints) != len(out_shape):
+                    raise RuntimeError(
+                        f"""
+                    Permutation list {perm.ints=} does not match the reshaped out dimension
+                    {out_reshaped=}
+                    """
+                    )
+
+                simd = 1
+
+                new_node = helper.make_node(
+                    "Shuffle",
+                    [new_in_tensor],
+                    [new_out_tensor],
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    in_shape=in_shape,
+                    transpose_in_shape=in_reshaped,
+                    out_shape=out_reshaped,
+                    transpose_out_shape=out_shape,
+                    data_type=idt.name,
+                    name=f"Shuffle_{n.name}",
+                    SIMD=simd,
+                    NumChannels=in_reshaped[-1],
+                )
+                new_node.attribute.extend([perm])
+                graph.node.insert(node_ind, new_node)
+
+                for i in to_remove:
+                    graph.node.remove(i)
+                graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+
+        return (model, graph_modified)
+
+
+# Lifts scalar to rank-1 tensor
+def lift_to_rank1(name: str, model: ModelWrapper):
+    # Scalars have a shape of lengths zero
+    if len(model.get_tensor_shape(name)) == 0:
+        # Lift shape to rank-1 tensor with single element
+        model.set_tensor_shape(name, [1])
+        # Check whether this tensor has an initializer
+        if (tensor := model.get_initializer(name)) is not None:
+            # Set new initializer tensor of shape [1]
+            model.set_initializer(name, tensor.reshape(1))
+
+
+# Converts supported elementwise binary operations to their FINN custom
+# operation
+class InferElementwiseBinaryOperation(Transformation):
+    # Filter function to filter out the last elementwise Mul operation,
+    # typically corresponding to output de-quantization, which should happen
+    # off-chip
+    @staticmethod
+    def reject_output_dequant(model: ModelWrapper, node: NodeProto):
+        # The operator must be a Mul and have no successor nodes
+        if node.op_type == "Mul" and not model.find_direct_successors(node):
+            # If the output is a floating-point tensors, reject this
+            if model.get_tensor_datatype(node.output[0]) == "FLOAT32":
+                # Filter False rejects this node
+                return False
+        # Filter True accepts this node
+        return True
+
+    # Initializes the transformation method with an optional filter function
+    def __init__(self, _filter=None):
+        # Initialize the base class Transformation object
+        super().__init__()
+        # Register the filter function as attribute
+        self._filter = _filter if _filter is not None else lambda *_: True
+
+    # Applies the transform to a whole model graph
+    def apply(self, model: ModelWrapper):  # noqa
+        # Get the model graph out of the model wrapper object
+        graph = model.graph
+        # Keep track of whether the graph has been modified
+        graph_modified = False
+        # Iterate all nodes in the graph keeping track of the index
+        for index, node in enumerate(graph.node):
+            # Skip transforming nodes rejected by the filter
+            if not self._filter(model, node):
+                continue
+            # If a custom operation with corresponding name is implemented in
+            # the module, this operator is supported for conversion
+            if f"Elementwise{node.op_type}" in dir(elementwise_binary):
+                in0 = node.input[0]
+                in1 = node.input[1]
+                # if both inputs are constant, throw an error and
+                # ask user to run FoldConstants transform first
+                assert (
+                    model.get_initializer(in0) is None or model.get_initializer(in1) is None
+                ), """Both inputs are constant,
+                    please run FoldConstants from qonnx.transformation.fold_constants first."""
+                if model.get_initializer(in0) is None:
+                    lhs_style = "input"
+                else:
+                    lhs_style = "const"
+                if model.get_initializer(in1) is None:
+                    rhs_style = "input"
+                else:
+                    rhs_style = "const"
+                result = node.output[0]
+
+                # Need to "lift" potential scalar inputs to rank-1 tensors
+                lift_to_rank1(in0, model)
+                lift_to_rank1(in1, model)
+
+                in0_shape = model.get_tensor_shape(in0)
+                in1_shape = model.get_tensor_shape(in1)
+                out_shape = model.get_tensor_shape(result)
+
+                idt0 = model.get_tensor_datatype(in0)
+                idt1 = model.get_tensor_datatype(in1)
+                odt0 = model.get_tensor_datatype(result)
+
+                # For constant inputs with FLOAT32 type, check if values are
+                # actually integers and infer the smallest FINN datatype.
+                if lhs_style == "const":
+                    lhs_init = model.get_initializer(in0)
+                    if (
+                        idt0 == DataType["FLOAT32"]
+                        and (lhs_init == lhs_init.astype(np.int64)).all()
+                    ):
+                        # Values are integers, find smallest datatype
+                        _min, _max = lhs_init.min(), lhs_init.max()
+                        _mag = _max if _min >= 0 else _min if (abs(_min) > _max) else (-_max - 1)
+                        idt0 = DataType.get_smallest_possible(_mag)
+                        model.set_tensor_datatype(in0, idt0)
+
+                if rhs_style == "const":
+                    rhs_init = model.get_initializer(in1)
+                    if (
+                        idt1 == DataType["FLOAT32"]
+                        and (rhs_init == rhs_init.astype(np.int64)).all()
+                    ):
+                        # Values are integers, find smallest datatype
+                        _min, _max = rhs_init.min(), rhs_init.max()
+                        _mag = _max if _min >= 0 else _min if (abs(_min) > _max) else (-_max - 1)
+                        idt1 = DataType.get_smallest_possible(_mag)
+                        model.set_tensor_datatype(in1, idt1)
+
+                # If both inputs are integers, set output to INT32 as default.
+                # MinimizeAccumulatorWidth will optimize this later.
+                if idt0.is_integer() and idt1.is_integer():
+                    odt0 = DataType["INT32"]
+                    model.set_tensor_datatype(result, odt0)
+
+                # Determine the operation type - check for Sub->Abs pattern (AbsDiff)
+                op_type = node.op_type
+                nodes_to_remove = [node]
+                if node.op_type == "Sub":
+                    # Look for a downstream Abs node to fuse into AbsDiff
+                    res_consumer = model.find_consumer(result)
+                    if (res_consumer is not None) and (res_consumer.op_type == "Abs"):
+                        op_type = "AbsDiff"
+                        result = res_consumer.output[0]
+                        out_shape = model.get_tensor_shape(result)
+                        # Update output datatype - AbsDiff result is unsigned
+                        if idt0.is_integer() and idt1.is_integer():
+                            odt0 = DataType["UINT32"]
+                            model.set_tensor_datatype(result, odt0)
+                        nodes_to_remove.append(res_consumer)
+
+                new_node = helper.make_node(
+                    f"Elementwise{op_type}",
+                    [in0, in1],
+                    [result],
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    lhs_shape=in0_shape,
+                    rhs_shape=in1_shape,
+                    out_shape=out_shape,
+                    lhs_dtype=str(idt0),
+                    rhs_dtype=str(idt1),
+                    out_dtype=str(odt0),
+                    lhs_style=lhs_style,
+                    rhs_style=rhs_style,
+                )
+                graph.node.insert(index + 1, new_node)
+                for n in nodes_to_remove:
+                    graph.node.remove(n)
+
+                # Consider the graph to be modified, triggering exhaustive
+                # re-application of this transformation
+                graph_modified = True
+                # Exiting here triggers type and shape inference and cleanup
+                # after each transformed node. This helps QONNX to behave
+                # better / more consistent in certain cases...
+                break
+        # Re-do shape and data type annotations after potential changes to the
+        # model graph
+        model = model.transform(InferShapes())
+        model = model.transform(InferDataTypes())
+        # Return the transformed model and indicate whether the graph actually
+        # has been transformed
+        return model, graph_modified
+
+
+# Converts ReLU into ElementwiseMaximum(in, 0)
+class InferReLUAsElementwiseMax(Transformation):
+    # Filter function to filter out any operation involving any floating-point
+    # tensor
+    @staticmethod
+    def reject_unsupported_dtypes(model: ModelWrapper, node: NodeProto):
+        def dtype_ok(tname):
+            dt = model.get_tensor_datatype(tname)
+            if dt is None:
+                return False
+            if (
+                dt.is_integer()
+                or dt.is_fixed_point()
+                or dt in [DataType["FLOAT32"], DataType["FLOAT16"]]
+            ):
+                return True
+            else:
+                return False
+
+        return all([dtype_ok(tname) for tname in list(node.input) + list(node.output)])
+
+    # Initializes the transformation method with an optional filter function
+    def __init__(self, _filter=reject_unsupported_dtypes):
+        # Initialize the base class Transformation object
+        super().__init__()
+        # Register the filter function as attribute
+        self._filter = _filter if _filter is not None else lambda *_: True
+
+    # Applies the transform to a whole model graph
+    def apply(self, model: ModelWrapper):  # noqa
+        # Get the model graph out of the model wrapper object
+        graph = model.graph
+        # Keep track of whether the graph has been modified
+        graph_modified = False
+        # Iterate all nodes in the graph keeping track of the index
+        for index, node in enumerate(graph.node):
+            # Skip transforming nodes rejected by the filter
+            if not self._filter(model, node):
+                continue
+            if node.op_type == "Relu":
+                inp = node.input[0]
+                # add a second 0-valued input for ReLU
+                new_tname = model.make_new_valueinfo_name()
+                model.set_initializer(new_tname, np.asarray(0.0, dtype=np.float32))
+                # comparison of fp16 and uint2 is not possible in HLS
+                new_tdtype = (
+                    "FLOAT16"
+                    if model.get_tensor_datatype(inp).get_canonical_name() == "FLOAT16"
+                    else "UINT2"
+                )
+                # for the constant 0 input, use a small-width datatype
+                # (to avoid unnecessarily promoting output type to something larger)
+                model.set_tensor_datatype(new_tname, DataType[new_tdtype])
+                result = node.output[0]
+
+                # Need to "lift" potential scalar inputs to rank-1 tensors
+                lift_to_rank1(inp, model)
+                lift_to_rank1(new_tname, model)
+
+                new_node = helper.make_node(
+                    "ElementwiseMax",
+                    [inp, new_tname],
+                    [result],
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    lhs_shape=model.get_tensor_shape(inp),
+                    rhs_shape=model.get_tensor_shape(new_tname),
+                    out_shape=model.get_tensor_shape(result),
+                    lhs_dtype=str(model.get_tensor_datatype(inp)),
+                    rhs_dtype=str(model.get_tensor_datatype(new_tname)),
+                    out_dtype=str(model.get_tensor_datatype(result)),
+                )
+                graph.node.insert(index + 1, new_node)
+                graph.node.remove(node)
+
+                # Consider the graph to be modified, triggering exhaustive
+                # re-application of this transformation
+                graph_modified = True
+                # Exiting here triggers type and shape inference and cleanup
+                # after each transformed node. This helps QONNX to behave
+                # better / more consistent in certain cases...
+                break
+        # Re-do shape and data type annotations after potential changes to the
+        # model graph
+        model = model.transform(InferShapes())
+        model = model.transform(InferDataTypes())
+        # Return the transformed model and indicate whether the graph actually
+        # has been transformed
+        return model, graph_modified
+
+
+class InferLayerNorm(Transformation):
+    """Convert LayerNorm into HW, only norming over channel dim.
+    This transform is adapted from Brainsmith InferLayerNorm."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type == "LayerNormalization":
+                scale = model.get_initializer(node.input[1])
+                if len(node.input) > 2:
+                    bias = model.get_initializer(node.input[2])
+                else:
+                    bias = None
+                scale_is_one = (scale == 1).all()
+                bias_is_zero = not np.any(bias)
+                if not (scale_is_one and (bias_is_zero or bias is not None)):
+                    warnings.warn(
+                        f"""{node.name}: Scale is not one or bias is not zero.
+                        Can't be converted to HWCustomOp. Please run ExtractNormScaleBias first."""
+                    )
+                    continue
+                act_in = node.input[0]
+                act_out = node.output[0]
+                # Get any shape info that needs reuse
+                shape_in = model.get_tensor_shape(act_in)
+                # Get datatypes
+                idt = model.get_tensor_datatype(act_in)
+                odt = model.get_tensor_datatype(act_out)
+
+                norm_axis = helper.get_node_attr_value(node, "axis")
+                if model.get_tensor_layout(act_in) == DataLayout.NCHW:
+                    act_in = nchw_to_nhwc(act_in, model, node_ind)
+                    node_ind += 1
+                    shape_in = model.get_tensor_shape(act_in)
+                    # shift axis for norm appropriately
+                    norm_axis = (norm_axis + 2) % 4
+                ch = shape_in[-1]
+
+                # keep track of where we need to insert the HW Op
+                # it has to be ahead of the output transform
+                insert_point = node_ind
+                if model.get_tensor_layout(act_out) == DataLayout.NCHW:
+                    act_out = nchw_to_nhwc(act_out, model, node_ind, reverse=True)
+                    node_ind += 1
+
+                # Check if 1D, norming on channel axis
+                if not (norm_axis == -1 or norm_axis == len(shape_in) - 1):
+                    continue
+
+                # create node with no parallelization first
+                simd = 1
+                assert ch % simd == 0, "Requirement IFC divisable by PE is violated."
+                # create and insert nodes
+                new_node = helper.make_node(
+                    "LayerNorm",
+                    [act_in],
+                    [act_out],
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    SIMD=simd,
+                    ifm_dim=shape_in,
+                    epsilon=helper.get_node_attr_value(node, "epsilon"),
+                    inputDataType=idt.name,
+                    outputDataType=odt.name,
+                    name="LayerNorm_" + node.name,
+                )
+                graph.node.insert(insert_point, new_node)
+                # remove old node
+                graph.node.remove(node)
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+def elements_are_consecutive(indices):
+    if indices.size == 1:
+        return True
+    else:
+        return np.all(np.diff(np.sort(indices)) == 1)
+
+
+class InferSelectTokenLayer(Transformation):
+    """Convert a scalar Gather on the token axis into SelectToken."""
+
+    def apply(self, model):
+        graph = model.graph
+        graph_modified = False
+        for node_ind, node in enumerate(list(graph.node)):
+            if node.op_type != "Gather" or len(node.input) != 2:
+                continue
+            axis_attr = get_by_name(node.attribute, "axis")
+            axis = axis_attr.i if axis_attr is not None else 0
+            seq_shape = model.get_tensor_shape(node.input[0])
+            if seq_shape is None or len(seq_shape) != 3:
+                continue
+            if axis < 0:
+                axis += len(seq_shape)
+            if axis != 1 or seq_shape[0] != 1:
+                continue
+
+            indices = model.get_initializer(node.input[1])
+            if indices is None or indices.ndim != 0 or not np.issubdtype(indices.dtype, np.integer):
+                continue
+            token_index = int(indices.item())
+            num_tokens = int(seq_shape[1])
+            if not -num_tokens <= token_index < num_tokens:
+                continue
+
+            idt = model.get_tensor_datatype(node.input[0])
+            odt = model.get_tensor_datatype(node.output[0])
+            if idt is None or (odt is not None and odt != idt):
+                continue
+            new_node = helper.make_node(
+                "SelectToken",
+                [node.input[0]],
+                node.output,
+                domain="finn.custom_op.fpgadataflow",
+                backend="fpgadataflow",
+                name="SelectToken_" + node.name,
+                NumTokens=num_tokens,
+                NumChannels=int(seq_shape[2]),
+                TokenIndex=token_index,
+                SIMD=1,
+                inputDataType=idt.name,
+                outputDataType=idt.name,
+            )
+            graph.node.insert(node_ind, new_node)
+            graph.node.remove(node)
+            graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferCrop(Transformation):
+    """
+    Find gather layers that can be converted into a Crop layer
+    and replace them with a Crop layer
+    """
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            node_ind += 1
+            if n.op_type == "Gather":
+                # ensure that the indices input is an initializer
+                if model.get_initializer(n.input[1]) is None:
+                    continue
+
+                # ensure that the axis is among the two innermost dimensions
+                input_shape = model.get_tensor_shape(n.input[0])
+                assert (
+                    len(input_shape) > 1
+                ), "Input shape needs to be at least 2D to be converted to Crop."
+
+                max_index = len(input_shape) - 1
+                axis = get_by_name(n.attribute, "axis").i
+                if len(input_shape) >= 3:
+                    assert axis in [
+                        max_index - 1,
+                        max_index - 2,
+                    ], "Crop Operates on height and width of the input, assuming (N)HWC layout."
+                else:
+                    assert (
+                        axis == max_index - 1
+                    ), "Crop Operates on width of the input, for 2D input assuming WC layout."
+                is_vertical = axis == max_index  # otherwise horizontal
+                assert is_vertical is False, "This operator does not current support vertical crops"
+
+                # assume that the indices input is an int64 scalar or array
+                indices = model.get_initializer(n.input[1])
+                assert indices.dtype == np.int64, "Indices must be int64"
+                # Handle both scalar (0-d) and array cases
+                if indices.ndim == 0:
+                    # Single scalar index - always consecutive
+                    indices_to_check = np.array([indices.item()])
+                else:
+                    indices_to_check = indices
+                assert elements_are_consecutive(indices_to_check), "Indices must be consecutive"
+
+                idt0 = model.get_tensor_datatype(n.input[0])
+
+                crop_north = 0
+                crop_east = 0
+                crop_west = 0
+                crop_south = 0
+                num_inp_vec = [0]
+
+                if len(input_shape) >= 3:
+                    height_ind = len(input_shape) - 3
+                    width_ind = len(input_shape) - 2
+                    channels_ind = len(input_shape) - 1
+
+                    height = input_shape[height_ind]
+                    width = input_shape[width_ind]
+                    channels = input_shape[channels_ind]
+                    # save other dimensions in numInpVectors
+                    if len(input_shape) > 3:
+                        num_inp_vec = list(input_shape[:height_ind])
+
+                    crop_min = int(np.min(indices_to_check))
+                    crop_max = input_shape[axis] - int(np.max(indices_to_check)) - 1
+
+                    if axis == height_ind:
+                        crop_north = crop_min
+                        crop_south = crop_max
+                    elif axis == width_ind:
+                        crop_west = crop_min
+                        crop_east = crop_max
+
+                elif len(input_shape) == 2:
+                    # if there are only two dimensions, assume
+                    height = 0
+                    width_ind = len(input_shape) - 2
+                    channels_ind = len(input_shape) - 1
+                    width = input_shape[width_ind]
+                    channels = input_shape[channels_ind]
+
+                    # axis is on width dimension
+                    crop_west = int(np.min(indices_to_check))
+                    crop_east = input_shape[axis] - int(np.max(indices_to_check)) - 1
+
+                # create and insert new node
+                new_node = helper.make_node(
+                    "Crop",
+                    [n.input[0]],  # input tensor(s)
+                    [n.output[0]],  # output tensor(s)
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    DataType=idt0.name,
+                    name="Crop" + n.name,
+                    SIMD=1,
+                    ImgDim=[height, width],
+                    NumChannels=channels,
+                    CropNorth=crop_north,
+                    CropEast=crop_east,
+                    CropWest=crop_west,
+                    CropSouth=crop_south,
+                    numInputVectors=num_inp_vec,
+                    cpp_interface="hls_vector",
+                    hls_style="freerunning",
+                )
+                graph.node.insert(node_ind, new_node)
+                graph.node.remove(n)
+                graph_modified = True
+
         if graph_modified:
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())

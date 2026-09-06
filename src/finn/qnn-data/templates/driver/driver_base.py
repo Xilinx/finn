@@ -54,7 +54,7 @@ class FINNExampleOverlay(Overlay):
         fclk_mhz=100.0,
         device=None,
         download=True,
-        runtime_weight_dir="runtime_weights/",
+        weight_dir="weights/",
     ):
         """Initialize the FINN accelerator.
 
@@ -63,7 +63,7 @@ class FINNExampleOverlay(Overlay):
         bitfile_name: str
             Path to accelerator .bit/.xclbin file
         platform: str
-            FINN platform type, either "alveo" or "zynq-iodma"
+            FINN platform type, either "vitis-xrt" or "zynq-iodma"
         io_shape_dict: dict
             Dictionary with particulars of the generated accelerator
         batch_size: int
@@ -74,11 +74,15 @@ class FINNExampleOverlay(Overlay):
             Which PYNQ device to use, None for default.
         download: bool
             Whether to flash the bitstream.
-        runtime_weight_dir: str
-            Path to runtime weights folder.
+        weight_dir: str
+            Path to the weights folder. Per-class weights live in subfolders
+            underneath it: runtime_weights/ (external + runtime weights) and
+            mlo_weights/. Each is loaded only if its subfolder/config is present.
         """
         super().__init__(bitfile_name, download=download, device=device)
-        self.runtime_weight_dir = runtime_weight_dir
+        self.weight_dir = weight_dir
+        self.runtime_weight_dir = os.path.join(weight_dir, "runtime_weights")
+        self.mlo_weight_dir = os.path.join(weight_dir, "mlo_weights")
         self._io_shape_dict = io_shape_dict
         self.ibuf_packed_device = None
         self.obuf_packed_device = None
@@ -96,19 +100,20 @@ class FINNExampleOverlay(Overlay):
         if "output_dma_name" in io_shape_dict.keys():
             for odma_name in io_shape_dict["output_dma_name"]:
                 self.odma.append(getattr(self, odma_name))
-                if self.platform == "alveo":
+                if self.platform == "vitis-xrt":
                     self.odma_handle.append(None)
         else:
             self.odma = [self.odma0]
-            if self.platform == "alveo":
+            if self.platform == "vitis-xrt":
                 self.odma_handle.append(None)
         if self.platform == "zynq-iodma":
             # set the clock frequency as specified by user during transformations
             if self.fclk_mhz > 0:
                 Clocks.fclk0_mhz = self.fclk_mhz
-        # load any external + runtime weights
+        # load any external + runtime weights + MLO (DDR)
         self.load_external_weights()
         self.load_runtime_weights()
+        self.load_mlo_weights()
 
     def load_external_weights(self):
         """Load any existing external (DRAM) weights from the specified dir into the
@@ -136,16 +141,21 @@ class FINNExampleOverlay(Overlay):
             idma_name = w_filename.split(".")[0]
             tmp_weight_dict[idma_name] = weight_tensor
 
-        for idma_name in tmp_weight_dict.keys():
+        for idma_name, weight_tensor in tmp_weight_dict.items():
             if idma_name in self.ip_dict.keys():
                 iwdma = getattr(self, idma_name)
-                weight_tensor = tmp_weight_dict[idma_name]
                 weight_buf = allocate(weight_tensor.shape, dtype=np.uint8)
                 weight_buf[:] = weight_tensor
                 # weight_buf.sync_to_device()
                 weight_buf.flush()
 
-                self.external_weights += [(iwdma, weight_buf, idma_name)]
+                input_shape = self._io_shape_dict["external_weights_input_shapes"][idma_name]
+                # NHWC input?
+                if len(input_shape) == 4:
+                    num_repeats = input_shape[1] * input_shape[2]
+                else:
+                    num_repeats = 1
+                self.external_weights += [(iwdma, weight_buf, idma_name, num_repeats)]
 
         if "number_of_external_weights" in self._io_shape_dict:
             hw_ext_weights = self._io_shape_dict["number_of_external_weights"]
@@ -154,6 +164,43 @@ class FINNExampleOverlay(Overlay):
                 + "weight tensors available do not match. \n"
                 + "Is runtime_weight_dir pointing to the correct folder?"
             )
+
+    def load_mlo_weights(self):
+        """Load DDR weights for MLO/FINNLoop accelerators."""
+        self.mlo_weight_buffer = None
+        mlo_cfg = self._io_shape_dict.get("mlo_weight_config")
+        if not mlo_cfg:
+            return
+        total_size = mlo_cfg["total_size_bytes"]
+        # allocate one big contiguous buffer for all MLO weights
+        weight_buf = allocate(shape=(total_size,), dtype=np.uint8)
+        weight_buf[:] = 0
+        for entry in mlo_cfg["weights"]:
+            dat_path = os.path.join(self.mlo_weight_dir, entry["dat_file"])
+            with open(dat_path, "r") as f:
+                dat = f.read()
+            raw = bytearray()
+            for tok in dat.split():
+                if len(tok) % 2:
+                    tok = "0" + tok
+                raw += bytes.fromhex(tok)[::-1]
+            layer_bytes = np.frombuffer(bytes(raw), dtype=np.uint8)
+            offset = entry["address_offset"]
+            assert offset + layer_bytes.shape[0] <= total_size, (
+                "MLO weight %s does not fit in the allocated DDR buffer" % entry["dat_file"]
+            )
+            weight_buf[offset : offset + layer_bytes.shape[0]] = layer_bytes
+        weight_buf.flush()
+        self.mlo_weight_buffer = weight_buf
+
+        # write buffer physical DDR address
+        phys_addr = int(weight_buf.device_address)
+        for ip_name in mlo_cfg.get("address_config_ips", []):
+            if ip_name not in self.ip_dict.keys():
+                continue
+            address_config = getattr(self, ip_name)
+            address_config.write(0x0, phys_addr & 0xFFFFFFFF)
+            address_config.write(0x4, (phys_addr >> 32) & 0xFFFFFFFF)
 
     def load_runtime_weights(self, flush_accel=True, verify=True):
         """Load any existing runtime-writable weights from the specified dir into the
@@ -186,14 +233,13 @@ class FINNExampleOverlay(Overlay):
             sdp_ind = int(w_filename.split("_")[0])
             layer_ind = int(w_filename.split("_")[1])
             rt_weight_dict[(sdp_ind, layer_ind)] = layer_w
-        for sdp_ind, layer_ind in rt_weight_dict.keys():
+        for (sdp_ind, layer_ind), layer_w in rt_weight_dict.items():
             cand_if_name = "StreamingDataflowPartition_%d" % sdp_ind
             if cand_if_name in self.ip_dict.keys():
                 layer_mmio = getattr(self, "StreamingDataflowPartition_%d" % sdp_ind).mmio
-                layer_w = rt_weight_dict[(sdp_ind, layer_ind)]
                 layer_mmio.write_mm(0, layer_w.tobytes())
                 if verify:
-                    if self.platform == "alveo":
+                    if self.platform == "vitis-xrt":
                         # Pynq for Alveo uses tinynumpy under the hood. There is a bug when going
                         # from a tinynumpy.ndarray to numpy.ndarray. To work around this, we first
                         # convert the tinynumpy.ndarray to a list and then copy the list to a
@@ -267,7 +313,7 @@ class FINNExampleOverlay(Overlay):
             self.ibuf_packed_device = None
         if self.obuf_packed_device is not None:
             self.obuf_packed_device = None
-        cacheable = {"alveo": False, "zynq-iodma": True}[self.platform]
+        cacheable = {"vitis-xrt": False, "zynq-iodma": True}[self.platform]
         self.ibuf_packed_device = []
         self.obuf_packed_device = []
         self.obuf_packed = []
@@ -297,11 +343,7 @@ class FINNExampleOverlay(Overlay):
         """Packs folded input and reverses both SIMD dim and endianness.
         Gets input data in folded shape and returns packed input data."""
         ibuf_packed = finnpy_to_packed_bytearray(
-            ibuf_folded,
-            self.idt(ind),
-            reverse_endian=True,
-            reverse_inner=True,
-            fast_mode=True,
+            ibuf_folded, self.idt(ind), reverse_endian=True, reverse_inner=True
         )
         return ibuf_packed
 
@@ -314,7 +356,6 @@ class FINNExampleOverlay(Overlay):
             self.oshape_folded(ind),
             reverse_endian=True,
             reverse_inner=True,
-            fast_mode=True,
         )
         return obuf_folded
 
@@ -351,25 +392,32 @@ class FINNExampleOverlay(Overlay):
             for o in range(self.num_outputs):
                 assert self.odma[o].read(0x00) & 0x4 != 0, "Output DMA %d is not idle" % (o)
             # manually launch IODMAs since signatures are missing
-            for iwdma, iwbuf, iwdma_name in self.external_weights:
-                iwdma.write(0x10, iwbuf.device_address)
-                iwdma.write(0x1C, batch_size)
+            for iwdma, iwbuf, iwdma_name, num_repeats in self.external_weights:
+                iwdma.write(0x10, iwbuf.device_address & 0xFFFFFFFF)
+                iwdma.write(0x14, (iwbuf.device_address >> 32) & 0xFFFFFFFF)
+                iwdma.write(0x1C, batch_size * num_repeats)
                 iwdma.write(0x00, 1)
             for o in range(self.num_outputs):
-                self.odma[o].write(0x10, self.obuf_packed_device[o].device_address)
+                self.odma[o].write(0x10, self.obuf_packed_device[o].device_address & 0xFFFFFFFF)
+                self.odma[o].write(
+                    0x14, (self.obuf_packed_device[o].device_address >> 32) & 0xFFFFFFFF
+                )
                 self.odma[o].write(0x1C, batch_size)
                 self.odma[o].write(0x00, 1)
             for i in range(self.num_inputs):
-                self.idma[i].write(0x10, self.ibuf_packed_device[i].device_address)
+                self.idma[i].write(0x10, self.ibuf_packed_device[i].device_address & 0xFFFFFFFF)
+                self.idma[i].write(
+                    0x14, (self.ibuf_packed_device[i].device_address >> 32) & 0xFFFFFFFF
+                )
                 self.idma[i].write(0x1C, batch_size)
                 self.idma[i].write(0x00, 1)
-        elif self.platform == "alveo":
+        elif self.platform == "vitis-xrt":
             for o in range(self.num_outputs):
                 assert self.odma_handle[o] is None, "Output DMA %d is already running" % o
             for i in range(self.num_inputs):
                 self.idma[i].start(self.ibuf_packed_device[i], batch_size)
-            for iwdma, iwbuf, iwdma_name in self.external_weights:
-                iwdma.start(iwbuf, batch_size)
+            for iwdma, iwbuf, iwdma_name, num_repeats in self.external_weights:
+                iwdma.start(iwbuf, batch_size * num_repeats)
             for o in range(self.num_outputs):
                 self.odma_handle[o] = self.odma[o].start(self.obuf_packed_device[o], batch_size)
         else:
@@ -386,7 +434,7 @@ class FINNExampleOverlay(Overlay):
                 status = self.odma[o].read(0x00)
                 while status & 0x2 == 0:
                     status = self.odma[o].read(0x00)
-        elif self.platform == "alveo":
+        elif self.platform == "vitis-xrt":
             assert all([x is not None for x in self.odma_handle]), "No odma_handle to wait on"
             for o in range(self.num_outputs):
                 self.odma_handle[o].wait()
@@ -399,7 +447,7 @@ class FINNExampleOverlay(Overlay):
         packing and copying to device buffers, execute on accelerator, then unpack
         output and return output numpy array from accelerator."""
         # if single input, convert to list to normalize how we process the input
-        if not type(input_npy) is list:
+        if type(input_npy) is not list:
             input_npy = [input_npy]
         assert self.num_inputs == len(input_npy), "Not all accelerator inputs are specified."
         for i in range(self.num_inputs):
@@ -437,13 +485,13 @@ class FINNExampleOverlay(Overlay):
         for o in range(self.num_outputs):
             total_out += np.prod(self.oshape_packed(o))
         res["DRAM_out_bandwidth[MB/s]"] = total_out * 0.000001 / runtime
-        for iwdma, iwbuf, iwdma_name in self.external_weights:
+        for iwdma, iwbuf, iwdma_name, num_repeats in self.external_weights:
             res["DRAM_extw_%s_bandwidth[MB/s]" % iwdma_name] = (
-                self.batch_size * np.prod(iwbuf.shape) * 0.000001 / runtime
+                self.batch_size * np.prod(iwbuf.shape) * num_repeats * 0.000001 / runtime
             )
         if self.platform == "zynq-iodma":
             res["fclk[mhz]"] = Clocks.fclk0_mhz
-        elif self.platform == "alveo":
+        elif self.platform == "vitis-xrt":
             res["fclk[mhz]"] = self.clock_dict["clock0"]["frequency"]
         res["batch_size"] = self.batch_size
         # also benchmark driver-related overheads

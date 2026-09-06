@@ -36,7 +36,6 @@ module vvu_axi_tb();
 //-------------------- Simulation parameters --------------------\\
 	// Matrix & parallelism config
 	localparam bit IS_MVU = 0;
-	localparam string COMPUTE_CORE = "mvu_vvu_8sx9_dsp58";
 	localparam int unsigned MW = 25; // Kernel*Kernel
 	localparam int unsigned MH = 4; // Channels
 	localparam int unsigned SIMD = 1; // MW%SIMD == 0
@@ -204,7 +203,7 @@ module vvu_axi_tb();
 	// Instantiate DUT
 	mvu_vvu_axi #(
 		.IS_MVU(IS_MVU),
-		.COMPUTE_CORE(COMPUTE_CORE),
+		.VERSION(3),
 		.MW(MW),
 		.MH(MH),
 		.PE(PE),

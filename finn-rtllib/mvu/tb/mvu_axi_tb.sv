@@ -2,254 +2,224 @@
  * Copyright (C) 2024, Advanced Micro Devices, Inc.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
+ * SPDX-License-Identifier: BSD-3-Clause
  *
- *  1. Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *
- *  2. Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *
- *  3. Neither the name of the copyright holder nor the names of its
- *     contributors may be used to endorse or promote products derived from
- *     this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
- * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
- * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION). HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
- * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * @brief	Testbench for MVU AXI wrapper module.
+ * @brief	Testbench for DOTP AXI wrapper module.
  *****************************************************************************/
 
-module mvu_axi_tb();
+module mvu_axi_tb;
 
-//-------------------- Simulation parameters --------------------\\
-	// Matrix & parallelism config
-	localparam bit IS_MVU = 1;
-	localparam string COMPUTE_CORE = "mvu_4sx4u";
-	localparam int unsigned MW = 96;
-	localparam int unsigned MH = 32;
-	localparam int unsigned SIMD = 48;
-	localparam int unsigned PE = 16;
-	localparam int unsigned SEGMENTLEN = 2;
-	localparam bit FORCE_BEHAVIORAL = 0;
-	localparam bit M_REG_LUT = 1;
-	// Bit-width config
-	localparam int unsigned ACTIVATION_WIDTH = 4;
-	localparam int unsigned WEIGHT_WIDTH = 4;
-	localparam int unsigned ACCU_WIDTH = ACTIVATION_WIDTH+WEIGHT_WIDTH+$clog2(MW);
-	localparam bit SIGNED_ACTIVATIONS = 1;
-	// Simulation constants
-	localparam int unsigned NF = MH/PE;
-	localparam int unsigned SF = MW/SIMD;
-	localparam int unsigned WEIGHT_WIDTH_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8*8;
-	localparam int unsigned ACTIVATION_WIDTH_BA = (SIMD*ACTIVATION_WIDTH+7)/8*8;
-	localparam int unsigned WEIGHT_WIDTH_BA_DELTA = WEIGHT_WIDTH_BA - PE*SIMD*WEIGHT_WIDTH;
-	localparam int unsigned ACTIVATION_WIDTH_BA_DELTA = ACTIVATION_WIDTH_BA - SIMD*ACTIVATION_WIDTH;
-	localparam int unsigned OUTPUT_STREAM_WIDTH_BA = (PE*ACCU_WIDTH + 7)/8 * 8;
+	// Test Configurations
+	localparam bit  FORCE_BEHAVIORAL = 0;
+	localparam int unsigned  ROUNDS = 17;
 
-	// Generate clk and reset signal
-	logic clk = 0;
+	typedef struct {
+		int unsigned  version;
+		int unsigned  mh;
+		int unsigned  mw;
+		int unsigned  pe;
+		int unsigned  simd;
+		int unsigned  weight_width;
+		int unsigned  activation_width;
+		int unsigned  accu_width;
+		bit  signed_activations;
+		bit  narrow_weights;
+	} cfg_t;
+	localparam int unsigned  TEST_COUNT = 9;
+	localparam cfg_t  TESTS[TEST_COUNT] = '{
+		'{ 1, 68, 48,  4,  3,  4,  4, 16, 0, 1 },
+		'{ 1, 56, 45,  7,  5,  4,  3, 15, 1, 0 },
+		'{ 1, 42, 52,  6,  4,  3,  5,  8, 0, 0 },
+		'{ 2, 62, 22,  2,  2, 15, 10, 40, 1, 0 },
+		'{ 2, 48, 28,  8,  4,  4,  4, 18, 0, 0 },
+		'{ 3, 57, 34,  3,  2,  2,  4, 17, 1, 1 },
+		'{ 3, 70, 40, 10,  5,  2,  2, 17, 1, 1 },
+		'{ 3, 36, 37,  3,  1,  2, 20, 25, 0, 1 },
+		'{ 3, 30, 40,  2, 10,  7,  8, 23, 0, 0 }
+	};
+
+	//-----------------------------------------------------------------------
+	// Global Control
+	logic  clk = 0;
 	always #5ns clk = !clk;
-
-	logic ap_rst_n = 0;
+	logic  rst = 1;
 	initial begin
 		repeat(16) @(posedge clk);
-		ap_rst_n <= 1;
+		rst <= 0;
 	end
 
-	uwire ap_clk = clk;
-
-	// Generate shared Activations
-	typedef logic [SIMD-1:0][ACTIVATION_WIDTH-1:0] activation_t;
-	typedef activation_t activation_vector_t[SF];
-
-	function activation_vector_t init_ACTIVATIONS;
-		automatic activation_vector_t res;
-		std::randomize(res);
-		return res;
-	endfunction : init_ACTIVATIONS
-
-	activation_vector_t ACTIVATIONS = init_ACTIVATIONS();
-
-	// Run parallel instances across DSP versions and NARROW_WEIGHTS
-	bit [2:1][1:0]  done = { 2: 2'b00, 1: 2'b01 }; // [ver][narrow]
+	bit [TEST_COUNT-1:0]  done = '0;
 	always_comb begin
-		if(&done) begin
-			$display("Test completed.");
-			$finish;
-		end
+		if(&done)  $finish;
 	end
 
-	for(genvar  ver = 1; ver <= 2; ver++) begin : genVersion
-		for(genvar  narrow = (ver == 1); narrow <= 1; narrow++) begin : genNarrowWide
+	//-----------------------------------------------------------------------
+	// Parallel Test Instantiation
+	for(genvar  t = 0; t < TEST_COUNT; t++) begin : genTests
+		localparam cfg_t  CFG = TESTS[t];
+		localparam int unsigned  MH   = CFG.mh;
+		localparam int unsigned  MW   = CFG.mw;
+		localparam int unsigned  PE   = CFG.pe;
+		localparam int unsigned  SIMD = CFG.simd;
+		localparam int unsigned  WEIGHT_WIDTH     = CFG.weight_width;
+		localparam int unsigned  ACTIVATION_WIDTH = CFG.activation_width;
+		localparam int unsigned  ACCU_WIDTH       = CFG.accu_width;
+		typedef logic signed [WEIGHT_WIDTH    -1:0]  weight_t;
+		typedef logic        [ACTIVATION_WIDTH-1:0]  activation_t;
+		typedef logic signed [ACCU_WIDTH      -1:0]  accu_t;
 
-		// Activations Feed
-		struct {
-			activation_t dat;
-			logic vld;
-			logic rdy;
-		} activations;
-
-		initial begin
-			activations.vld = 0;
-			activations.dat = 'X;
-			@(posedge clk iff ap_rst_n);
-
-			for(int unsigned  i = 0; i < SF; i++) begin
-				while($urandom()%7 == 0) @(posedge clk);
-				activations.dat <= ACTIVATIONS[i];
-				activations.vld <= 1;
-				@(posedge clk iff activations.rdy);
-				activations.dat <= 'x;
-				activations.vld <= 0;
-			end
-		end
-
-		// Instance-specifc Weights (may be narrow)
-		typedef logic [PE-1:0][SIMD-1:0][WEIGHT_WIDTH-1:0] weight_t;
-		typedef weight_t weight_matrix_t[NF][SF];
-
-		function weight_matrix_t init_WEIGHTS;
-			automatic weight_matrix_t  res;
-			std::randomize(res);
-			if(narrow) begin  // increment all weights of -8
-				for(int unsigned  nf = 0; nf < NF; nf++) begin
-					for(int unsigned  sf = 0; sf < SF; sf++) begin
-						for(int unsigned  pe = 0; pe < PE; pe++) begin
-							for(int unsigned  simd = 0; simd < SIMD; simd++) begin
-								if(res[nf][sf][pe][simd] == (1 << (WEIGHT_WIDTH-1))) begin
-									res[nf][sf][pe][simd]++;
-								end
-							end
-						end
-					end
-				end
-			end
-			return res;
-		endfunction : init_WEIGHTS;
-
-		weight_matrix_t WEIGHTS = init_WEIGHTS();
-
-		// Weight Feed
-		struct {
-			weight_t dat;
-			logic vld;
-			logic rdy;
-		} weights;
-
-		initial begin
-			weights.vld = 0;
-			weights.dat = 'X;
-			@(posedge clk iff ap_rst_n);
-
-			weights.vld <= 1;
-			for(int unsigned  i = 0; i < NF; i++) begin
-				for(int unsigned  j = 0; j < SF; j++) begin
-					weights.dat <= WEIGHTS[i][j];
-					@(posedge clk iff weights.rdy);
-				end
-			end
-			weights.vld <= 0;
-			weights.dat <= 'x;
-		end
-
-		// Function to compute golden output
-		// a: [SF][SIMD-1:0][ACTIVATION_WIDTH-1:0]
-		// a: [SF][PE*SIMD-1:0][ACTIVATION_WIDTH-1:0]
-		// w: [NF][SF][PE-1:0][SIMD-1:0][WEIGHT_WIDTH-1:0]
-		typedef logic signed [PE-1:0][ACCU_WIDTH-1:0] output_t;
-		typedef output_t output_vector_t [NF];
-
-		struct {
-			output_t dat;
-			logic vld;
-			logic rdy;
-		} outputs;
-
-		function output_vector_t check_output(activation_vector_t a, weight_matrix_t w);
-			automatic output_vector_t res = '{default: 0};
-			// The input stream will have the channels interleaved for VVU when PE>1
-			// Hence, we need to 'untangle' the input stream, i.e. [..][SIMD*PE][..] --> [..][PE][SIMD][..]
-			// Note that for each 'SIMD' (S) and 'PE' (P) element, we have something like:
-			// (S_0, P_0), ..., (S_0, P_i), (S_1, P_0), ..., (S_1, P_i), ..., (S_i, P_i) which we need to 'untangle' to
-			// (S_0, P_0), ..., (S_i, P_0), (S_0, P_1), ..., (S_i,, P_1), ..., (S_i, P_i)
-			for (int i = 0; i < NF; i++) begin
-				for (int j = 0; j < SF; j++) begin
-					for (int k = 0; k < PE; k++) begin
-						for (int l = 0; l < SIMD; l++) begin
-							if (SIGNED_ACTIVATIONS)
-								res[i][k] = $signed(res[i][k]) + $signed(a[j][l]) * $signed(w[i][j][k][l]);
-							else
-								res[i][k] = $signed(res[i][k]) + $signed({1'b0, a[j][l]}) * $signed(w[i][j][k][l]);
-						end
-					end
-				end
-			end
-			return res;
-		endfunction : check_output;
-
-		output_vector_t  GOLDEN_OUTPUT = check_output(ACTIVATIONS, WEIGHTS);
-		initial begin
-			outputs.rdy = 0;
-			@(posedge clk iff ap_rst_n);
-
-			for(int unsigned  nf = 0; nf < NF; nf++) begin
-				while($urandom()%13 == 0) @(posedge clk);
-				outputs.rdy <= 1;
-				@(posedge clk iff outputs.vld);
-				outputs.rdy <= 0;
-
-				// Compare produced outputs against golden outputs
-				foreach(outputs.dat[i]) begin
-					assert ($signed(outputs.dat[i]) == $signed(GOLDEN_OUTPUT[nf][i])) begin
-						$display(">>> [t=%0t] Test succeeded (nf=%0d)! Computed / GOLDEN = %0d / %0d", $time, nf, $signed(outputs.dat[i]), $signed(GOLDEN_OUTPUT[nf][i]));
-					end
-					else begin
-						$error(">>> [t=%0t] TEST failed (nf=%0d)! Computed / GOLDEN = %0d / %0d", $time, nf, $signed(outputs.dat[i]), $signed(GOLDEN_OUTPUT[nf][i]));
-						$stop;
-					end
-				end
-			end
-
-			done[ver][narrow] = 1;
-		end
-
-		// Instantiate DUT
+		// DUT
+		localparam int unsigned  WEIGHT_STREAM_WIDTH    = PE * SIMD * WEIGHT_WIDTH;
+		localparam int unsigned  WEIGHT_STREAM_WIDTH_BA = (WEIGHT_STREAM_WIDTH + 7)/8 * 8;
+		localparam int unsigned  INPUT_STREAM_WIDTH     = SIMD * ACTIVATION_WIDTH;
+		localparam int unsigned  INPUT_STREAM_WIDTH_BA  = (INPUT_STREAM_WIDTH  + 7)/8 * 8;
+		localparam int unsigned  OUTPUT_STREAM_WIDTH    = PE*ACCU_WIDTH;
+		localparam int unsigned  OUTPUT_STREAM_WIDTH_BA = (OUTPUT_STREAM_WIDTH + 7)/8 * 8;
+		logic [WEIGHT_STREAM_WIDTH_BA-1:0]  wdat;
+		logic  wvld;
+		uwire  wrdy;
+		logic [INPUT_STREAM_WIDTH_BA-1:0]  idat;
+		logic  ivld;
+		uwire  irdy;
+		uwire [OUTPUT_STREAM_WIDTH_BA-1:0]  odat;
+		uwire  ovld;
+		logic  ordy;
 		mvu_vvu_axi #(
-			.IS_MVU(IS_MVU),
-			.COMPUTE_CORE(ver == 1? "mvu_4sx4u_dsp48e1" : "mvu_4sx4u_dsp48e2"),
-			.MW(MW),
-			.MH(MH),
-			.PE(PE),
-			.SIMD(SIMD),
+			.IS_MVU(1),
+			.VERSION(CFG.version),
+
+			.MH(MH), .MW(MW),
+			.PE(PE), .SIMD(SIMD),
+			.WEIGHT_WIDTH    (WEIGHT_WIDTH),
 			.ACTIVATION_WIDTH(ACTIVATION_WIDTH),
-			.WEIGHT_WIDTH(WEIGHT_WIDTH),
-			.ACCU_WIDTH(ACCU_WIDTH),
-			.NARROW_WEIGHTS(narrow),
-			.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS),
-			.SEGMENTLEN(SEGMENTLEN),
-			.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL),
-			.M_REG_LUT(M_REG_LUT)
-		)
-		dut (
-			.ap_clk, .ap_rst_n, .s_axis_weights_tdata({ {WEIGHT_WIDTH_BA_DELTA{1'b0}}, weights.dat }), .s_axis_weights_tvalid(weights.vld),
-			.s_axis_weights_tready(weights.rdy), .s_axis_input_tdata({ {ACTIVATION_WIDTH_BA_DELTA{1'b0}}, activations.dat }), .s_axis_input_tvalid(activations.vld),
-			.s_axis_input_tready(activations.rdy), .m_axis_output_tdata(outputs.dat), .m_axis_output_tvalid(outputs.vld),
-			.m_axis_output_tready(outputs.rdy)
+			.ACCU_WIDTH      (ACCU_WIDTH),
+
+			.SIGNED_ACTIVATIONS(CFG.signed_activations),
+			.NARROW_WEIGHTS    (CFG.narrow_weights),
+			.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
+		) dut (
+			.ap_clk(clk), .ap_rst_n(!rst),
+			.s_axis_weights_tdata(wdat), .s_axis_weights_tvalid(wvld), .s_axis_weights_tready(wrdy),
+			.s_axis_input_tdata  (idat), .s_axis_input_tvalid  (ivld), .s_axis_input_tready  (irdy),
+			.m_axis_output_tdata (odat), .m_axis_output_tvalid (ovld), .m_axis_output_tready (ordy)
 		);
 
-		end : genNarrowWide
-	end : genVersion
+		// Input Feed
+		accu_t [PE-1:0]  Q[$]; // Reference Queue
+		initial begin
+			wdat = 'x; wvld = 0;
+			idat = 'x; ivld = 0;
+			@(posedge clk iff !rst);
+
+			// Produce Results for ROUNDS Vectors
+			repeat(ROUNDS) begin
+				automatic activation_t [MW-1:0]          ivec;
+				automatic weight_t     [MH-1:0][MW-1:0]  iwgt;
+				automatic accu_t       [MH-1:0]          ovec;
+
+				// Valid randomized input and reference result
+				void'(std::randomize(ivec, iwgt));
+				for(int unsigned  h = 0; h < MH; h++) begin
+					automatic accu_t  p = 0;
+					for(int unsigned  w = 0; w < MW; w++) begin
+						automatic weight_t  w0 = iwgt[h][w];
+						automatic accu_t  m0;
+						automatic accu_t  p0;
+
+						if(CFG.narrow_weights && (w0 == weight_t'(1<<(WEIGHT_WIDTH-1))))  w0++;
+						m0 = w0 * $signed({CFG.signed_activations && ivec[w][ACTIVATION_WIDTH-1], ivec[w]});
+						p0 = p + m0;
+						if(((m0 < 0) == (p < 0)) && ((m0 < 0) != (p0 < 0)))  w0 = 0;
+						else  p = p0;
+
+						iwgt[h][w] = w0;
+					end
+					ovec[h] = p;
+				end
+
+				// Input Feed
+				fork
+					// Scan through Activation Vector
+					for(int unsigned  w = 0; w < MW; w += SIMD) begin : blkActFeed
+						while($urandom()%19 == 0) @(posedge clk);
+						idat <= ivec[w+:SIMD];
+						ivld <= 1;
+						@(posedge clk iff irdy);
+						idat <= 'x;
+						ivld <= 0;
+					end : blkActFeed
+
+					// Scan through Weight Matrix
+					for(int unsigned  h = 0; h < MH; h += PE) begin : blkWgtFeed
+						for(int unsigned  w = 0; w < MW; w += SIMD) begin
+							automatic weight_t [PE-1:0][SIMD-1:0]  wtile;
+							for(int unsigned  pe = 0; pe < PE; pe++) begin
+								for(int unsigned  simd = 0; simd < SIMD; simd++) begin
+									wtile[pe][simd] = iwgt[h+pe][w+simd];
+								end
+							end
+
+							while($urandom()%23 == 0) @(posedge clk);
+							wdat <= wtile;
+							wvld <= 1;
+							@(posedge clk iff wrdy);
+							wdat <= 'x;
+							wvld <= 0;
+						end
+
+						// Enqueue Reference Output for this Slice
+						Q.push_back(ovec[h+:PE]);
+
+					end : blkWgtFeed
+				join
+			end
+
+			repeat(16) @(posedge clk);
+			assert(Q.size == 0) else begin
+				$error("Test #%0d: Missing %0d outputs.", t, Q.size);
+				$stop;
+			end
+			done[t] = 1;
+		end
+
+		// Output Checker
+		int unsigned  Checks = 0;
+		initial begin
+			ordy = 0;
+			@(posedge clk iff !rst);
+
+			forever begin
+				automatic accu_t [PE-1:0]  exp;
+				automatic accu_t [PE-1:0]  p;
+
+				while(($urandom() % 59) == 0) @(posedge clk);
+
+				// Drain
+				ordy <= 1;
+				@(posedge clk iff ovld);
+				ordy <= 0;
+
+				p = odat;
+				assert(Q.size > 0) else begin
+					$error("Test #%0d: Spurious output: %0p.", t, p);
+					$stop;
+				end
+
+				exp = Q.pop_front();
+				assert(p === exp) else begin
+					$error("Test #%0d: Output mismatch %0p instead of %0p.", t, p, exp);
+					$stop;
+				end
+
+				Checks <= Checks + 1;
+			end
+		end
+
+		final begin
+			assert(Checks == ROUNDS*MH/PE)  $display("Test #%0d: Successfully performed %0d checks.", t, Checks);
+			else  $error("Test #%0d: Unexpected number of checks: %0d instead of %0d.", t, Checks, ROUNDS);
+		end
+
+	end : genTests
 
 endmodule : mvu_axi_tb

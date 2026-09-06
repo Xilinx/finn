@@ -171,13 +171,13 @@ finn.util.pytorch
  :show-inheritance:
 
 
-finn.util.pyverilator
----------------------
+finn.util.torch_hw_modules
+---------------------------
 
-.. automodule:: finn.util.pyverilator
-  :members:
-  :undoc-members:
-  :show-inheritance:
+.. automodule:: finn.util.torch_hw_modules
+   :members:
+   :undoc-members:
+   :show-inheritance:
 
 
 finn.util.test
@@ -188,13 +188,6 @@ finn.util.test
    :undoc-members:
    :show-inheritance:
 
-finn.util.vcd
-------------------------------
-
-.. automodule:: finn.util.vcd
-  :members:
-  :undoc-members:
-  :show-inheritance:
 
 finn.util.visualization
 ------------------------------
@@ -203,6 +196,14 @@ finn.util.visualization
    :members:
    :undoc-members:
    :show-inheritance:
+
+finn.util.rtlsim
+------------------------------
+
+.. automodule:: finn.util.rtlsim
+  :members:
+  :undoc-members:
+  :show-inheritance:
 
 finn.util.vivado
 ------------------------------

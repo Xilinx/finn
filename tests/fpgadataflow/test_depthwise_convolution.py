@@ -125,7 +125,7 @@ def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
 
     # initialize model
     model.set_tensor_datatype("inp", idt)
-    model.set_tensor_datatype(model.graph.output[0].name, odt)
+    model.set_tensor_datatype(model.get_first_global_out(), odt)
     model.set_tensor_datatype("W_sparse", wdt)
 
     w_tensor = gen_finn_dt_tensor(wdt, [ofm_ch, 1, k, k])

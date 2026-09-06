@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020-2022, Xilinx, Inc.
+# Copyright (C) 2022-2026, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -32,39 +33,710 @@ import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.util.basic import qonnx_make_model
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.util.basic import gen_finn_dt_tensor
 
 import finn.core.onnx_exec as oxe
-from finn.transformation.streamline import RoundAndClipThresholds
+from finn.transformation.fpgadataflow.minimize_accumulator_width import (
+    MinimizeAccumulatorWidth,
+)
+from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 
 
+# Tests the RoundAndClipThresholds transformation under various input, output
+# data type combinations with purely integer inputs. Without proper rounding,
+# this tests only the clipping, range and type-casting behavior of the
+# transformation.
+@pytest.mark.parametrize("op_type", ["MultiThreshold", "Thresholding"])
+@pytest.mark.parametrize(
+    "i_dtype",
+    [
+        # Explanation for selecting these test configurations:
+        # 1. Below 24-bit thresholds we will not observe any interesting rounding
+        #    behavior, as all integers < 2^24 can be exactly represented in 32-bit
+        #    floating-point. Thus, we test thresholds at 25-bit signed integers and
+        #    generate test inputs slightly above and below this.
+        # 2. We want to test out-of-range clipping of thresholds, in particular
+        #    clipping of the negative portion of signed thresholds. Thus, we only
+        #    generate signed thresholds, but test with signed and unsigned
+        #    inputs of smaller, larger and equal range.
+        # 3. Testing proper floating-point thresholds requires a separate test-case
+        "INT23",
+        "UINT23",
+        "INT24",
+        "UINT24",
+        "INT25",
+        "UINT25",
+        "INT26",
+        "UINT26",
+    ],
+)
+@pytest.mark.parametrize(
+    "o_dtype",
+    [
+        # Explanation for selecting these test configurations:
+        # 1. Outputs of MultiThreshold are typically much smaller bit-width than the
+        #    inputs and thresholds.
+        # 2. However, with randomly samples thresholds from a rather large range due
+        #    to the selected input bit-widths (see above), we risk not adequately
+        #    covering the input range if we sample too few thresholds. The number of
+        #    thresholds sampled depends on the bit-width of the output, thus we use
+        #    rather high bit-width for testing.
+        # 3. For a "real" model, the quantization procedure *should* take care of
+        #    adequately covering the true input range.
+        "INT8",
+        "UINT8",
+    ],
+)
+@pytest.mark.parametrize(
+    "n_elems",
+    [
+        # Explanation for selecting these test configurations:
+        # 1. Small edge cases and quickly running through tests: 1, 2, 3, 4
+        # 2. Large test case 256, hopefully amplifying any rarely occurring errors
+        1,
+        2,
+        3,
+        4,
+        256,
+    ],
+)
 @pytest.mark.streamline
-def test_round_thresholds():
-    v = helper.make_tensor_value_info("v", TensorProto.FLOAT, [1, 4])
-    thresholds = helper.make_tensor_value_info("thresholds", TensorProto.FLOAT, [4, 1])
-    out = helper.make_tensor_value_info("out", TensorProto.FLOAT, [1, 4])
-    node_def = helper.make_node(
-        "MultiThreshold", ["v", "thresholds"], ["out"], domain="qonnx.custom_op.general"
+def test_round_and_clip_thresholds_ints(op_type, i_dtype, o_dtype, n_elems):
+    i_dtype = DataType[i_dtype]
+    t_dtype = DataType["INT25"]  # Note: Matches configuration above
+    o_dtype = DataType[o_dtype]
+    n_thresholds = o_dtype.get_num_possible_values() - 1
+
+    if op_type == "MultiThreshold":
+        node = helper.make_node(
+            "MultiThreshold",
+            domain="qonnx.custom_op.general",
+            inputs=["inp", "thresholds"],
+            outputs=["out"],
+            out_dtype=str(o_dtype),
+            out_bias=float(o_dtype.min()),
+        )
+    else:  # Thresholding
+        node = helper.make_node(
+            "Thresholding",
+            ["inp", "thresholds"],
+            ["out"],
+            domain="finn.custom_op.fpgadataflow",
+            backend="fpgadataflow",
+            NumChannels=n_elems,
+            PE=1,
+            inputDataType=i_dtype.name,
+            weightDataType="INT32",
+            outputDataType=o_dtype.name,
+            numInputVectors=[1],
+            numSteps=n_thresholds,
+        )
+
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, n_elems])
+    out = helper.make_tensor_value_info("out", TensorProto.FLOAT, [1, n_elems])
+    thresholds = helper.make_tensor_value_info(
+        "thresholds", TensorProto.FLOAT, [n_elems, n_thresholds]
     )
-    graph_def = helper.make_graph([node_def], "test_model", [v, thresholds], [out])
-    model_def = qonnx_make_model(graph_def)
-    model = ModelWrapper(model_def)
-    threshold_val = np.asarray([[-1.1], [0.7], [2.3], [5.1]], dtype=np.float32)
-    model.set_initializer("thresholds", threshold_val)
-    model.set_tensor_datatype("v", DataType["INT8"])
-    inp_dict_f = {"v": np.floor(threshold_val).T}
-    inp_dict_n = {"v": np.round(threshold_val).T}
-    inp_dict_c = {"v": np.ceil(threshold_val).T}
-    orig_f = oxe.execute_onnx(model, inp_dict_f)["out"]
-    orig_n = oxe.execute_onnx(model, inp_dict_n)["out"]
-    orig_c = oxe.execute_onnx(model, inp_dict_c)["out"]
-    assert model.get_tensor_datatype("thresholds") == DataType["FLOAT32"]
-    new_model = model.transform(RoundAndClipThresholds())
-    # rounded up thresholds should have same dtype as input
-    assert new_model.get_tensor_datatype("thresholds") == DataType["INT8"]
-    new_f = oxe.execute_onnx(new_model, inp_dict_f)["out"]
-    new_n = oxe.execute_onnx(new_model, inp_dict_n)["out"]
-    new_c = oxe.execute_onnx(new_model, inp_dict_c)["out"]
-    assert np.isclose(orig_f, new_f, atol=1e-3).all()
-    assert np.isclose(orig_n, new_n, atol=1e-3).all()
-    assert np.isclose(orig_c, new_c, atol=1e-3).all()
+    graph = helper.make_graph([node], "thresholds", [inp, thresholds], [out])
+    model = ModelWrapper(helper.make_model(graph))
+
+    inp_vals = gen_finn_dt_tensor(i_dtype, [1, n_elems])
+    inp_vals[0][0] = i_dtype.max()
+    thresholds = np.sort(gen_finn_dt_tensor(t_dtype, [n_elems, n_thresholds]))
+    model.set_tensor_datatype("inp", i_dtype)
+    model.set_tensor_datatype("thresholds", t_dtype)
+    model.set_tensor_datatype("out", o_dtype)
+    model.set_initializer("thresholds", thresholds)
+
+    # Execute the model before running the RoundAndClipThresholds transformation
+    out_expected = oxe.execute_onnx(model, {"inp": inp_vals})["out"]
+    assert model.get_tensor_datatype("thresholds") == t_dtype
+
+    model = model.transform(RoundAndClipThresholds())
+
+    # After this transformation, the thresholds and output data type should be
+    # inferred correctly
+    if not i_dtype.signed():
+        new_tdt = DataType.get_smallest_possible(i_dtype.max() + 1)
+    else:
+        new_tdt = DataType.get_smallest_possible(-(i_dtype.max() + 1) - 1)
+    assert model.get_tensor_datatype("thresholds") == new_tdt
+    assert model.get_tensor_datatype("out") == o_dtype
+
+    # For Thresholding, verify weightDataType attribute is also set
+    if op_type == "Thresholding":
+        inst = getCustomOp(model.graph.node[0])
+        assert DataType[inst.get_nodeattr("weightDataType")] == new_tdt
+
+    # After this transformation, the container type used to store the thresholds
+    # values must be float32. No other type-cast or type promotion may happen.
+    assert model.get_initializer("thresholds").dtype == np.float32
+
+    # After rounding, all thresholds must be integers represented as float32
+    assert all(x.is_integer() for x in model.get_initializer("thresholds").flatten())
+
+    # Execute the model after running the RoundAndClipThresholds transformation
+    out_produced = oxe.execute_onnx(model, {"inp": inp_vals})["out"]
+
+    assert np.all(out_produced == out_expected)
+
+
+# Tests the RoundAndClipThresholds transformation under various input, output
+# data type combinations with purely integer inputs. This test case tests actual
+# rounding of floating-point thresholds.
+@pytest.mark.parametrize("op_type", ["MultiThreshold", "Thresholding"])
+@pytest.mark.parametrize(
+    "i_dtype",
+    [
+        # Explanation for selecting these test configurations:
+        # 1. Below 24-bit thresholds we will not observe any interesting rounding
+        #    behavior, as all integers < 2^24 can be exactly represented in 32-bit
+        #    floating-point. Thus, we test thresholds at 25-bit signed integers and
+        #    generate test inputs slightly above and below this.
+        # 2. We want to test out-of-range clipping of thresholds, in particular
+        #    clipping of the negative portion of signed thresholds. Thus, we only
+        #    generate signed thresholds, but test with signed and unsigned
+        #    inputs of smaller, larger and equal range.
+        # 3. Testing proper floating-point thresholds requires a separate test-case
+        "INT23",
+        "UINT23",
+        "INT24",
+        "UINT24",
+        "INT25",
+        "UINT25",
+        "INT26",
+        "UINT26",
+    ],
+)
+@pytest.mark.parametrize(
+    "o_dtype",
+    [
+        # Explanation for selecting these test configurations:
+        # 1. Outputs of MultiThreshold are typically much smaller bit-width than the
+        #    inputs and thresholds.
+        # 2. However, with randomly samples thresholds from a rather large range due
+        #    to the selected input bit-widths (see above), we risk not adequately
+        #    covering the input range if we sample too few thresholds. The number of
+        #    thresholds sampled depends on the bit-width of the output, thus we use
+        #    rather high bit-width for testing.
+        # 3. For a "real" model, the quantization procedure *should* take care of
+        #    adequately covering the true input range.
+        "INT8",
+        "UINT8",
+    ],
+)
+@pytest.mark.parametrize(
+    "n_elems",
+    [
+        # Explanation for selecting these test configurations:
+        # 1. Small edge cases and quickly running through tests: 1, 2, 3, 4
+        # 2. Large test case 256, hopefully amplifying any rarely occurring errors
+        1,
+        2,
+        3,
+        4,
+        256,
+    ],
+)
+@pytest.mark.streamline
+def test_round_and_clip_thresholds_floats(op_type, i_dtype, o_dtype, n_elems):
+    i_dtype = DataType[i_dtype]
+    t_dtype = DataType["FLOAT32"]
+    o_dtype = DataType[o_dtype]
+    n_thresholds = o_dtype.get_num_possible_values() - 1
+
+    if op_type == "MultiThreshold":
+        node = helper.make_node(
+            "MultiThreshold",
+            domain="qonnx.custom_op.general",
+            inputs=["inp", "thresholds"],
+            outputs=["out"],
+            out_dtype=str(o_dtype),
+        )
+    else:  # Thresholding
+        node = helper.make_node(
+            "Thresholding",
+            ["inp", "thresholds"],
+            ["out"],
+            domain="finn.custom_op.fpgadataflow",
+            backend="fpgadataflow",
+            NumChannels=n_elems,
+            PE=1,
+            inputDataType=i_dtype.name,
+            weightDataType="INT32",
+            outputDataType=o_dtype.name,
+            numInputVectors=[1],
+            numSteps=n_thresholds,
+        )
+
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, n_elems])
+    out = helper.make_tensor_value_info("out", TensorProto.FLOAT, [1, n_elems])
+    thresholds = helper.make_tensor_value_info(
+        "thresholds", TensorProto.FLOAT, [n_elems, n_thresholds]
+    )
+    graph = helper.make_graph([node], "thresholds", [inp, thresholds], [out])
+    model = ModelWrapper(helper.make_model(graph))
+
+    inp_vals = gen_finn_dt_tensor(i_dtype, [1, n_elems])
+    # Draw uniformly random prototype thresholds in [0,+1] range
+    thresholds = np.random.rand(n_elems, n_thresholds)
+    # Type alias to 25-bit signed integer type used to set the range of the
+    # thresholds
+    INT25 = DataType["INT25"]
+    # Map the prototype thresholds into the test integer range and sort
+    thresholds = np.sort((INT25.max() - INT25.min()) * thresholds + INT25.min())
+    # Set data type annotations for the input and thresholds tensor
+    model.set_tensor_datatype("inp", i_dtype)
+    model.set_tensor_datatype("thresholds", t_dtype)
+    model.set_tensor_datatype("out", o_dtype)
+    model.set_initializer("thresholds", thresholds)
+
+    # Execute the model before running the RoundAndClipThresholds transformation
+    out_expected = oxe.execute_onnx(model, {"inp": inp_vals})["out"]
+    # Before rounding the threshold data type must be as annotated
+    assert model.get_tensor_datatype("thresholds") == t_dtype
+
+    model = model.transform(RoundAndClipThresholds())
+
+    if not i_dtype.signed():
+        new_tdt = DataType.get_smallest_possible(i_dtype.max() + 1)
+    else:
+        new_tdt = DataType.get_smallest_possible(-(i_dtype.max() + 1) - 1)
+    assert model.get_tensor_datatype("thresholds") == new_tdt
+    assert model.get_tensor_datatype("out") == o_dtype
+
+    # For Thresholding, verify weightDataType attribute is also set
+    if op_type == "Thresholding":
+        inst = getCustomOp(model.graph.node[0])
+        assert DataType[inst.get_nodeattr("weightDataType")] == new_tdt
+
+    # After this transformation, the container type used to store the thresholds
+    # values must be float32. No other type-cast or type promotion may happen.
+    assert model.get_initializer("thresholds").dtype == np.float32
+    # After rounding, all thresholds must be integers represented as float32
+    assert all(x.is_integer() for x in model.get_initializer("thresholds").flatten())
+
+    out_produced = oxe.execute_onnx(model, {"inp": inp_vals})["out"]
+
+    assert np.allclose(out_produced, out_expected, atol=1.0e-3)
+
+
+# Tests the RoundAndClipThresholds transformation under various input, output
+# data type combinations with fixed point inputs. Without proper rounding,
+# this tests only the clipping, range and type-casting behavior of the
+# transformation.
+@pytest.mark.parametrize("op_type", ["MultiThreshold", "Thresholding"])
+@pytest.mark.parametrize(
+    "i_dtype",
+    [
+        "FIXED<13,3>",
+        "FIXED<14,3>",
+        "FIXED<15,3>",
+        "FIXED<16,3>",
+    ],
+)
+@pytest.mark.parametrize(
+    "o_dtype",
+    [
+        # Explanation for selecting these test configurations:
+        # 1. Outputs of MultiThreshold are typically much smaller bit-width than the
+        #    inputs and thresholds.
+        # 2. However, with randomly samples thresholds from a rather large range due
+        #    to the selected input bit-widths (see above), we risk not adequately
+        #    covering the input range if we sample too few thresholds. The number of
+        #    thresholds sampled depends on the bit-width of the output, thus we use
+        #    rather high bit-width for testing.
+        # 3. For a "real" model, the quantization procedure *should* take care of
+        #    adequately covering the true input range.
+        "INT8",
+        "UINT8",
+    ],
+)
+@pytest.mark.parametrize(
+    "n_elems",
+    [
+        # Explanation for selecting these test configurations:
+        # 1. Small edge cases and quickly running through tests: 1, 2, 3, 4
+        # 2. Large test case 256, hopefully amplifying any rarely occurring errors
+        1,
+        2,
+        3,
+        4,
+        256,
+    ],
+)
+@pytest.mark.streamline
+def test_round_and_clip_thresholds_fxp(op_type, i_dtype, o_dtype, n_elems):
+    i_dtype = DataType[i_dtype]
+    t_dtype = DataType["FIXED<15,3>"]
+    o_dtype = DataType[o_dtype]
+    n_thresholds = o_dtype.get_num_possible_values() - 1
+
+    if op_type == "MultiThreshold":
+        node = helper.make_node(
+            "MultiThreshold",
+            domain="qonnx.custom_op.general",
+            inputs=["inp", "thresholds"],
+            outputs=["out"],
+            out_dtype=str(o_dtype),
+        )
+    else:  # Thresholding
+        node = helper.make_node(
+            "Thresholding",
+            ["inp", "thresholds"],
+            ["out"],
+            domain="finn.custom_op.fpgadataflow",
+            backend="fpgadataflow",
+            NumChannels=n_elems,
+            PE=1,
+            inputDataType=i_dtype.name,
+            weightDataType="INT32",
+            outputDataType=o_dtype.name,
+            numInputVectors=[1],
+            numSteps=n_thresholds,
+        )
+
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, n_elems])
+    out = helper.make_tensor_value_info("out", TensorProto.FLOAT, [1, n_elems])
+    thresholds = helper.make_tensor_value_info(
+        "thresholds", TensorProto.FLOAT, [n_elems, n_thresholds]
+    )
+    graph = helper.make_graph([node], "thresholds", [inp, thresholds], [out])
+    model = ModelWrapper(helper.make_model(graph))
+
+    inp_vals = gen_finn_dt_tensor(i_dtype, [1, n_elems])
+    # Draw uniformly random prototype thresholds in [0,+1] range
+    thresholds = np.random.rand(n_elems, n_thresholds)
+    # Type alias to 25-bit signed integer type used to set the range of the
+    # thresholds
+    FXP25 = DataType["FIXED<15,3>"]
+    # Map the prototype thresholds into the test integer range and sort
+    thresholds = np.sort((FXP25.max() - FXP25.min()) * thresholds + FXP25.min())
+    # Set data type annotations for the input and thresholds tensor
+    model.set_tensor_datatype("inp", i_dtype)
+    model.set_tensor_datatype("thresholds", t_dtype)
+    model.set_tensor_datatype("out", o_dtype)
+    model.set_initializer("thresholds", thresholds)
+
+    # Execute the model before running the RoundAndClipThresholds transformation
+    out_expected = oxe.execute_onnx(model, {"inp": inp_vals})["out"]
+    # Before rounding the threshold data type must be as annotated
+    assert model.get_tensor_datatype("thresholds") == t_dtype
+
+    model = model.transform(RoundAndClipThresholds())
+
+    max_val = i_dtype.max() / i_dtype.scale_factor() + 1
+    new_tdt_int = DataType.get_smallest_possible(-max_val - 1)
+    new_tdt = DataType[
+        f"FIXED<{new_tdt_int.bitwidth()},{new_tdt_int.bitwidth() - i_dtype.frac_bits()}>"
+    ]
+    assert model.get_tensor_datatype("thresholds") == new_tdt
+    assert model.get_tensor_datatype("out") == o_dtype
+
+    # For Thresholding, verify weightDataType attribute is also set
+    if op_type == "Thresholding":
+        inst = getCustomOp(model.graph.node[0])
+        assert DataType[inst.get_nodeattr("weightDataType")] == new_tdt
+
+    # After this transformation, the container type used to store the thresholds
+    # values must be float32. No other type-cast or type promotion may happen.
+    assert model.get_initializer("thresholds").dtype == np.float32
+    # After rounding, all thresholds must be integers represented as float32
+    assert all(
+        x.is_integer()
+        for x in model.get_initializer("thresholds").flatten() / new_tdt.scale_factor()
+    )
+
+    out_produced = oxe.execute_onnx(model, {"inp": inp_vals})["out"]
+
+    assert np.allclose(out_produced, out_expected, atol=1.0e-3)
+
+
+# Tests the RoundAndClipThresholds transformation under various input, output
+# data type combinations with fixed point inputs. This test case tests actual
+# rounding of floating-point thresholds.
+@pytest.mark.parametrize("op_type", ["MultiThreshold", "Thresholding"])
+@pytest.mark.parametrize(
+    "i_dtype",
+    [
+        "FIXED<13,3>",
+        "FIXED<14,3>",
+        "FIXED<15,3>",
+        "FIXED<16,3>",
+    ],
+)
+@pytest.mark.parametrize(
+    "o_dtype",
+    [
+        # Explanation for selecting these test configurations:
+        # 1. Outputs of MultiThreshold are typically much smaller bit-width than the
+        #    inputs and thresholds.
+        # 2. However, with randomly samples thresholds from a rather large range due
+        #    to the selected input bit-widths (see above), we risk not adequately
+        #    covering the input range if we sample too few thresholds. The number of
+        #    thresholds sampled depends on the bit-width of the output, thus we use
+        #    rather high bit-width for testing.
+        # 3. For a "real" model, the quantization procedure *should* take care of
+        #    adequately covering the true input range.
+        "INT8",
+        "UINT8",
+    ],
+)
+@pytest.mark.parametrize(
+    "n_elems",
+    [
+        # Explanation for selecting these test configurations:
+        # 1. Small edge cases and quickly running through tests: 1, 2, 3, 4
+        # 2. Large test case 256, hopefully amplifying any rarely occurring errors
+        1,
+        2,
+        3,
+        4,
+        256,
+    ],
+)
+@pytest.mark.streamline
+def test_round_and_clip_thresholds_fxp_float(op_type, i_dtype, o_dtype, n_elems):
+    i_dtype = DataType[i_dtype]
+    t_dtype = DataType["FLOAT32"]
+    o_dtype = DataType[o_dtype]
+    n_thresholds = o_dtype.get_num_possible_values() - 1
+
+    if op_type == "MultiThreshold":
+        node = helper.make_node(
+            "MultiThreshold",
+            domain="qonnx.custom_op.general",
+            inputs=["inp", "thresholds"],
+            outputs=["out"],
+            out_dtype=str(o_dtype),
+        )
+    else:  # Thresholding
+        node = helper.make_node(
+            "Thresholding",
+            ["inp", "thresholds"],
+            ["out"],
+            domain="finn.custom_op.fpgadataflow",
+            backend="fpgadataflow",
+            NumChannels=n_elems,
+            PE=1,
+            inputDataType=i_dtype.name,
+            weightDataType="INT32",
+            outputDataType=o_dtype.name,
+            numInputVectors=[1],
+            numSteps=n_thresholds,
+        )
+
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, n_elems])
+    out = helper.make_tensor_value_info("out", TensorProto.FLOAT, [1, n_elems])
+    thresholds = helper.make_tensor_value_info(
+        "thresholds", TensorProto.FLOAT, [n_elems, n_thresholds]
+    )
+    graph = helper.make_graph([node], "thresholds", [inp, thresholds], [out])
+    model = ModelWrapper(helper.make_model(graph))
+
+    inp_vals = gen_finn_dt_tensor(i_dtype, [1, n_elems])
+    # Draw uniformly random prototype thresholds in [0,+1] range
+    thresholds = np.random.rand(n_elems, n_thresholds)
+    # Type alias to 25-bit signed integer type used to set the range of the
+    # thresholds
+    FXP25 = DataType["FIXED<15,3>"]
+    # Map the prototype thresholds into the test integer range and sort
+    thresholds = np.sort((FXP25.max() - FXP25.min()) * thresholds + FXP25.min())
+    # Set data type annotations for the input and thresholds tensor
+    model.set_tensor_datatype("inp", i_dtype)
+    model.set_tensor_datatype("thresholds", t_dtype)
+    model.set_tensor_datatype("out", o_dtype)
+    model.set_initializer("thresholds", thresholds)
+
+    # Execute the model before running the RoundAndClipThresholds transformation
+    out_expected = oxe.execute_onnx(model, {"inp": inp_vals})["out"]
+    # Before rounding the threshold data type must be as annotated
+    assert model.get_tensor_datatype("thresholds") == t_dtype
+
+    model = model.transform(RoundAndClipThresholds())
+
+    max_val = i_dtype.max() / i_dtype.scale_factor() + 1
+    new_tdt_int = DataType.get_smallest_possible(-max_val - 1)
+    new_tdt = DataType[
+        f"FIXED<{new_tdt_int.bitwidth()},{new_tdt_int.bitwidth() - i_dtype.frac_bits()}>"
+    ]
+    assert model.get_tensor_datatype("thresholds") == new_tdt
+    assert model.get_tensor_datatype("out") == o_dtype
+
+    # For Thresholding, verify weightDataType attribute is also set
+    if op_type == "Thresholding":
+        inst = getCustomOp(model.graph.node[0])
+        assert DataType[inst.get_nodeattr("weightDataType")] == new_tdt
+
+    # After this transformation, the container type used to store the thresholds
+    # values must be float32. No other type-cast or type promotion may happen.
+    assert model.get_initializer("thresholds").dtype == np.float32
+    # After rounding, all thresholds must be integers represented as float32
+    assert all(
+        x.is_integer()
+        for x in model.get_initializer("thresholds").flatten() / new_tdt.scale_factor()
+    )
+
+    out_produced = oxe.execute_onnx(model, {"inp": inp_vals})["out"]
+
+    assert np.allclose(out_produced, out_expected, atol=1.0e-3)
+
+
+# Test RoundAndClipThresholds for MVAU and VVAU with thresholds
+@pytest.mark.parametrize("op_type", ["MVAU", "VVAU"])
+@pytest.mark.parametrize(
+    "i_dtype",
+    [
+        # Test various input bitwidths to verify accumulator-based clipping
+        "INT8",
+        "UINT8",
+        "INT16",
+        "UINT16",
+        "INT24",
+        "UINT24",
+    ],
+)
+@pytest.mark.parametrize(
+    "o_dtype",
+    [
+        # Test different output datatypes
+        "INT4",
+        "UINT4",
+        "INT8",
+        "UINT8",
+    ],
+)
+@pytest.mark.parametrize("wdt", [DataType["INT4"], DataType["INT8"]])
+@pytest.mark.parametrize(
+    "n_channels",
+    [
+        # Test different sizes like the MultiThreshold/Thresholding tests
+        1,
+        4,
+        16,
+    ],
+)
+@pytest.mark.streamline
+def test_round_and_clip_thresholds_mvau_vvau(op_type, i_dtype, o_dtype, wdt, n_channels):
+    """Test RoundAndClipThresholds for MVAU and VVAU nodes with integrated thresholding.
+    Verifies that thresholds are rounded/clipped based on accumulator datatype
+    (not input datatype) and that threshold datatype is set correctly."""
+
+    i_dtype = DataType[i_dtype]
+    o_dtype = DataType[o_dtype]
+    n_steps = o_dtype.get_num_possible_values() - 1
+
+    if op_type == "MVAU":
+        mw = 8
+        mh = n_channels
+
+        inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, mw])
+        outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, mh])
+        weights = gen_finn_dt_tensor(wdt, (mw, mh))
+        inp_shape = [1, mw]
+
+        node = helper.make_node(
+            "MVAU",
+            ["inp", "weights", "thresh"],
+            ["outp"],
+            domain="finn.custom_op.fpgadataflow",
+            backend="fpgadataflow",
+            MW=mw,
+            MH=mh,
+            SIMD=1,
+            PE=1,
+            inputDataType=i_dtype.name,
+            outputDataType=o_dtype.name,
+            weightDataType=wdt.name,
+            accDataType="INT32",  # Will be minimized
+            ActVal=0,
+            noActivation=0,
+            binaryXnorMode=0,
+        )
+    else:  # VVAU
+        k_h, k_w = 3, 3
+
+        inp = helper.make_tensor_value_info(
+            "inp", TensorProto.FLOAT, [1, 8, 8, n_channels * k_h * k_w]
+        )
+        outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, 8, 8, n_channels])
+        weights = gen_finn_dt_tensor(wdt, (n_channels, 1, k_h, k_w))
+        inp_shape = [1, 8, 8, n_channels * k_h * k_w]
+
+        node = helper.make_node(
+            "VVAU",
+            ["inp", "weights", "thresh"],
+            ["outp"],
+            domain="finn.custom_op.fpgadataflow",
+            backend="fpgadataflow",
+            PE=1,
+            Channels=n_channels,
+            Dim=[8, 8],
+            Kernel=[k_h, k_w],
+            inputDataType=i_dtype.name,
+            outputDataType=o_dtype.name,
+            weightDataType=wdt.name,
+            accDataType="INT32",  # Will be minimized
+            ActVal=0,
+            noActivation=0,
+        )
+
+    # Generate thresholds with some non-integer values
+    # Use a wide range that may exceed accumulator range
+    thresholds = np.random.rand(n_channels, n_steps) * 1000 - 500
+    thresholds = np.sort(thresholds, axis=1).astype(np.float32)
+
+    graph = helper.make_graph(
+        nodes=[node],
+        name=f"{op_type.lower()}_threshold_test",
+        inputs=[inp],
+        outputs=[outp],
+        initializer=[
+            helper.make_tensor("weights", TensorProto.FLOAT, weights.shape, weights.flatten()),
+            helper.make_tensor("thresh", TensorProto.FLOAT, thresholds.shape, thresholds.flatten()),
+        ],
+    )
+
+    model = helper.make_model(graph, producer_name=f"{op_type.lower()}-threshold-test")
+    model = ModelWrapper(model)
+
+    model.set_tensor_datatype("inp", i_dtype)
+    model.set_tensor_datatype("outp", o_dtype)
+    model.set_tensor_datatype("weights", wdt)
+    model.set_tensor_datatype("thresh", DataType["FLOAT32"])
+
+    # First run MinimizeAccumulatorWidth to set the actual accumulator datatype
+    model = model.transform(MinimizeAccumulatorWidth())
+
+    inst = getCustomOp(model.graph.node[0])
+    acc_dt = DataType[inst.get_nodeattr("accDataType")]
+
+    # Generate test input and execute before RoundAndClipThresholds
+    test_input = gen_finn_dt_tensor(i_dtype, inp_shape)
+    output_before = oxe.execute_onnx(model, {"inp": test_input})["outp"]
+
+    # Now run RoundAndClipThresholds
+    model = model.transform(RoundAndClipThresholds())
+
+    # Verify threshold datatype is set correctly (one bit wider than accumulator)
+    if not acc_dt.signed():
+        expected_tdt = DataType.get_smallest_possible(acc_dt.max() + 1)
+    else:
+        expected_tdt = DataType.get_smallest_possible(-(acc_dt.max() + 1) - 1)
+
+    assert model.get_tensor_datatype("thresh") == expected_tdt
+
+    # Verify thresholds are rounded to integers
+    rounded_thresholds = model.get_initializer("thresh")
+    assert all(x.is_integer() for x in rounded_thresholds.flatten())
+
+    # Verify thresholds are clipped to accumulator range
+    assert rounded_thresholds.min() >= acc_dt.min()
+    assert rounded_thresholds.max() <= acc_dt.max() + 1
+
+    # Verify functional equivalence
+    output_after = oxe.execute_onnx(model, {"inp": test_input})["outp"]
+    assert np.all(
+        output_before == output_after
+    ), "Output changed after RoundAndClipThresholds transformation"

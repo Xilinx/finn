@@ -1,0 +1,302 @@
+/******************************************************************************
+ * Copyright (C) 2024, Advanced Micro Devices, Inc.
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *  1. Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *
+ *  2. Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *
+ *  3. Neither the name of the copyright holder nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION). HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ *****************************************************************************/
+
+module dynamic_load #(
+    int unsigned  PE,
+    int unsigned  SIMD,
+    int unsigned  WEIGHT_WIDTH,
+    int unsigned  MH,
+    int unsigned  MW,
+    int unsigned  N_REPS,
+    parameter  RAM_STYLE = "distributed"
+)(
+    input	logic  ap_clk,
+    input	logic  ap_rst_n,
+
+    input   logic  ivld,
+    output  logic  irdy,
+    input   logic  [PE-1:0][WEIGHT_WIDTH-1:0] idat,
+
+    output  logic  ovld,
+    input   logic  ordy,
+    output  logic  [PE-1:0][SIMD-1:0][WEIGHT_WIDTH-1:0] odat
+);
+
+// ----------------------------------------------------------------------------
+// Consts and types
+// ----------------------------------------------------------------------------
+
+localparam int unsigned  SF = MW/SIMD;
+localparam int unsigned  NF = MH/PE;
+localparam int unsigned  N_TLS = SF*NF;
+
+localparam int unsigned SIMD_BITS = (SIMD == 1) ? 1 : $clog2(SIMD);
+localparam int unsigned WGT_ADDR_BITS = (N_TLS == 1) ? 1 : $clog2(N_TLS);
+localparam int unsigned NF_BITS = (NF == 1) ? 1 : $clog2(NF);
+localparam int unsigned SF_BITS = (SF == 1) ? 1 : $clog2(SF);
+localparam int unsigned N_TLS_BITS = (N_TLS == 1) ? 1 : $clog2(N_TLS);
+localparam int unsigned N_REPS_BITS = (N_REPS == 1) ? 1 : $clog2(N_REPS);
+
+logic [NF-1:0][WGT_ADDR_BITS-1:0] offsets;
+
+typedef enum logic[1:0]  {ST_WR_0, ST_WR_0_WAIT, ST_WR_1, ST_WR_1_WAIT} state_wr_t;
+typedef enum logic  {ST_RD_0, ST_RD_1} state_rd_t;
+
+// ----------------------------------------------------------------------------
+// Writer
+// ----------------------------------------------------------------------------
+
+// -- Regs
+state_wr_t state_wr_C = ST_WR_0, state_wr_N;
+state_rd_t state_rd_C = ST_RD_0, state_rd_N;
+
+logic[NF_BITS-1:0] curr_nf_C = '0, curr_nf_N;
+logic[N_TLS_BITS-1:0] curr_sf_C = '0, curr_sf_N;
+logic[SIMD_BITS-1:0] curr_simd_C = '0, curr_simd_N;
+
+// -- Signals
+logic [1:0][SIMD-1:0] a_we;
+logic [1:0][WGT_ADDR_BITS-1:0] a_addr;
+
+// -- Offsets
+for(genvar i = 0; i < NF; i++) begin
+    assign offsets[i] = i * SF;
+end
+
+// -- REG
+always_ff @( posedge ap_clk ) begin : REG_PROC_WR
+    if(~ap_rst_n) begin
+        state_wr_C <= ST_WR_0;
+
+        curr_nf_C <= 0;
+        curr_sf_C <= 0;
+        curr_simd_C <= 0;
+    end
+    else begin
+        state_wr_C <= state_wr_N;
+
+        curr_nf_C <= curr_nf_N;
+        curr_sf_C <= curr_sf_N;
+        curr_simd_C <= curr_simd_N;
+    end
+end
+
+// -- NSL
+always_comb begin : NSL_PROC_WR
+    state_wr_N = state_wr_C;
+
+    unique case (state_wr_C)
+        ST_WR_0:
+            if ((curr_simd_C == SIMD - 1) && (curr_sf_C == SF - 1) && (curr_nf_C == NF - 1) && ivld) begin
+                state_wr_N = (state_rd_C == ST_RD_0) ? ST_WR_1 : ST_WR_0_WAIT;
+            end
+
+        ST_WR_0_WAIT:
+            state_wr_N = (state_rd_C == ST_RD_0) ? ST_WR_1 : ST_WR_0_WAIT;
+
+        ST_WR_1:
+            if ((curr_simd_C == SIMD - 1) && (curr_sf_C == SF - 1) && (curr_nf_C == NF - 1) && ivld) begin
+                state_wr_N = (state_rd_C == ST_RD_1) ? ST_WR_0 : ST_WR_1_WAIT;
+            end
+
+        ST_WR_1_WAIT:
+            state_wr_N = (state_rd_C == ST_RD_1) ? ST_WR_0 : ST_WR_1_WAIT;
+
+    endcase
+end
+
+// -- DP
+always_comb begin : DP_PROC_WR
+    curr_nf_N = curr_nf_C;
+    curr_sf_N = curr_sf_C;
+    curr_simd_N = curr_simd_C;
+
+    // Input
+    irdy = 1'b0;
+
+    // Buffers
+    a_we = '0;
+    for(int i = 0; i < 2; i++)
+        a_addr[i] = offsets[curr_nf_C] + curr_sf_C;
+
+    // Write and count
+    case (state_wr_C)
+        ST_WR_0, ST_WR_1: begin
+            irdy = 1'b1;
+
+            if(ivld) begin
+                a_we[state_wr_C == ST_WR_1][curr_simd_C] = 1;
+
+                curr_nf_N   = (curr_nf_C == NF-1) ? 0 : curr_nf_C + 1;
+                curr_simd_N = (curr_nf_C == NF-1) ? ((curr_simd_C == SIMD-1) ? 0 : curr_simd_C + 1) : curr_simd_C;
+                curr_sf_N   = (curr_nf_C == NF-1) ? ((curr_simd_C == SIMD-1) ? ((curr_sf_C == SF-1) ? 0 : curr_sf_C + 1) : curr_sf_C) : curr_sf_C;
+            end
+        end
+    endcase
+
+end
+
+// ----------------------------------------------------------------------------
+// Reader
+// ----------------------------------------------------------------------------
+
+// -- Regs
+logic [N_TLS_BITS-1:0] cons_sfnf_C = '0, cons_sfnf_N;
+logic [N_REPS_BITS-1:0] cons_r_C = '0, cons_r_N;
+
+logic [1:0] vld_s0_C = '0, vld_s0_N;
+logic [1:0] vld_s1_C = '0, vld_s1_N;
+
+logic vld_C = '0, vld_N;
+logic [PE-1:0][SIMD-1:0][WEIGHT_WIDTH-1:0] odat_C = '0, odat_N;
+
+// -- Signals
+logic [1:0][WGT_ADDR_BITS-1:0] b_addr;
+logic [1:0][PE-1:0][SIMD-1:0][WEIGHT_WIDTH-1:0] odat_ram;
+
+// -- REG
+always_ff @( posedge ap_clk ) begin : REG_PROC_RD
+    if(~ap_rst_n) begin
+        state_rd_C <= ST_RD_0;
+
+        cons_sfnf_C <= 0;
+        cons_r_C  <= 0;
+
+        vld_s0_C <= 0;
+        vld_s1_C <= 0;
+        vld_C <= 0;
+        odat_C <= 0;
+    end
+    else begin
+        state_rd_C <= state_rd_N;
+
+        cons_sfnf_C <= cons_sfnf_N;
+        cons_r_C  <= cons_r_N;
+
+        vld_s0_C <= vld_s0_N;
+        vld_s1_C <= vld_s1_N;
+        vld_C <= vld_N;
+        odat_C <= odat_N;
+    end
+end
+
+// -- NSL
+always_comb begin : NSL_PROC_RD
+    state_rd_N = state_rd_C;
+
+    case (state_rd_C)
+        ST_RD_0:
+            if(ordy && ((state_wr_C != ST_WR_0) || (curr_sf_C > cons_sfnf_C))) begin
+                if((cons_sfnf_C == N_TLS-1) && (cons_r_C == N_REPS-1)) begin
+                    state_rd_N = ST_RD_1;
+                end
+            end
+
+        ST_RD_1:
+            if(ordy && ((state_wr_C != ST_WR_1) || (curr_sf_C > cons_sfnf_C))) begin
+                if((cons_sfnf_C == N_TLS-1) && (cons_r_C == N_REPS-1)) begin
+                    state_rd_N = ST_RD_0;
+                end
+            end
+
+    endcase
+end
+
+// -- DP
+always_comb begin : DP_PROC_RD
+    cons_sfnf_N = cons_sfnf_C;
+    cons_r_N = cons_r_C;
+
+    for(int i = 0; i < 2; i++) begin
+        vld_s0_N[i] = ordy ? 1'b0 : vld_s0_C[i];
+        vld_s1_N[i] = ordy ? vld_s0_C[i] : vld_s1_C[i];
+    end
+
+    vld_N = ordy ? |vld_s1_C : vld_C;
+    odat_N = ordy ? (vld_s1_C[0] ? odat_ram[0] : odat_ram[1]) : odat_C;
+
+    for(int i = 0; i < 2; i++) begin
+        b_addr[i] = cons_sfnf_C;
+    end
+
+    case(state_rd_C)
+        ST_RD_0: begin
+            if(ordy) begin
+                if((state_wr_C == ST_WR_0) ? (curr_sf_C > cons_sfnf_C) : 1'b1) begin
+                    vld_s0_N[0] = 1'b1;
+
+                    cons_sfnf_N = (cons_sfnf_C == N_TLS-1) ? 0 : cons_sfnf_C + 1;
+                    cons_r_N = (cons_sfnf_C == N_TLS-1) ? ((cons_r_C == N_REPS-1) ? 0 : cons_r_C + 1) : cons_r_C;
+                end
+            end
+        end
+
+        ST_RD_1: begin
+            if(ordy) begin
+                if((state_wr_C == ST_WR_1) ? (curr_sf_C > cons_sfnf_C) : 1'b1) begin
+
+                    vld_s0_N[1] = 1'b1;
+
+                    cons_sfnf_N = (cons_sfnf_C == N_TLS-1) ? 0 : cons_sfnf_C + 1;
+                    cons_r_N = (cons_sfnf_C == N_TLS-1) ? ((cons_r_C == N_REPS-1) ? 0 : cons_r_C + 1) : cons_r_C;
+                end
+            end
+        end
+
+    endcase
+
+end
+
+assign ovld = vld_C;
+assign odat = odat_C;
+
+// ----------------------------------------------------------------------------
+// Weight RAMs
+// ----------------------------------------------------------------------------
+
+for(genvar i = 0; i < 2; i++) begin : genBank
+    for(genvar k = 0; k < SIMD; k++) begin : genSimd
+        (* RAM_STYLE = RAM_STYLE *)
+        logic [PE-1:0][WEIGHT_WIDTH-1:0]  Ram[2**WGT_ADDR_BITS];
+        logic [PE-1:0][WEIGHT_WIDTH-1:0]  RdReg;
+
+        always_ff @(posedge ap_clk) begin
+            if(a_we[i][k])  Ram[a_addr[i]] <= idat;
+            if(ordy) begin
+                RdReg <= Ram[b_addr[i]];
+                foreach(RdReg[p])  odat_ram[i][p][k] <= RdReg[p];
+            end
+        end
+    end : genSimd
+end : genBank
+
+endmodule : dynamic_load

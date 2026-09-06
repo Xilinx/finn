@@ -28,6 +28,9 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
+# Fail fast so a partial deps/ tree is caught early
+set -e
+
 export HOME=/tmp/home_dir
 export SHELL=/bin/bash
 export LANG="en_US.UTF-8"
@@ -35,7 +38,6 @@ export LC_ALL="en_US.UTF-8"
 export LANGUAGE="en_US:en"
 # colorful terminal output
 export PS1='\[\033[1;36m\]\u\[\033[1;31m\]@\[\033[1;32m\]\h:\[\033[1;35m\]\w\[\033[1;31m\]\$\[\033[0m\] '
-export PATH=$PATH:$OHMYXILINX
 
 YELLOW='\033[0;33m'
 GREEN='\033[0;32m'
@@ -56,19 +58,23 @@ recho () {
 
 # qonnx (using workaround for https://github.com/pypa/pip/issues/7953)
 # to be fixed in future Ubuntu versions (https://bugs.launchpad.net/ubuntu/+source/setuptools/+bug/1994016)
-mv ${FINN_ROOT}/deps/qonnx/pyproject.toml ${FINN_ROOT}/deps/qonnx/pyproject.tmp
-pip install --user -e ${FINN_ROOT}/deps/qonnx
-mv ${FINN_ROOT}/deps/qonnx/pyproject.tmp ${FINN_ROOT}/deps/qonnx/pyproject.toml
+# set -e propagates pip failures, so the trap covers only the qonnx-only swap.
+_qonnx_pyproj_toml="${FINN_ROOT}/deps/qonnx/pyproject.toml"
+_qonnx_pyproj_tmp="${FINN_ROOT}/deps/qonnx/pyproject.tmp"
+mv "$_qonnx_pyproj_toml" "$_qonnx_pyproj_tmp"
+trap 'mv "$_qonnx_pyproj_tmp" "$_qonnx_pyproj_toml" 2>/dev/null || true' EXIT
+pip install --user -e "${FINN_ROOT}/deps/qonnx"
+mv "$_qonnx_pyproj_tmp" "$_qonnx_pyproj_toml"
+trap - EXIT
+
 # finn-experimental
-pip install --user -e ${FINN_ROOT}/deps/finn-experimental
+pip install --user -e "${FINN_ROOT}/deps/finn-experimental"
 # brevitas
-pip install --user -e ${FINN_ROOT}/deps/brevitas
-# pyverilator
-pip install --user -e ${FINN_ROOT}/deps/pyverilator
+pip install --user -e "${FINN_ROOT}/deps/brevitas"
 
 if [ -f "${FINN_ROOT}/setup.py" ];then
   # run pip install for finn
-  pip install --user -e ${FINN_ROOT}
+  pip install --user -e "${FINN_ROOT}"
 else
   recho "Unable to find FINN source code in ${FINN_ROOT}"
   recho "Ensure you have passed -v <path-to-finn-repo>:<path-to-finn-repo> to the docker run command"
@@ -79,11 +85,12 @@ if [ -f "$VITIS_PATH/settings64.sh" ];then
   # source Vitis env.vars
   export XILINX_VITIS=$VITIS_PATH
   export XILINX_XRT=/opt/xilinx/xrt
-  source $VITIS_PATH/settings64.sh
+  # env scripts may return non-zero, so do not let that abort the container
+  source "$VITIS_PATH/settings64.sh" || true
   gecho "Found Vitis at $VITIS_PATH"
   if [ -f "$XILINX_XRT/setup.sh" ];then
     # source XRT
-    source $XILINX_XRT/setup.sh
+    source "$XILINX_XRT/setup.sh" || true
     gecho "Found XRT at $XILINX_XRT"
   else
     recho "XRT not found on $XILINX_XRT, did you skip the download or did the installation fail?"
@@ -96,7 +103,7 @@ else
   if [ -f "$VIVADO_PATH/settings64.sh" ];then
     # source Vivado env.vars
     export XILINX_VIVADO=$VIVADO_PATH
-    source $VIVADO_PATH/settings64.sh
+    source "$VIVADO_PATH/settings64.sh" || true
     gecho "Found Vivado at $VIVADO_PATH"
   else
     yecho "Unable to find $VIVADO_PATH/settings64.sh"
@@ -105,9 +112,27 @@ else
   fi
 fi
 
+if [ -z "${XILINX_VIVADO}" ]; then
+  yecho "finnxsi will be unavailable since Vivado was not found"
+else
+  # Build finn_xsi using the new Python-based setup
+  if [ -f "${FINN_ROOT}/finn_xsi/xsi.so" ]; then
+    gecho "Found existing finn_xsi at ${FINN_ROOT}/finn_xsi/xsi.so"
+  else
+    gecho "Building finn_xsi using finn.xsi.setup..."
+    if python -m finn.xsi.setup --quiet; then
+      gecho "finn_xsi built successfully"
+    else
+      # finn_xsi is optional, so a failed build is non-fatal
+      recho "Failed to build finn_xsi"
+    fi
+  fi
+  export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/lib/x86_64-linux-gnu/:${XILINX_VIVADO}/lib/lnx64.o
+fi
+
 if [ -f "$HLS_PATH/settings64.sh" ];then
   # source Vitis HLS env.vars
-  source $HLS_PATH/settings64.sh
+  source "$HLS_PATH/settings64.sh" || true
   gecho "Found Vitis HLS at $HLS_PATH"
 else
   yecho "Unable to find $HLS_PATH/settings64.sh"
@@ -117,7 +142,7 @@ else
 fi
 
 if [ -d "$FINN_ROOT/.Xilinx" ]; then
-  mkdir "$HOME/.Xilinx"
+  mkdir -p "$HOME/.Xilinx"
   if [ -f "$FINN_ROOT/.Xilinx/HLS_init.tcl" ]; then
     cp "$FINN_ROOT/.Xilinx/HLS_init.tcl" "$HOME/.Xilinx/"
     gecho "Found HLS_init.tcl and copied to $HOME/.Xilinx/HLS_init.tcl"
@@ -126,9 +151,10 @@ if [ -d "$FINN_ROOT/.Xilinx" ]; then
   fi
 
   if [ -f "$FINN_ROOT/.Xilinx/Vivado/Vivado_init.tcl" ]; then
-    mkdir "$HOME/.Xilinx/Vivado/"
+    mkdir -p "$HOME/.Xilinx/Vivado/"
     cp "$FINN_ROOT/.Xilinx/Vivado/Vivado_init.tcl" "$HOME/.Xilinx/Vivado/"
     gecho "Found Vivado_init.tcl and copied to $HOME/.Xilinx/Vivado/Vivado_init.tcl"
+
   else
     yecho "Unable to find $FINN_ROOT/.Xilinx/Vivado/Vivado_init.tcl"
   fi
@@ -137,6 +163,9 @@ else
   echo "See https://docs.xilinx.com/r/en-US/ug835-vivado-tcl-commands/Tcl-Initialization-Scripts"
 fi
 
+export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$VITIS_PATH/lnx64/tools/fpo_v7_1:$HLS_PATH/lnx64/tools/fpo_v7_1"
+
 export PATH=$PATH:$HOME/.local/bin
+
 # execute the provided command(s) as root
 exec "$@"

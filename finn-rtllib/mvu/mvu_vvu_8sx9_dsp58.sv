@@ -35,17 +35,17 @@ module mvu_vvu_8sx9_dsp58 #(
 	bit IS_MVU,
     int unsigned PE,
     int unsigned SIMD,
-    int unsigned ACTIVATION_WIDTH,
-    int unsigned WEIGHT_WIDTH,
-	int unsigned ACCU_WIDTH,
+	int unsigned  WEIGHT_WIDTH,
+	int unsigned  ACTIVATION_WIDTH,
+	int unsigned  ACCU_WIDTH,
+
     bit SIGNED_ACTIVATIONS = 0,
     int unsigned SEGMENTLEN = 0, // Default to 0 (which implies a single segment)
 	bit FORCE_BEHAVIORAL = 0,
 
 	localparam int unsigned ACTIVATION_ELEMENTS = (IS_MVU ? 1 : PE) * SIMD,
 	localparam int unsigned WEIGHT_ELEMENTS = PE*SIMD
-  )
-  (
+  )  (
     // Global Control
 	input   logic clk,
     input   logic rst,
@@ -67,6 +67,25 @@ module mvu_vvu_8sx9_dsp58 #(
 		1 ||
 `endif
 		FORCE_BEHAVIORAL;
+
+	//-----------------------------------------------------------------------
+	// Startup Recovery Watchdog
+	//  The DSP slice needs 100ns of recovery time after initial startup before
+	//  being able to ingest input properly. This watchdog discovers violating
+	//  stimuli during simulation and produces a corresponding warning.
+	if(1) begin : blkRecoveryWatch
+		logic  Dirty = 1;
+		initial begin
+			#100ns;
+			Dirty <= 0;
+		end
+
+		always_ff @(posedge clk) begin
+			assert(!Dirty || rst || !en || zero) else begin
+				$warning("%m: Feeding input during DSP startup recovery. Expect functional errors.");
+			end
+		end
+	end : blkRecoveryWatch
 
 //-------------------- Declare global signals --------------------\\
 	localparam int unsigned CHAINLEN = (SIMD+2)/3;
@@ -91,17 +110,17 @@ module mvu_vvu_8sx9_dsp58 #(
 	assign vld = L[0];
 
 //-------------------- Shift register for ZERO flag --------------------\\
-	logic Z [0:MAX_PIPELINE_STAGES-2] = '{default:0}; // We need MAX_PIPELINE_STAGES-1 pipeline stages (note: INMODE is buffered inside DSP fabric)
-
-	if (MAX_PIPELINE_STAGES > 1) begin : genZreg
+	// We need MAX_PIPELINE_STAGES-1 delay stages (INMODE is registed once more inside DSP)
+	uwire [MAX_PIPELINE_STAGES-1:0]  inmode_zero;
+	assign	inmode_zero[0] = zero;
+	if(MAX_PIPELINE_STAGES > 1) begin : genZReg
+		logic [MAX_PIPELINE_STAGES-1:1]  Z = '1;
 		always_ff @(posedge clk) begin
-			if (rst)      Z <= '{default: 0};
-			else if(en) begin
-				Z[0] <= zero;
-				if (MAX_PIPELINE_STAGES > 2)  Z[1:MAX_PIPELINE_STAGES-2] <= Z[0:MAX_PIPELINE_STAGES-3];
-			end
+			if(rst)      Z <= '1;
+			else if(en)  Z <= inmode_zero[MAX_PIPELINE_STAGES-2:0];
 		end
-	end;
+		assign	inmode_zero[MAX_PIPELINE_STAGES-1:1] = Z;
+	end : genZReg
 
 //-------------------- Buffer for input activations --------------------\\
 	localparam int unsigned PAD_BITS_ACT = 9 - ACTIVATION_WIDTH;
@@ -112,10 +131,10 @@ module mvu_vvu_8sx9_dsp58 #(
 			localparam int LANES_OCCUPIED = i == CHAINLEN-1 ? SIMD - 3*i : 3;
 
 			if (EXTERNAL_PREGS > 0) begin : genExternalPregAct
-				logic [0:EXTERNAL_PREGS-1][LANES_OCCUPIED-1:0][ACTIVATION_WIDTH-1:0] A = '{ default : 0};
+				(* EXTRACT_SHREG = "true" *)
+				logic [0:EXTERNAL_PREGS-1][LANES_OCCUPIED-1:0][ACTIVATION_WIDTH-1:0] A = '{ default : 'x };
 				always_ff @(posedge clk) begin
-					if (rst)     A <= '{default: 0};
-					else if(en) begin
+					if(en) begin
 						A[EXTERNAL_PREGS-1] <=
 // synthesis translate_off
 							zero ? '1 :
@@ -158,10 +177,10 @@ module mvu_vvu_8sx9_dsp58 #(
 			localparam int LANES_OCCUPIED = j == CHAINLEN-1 ? SIMD - 3*j : 3;
 
 			if (EXTERNAL_PREGS > 0) begin : genExternalPregWeight
-				logic [0:PE-1][0:EXTERNAL_PREGS-1][LANES_OCCUPIED-1:0][WEIGHT_WIDTH-1:0] B = '{ default : 0};
+				(* EXTRACT_SHREG = "true" *)
+				logic [0:PE-1][0:EXTERNAL_PREGS-1][LANES_OCCUPIED-1:0][WEIGHT_WIDTH-1:0] B = '{ default : 'x };
 				always_ff @(posedge clk) begin
-					if (rst)    B <= '{default: 0};
-					else if (en) begin
+					if(en) begin
 						B[i][EXTERNAL_PREGS-1] <=
 // synthesis translate_off
 							zero ? '1 :
@@ -234,7 +253,7 @@ module mvu_vvu_8sx9_dsp58 #(
 				logic InmodeZero = 0;
 				always_ff @(posedge clk) begin
 					if (rst)		InmodeZero <= 0;
-					else if (en)	InmodeZero <= ( TOTAL_PREGS > 0 ? Z[TOTAL_PREGS-1] : zero );
+					else if (en)	InmodeZero <= inmode_zero[TOTAL_PREGS];
 				end
 				always_ff @(posedge clk) begin
 					if (rst)	Mreg <= 0;
@@ -382,7 +401,7 @@ module mvu_vvu_8sx9_dsp58 #(
 					.INMODE({
 							INTERNAL_PREGS==2 ? 1'b0 : 1'b1,
 							2'b00,
-							TOTAL_PREGS > 0 ? Z[TOTAL_PREGS-1] : zero,
+							inmode_zero[TOTAL_PREGS],
 							INTERNAL_PREGS==2 ? 1'b0 : 1'b1
 					}),                                 // 5-bit input: INMODE control
 					.NEGATE('0),                        // 3-bit input: Negates the input of the multiplier

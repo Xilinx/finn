@@ -27,8 +27,14 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import qonnx.custom_op.registry as registry
+from itertools import product
 
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
+
+RESOURCE_ATTR_VALUES = {
+    "resType": ["dsp", "lut"],
+    "ram_style": ["block", "distributed", "ultra"],
+}
 
 
 def res_estimation(model, fpgapart):
@@ -48,6 +54,49 @@ def res_estimation(model, fpgapart):
     return res_dict
 
 
+def _resource_attr_variants(inst):
+    """Return resource-related node attribute variants supported by inst."""
+    attr_types = inst.get_nodeattr_types()
+    variants = []
+    for attr_name, ordered_values in RESOURCE_ATTR_VALUES.items():
+        if attr_name not in attr_types:
+            continue
+
+        attr_spec = attr_types[attr_name]
+        if len(attr_spec) < 4:
+            continue
+
+        allowed_values = attr_spec[3]
+        if allowed_values is None:
+            continue
+
+        allowed_values = set(allowed_values)
+        values = [value for value in ordered_values if value in allowed_values]
+        if values:
+            variants.append((attr_name, values))
+    return variants
+
+
+def _estimate_all_resource_variants(inst, fpgapart):
+    variants = _resource_attr_variants(inst)
+    if not variants:
+        return [inst.node_res_estimation(fpgapart)]
+
+    orig_values = {attr_name: inst.get_nodeattr(attr_name) for attr_name, _ in variants}
+    ret = []
+    try:
+        attr_names = [attr_name for attr_name, _ in variants]
+        variant_values = [values for _, values in variants]
+        for values in product(*variant_values):
+            for attr_name, value in zip(attr_names, values):
+                inst.set_nodeattr(attr_name, value)
+            ret.append(inst.node_res_estimation(fpgapart))
+    finally:
+        for attr_name, value in orig_values.items():
+            inst.set_nodeattr(attr_name, value)
+    return ret
+
+
 def res_estimation_complete(model, fpgapart):
     """Estimates the resources needed for the given model and all values for
     resource-related switches.
@@ -61,26 +110,6 @@ def res_estimation_complete(model, fpgapart):
     for node in model.graph.node:
         if is_hls_node(node) or is_rtl_node(node):
             inst = registry.getCustomOp(node)
-            op_type = node.op_type
-            if op_type.startswith("MVAU") or op_type.startswith("VVAU"):
-                orig_restype = inst.get_nodeattr("resType")
-                res_dict[node.name] = []
-                inst.set_nodeattr("resType", "dsp")
-                res_dict[node.name].append(inst.node_res_estimation(fpgapart))
-                inst.set_nodeattr("resType", "lut")
-                res_dict[node.name].append(inst.node_res_estimation(fpgapart))
-                inst.set_nodeattr("resType", orig_restype)
-            elif op_type.startswith("ConvolutionInputGenerator"):
-                orig_ramstyle = inst.get_nodeattr("ram_style")
-                res_dict[node.name] = []
-                inst.set_nodeattr("ram_style", "block")
-                res_dict[node.name].append(inst.node_res_estimation(fpgapart))
-                inst.set_nodeattr("ram_style", "distributed")
-                res_dict[node.name].append(inst.node_res_estimation(fpgapart))
-                inst.set_nodeattr("ram_style", "ultra")
-                res_dict[node.name].append(inst.node_res_estimation(fpgapart))
-                inst.set_nodeattr("ram_style", orig_ramstyle)
-            else:
-                res_dict[node.name] = [inst.node_res_estimation(fpgapart)]
+            res_dict[node.name] = _estimate_all_resource_variants(inst, fpgapart)
 
     return res_dict

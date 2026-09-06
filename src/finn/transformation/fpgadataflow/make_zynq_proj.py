@@ -27,6 +27,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import multiprocessing as mp
 import os
 import subprocess
 from qonnx.core.modelwrapper import ModelWrapper
@@ -34,6 +35,7 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
+from qonnx.util.basic import get_num_default_workers
 from shutil import copy
 
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
@@ -47,7 +49,12 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.basic import make_build_dir, pynq_native_port_width, pynq_part_map
+from finn.util.basic import (
+    make_build_dir,
+    pynq_native_port_width,
+    pynq_part_map,
+    resolve_xilinx_tool,
+)
 
 from . import templates
 
@@ -67,6 +74,13 @@ def collect_ip_dirs(model, ipstitch_path):
         if node.op_type.startswith("MVAU") or node.op_type == "Thresholding_hls":
             if node_inst.get_nodeattr("mem_mode") == "internal_decoupled":
                 need_memstreamer = True
+        if node.op_type == "FINNLoop":
+            loop_body = node_inst.get_nodeattr("body")
+            loop_body_ipstitch_path = loop_body.get_metadata_prop("vivado_stitch_proj")
+            assert loop_body_ipstitch_path is not None, (
+                "No stitched IPI design found for the body of %s, " % node.name
+            )
+            ip_dirs += collect_ip_dirs(loop_body, loop_body_ipstitch_path)
     ip_dirs += [ipstitch_path + "/ip"]
     if need_memstreamer:
         # add RTL streamer IP
@@ -88,9 +102,10 @@ class MakeZYNQProject(Transformation):
     value.
     """
 
-    def __init__(self, platform, enable_debug=False):
+    def __init__(self, platform, period_ns, enable_debug=False):
         super().__init__()
         self.platform = platform
+        self.period_ns = period_ns
         self.enable_debug = 1 if enable_debug else 0
 
     def apply(self, model):
@@ -100,7 +115,6 @@ class MakeZYNQProject(Transformation):
         odma_idx = 0
         aximm_idx = 0
         axilite_idx = 0
-        global_clk_ns = 0
         instance_names = {}
         for node in model.graph.node:
             assert node.op_type == "StreamingDataflowPartition", "Invalid link graph"
@@ -127,11 +141,6 @@ class MakeZYNQProject(Transformation):
                 "[current_project]" % ip_dirs_str
             )
             config.append("update_ip_catalog -rebuild -scan_changes")
-
-            # get metadata property clk_ns to calculate clock frequency
-            clk_ns = float(kernel_model.get_metadata_prop("clk_ns"))
-            if clk_ns > global_clk_ns:
-                global_clk_ns = clk_ns
 
             ifnames = eval(kernel_model.get_metadata_prop("vivado_stitch_ifnames"))
 
@@ -232,11 +241,15 @@ class MakeZYNQProject(Transformation):
         vivado_pynq_proj_dir = make_build_dir(prefix="vivado_zynq_proj_")
         model.set_metadata_prop("vivado_pynq_proj", vivado_pynq_proj_dir)
 
-        fclk_mhz = int(1 / (global_clk_ns * 0.001))
+        fclk_mhz = int(1 / (self.period_ns * 0.001))
 
         # create a TCL recipe for the project
         ipcfg = vivado_pynq_proj_dir + "/ip_config.tcl"
         config = "\n".join(config) + "\n"
+        num_workers = get_num_default_workers()
+        assert num_workers >= 0, "Number of workers must be nonnegative."
+        if num_workers == 0:
+            num_workers = mp.cpu_count()
         with open(ipcfg, "w") as f:
             f.write(
                 templates.custom_zynq_shell_template
@@ -248,16 +261,18 @@ class MakeZYNQProject(Transformation):
                     pynq_part_map[self.platform],
                     config,
                     self.enable_debug,
+                    num_workers,
                 )
             )
 
         # create a TCL recipe for the project
         synth_project_sh = vivado_pynq_proj_dir + "/synth_project.sh"
         working_dir = os.environ["PWD"]
+        vivado_cmd = resolve_xilinx_tool("vivado")
         with open(synth_project_sh, "w") as f:
             f.write("#!/bin/bash \n")
             f.write("cd {}\n".format(vivado_pynq_proj_dir))
-            f.write("vivado -mode batch -source %s\n" % ipcfg)
+            f.write("%s -mode batch -source %s\n" % (vivado_cmd, ipcfg))
             f.write("cd {}\n".format(working_dir))
 
         # call the synthesis script
@@ -344,12 +359,14 @@ class ZynqBuild(Transformation):
             kernel_model = kernel_model.transform(PrepareIP(self.fpga_part, self.period_ns))
             kernel_model = kernel_model.transform(HLSSynthIP())
             kernel_model = kernel_model.transform(
-                CreateStitchedIP(self.fpga_part, self.period_ns, sdp_node.onnx_node.name, False)
+                CreateStitchedIP(self.fpga_part, self.period_ns, sdp_node.onnx_node.name)
             )
             kernel_model.set_metadata_prop("platform", "zynq-iodma")
             kernel_model.save(dataflow_model_filename)
         # Assemble design from IPs
-        model = model.transform(MakeZYNQProject(self.platform, enable_debug=self.enable_debug))
+        model = model.transform(
+            MakeZYNQProject(self.platform, self.period_ns, enable_debug=self.enable_debug)
+        )
 
         # set platform attribute for correct remote execution
         model.set_metadata_prop("platform", "zynq-iodma")

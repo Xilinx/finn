@@ -57,37 +57,71 @@ Now you can invoke the simple dataflow build as follows:
   ./run-docker.sh build_dataflow <path/to/dataflow_build_dir/>
 
 Depending on the chosen output products, the dataflow build will run for a while
-as it goes through numerous steps:
+as it goes through the build phases:
 
 .. code-block:: none
 
   Building dataflow accelerator from build_dataflow/model.onnx
-  Outputs will be generated at output_tfc_w1a1_Pynq-Z1
-  Build log is at output_tfc_w1a1_Pynq-Z1/build_dataflow.log
-  Running step: step_qonnx_to_finn [1/19]
-  Running step: step_tidy_up [2/19]
-  Running step: step_streamline [3/19]
-  Running step: step_convert_to_hw [4/19]
-  Running step: step_create_dataflow_partition [5/19]
-  Running step: step_specialize_layers [6/19]
-  Running step: step_target_fps_parallelization [7/19]
-  Running step: step_apply_folding_config [8/19]
-  Running step: step_minimize_bit_width [9/19]
-  Running step: step_generate_estimate_reports [10/19]
-  Running step: step_hw_codegen [11/19]
-  Running step: step_hw_ipgen [12/19]
-  Running step: step_set_fifo_depths [13/19]
-  Running step: step_create_stitched_ip [14/19]
-  Running step: step_measure_rtlsim_performance [15/19]
-  Running step: step_out_of_context_synthesis [16/19]
-  Running step: step_synthesize_bitfile [17/19]
-  Running step: step_make_pynq_driver [18/19]
-  Running step: step_deployment_package [19/19]
+  Outputs will be generated at output_tfc_w1a1_AUP-ZU3_8GB
+  Build log is at output_tfc_w1a1_AUP-ZU3_8GB/build_dataflow.log
+  Running step: phase_prepare_model [1/6]
+  Running step: phase_optimize_model [2/6]
+  Running step: phase_convert_to_hardware [3/6]
+  Running step: phase_optimize_hardware [4/6]
+  Running step: phase_build_hardware [5/6]
+  Running step: phase_generate_outputs [6/6]
 
 
-You can read a brief description of what each step does on
+Build phases and steps
+----------------------
+
+The default build flow is organized into a small number of *phases*, each of
+which groups together several fine-grained *steps* that logically belong
+together. The default phases are:
+
+* ``phase_prepare_model`` -- import the model and tidy it up
+  (``step_qonnx_to_finn``, ``step_tidy_up``)
+* ``phase_optimize_model`` -- streamline the model (``step_streamline``)
+* ``phase_convert_to_hardware`` -- infer hardware layers, create the dataflow
+  partition, specialize layers to HLS/RTL and roll up loops
+  (``step_convert_to_hw``, ``step_create_dataflow_partition``,
+  ``step_specialize_layers``, ``step_loop_rolling``)
+* ``phase_optimize_hardware`` -- configure parallelism, apply folding, minimize
+  bit widths, decompose transposes, size FIFOs and generate estimate reports
+  (``step_target_fps_parallelization``, ``step_apply_folding_config``,
+  ``step_minimize_bit_width``, ``step_transpose_decomposition``,
+  ``step_set_fifo_depths``, ``step_generate_estimate_reports``)
+* ``phase_build_hardware`` -- generate HLS C++ / RTL code and synthesize IP
+  blocks (``step_hw_codegen``, ``step_hw_ipgen``)
+* ``phase_generate_outputs`` -- create the requested deliverables such as
+  stitched IP, RTL-sim performance measurements, bitfile, driver and deployment
+  package (``step_create_stitched_ip``, ``step_measure_rtlsim_performance``,
+  ``step_synthesize_bitfile``, ``step_make_driver``, ``step_deployment_package``)
+
+You can read a brief description of what each phase does on
+:py:mod:`finn.builder.build_dataflow_phases` and of each individual step on
 :py:mod:`finn.builder.build_dataflow_steps`. Note that a step whose output
 products are not enabled will still run, but will do nothing.
+
+.. note::
+  ``step_set_fifo_depths`` (FIFO sizing) uses rtl simulation and therefore
+  requires synthesis. It is skipped automatically for estimate-only builds
+  (where only ``ESTIMATE_REPORTS`` is requested and the configured FIFO sizing
+  strategy needs synthesis), so the estimate flow stays fast and
+  synthesis-free.
+
+The fine-grained steps are still available and can be composed into a custom
+``steps`` list in the build configuration for standard (non-MLO) models, mixing
+phases and steps as needed. Note that models using multi-level offloading (MLO,
+i.e. ``FINNLoop`` nodes) must use the phases: the orchestration that processes
+loop bodies lives inside the phases, so a flat list of fine-grained steps will
+not build an MLO model correctly.
+
+.. note::
+  When restricting a build with ``start_step`` / ``stop_step``, use the phase
+  names (e.g. ``start_step="phase_build_hardware"``) since the build loop
+  operates at the phase level. Intermediate ONNX checkpoints are still saved per
+  internal step, so files like ``step_hw_ipgen.onnx`` will exist.
 
 
 Generated outputs
@@ -103,7 +137,7 @@ The following outputs will be generated regardless of which particular outputs a
 
 * ``build_dataflow.log`` is the build logfile that will contain any warnings/errors
 * ``time_per_step.json`` will report the time (in seconds) each build step took
-* ``final_hw_config.json`` will contain the final (after parallelization, FIFO sizing etc) hardware configuration for the build
+* ``final_hw_config.json`` will contain the final (after parallelization, FIFO sizing etc) hardware configuration for the build. It is written by the FIFO sizing step, so it is not produced for estimate-only builds (where FIFO sizing is skipped)
 * ``template_specialize_layers_config.json`` is an example json file that can be used to set the specialize layers config
 * ``intermediate_models/`` will contain the ONNX file(s) produced after each build step
 
@@ -124,7 +158,7 @@ build configuration), and are detailed below.
   * ``stitched_ip/finn_vivado_stitch_proj.xpr`` -- Vivado project (including Vivado IP Integrator block design) to generate the stitched IP
   * ``stitched_ip/ip`` -- exported Vivado IP for the stitched design
 
-* :py:mod:`finn.builder.build_dataflow_config.DataflowOutputType.RTLSIM_PERFORMANCE`: measure latency and performance for the stitched IP in RTL simulation, using PyVerilator
+* :py:mod:`finn.builder.build_dataflow_config.DataflowOutputType.RTLSIM_PERFORMANCE`: measure latency and performance for the stitched IP in RTL simulation, using XSI
 
   * ``report/rtlsim_performance.json`` -- accelerator throughput and latency from RTL simulation
 
@@ -132,16 +166,16 @@ build configuration), and are detailed below.
 
   * ``report/ooc_synth_and_timing.json`` -- resources and achievable clock frequency from out-of-context synthesis
 
-* :py:mod:`finn.builder.build_dataflow_config.DataflowOutputType.BITFILE` will run Vivado and/or Vitis to insert the FINN accelerator inside a shell, with DMA engines instantiated to move data to/from main memory:
+* :py:mod:`finn.builder.build_dataflow_config.DataflowOutputType.BITFILE` will run Vivado (for Zynq), Vitis, or Slash to insert the FINN accelerator inside a shell, with DMA engines instantiated to move data to/from main memory:
 
-  * ``bitfile/finn-accel.(bit|xclbin)`` -- generated bitfile depending on platform
+  * ``bitfile/finn-accel.(bit|xclbin|vbin)`` -- generated bitfile depending on platform
   * ``report/post_synth_resources.xml`` -- FPGA resource utilization after synthesis
   * ``report/post_route_timing.rpt`` -- post-route timing report
 
 
 * :py:mod:`finn.builder.build_dataflow_config.DataflowOutputType.PYNQ_DRIVER` will generate a PYNQ Python driver that can be used to interface the generated accelerator:
 
-  * ``driver/driver.py`` -- Python driver that can be used on PYNQ on Zynq or Alveo platforms to launch the accelerator
+  * ``driver/driver.py`` -- Python driver that can be used on PYNQ on Zynq or Vitis Alveo platforms to launch the accelerator
 
 * :py:mod:`finn.builder.build_dataflow_config.DataflowOutputType.DEPLOYMENT_PACKAGE`:
 

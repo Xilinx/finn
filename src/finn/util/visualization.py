@@ -29,6 +29,7 @@
 import inspect
 import netron
 import os
+import time
 from IPython.display import IFrame
 
 
@@ -43,11 +44,11 @@ def showInNetron(model_filename: str, localhost_url: str = None, port: int = Non
     :type model_filename: str
 
     :param localhost_url: The IP address used by the Jupyter IFrame to show the model.
-     Defaults to localhost.
+     Defaults to localhost or LOCALHOST_URL environment variable.
     :type localhost_url: str, optional
 
     :param port: The port number used by Netron and the Jupyter IFrame to show
-     the ONNX model.  Defaults to 8081.
+     the ONNX model. Defaults to NETRON_PORT environment variable or 8081.
     :type port: int, optional
 
     :return: The IFrame displaying the ONNX model.
@@ -58,5 +59,24 @@ def showInNetron(model_filename: str, localhost_url: str = None, port: int = Non
     except ValueError:
         port = 8081
     localhost_url = localhost_url or os.getenv("LOCALHOST_URL", default="localhost")
-    netron.start(model_filename, address=("0.0.0.0", port), browse=False)
+
+    # Try to start netron, handle address already in use error
+    try:
+        netron.start(model_filename, address=("0.0.0.0", port), browse=False)
+    except OSError as e:
+        if "Address already in use" in str(e) or e.errno == 98:
+            # Port is in use, stop existing netron server and retry
+            try:
+                netron.stop()
+            except Exception:
+                # netron.stop() might fail, ignore
+                pass
+            # Give the port a moment to be released
+            time.sleep(0.5)
+            # Retry starting netron
+            netron.start(model_filename, address=("0.0.0.0", port), browse=False)
+        else:
+            # Re-raise if it's a different OSError
+            raise
+
     return IFrame(src=f"http://{localhost_url}:{port}/", width="100%", height=400)
