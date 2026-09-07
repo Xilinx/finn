@@ -19,6 +19,9 @@ module fetch_weights #(
 
 	int unsigned  N_LAYERS,
 
+	int unsigned  BURST_LEN = 16,
+	int unsigned  BURST_OUTSTANDING = 64,
+
 	int unsigned  QDEPTH = 8,
 	int unsigned  EN_OREG = 1,
 	int unsigned  N_DCPL_STGS = 1,
@@ -113,11 +116,39 @@ module fetch_weights #(
 		assign	l_offsets[i] = i * LAYER_OFFS;
 	end : genOffs
 
-	//=== Index Handling & DMA Control ======================================
+	//=== DMA Descriptor Interface =========================================
 	logic  dma_tvalid;
 	logic  dma_tready;
 	logic [ADDR_BITS-1:0]  dma_addr;
 	logic [ LEN_BITS-1:0]  dma_len;
+
+	uwire  dma_hsk = dma_tvalid && dma_tready;
+	uwire  r_hsk   = m_axi_ddr_rvalid && m_axi_ddr_rready;
+
+	//=== Credit-Based AR Flow Control =====================================
+	// Limit in-flight AXI read beats to what the backing resource can absorb.
+	// TH==1: backed by one LWB write bank (LAYER_BEATS).
+	// TH>1:  backed by an explicit data FIFO (FIFO_BEATS).
+	// Debit LAYER_BEATS at descriptor acceptance (dma handshake), credit +1
+	// per R-channel beat.  Headroom-biased: Credit >= 0 means the backing
+	// resource can absorb one more descriptor's worth of LAYER_BEATS.
+	// credit_ok = sign bit extraction in both TH==1 and TH>1 paths.
+	// TH==1: CREDIT_HEADROOM=0, init=0, exactly one descriptor fits.
+	// TH>1:  CREDIT_HEADROOM=FIFO_BEATS-LAYER_BEATS, init=headroom,
+	//        multiple descriptors overlap until the FIFO is full.
+	localparam int unsigned  DMA_LEN_BYTES    = (MH*MW/IWSIMD) * ((IWSIMD*WEIGHT_WIDTH+7)/8);
+	localparam int unsigned  LAYER_BEATS      = (DMA_LEN_BYTES + DATA_BITS/8 - 1) / (DATA_BITS/8);
+	localparam int unsigned  FIFO_BEATS       = BURST_OUTSTANDING * BURST_LEN;
+	localparam int unsigned  CREDIT_BEATS     = (TH == 1)? LAYER_BEATS : FIFO_BEATS;
+	localparam int unsigned  CREDIT_HEADROOM  = CREDIT_BEATS - LAYER_BEATS;
+	localparam int unsigned  CREDIT_W         = $clog2(CREDIT_BEATS + 1) + 1;
+
+	logic signed [CREDIT_W-1:0]  Credit = CREDIT_HEADROOM;
+	always_ff @(posedge aclk) begin
+		if(~aresetn)  Credit <= CREDIT_HEADROOM;
+		else          Credit <= Credit - (dma_hsk? LAYER_BEATS : 0) + r_hsk;
+	end
+	uwire  credit_ok = ~Credit[CREDIT_W-1];
 
 	if(TH > 1) begin : genTiled
 
@@ -178,7 +209,7 @@ module fetch_weights #(
 				state_n = q_idx_vld? ST_DMA : ST_IDLE;
 
 			ST_DMA:
-				state_n = ((CntDma == N_REPS-1) && dma_tready)? ST_IDLE : ST_DMA;
+				state_n = ((CntDma == N_REPS-1) && dma_tready && credit_ok)? ST_IDLE : ST_DMA;
 			endcase
 		end
 
@@ -199,8 +230,8 @@ module fetch_weights #(
 			end
 
 			ST_DMA: begin
-				dma_tvalid = 1;
-				if(dma_tready)
+				dma_tvalid = credit_ok;
+				if(dma_tready && credit_ok)
 					cnt_dma_n = CntDma + 1;
 			end
 			endcase
@@ -210,13 +241,17 @@ module fetch_weights #(
 	else begin : genDirect
 
 		uwire [IDX_BITS-1:0]  q_idx_dat;
+		uwire  q_idx_vld;
+		uwire  q_idx_rdy = dma_tready && credit_ok;
 
 		fifo #(.DEPTH(QDEPTH), .DATA_WIDTH(IDX_BITS)) inst_idx_queue (
 			.clk(aclk), .rst(!aresetn),
 			.count(), .maxcount(),
 			.idat(s_idx_tdata), .ivld(s_idx_tvalid), .irdy(s_idx_tready),
-			.odat(q_idx_dat), .ovld(dma_tvalid), .ordy(dma_tready)
+			.odat(q_idx_dat), .ovld(q_idx_vld), .ordy(q_idx_rdy)
 		);
+
+		assign	dma_tvalid = q_idx_vld && credit_ok;
 
 		assign	dma_addr = base_address + ADDRESS_OFFSET + l_offsets[q_idx_dat];
 		// Same byte-aligned per-IWSIMD-group packing as the tiled path (see above):
@@ -242,10 +277,16 @@ module fetch_weights #(
 	assign	m_axi_ddr_wlast   = 0;
 	assign	m_axi_ddr_wstrb   = '0;
 	assign	m_axi_ddr_wvalid  = 0;
-	assign	m_axi_ddr_bready  = 0;
+	assign	m_axi_ddr_bready  = 1;
 
 	//=== DMA Engine ========================================================
+	uwire                     dma_raw_tvalid;
+	uwire                     dma_raw_tready;
+	uwire [DATA_BITS-1:0]     dma_raw_tdata;
+	uwire [DATA_BITS/8-1:0]   dma_raw_tkeep;
+	uwire                     dma_raw_tlast;
 	cdma_u_rd #(
+		.BURST_LEN(BURST_LEN),
 		.DATA_BITS(DATA_BITS),
 		.ADDR_BITS(ADDR_BITS),
 		.LEN_BITS(LEN_BITS)
@@ -273,19 +314,32 @@ module fetch_weights #(
 		.m_axi_ddr_rid(m_axi_ddr_rid),
 		.m_axi_ddr_rresp(m_axi_ddr_rresp),
 
-		.m_axis_ddr_tvalid(axis_dma_tvalid),
-		.m_axis_ddr_tready(axis_dma_tready),
-		.m_axis_ddr_tdata(axis_dma_tdata),
-		.m_axis_ddr_tkeep(axis_dma_tkeep),
-		.m_axis_ddr_tlast(axis_dma_tlast)
+		.m_axis_ddr_tvalid(dma_raw_tvalid),
+		.m_axis_ddr_tready(dma_raw_tready),
+		.m_axis_ddr_tdata(dma_raw_tdata),
+		.m_axis_ddr_tkeep(dma_raw_tkeep),
+		.m_axis_ddr_tlast(dma_raw_tlast)
 	);
 
-	//=== Local Weight Buffer ===============================================
+	//=== DMA Buffering & Local Weight Buffer ==============================
+	// TH==1 (direct): DMA output passes straight to the external DWC;
+	//     the LWB double-buffer backs the credit counter.
+	// TH>1  (tiled):  a data FIFO backs the credit counter (no LWB);
+	//     the DWC output passes straight to the output stage.
+	localparam int unsigned  DMA_FIFO_W = DATA_BITS + DATA_BITS/8 + 1;
 	logic  axis_lwb_tvalid;
 	logic  axis_lwb_tready;
 	logic [WS_BITS_BA-1:0]  axis_lwb_tdata;
 
-	if(TH == 1) begin : genLwb
+	if(TH == 1) begin : genDirectPath
+		// DMA → external DWC (passthrough)
+		assign	axis_dma_tvalid  = dma_raw_tvalid;
+		assign	dma_raw_tready   = axis_dma_tready;
+		assign	axis_dma_tdata   = dma_raw_tdata;
+		assign	axis_dma_tkeep   = dma_raw_tkeep;
+		assign	axis_dma_tlast   = dma_raw_tlast;
+
+		// DWC → LWB → output stage (LWB write bank backs CREDIT_BEATS)
 		local_weight_buffer #(
 			.PE(PE), .SIMD(SIMD), .MH(MH), .MW(MW),
 			.N_REPS(N_REPS), .WEIGHT_WIDTH(WEIGHT_WIDTH), .DBG(DBG)
@@ -294,12 +348,25 @@ module fetch_weights #(
 			.ivld(axis_dwc_tvalid), .irdy(axis_dwc_tready), .idat(axis_dwc_tdata),
 			.ovld(axis_lwb_tvalid), .ordy(axis_lwb_tready), .odat(axis_lwb_tdata)
 		);
-	end : genLwb
-	else begin : genLwbPassthru
+	end : genDirectPath
+	else begin : genTiledPath
+		// DMA → data FIFO → external DWC (FIFO backs CREDIT_BEATS)
+		uwire [DMA_FIFO_W-1:0]  fifo_odat;
+		fifo #(.DEPTH(FIFO_BEATS), .DATA_WIDTH(DMA_FIFO_W)) inst_dma_fifo (
+			.clk(aclk), .rst(!aresetn),
+			.count(), .maxcount(),
+			.idat({dma_raw_tlast, dma_raw_tkeep, dma_raw_tdata}),
+			.ivld(dma_raw_tvalid), .irdy(dma_raw_tready),
+			.odat(fifo_odat),
+			.ovld(axis_dma_tvalid), .ordy(axis_dma_tready)
+		);
+		assign	{axis_dma_tlast, axis_dma_tkeep, axis_dma_tdata} = fifo_odat;
+
+		// DWC → output stage (passthrough, no LWB)
 		assign	axis_lwb_tvalid = axis_dwc_tvalid;
 		assign	axis_dwc_tready = axis_lwb_tready;
 		assign	axis_lwb_tdata  = axis_dwc_tdata;
-	end : genLwbPassthru
+	end : genTiledPath
 
 	//=== Output Register Slice =============================================
 	if(EN_OREG) begin : genOreg
