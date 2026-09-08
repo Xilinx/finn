@@ -41,6 +41,8 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter  TH = $TH$,
 	parameter  N_REPS = $N_REPS$,
 	parameter  WEIGHT_WIDTH = $WEIGHT_WIDTH$,
+	parameter  RAM_STYLE = "$RAM_STYLE$",
+	parameter  N_BUFFERS = $N_BUFFERS$,
 	parameter  N_LAYERS = $N_LAYERS$,
 
 	parameter  ADDR_BITS = 64,
@@ -153,7 +155,7 @@ $DWC_MODULE_NAME$ inst_dwc (
 fetch_weights #(
 	.PE(PE), .SIMD(SIMD), .TH(TH),
 	.MH(MH), .MW(MW), .N_REPS(N_REPS),
-	.WEIGHT_WIDTH(WEIGHT_WIDTH),
+	.WEIGHT_WIDTH(WEIGHT_WIDTH), .RAM_STYLE(RAM_STYLE), .N_BUFFERS(N_BUFFERS),
 	.ADDR_BITS(ADDR_BITS), .DATA_BITS(DATA_BITS), .LEN_BITS(LEN_BITS), .IDX_BITS(IDX_BITS),
 	.N_LAYERS(N_LAYERS), .ADDRESS_OFFSET(ADDRESS_OFFSET)
 ) inst (
