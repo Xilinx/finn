@@ -481,18 +481,15 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             self.make_weight_file(weights, "decoupled_verilog_dat", f"{code_gen_dir}/memblock.dat")
 
     def make_weight_file(self, weights, weight_file_mode, weight_file_name):
-        folded_weight_shape = self.get_folded_input_shape(1)
-        weight_tensor = weights.reshape(folded_weight_shape).copy()
-
-        # When broadcasting the last axis (rhs_shape[-1]==1), replicate the
-        # scalar value across PE lanes so memstream provides PE values per cycle
-        if self.broadcast_last_axis and weight_tensor.shape[-1] == 1:
-            weight_tensor = np.tile(
-                weight_tensor, (1,) * (len(weight_tensor.shape) - 1) + (self.pe,)
-            )
-
-        # Reshape to compact 3D form for decoupled modes
-        weight_tensor = weight_tensor.reshape(1, -1, weight_tensor.shape[-1]).copy()
+        # Materialize the constant in output-stream order before selecting its
+        # shortest repeating transaction period. This is required for shapes
+        # such as NCHW * [1, C, 1, 1], where each channel value must repeat for
+        # every spatial location rather than cycling through C each cycle.
+        weight_tensor = np.broadcast_to(weights, self.out_shape)
+        weight_tensor = weight_tensor.reshape(self.get_folded_output_shape())
+        weight_tensor = weight_tensor.reshape(-1, weight_tensor.shape[-1])
+        weight_tensor = weight_tensor[: self.calc_wmem()]
+        weight_tensor = weight_tensor.reshape(1, *weight_tensor.shape).copy()
 
         if weight_file_mode == "decoupled_npy":
             np.save(weight_file_name, weight_tensor)
@@ -517,7 +514,22 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
                 f.write(val + "\n")
 
     def calc_wmem(self):
-        return int(super().calc_wmem())
+        rhs_shape = tuple(self.get_normal_input_shape(1))
+        folded_output_shape = self.get_folded_output_shape()
+        rhs_indices = np.arange(np.prod(rhs_shape), dtype=np.int64).reshape(rhs_shape)
+        transactions = np.broadcast_to(rhs_indices, self.out_shape).reshape(
+            -1, folded_output_shape[-1]
+        )
+        num_transactions = transactions.shape[0]
+        for period in range(1, num_transactions + 1):
+            if num_transactions % period != 0:
+                continue
+            if np.array_equal(
+                transactions,
+                np.tile(transactions[:period], (num_transactions // period, 1)),
+            ):
+                return period
+        raise RuntimeError(f"{self.onnx_node.name}: could not derive const stream period")
 
     def calc_wmem_reps(self):
         """Return how many times the compact parameter stream is replayed.
@@ -529,7 +541,7 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
         stream-tap repetition count for each loop iteration.
         """
 
-        base_wmem = int(super().calc_wmem())
+        base_wmem = self.calc_wmem()
         num_w_reps = int(np.prod(self.calc_numInputVectors()))
         if base_wmem <= 0:
             raise RuntimeError(f"{self.onnx_node.name}: invalid const stream length {base_wmem}")
