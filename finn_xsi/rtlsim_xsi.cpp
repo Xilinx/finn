@@ -149,7 +149,7 @@ int main(int const  argc, char const *const  argv[]) {
 				bool const  rdy = s.port_rdy.read()[0];
 				if(vld && !rdy)  continue;
 
-				// Track successful Transactions
+				// Track successgul Transactions
 				if(vld) {
 					s.job_txns++;
 					if(++s.total_txns == s.job_size * n_inferences)  itodo--;

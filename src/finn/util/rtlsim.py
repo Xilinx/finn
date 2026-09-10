@@ -126,10 +126,18 @@ def dat_file_to_numpy_array(file_path):
     return byte_array
 
 
-def mlo_prehook_func_factory(node) -> Callable[[SimEngine], None]:
+def mlo_prehook_func_factory(
+    node, external_weight_data_pattern="model_weights"
+) -> Callable[[SimEngine], None]:
     """Factory that will construct a prehook function to
-    setup the axi memory mapped interfaces for MLO validation.
+    setup the axi memory mapped interfaces for MLO validation. External weight
+    images may use the model values or deterministic zeros for timing tests.
     """
+
+    if external_weight_data_pattern not in ("model_weights", "all_zero"):
+        raise ValueError(
+            f"Unsupported MLO external weight data pattern: {external_weight_data_pattern}"
+        )
 
     # Get the FINNLoop
     finnloop_op = getCustomOp(node)
@@ -147,6 +155,8 @@ def mlo_prehook_func_factory(node) -> Callable[[SimEngine], None]:
             datfile = f"{code_gen_dir}/memblock_MVAU_rtl_id_{idx}.dat"
             # memblock.dat already holds the per-layer weights padded to LAYER_OFFS
             weight_bytes = dat_file_to_numpy_array(datfile)
+            if external_weight_data_pattern == "all_zero":
+                weight_bytes = np.zeros_like(weight_bytes)
             mvau_mlo_weights[idx]["value"] = weight_bytes
             mvau_mlo_weights[idx]["extern_idx"] = extern_idx
             mvau_mlo_weights[idx]["extern_name"] = f"m_axi_MVAU_id_{idx}"

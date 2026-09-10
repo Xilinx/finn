@@ -225,6 +225,10 @@ def test_finn_loop(input_size, num_layers):
     loop_body_wrapper = model_wrapper.make_subgraph_modelwrapper(
         util.get_by_name(loop_node.attribute, "body").g
     )
+    for loop_input, body_input in zip(loop_node.input, loop_body_wrapper.graph.input):
+        assert model_wrapper.get_tensor_datatype(
+            loop_input
+        ) == loop_body_wrapper.get_tensor_datatype(body_input.name)
 
     # nodes are specialized (e.g. MVAU_rtl, Thresholding_rtl, ElementwiseAdd_hls)
     # so match on the op_type prefix

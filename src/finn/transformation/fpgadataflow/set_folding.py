@@ -126,6 +126,7 @@ class SetFolding(Transformation):
         # these ops use PE parallelism, up to a max value of NumChannels
         pe_ops = [
             "DuplicateStreams_hls",
+            "DuplicateStreams_rtl",
             "GlobalAccPool_hls",
             "PWPolyF_rtl",
             "Thresholding_hls",

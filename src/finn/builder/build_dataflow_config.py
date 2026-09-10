@@ -255,6 +255,11 @@ class DataflowBuildConfig:
     #: for each FIFO.
     auto_fifo_depths: Optional[bool] = True
 
+    #: Optional upper bound applied to FIFO depths after sizing and before
+    #: FIFO insertion. This trades buffering and potentially throughput for
+    #: memory use; the resulting design must be checked for liveness.
+    fifo_depth_cap: Optional[int] = None
+
     #: When `auto_fifo_depths = True`, select which method will be used for
     #: setting the FIFO sizes.
     auto_fifo_strategy: Optional[AutoFIFOSizingMethod] = AutoFIFOSizingMethod.LARGEFIFO_RTLSIM
@@ -349,7 +354,8 @@ class DataflowBuildConfig:
 
     #: Override the number of frames for rtlsim performance measurement.
     #: At least two are required to report steady-state throughput; a one-frame
-    #: run can measure latency and pipeline-fill throughput only.
+    #: run can measure latency and pipeline-fill throughput only. MLO uses an
+    #: ideal AXI-MM memory model for this measurement.
     rtlsim_batch_size: Optional[int] = 2
 
     #: Use behavioral simulation for RTLSim verification steps.
@@ -358,6 +364,11 @@ class DataflowBuildConfig:
     #: and fifo_gauge (with debug capabilities) instead of the synthesizable fifo.sv.
     #: Does not affect FIFO sizing which always uses behavioral simulation.
     verify_rtlsim_behavioral: Optional[bool] = False
+
+    #: Optional liveness watchdog override, in cycles, for stitched-IP rtlsim
+    #: verification. If unset, FINN derives the watchdog from the performance
+    #: estimate for the graph.
+    stitched_rtlsim_liveness_threshold: Optional[int] = None
 
     #: If set to True, the FINN compiler tries to create an MLO design based on
     #: loop_body_hierarchy and loop_body_range

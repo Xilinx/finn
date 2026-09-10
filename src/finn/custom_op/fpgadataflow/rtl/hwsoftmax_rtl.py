@@ -9,7 +9,7 @@
 
 import numpy as np
 import os
-import shutil
+import re
 
 from finn.custom_op.fpgadataflow.hwsoftmax import HWSoftmax
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
@@ -40,6 +40,33 @@ class HWSoftmax_rtl(HWSoftmax, RTLBackend):
             "softmax_pwpolyf.sv",
             "int_to_fp32.sv",
         ]
+
+    def _namespaced_rtl_file(self, filename):
+        return "%s_%s" % (self.get_nodeattr("gen_top_module"), filename)
+
+    def _namespace_rtl(self, source):
+        namespace = self.get_nodeattr("gen_top_module")
+        identifiers = [
+            "pwpolyf_dspfp32",
+            "softmaxf_pkg",
+            "pwpolyf_pkg",
+            "softmaxf_max",
+            "softmaxf_exp",
+            "softmaxf_recip",
+            "softmaxf_div",
+            "int_to_fp32",
+            "softmaxf",
+            "pwpolyf",
+            "binopf",
+            "queue",
+        ]
+        for identifier in identifiers:
+            source = re.sub(
+                r"\b%s\b" % re.escape(identifier),
+                "%s_%s" % (namespace, identifier),
+                source,
+            )
+        return source
 
     def generate_hdl(self, model, fpgapart, clk):
         rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/softmax_rtl/")
@@ -76,6 +103,7 @@ class HWSoftmax_rtl(HWSoftmax, RTLBackend):
             template = f.read()
         for key, value in code_gen_dict.items():
             template = template.replace(key, str(value))
+        template = self._namespace_rtl(template)
 
         with open(
             os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + ".v"),
@@ -83,8 +111,14 @@ class HWSoftmax_rtl(HWSoftmax, RTLBackend):
         ) as f:
             f.write(template)
 
+        # Keep every helper module and package local to this generated node.
+        # XSI flattens the stitched hierarchy into one work library, where the
+        # original fixed names otherwise overwrite one another.
         for sv_file in self._rtllib_files():
-            shutil.copy(rtllib_dir + sv_file, code_gen_dir)
+            with open(rtllib_dir + sv_file, "r") as f:
+                source = self._namespace_rtl(f.read())
+            with open(os.path.join(code_gen_dir, self._namespaced_rtl_file(sv_file)), "w") as f:
+                f.write(source)
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
         self.set_nodeattr("ipgen_path", code_gen_dir)
@@ -93,19 +127,17 @@ class HWSoftmax_rtl(HWSoftmax, RTLBackend):
     def get_rtl_file_list(self, abspath=False):
         if abspath:
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen") + "/"
-            rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/softmax_rtl/")
         else:
             code_gen_dir = ""
-            rtllib_dir = ""
 
-        verilog_files = [rtllib_dir + f for f in self._rtllib_files()]
+        verilog_files = [code_gen_dir + self._namespaced_rtl_file(f) for f in self._rtllib_files()]
         verilog_files.append(code_gen_dir + self.get_nodeattr("gen_top_module") + ".v")
         return verilog_files + fifo_rtl_files(abspath)
 
     def code_generation_ipi(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
-        sourcefiles = list(self._rtllib_files())
+        sourcefiles = [self._namespaced_rtl_file(f) for f in self._rtllib_files()]
         sourcefiles.append(self.get_nodeattr("gen_top_module") + ".v")
         sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
         sourcefiles += fifo_rtl_files()

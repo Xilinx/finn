@@ -1,0 +1,57 @@
+{
+  "name": "siglip2-base-patch16-224-w6a7-qv-lsq-vck190",
+  "model": {
+    "model_id": "google/siglip2-base-patch16-224",
+    "scope": "SigLIP image tower; an exported comparison head is cropped before FINN",
+    "vision_depth": 12,
+    "image_size": 224,
+    "patch_size": 16,
+    "image_tokens": 196,
+    "output_name": "image_embeds"
+  },
+  "quantization": {
+    "scheme": "qv_lsq",
+    "weight_bits": 6,
+    "activation_bits": 7,
+    "edge_bits": 8
+  },
+  "build": {
+    "board": "VCK190",
+    "clock_ns": 3.999,
+    "target_fps": 1200,
+    "mvau_wwidth_max": 72,
+    "fifo_depth_cap": 32,
+    "verification_atol": 0.27,
+    "specialization_config": "siglip2_base_patch16_224_w6a7_vck190_specialization.json",
+    "folding_config": "siglip2_base_patch16_224_w6a7_vck190_folding.json"
+  },
+  "reference_metrics": {
+    "accuracy": {
+      "dataset": "ImageNet-1K validation",
+      "images": 50000,
+      "top1_percent": 72.472,
+      "top5_percent": 92.228,
+      "scope": "QV-LSQ checkpoint with the static zero-shot comparison head"
+    },
+    "finn_latency_model": null,
+    "ooc_implementation": {
+      "scope": "routed out-of-context VCK190 implementation",
+      "part": "xcvc1902-vsva2197-2MP-e-S",
+      "vivado_version": "2024.2",
+      "clock_period_ns": 3.999,
+      "wns_ns": 0.037,
+      "fmax_mhz": 252.39777889954567,
+      "resources": {
+        "LUT": 163595,
+        "FF": 285187,
+        "DSP": 911,
+        "BRAM_36K": 796,
+        "BRAM_18K": 89,
+        "URAM": 459,
+        "SRL": 31019
+      }
+    },
+    "board_runtime_throughput_fps": null,
+    "ideal_memory_rtlsim_throughput_fps": null
+  }
+}

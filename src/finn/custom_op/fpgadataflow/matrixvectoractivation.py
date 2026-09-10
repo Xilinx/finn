@@ -125,6 +125,10 @@ class MVAU(HWCustomOp):
             # weight data from the weight FIFOs.
             "runtime_writeable_weights": ("i", False, 0, {0, 1}),
             "pumpedMemory": ("i", False, 0, {0, 1}),
+            # Whether input 0 is supplied by an internal cyclic memstream in a
+            # stitched design. This is set during RTL code generation when a
+            # dynamic MVAU consumes a constant activation tensor.
+            "input0_memstream": ("i", False, 0, {0, 1}),
             # tiling height; only relevant for the RTL backend (MVAU_rtl), the
             # HLS backend supports the untiled case (TH=1) only.
             "TH": ("i", False, 1),
@@ -670,6 +674,30 @@ class MVAU(HWCustomOp):
         ret = np.flip(ret, axis=-1)
         return ret
 
+    def get_dynamic_weight_matrices(self, weights):
+        """Expand broadcast dynamic MatMul weights into activation-vector order."""
+
+        mw = self.get_nodeattr("MW")
+        mh = self.get_nodeattr("MH")
+        weights = np.asarray(weights)
+        assert weights.shape[-2:] == (mw, mh), (
+            f"Dynamic weights for {self.onnx_node.name} have trailing shape "
+            f"{weights.shape[-2:]}, expected {(mw, mh)}"
+        )
+
+        input_shape = tuple(self.get_normal_input_shape(0))
+        batch_shape = input_shape[:-2]
+        vectors_per_batch = input_shape[-2]
+        try:
+            broadcast_weights = np.broadcast_to(weights, batch_shape + (mw, mh))
+        except ValueError as error:
+            raise ValueError(
+                f"Dynamic weight batch shape {weights.shape[:-2]} cannot broadcast "
+                f"to activation batch shape {batch_shape} for {self.onnx_node.name}"
+            ) from error
+        weight_matrices = broadcast_weights.reshape(-1, mw, mh)
+        return np.repeat(weight_matrices, vectors_per_batch, axis=0)
+
     def make_weight_file(self, weights, weight_file_mode, weight_file_name):
         """Produce a file containing given weights in appropriate format for this
         layer. This file can be used for either synthesis or run-time reconfig
@@ -684,7 +712,15 @@ class MVAU(HWCustomOp):
 
         """
         # convert weights into hlslib/rtllib-compatible format
-        weight_tensor = self.get_hw_compatible_weight_tensor(weights)
+        if weight_file_mode == "decoupled_npy" and weights.ndim > 2:
+            mw = self.get_nodeattr("MW")
+            mh = self.get_nodeattr("MH")
+            assert weights.shape[-2:] == (mw, mh)
+            weight_tensor = np.concatenate(
+                [self.get_hw_compatible_weight_tensor(matrix) for matrix in weights], axis=0
+            )
+        else:
+            weight_tensor = self.get_hw_compatible_weight_tensor(weights)
         export_wdt = self.get_input_datatype(1)
         # we have converted bipolar weights to binary for export,
         # so use it as such for weight generation
@@ -914,6 +950,59 @@ class MVAU(HWCustomOp):
                 f_thresh.write(thresholds_hls_code)
                 f_thresh.close()
 
+    def generate_hdl_input0_memstream(self, model):
+        """Generate a cyclic ROM stream for a constant activation input."""
+
+        input_tensor = model.get_initializer(self.onnx_node.input[0])
+        if input_tensor is None:
+            raise ValueError(f"{self.onnx_node.name}: input 0 is not an initializer")
+
+        folded_shape = self.get_folded_input_shape(0)
+        input_tensor = input_tensor.reshape(folded_shape).copy()
+        input_dtype = self.get_input_datatype(0)
+        if input_dtype == DataType["BIPOLAR"]:
+            input_tensor = (input_tensor + 1) / 2
+            input_dtype = DataType["BINARY"]
+        assert np.vectorize(input_dtype.allowed)(input_tensor).all(), (
+            f"{self.onnx_node.name}: constant activation values cannot be expressed "
+            f"with datatype {input_dtype.name}"
+        )
+
+        stream_width = self.get_instream_width_padded(0)
+        packed = pack_innermost_dim_as_hex_string(
+            input_tensor,
+            input_dtype,
+            stream_width,
+            reverse_inner=True,
+            prefix="",
+        ).flatten()
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        init_file = os.path.join(code_gen_dir, "input0_memblock.dat")
+        with open(init_file, "w") as stream_file:
+            for value in packed:
+                stream_file.write(value + "\n")
+
+        module_name = self.onnx_node.name + "_input0"
+        template_path = os.path.join(
+            os.environ["FINN_ROOT"], "finn-rtllib/memstream/hdl/memstream_wrapper_template.v"
+        )
+        with open(template_path, "r") as template_file:
+            wrapper = template_file.read()
+        replacements = {
+            "$MODULE_NAME$": module_name,
+            "$SETS$": "1",
+            "$DEPTH$": str(len(packed)),
+            "$WIDTH$": str(stream_width),
+            "$INIT_FILE$": init_file,
+            "$RAM_STYLE$": "auto",
+            "$PUMPED_MEMORY$": "0",
+        }
+        for key, value in replacements.items():
+            wrapper = wrapper.replace(key, value)
+        wrapper_path = os.path.join(code_gen_dir, module_name + "_memstream_wrapper.v")
+        with open(wrapper_path, "w") as wrapper_file:
+            wrapper_file.write(wrapper)
+
     def get_op_and_param_counts(self):
         in_features = self.get_nodeattr("MW")
         out_features = self.get_nodeattr("MH")
@@ -947,7 +1036,7 @@ class MVAU(HWCustomOp):
             "outputs": {"out0": []},
         }
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode in ["internal_decoupled", "external"]:
+        if mem_mode in ["internal_decoupled", "external", "external_mem"]:
             n_weight_inps = self.calc_wmem()
             num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
             io_dict["inputs"]["in1"] = [0 for i in range(num_w_reps * n_weight_inps)]
@@ -1029,6 +1118,7 @@ class MVAU(HWCustomOp):
             rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
             dout_name = self.get_verilog_top_module_intf_names()["m_axis"][0][0]
             din_name = self.get_verilog_top_module_intf_names()["s_axis"][0][0]
+            input0_memstream = bool(self.get_nodeattr("input0_memstream"))
             cmd.append("create_bd_cell -type hier %s" % node_name)
             # clock and reset
             cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (node_name, clk_name))
@@ -1048,10 +1138,11 @@ class MVAU(HWCustomOp):
                 "create_bd_intf_pin -mode Master "
                 "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, dout_name)
             )
-            cmd.append(
-                "create_bd_intf_pin -mode Slave "
-                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, din_name)
-            )
+            if not input0_memstream:
+                cmd.append(
+                    "create_bd_intf_pin -mode Slave "
+                    "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, din_name)
+                )
 
             # Instantiate either the HLS or RTL IP depending on operator
             self.instantiate_ip(cmd)
@@ -1280,11 +1371,46 @@ class MVAU(HWCustomOp):
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
                 % (node_name, clk_name, node_name, node_name, clk_name)
             )
-            cmd.append(
-                "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
-                "[get_bd_intf_pins %s/%s/%s]"
-                % (node_name, din_name, node_name, node_name, din_name)
-            )
+            if input0_memstream:
+                input0_module = node_name + "_input0_memstream_wrapper"
+                input0_instance = node_name + "_input0_memstream"
+                input0_wrapper = os.path.join(code_gen_dir, input0_module + ".v")
+                axi_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/axi/hdl/")
+                ms_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/memstream/hdl/")
+                for source in [
+                    input0_wrapper,
+                    axi_dir + "axilite.sv",
+                    ms_dir + "memstream_axi.sv",
+                    ms_dir + "memstream.sv",
+                ]:
+                    cmd.append("add_files -copy_to %s -norecurse %s" % (source_target, source))
+                cmd.append(
+                    "create_bd_cell -type hier -reference %s /%s/%s"
+                    % (input0_module, node_name, input0_instance)
+                )
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk]"
+                    % (node_name, clk_name, node_name, input0_instance)
+                )
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
+                    % (node_name, clk_name, node_name, input0_instance)
+                )
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_rst_n]"
+                    % (node_name, rst_name, node_name, input0_instance)
+                )
+                cmd.append(
+                    "connect_bd_intf_net [get_bd_intf_pins %s/%s/m_axis_0] "
+                    "[get_bd_intf_pins %s/%s/%s]"
+                    % (node_name, input0_instance, node_name, node_name, din_name)
+                )
+            else:
+                cmd.append(
+                    "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
+                    "[get_bd_intf_pins %s/%s/%s]"
+                    % (node_name, din_name, node_name, node_name, din_name)
+                )
             cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
                 "[get_bd_intf_pins %s/%s/%s]"

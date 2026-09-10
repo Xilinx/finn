@@ -41,6 +41,9 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
     """Class that corresponds to finn-hlslib StreamingDataWidthConverter_Batch
     function."""
 
+    def _needs_element_width_split(self):
+        return self.needs_lcm() and self.get_iowidth_lcm() > 8191
+
     def get_nodeattr_types(self):
         my_attrs = {}
         my_attrs.update(StreamingDataWidthConverter.get_nodeattr_types(self))
@@ -61,7 +64,17 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
             "#define NumInWords %d " % numInWords,
             "#define numReps %d" % numReps,
         ]
-        if self.needs_lcm():
+        if self._needs_element_width_split():
+            elemWidth = self.get_input_datatype().bitwidth()
+            assert inWidth % elemWidth == 0, "DWC input width must be element-aligned"
+            assert outWidth % elemWidth == 0, "DWC output width must be element-aligned"
+            numMiddleWords = numInWords * (inWidth // elemWidth)
+            assert (
+                numMiddleWords % (outWidth // elemWidth) == 0
+            ), "Error in DWC element-width split calculation"
+            self.code_gen_dict["$DEFINES$"].append("#define IntermediateWidth %d" % elemWidth)
+            self.code_gen_dict["$DEFINES$"].append("#define NumMiddleWords %d" % numMiddleWords)
+        elif self.needs_lcm():
             lcmWidth = self.get_iowidth_lcm()
             assert numInWords % (lcmWidth / inWidth) == 0, "Error in DWC LCM calculation"
             numLCMToOut = numInWords // (lcmWidth / inWidth)
@@ -80,7 +93,14 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
     def docompute(self):
         # TODO continue with fxns below, they are copy-pasted
         op = "StreamingDataWidthConverter_Batch"
-        if self.needs_lcm():
+        if self._needs_element_width_split():
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                'hls::stream<ap_uint<IntermediateWidth>> intermediate ("intermediate");',
+                "%s<InWidth, IntermediateWidth, NumInWords>(in0_V, intermediate, numReps);" % op,
+                "%s<IntermediateWidth, OutWidth, NumMiddleWords>(intermediate, out0_V, numReps);"
+                % op,
+            ]
+        elif self.needs_lcm():
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 'hls::stream<ap_uint<{}>> intermediate ("intermediate");'.format(
                     self.get_iowidth_lcm()

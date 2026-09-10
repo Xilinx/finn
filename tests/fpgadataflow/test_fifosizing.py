@@ -30,6 +30,7 @@
 import pytest
 
 import json
+import numpy as np
 import os
 import re
 import torch
@@ -45,7 +46,14 @@ from qonnx.util.basic import qonnx_make_model
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
+from finn.transformation.fpgadataflow.derive_characteristic import (
+    DeriveCharacteristic,
+    DeriveFIFOSizes,
+    _find_minimum_phase_shift,
+)
+from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.set_fifo_depths import (
+    CapFIFODepths,
     InsertAndSetFIFODepths,
     check_fifo_gauge_overflow,
 )
@@ -145,6 +153,120 @@ def test_fifosizing_multi_io():
     model = model.transform(InsertAndSetFIFODepths("xc7z020clg400-1", 5))
     fifos = model.get_nodes_by_op_type("StreamingFIFO_rtl")
     assert len(fifos) > 1, "No FIFOs inserted"
+
+
+def test_characterization_phase_shift_binary_search_matches_linear_scan():
+    rng = np.random.default_rng(0)
+    for period in range(1, 65):
+        prod_chrc = np.cumsum(rng.integers(0, 3, size=2 * period))
+        cons_chrc = np.cumsum(rng.integers(0, 3, size=2 * period))
+        expected = period - 1
+        for candidate in range(period):
+            if (prod_chrc[candidate:period] >= cons_chrc[: period - candidate]).all():
+                expected = candidate
+                break
+        assert _find_minimum_phase_shift(prod_chrc, cons_chrc, period) == expected
+
+
+def test_characterization_can_skip_named_node(monkeypatch):
+    model = make_multi_io_modelwrapper(2, 2, DataType["INT4"])
+    node = model.graph.node[0]
+
+    def fail_if_called(_node):
+        raise AssertionError("skipped node must not be characterized")
+
+    monkeypatch.setattr(
+        "finn.transformation.fpgadataflow.derive_characteristic.registry.getCustomOp",
+        fail_if_called,
+    )
+    returned, changed = DeriveCharacteristic(
+        period=4,
+        skip_node_names={node.name},
+    ).applyNodeLocal(node)
+
+    assert returned is node
+    assert changed is False
+
+
+def test_cap_fifo_depths_updates_fifo_and_neighbors():
+    model = make_multi_io_modelwrapper(300, 300, DataType["INT8"])
+    producer = getCustomOp(model.graph.node[0])
+    consumer = getCustomOp(model.graph.node[1])
+    producer.set_nodeattr("outFIFODepths", [784])
+    consumer.set_nodeattr("inFIFODepths", [784])
+
+    model = model.transform(InsertFIFO())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+    model = model.transform(CapFIFODepths(32))
+
+    fifo = model.get_nodes_by_op_type("StreamingFIFO_rtl")[0]
+    assert getCustomOp(fifo).get_nodeattr("depth") == 32
+    producer = model.find_producer(fifo.input[0])
+    consumer = model.find_consumer(fifo.output[0])
+    assert getCustomOp(producer).get_nodeattr("outFIFODepths") == [32]
+    assert getCustomOp(consumer).get_nodeattr("inFIFODepths") == [32]
+
+
+def test_characterization_fifosizing_rejects_reconvergent_residual():
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, 1])
+    skip = helper.make_tensor_value_info("skip", TensorProto.FLOAT, [1, 1])
+    branch = helper.make_tensor_value_info("branch", TensorProto.FLOAT, [1, 1])
+    out = helper.make_tensor_value_info("out", TensorProto.FLOAT, [1, 1])
+    fork = helper.make_node(
+        "DuplicateStreams_rtl",
+        ["inp"],
+        ["skip", "branch"],
+        name="fork",
+        domain="finn.custom_op.fpgadataflow.rtl",
+        backend="fpgadataflow",
+        NumChannels=1,
+        NumOutputStreams=2,
+        PE=1,
+        inputDataType="INT4",
+        numInputVectors=[1],
+        outFIFODepths=[2, 2],
+    )
+    join = helper.make_node(
+        "ElementwiseAdd_rtl",
+        ["skip", "branch"],
+        ["out"],
+        name="join",
+        domain="finn.custom_op.fpgadataflow.rtl",
+        backend="fpgadataflow",
+        lhs_shape=[1, 1],
+        rhs_shape=[1, 1],
+        out_shape=[1, 1],
+        lhs_dtype="INT4",
+        rhs_dtype="INT4",
+        out_dtype="INT4",
+        lhs_style="input",
+        rhs_style="input",
+        PE=1,
+        inFIFODepths=[2, 2],
+    )
+    graph = helper.make_graph([fork, join], "residual", [inp], [out], value_info=[skip, branch])
+    model = ModelWrapper(qonnx_make_model(graph))
+
+    with pytest.raises(RuntimeError, match="reconvergent residual paths"):
+        model.transform(DeriveCharacteristic(period=4))
+
+
+def test_characterization_fifosizing_honors_output_override():
+    model = make_multi_io_modelwrapper(2, 2, DataType["INT4"])
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+    model = model.transform(GiveUniqueNodeNames())
+    producer = model.graph.node[0]
+    producer_inst = getCustomOp(producer)
+
+    transformation = DeriveFIFOSizes(
+        output_fifo_depth_overrides={producer.name: {i: i + 2 for i in range(len(producer.output))}}
+    )
+    transformation.ref_input_model = model
+    returned, changed = transformation.applyNodeLocal(producer)
+
+    assert returned is producer
+    assert changed is False
+    assert producer_inst.get_nodeattr("outFIFODepths") == [2]
 
 
 def make_multi_io_modelwrapper(ch, pe, idt):

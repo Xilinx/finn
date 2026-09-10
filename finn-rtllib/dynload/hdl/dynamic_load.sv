@@ -286,14 +286,17 @@ assign odat = odat_C;
 for(genvar i = 0; i < 2; i++) begin : genBank
     for(genvar k = 0; k < SIMD; k++) begin : genSimd
         (* RAM_STYLE = RAM_STYLE *)
-        logic [PE-1:0][WEIGHT_WIDTH-1:0]  Ram[2**WGT_ADDR_BITS];
-        logic [PE-1:0][WEIGHT_WIDTH-1:0]  RdReg;
+        // Keep each memory word one-dimensional so Vivado can infer RAM
+        // primitives instead of expanding the dynamic buffers into registers.
+        logic [PE*WEIGHT_WIDTH-1:0] Ram[2**WGT_ADDR_BITS];
+        logic [PE*WEIGHT_WIDTH-1:0] RdReg;
 
         always_ff @(posedge ap_clk) begin
             if(a_we[i][k])  Ram[a_addr[i]] <= idat;
             if(ordy) begin
                 RdReg <= Ram[b_addr[i]];
-                foreach(RdReg[p])  odat_ram[i][p][k] <= RdReg[p];
+                for(int p = 0; p < PE; p++)
+                    odat_ram[i][p][k] <= RdReg[p*WEIGHT_WIDTH +: WEIGHT_WIDTH];
             end
         end
     end : genSimd

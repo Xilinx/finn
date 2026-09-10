@@ -240,7 +240,7 @@ def _test_convert_to_hw_layers_synthetic(ch, ifmdim, idt, build_dir):
     assert len(elementwise_add_nodes) == 4
     elementwise_mul_nodes = model.get_nodes_by_op_type("ElementwiseMul_hls")
     assert len(elementwise_mul_nodes) == 2
-    dup_nodes = model.get_nodes_by_op_type("DuplicateStreams_hls")
+    dup_nodes = model.get_nodes_by_op_type("DuplicateStreams_rtl")
     assert len(dup_nodes) == 1
 
     model = model.transform(PrepareCppSim())

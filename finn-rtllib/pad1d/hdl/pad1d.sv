@@ -139,28 +139,43 @@ module pad1d #(
 		end
 
 		//=== Output Register Stage =============================================
-		typedef fold_t  pad_folds_t[2**(1 + CNT_WIDTH)];
+		// Keep the padding lookup proportional to the padding itself.  Indexing
+		// this table with the full sequence counter would allocate space for the
+		// (usually much longer) input phase as well, even though those entries can
+		// never be read while padding is active.
+		localparam int unsigned  MAX_PAD_FOLDS = MAX_PAD_TOKENS * FOLDS_PER_TOKEN;
+		localparam int unsigned  PAD_FOLD_IDX_WIDTH = MAX_PAD_FOLDS > 1? $clog2(MAX_PAD_FOLDS) : 1;
+		typedef logic [PAD_FOLD_IDX_WIDTH-1:0]  pad_fold_idx_t;
+		typedef fold_t  pad_folds_t[2][MAX_PAD_FOLDS];
 		function pad_folds_t INIT_PAD_FOLDS();
 			automatic pad_folds_t  f = '{default: 'x};
 			for(int unsigned  t = 0; t < PAD_LEFT_TOKENS; t++)
 				for(int unsigned  s = 0; s < FOLDS_PER_TOKEN; s++) begin
-					automatic cnt_t  c = int'(PAD_LEFT_TOKENS) * int'(FOLDS_PER_TOKEN) - 2 - cnt_t'(t * FOLDS_PER_TOKEN + s);
-					f[{1'b0, CNT_WIDTH'(c)}] = PAD_LEFT_DATA[t][s * SIMD +: SIMD];
+					f[0][t * FOLDS_PER_TOKEN + s] = PAD_LEFT_DATA[t][s * SIMD +: SIMD];
 				end
 			for(int unsigned  t = 0; t < PAD_RIGHT_TOKENS; t++)
 				for(int unsigned  s = 0; s < FOLDS_PER_TOKEN; s++) begin
-					automatic cnt_t  c = int'(PAD_RIGHT_TOKENS) * int'(FOLDS_PER_TOKEN) - 2 - cnt_t'(t * FOLDS_PER_TOKEN + s);
-					f[{1'b1, CNT_WIDTH'(c)}] = PAD_RIGHT_DATA[t][s * SIMD +: SIMD];
+					f[1][t * FOLDS_PER_TOKEN + s] = PAD_RIGHT_DATA[t][s * SIMD +: SIMD];
 				end
 			return  f;
 		endfunction
 		localparam pad_folds_t  PAD_FOLDS = INIT_PAD_FOLDS();
+		uwire pad_fold_idx_t  pad_fold_idx = pad_fold_idx_t'(
+			int'(phase_rpad? PAD_RIGHT_TOKENS : PAD_LEFT_TOKENS) * int'(FOLDS_PER_TOKEN)
+			- 2 - int'(Cnt)
+		);
 
 		fold_t  BDat = 'x;
 		logic   BVld = 0;
 
 		uwire  bload = !BVld || ordy;
-		uwire  issue = bload && (!phase_thru || AVld || ivld);
+		// A left pad starts a new frame.  Wait for that frame's first input
+		// beat before emitting it; otherwise an idle input would cause a
+		// speculative pad-only frame after every completed sequence.  The
+		// producer keeps ivld asserted until phase_thru raises irdy and accepts
+		// the same first beat.  Right padding, in contrast, must finish the
+		// frame that has already been accepted.
+		uwire  issue = bload && (phase_thru? (AVld || ivld) : (!phase_lpad || ivld));
 		always_ff @(posedge clk) begin
 			if(rst) begin
 				BDat <= 'x;
@@ -170,7 +185,7 @@ module pad1d #(
 				BVld <= issue;
 				if(issue) begin
 					BDat <= !phase_thru?
-						PAD_FOLDS[{!PAD_LEFT_TOKENS || phase_rpad, Cnt}] :
+						PAD_FOLDS[phase_rpad][pad_fold_idx] :
 						AVld? ADat : idat;
 				end
 			end

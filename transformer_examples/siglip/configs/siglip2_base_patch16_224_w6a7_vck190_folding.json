@@ -1,0 +1,698 @@
+{
+  "Defaults": {},
+  "OuterShuffle_hls_0": {
+    "SIMD": 8
+  },
+  "InnerShuffle_rtl_0": {
+    "SIMD": 3
+  },
+  "Thresholding_rtl_0": {
+    "PE": 1,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 0
+  },
+  "OuterShuffle_hls_1": {
+    "SIMD": 2
+  },
+  "InnerShuffle_rtl_1": {
+    "SIMD": 2
+  },
+  "ConvolutionInputGenerator_rtl_0": {
+    "SIMD": 1,
+    "parallel_window": 0,
+    "ram_style": "distributed"
+  },
+  "MVAU_hls_0": {
+    "PE": 1,
+    "SIMD": 8,
+    "ram_style": "block",
+    "resType": "lut",
+    "mem_mode": "external_mem",
+    "weight_buffer_count": 1,
+    "runtime_writeable_weights": 0
+  },
+  "InnerShuffle_rtl_2": {
+    "SIMD": 2
+  },
+  "OuterShuffle_hls_2": {
+    "SIMD": 2
+  },
+  "ElementwiseMul_rtl_0": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "ElementwiseAdd_rtl_0": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "InnerShuffle_rtl_3": {
+    "SIMD": 2
+  },
+  "ElementwiseAdd_rtl_1": {
+    "PE": 1,
+    "ram_style": "block",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_DuplicateStreams_rtl_0": {
+    "PE": 1
+  },
+  "FINNLoop_0_body_FINNLoop_0_LayerNorm_rtl_0": {
+    "SIMD": 2,
+    "numRsqrtRefinements": 2
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_0": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_0": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_0": {
+    "PE": 1,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_DuplicateStreams_rtl_1": {
+    "PE": 1
+  },
+  "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_0": {
+    "PE": 16,
+    "SIMD": 12,
+    "TH": 4,
+    "ram_style": "block",
+    "resType": "auto",
+    "mem_mode": "external_mem",
+    "weight_buffer_count": 1,
+    "runtime_writeable_weights": 0,
+    "pumpedCompute": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_1": {
+    "PE": 16,
+    "SIMD": 12,
+    "TH": 4,
+    "ram_style": "block",
+    "resType": "auto",
+    "mem_mode": "external_mem",
+    "weight_buffer_count": 1,
+    "runtime_writeable_weights": 0,
+    "pumpedCompute": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_2": {
+    "PE": 16,
+    "SIMD": 12,
+    "TH": 4,
+    "ram_style": "block",
+    "resType": "auto",
+    "mem_mode": "external_mem",
+    "weight_buffer_count": 1,
+    "runtime_writeable_weights": 0,
+    "pumpedCompute": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_1": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_2": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_3": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_1": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_2": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_3": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_OuterShuffle_hls_0": {
+    "SIMD": 16
+  },
+  "FINNLoop_0_body_FINNLoop_0_OuterShuffle_hls_1": {
+    "SIMD": 16
+  },
+  "FINNLoop_0_body_FINNLoop_0_OuterShuffle_hls_2": {
+    "SIMD": 16
+  },
+  "FINNLoop_0_body_FINNLoop_0_InnerShuffle_rtl_0": {
+    "SIMD": 4
+  },
+  "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_1": {
+    "PE": 1,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_2": {
+    "PE": 1,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_3": {
+    "PE": 1,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_3": {
+    "PE": 28,
+    "SIMD": 8,
+    "ram_style": "auto",
+    "resType": "auto",
+    "mem_mode": "dynamic",
+    "runtime_writeable_weights": 0,
+    "pumpedCompute": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_4": {
+    "PE": 4,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_HWSoftmax_rtl_0": {
+    "SIMD": 4
+  },
+  "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_4": {
+    "PE": 4,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 1000000
+  },
+  "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_4": {
+    "PE": 32,
+    "SIMD": 7,
+    "ram_style": "auto",
+    "resType": "auto",
+    "mem_mode": "dynamic",
+    "runtime_writeable_weights": 0,
+    "pumpedCompute": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_5": {
+    "PE": 1,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_OuterShuffle_hls_3": {
+    "SIMD": 4
+  },
+  "FINNLoop_0_body_FINNLoop_0_InnerShuffle_rtl_1": {
+    "SIMD": 4
+  },
+  "FINNLoop_0_body_FINNLoop_0_InnerShuffle_rtl_2": {
+    "SIMD": 4
+  },
+  "FINNLoop_0_body_FINNLoop_0_OuterShuffle_hls_4": {
+    "SIMD": 4
+  },
+  "FINNLoop_0_body_FINNLoop_0_OuterShuffle_hls_5": {
+    "SIMD": 4
+  },
+  "FINNLoop_0_body_FINNLoop_0_InnerShuffle_rtl_3": {
+    "SIMD": 4
+  },
+  "FINNLoop_0_body_FINNLoop_0_InnerShuffle_rtl_4": {
+    "SIMD": 1
+  },
+  "FINNLoop_0_body_FINNLoop_0_OuterShuffle_hls_6": {
+    "SIMD": 1
+  },
+  "FINNLoop_0_body_FINNLoop_0_OuterShuffle_hls_7": {
+    "SIMD": 1
+  },
+  "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_5": {
+    "PE": 16,
+    "SIMD": 12,
+    "TH": 4,
+    "ram_style": "block",
+    "resType": "auto",
+    "mem_mode": "external_mem",
+    "weight_buffer_count": 1,
+    "runtime_writeable_weights": 0,
+    "pumpedCompute": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_5": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_4": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_5": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_DuplicateStreams_rtl_2": {
+    "PE": 1
+  },
+  "FINNLoop_0_body_FINNLoop_0_LayerNorm_rtl_1": {
+    "SIMD": 2,
+    "numRsqrtRefinements": 2
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_6": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_6": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_6": {
+    "PE": 1,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_6": {
+    "PE": 16,
+    "SIMD": 12,
+    "TH": 4,
+    "ram_style": "block",
+    "resType": "auto",
+    "mem_mode": "external_mem",
+    "weight_buffer_count": 1,
+    "runtime_writeable_weights": 0,
+    "pumpedCompute": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_7": {
+    "PE": 4,
+    "ram_style": "distributed",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_7": {
+    "PE": 4,
+    "ram_style": "distributed",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_DuplicateStreams_rtl_3": {
+    "PE": 4
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_8": {
+    "PE": 4,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_9": {
+    "PE": 4,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_10": {
+    "PE": 4,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_8": {
+    "PE": 4,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_11": {
+    "PE": 4,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_PWPolyF_rtl_0": {
+    "PE": 4,
+    "K": 2
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_9": {
+    "PE": 4,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_12": {
+    "PE": 4,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_7": {
+    "PE": 4,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 1000000
+  },
+  "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_7": {
+    "PE": 16,
+    "SIMD": 12,
+    "TH": 4,
+    "ram_style": "block",
+    "resType": "auto",
+    "mem_mode": "external_mem",
+    "weight_buffer_count": 1,
+    "runtime_writeable_weights": 0,
+    "pumpedCompute": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_13": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_10": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_11": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "LayerNorm_rtl_0": {
+    "SIMD": 1
+  },
+  "ElementwiseMul_rtl_1": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "ElementwiseAdd_rtl_2": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "DuplicateStreams_rtl_0": {
+    "PE": 1
+  },
+  "Thresholding_rtl_1": {
+    "PE": 1,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 0
+  },
+  "Thresholding_rtl_2": {
+    "PE": 1,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 0
+  },
+  "MVAU_hls_1": {
+    "PE": 1,
+    "SIMD": 8,
+    "ram_style": "block",
+    "resType": "lut",
+    "mem_mode": "external_mem",
+    "weight_buffer_count": 1,
+    "runtime_writeable_weights": 0
+  },
+  "MVAU_hls_2": {
+    "PE": 1,
+    "SIMD": 8,
+    "ram_style": "block",
+    "resType": "lut",
+    "mem_mode": "external_mem",
+    "weight_buffer_count": 1,
+    "runtime_writeable_weights": 0
+  },
+  "ElementwiseMul_rtl_2": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "ElementwiseMul_rtl_3": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "ElementwiseAdd_rtl_3": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "ElementwiseAdd_rtl_4": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "OuterShuffle_hls_3": {
+    "SIMD": 4
+  },
+  "OuterShuffle_hls_4": {
+    "SIMD": 1
+  },
+  "Thresholding_rtl_3": {
+    "PE": 1,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 0
+  },
+  "Thresholding_rtl_4": {
+    "PE": 1,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 0
+  },
+  "MVAU_rtl_0": {
+    "PE": 28,
+    "SIMD": 8,
+    "ram_style": "auto",
+    "resType": "auto",
+    "mem_mode": "dynamic",
+    "runtime_writeable_weights": 0,
+    "pumpedCompute": 0
+  },
+  "ElementwiseMul_rtl_4": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "HWSoftmax_rtl_0": {
+    "SIMD": 1
+  },
+  "Thresholding_rtl_5": {
+    "PE": 1,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 0
+  },
+  "MVAU_rtl_1": {
+    "PE": 32,
+    "SIMD": 7,
+    "ram_style": "auto",
+    "resType": "auto",
+    "mem_mode": "dynamic",
+    "runtime_writeable_weights": 0,
+    "pumpedCompute": 0
+  },
+  "Thresholding_rtl_6": {
+    "PE": 1,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 0
+  },
+  "MVAU_rtl_2": {
+    "PE": 1,
+    "SIMD": 3,
+    "ram_style": "block",
+    "resType": "auto",
+    "mem_mode": "external_mem",
+    "weight_buffer_count": 1,
+    "runtime_writeable_weights": 0,
+    "pumpedCompute": 0
+  },
+  "ElementwiseMul_rtl_5": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "ElementwiseAdd_rtl_5": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "DuplicateStreams_rtl_1": {
+    "PE": 1
+  },
+  "LayerNorm_rtl_1": {
+    "SIMD": 1
+  },
+  "ElementwiseMul_rtl_6": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "ElementwiseAdd_rtl_6": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "Thresholding_rtl_7": {
+    "PE": 1,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 0
+  },
+  "MVAU_rtl_3": {
+    "PE": 1,
+    "SIMD": 12,
+    "ram_style": "distributed",
+    "resType": "auto",
+    "mem_mode": "external_mem",
+    "weight_buffer_count": 1,
+    "runtime_writeable_weights": 0,
+    "pumpedCompute": 0
+  },
+  "ElementwiseMul_rtl_7": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "ElementwiseAdd_rtl_7": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "DuplicateStreams_rtl_2": {
+    "PE": 1
+  },
+  "ElementwiseMul_rtl_8": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "ElementwiseMul_rtl_9": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "ElementwiseMul_rtl_10": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "ElementwiseAdd_rtl_8": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "ElementwiseMul_rtl_11": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "PWPolyF_rtl_0": {
+    "PE": 1
+  },
+  "ElementwiseAdd_rtl_9": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "ElementwiseMul_rtl_12": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "Thresholding_rtl_8": {
+    "PE": 1,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 0
+  },
+  "MVAU_rtl_4": {
+    "PE": 1,
+    "SIMD": 12,
+    "ram_style": "ultra",
+    "resType": "auto",
+    "mem_mode": "external_mem",
+    "weight_buffer_count": 1,
+    "runtime_writeable_weights": 0,
+    "pumpedCompute": 0
+  },
+  "ElementwiseMul_rtl_13": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "ElementwiseAdd_rtl_10": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "ElementwiseAdd_rtl_11": {
+    "PE": 1,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "SelectToken_rtl_0": {
+    "SIMD": 1
+  }
+}

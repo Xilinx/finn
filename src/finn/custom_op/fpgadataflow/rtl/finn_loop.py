@@ -53,6 +53,59 @@ from finn.util.rtlsim import dat_file_to_numpy_array, mlo_prehook_func_factory
 finnxsi = xsi if xsi.is_available() else None
 
 
+def _is_stream_tap_parameter_node(node):
+    """Return whether ``node`` consumes a loop-indexed parameter stream."""
+    has_mlo_parameter = any(attr.name == "mlo_max_iter" and attr.i > 0 for attr in node.attribute)
+    return has_mlo_parameter and (
+        node.op_type == "Thresholding_rtl"
+        or node.op_type.startswith("MVAU")
+        or node.op_type.startswith("Elementwise")
+    )
+
+
+def _get_stream_tap_adjacency(loop_body):
+    """Build and prune the parameter-node graph used to connect stream taps."""
+    adj_list = adjacency_list(loop_body, _is_stream_tap_parameter_node)
+
+    # Remove the parameter inputs themselves. Their consumers remain reachable
+    # through the activation path rooted at INPUT0 and receive the forwarded
+    # iteration index from that path.
+    pruned_adj_list = copy.deepcopy(adj_list)
+    for key in adj_list:
+        if key.startswith("__INPUT") and "INPUT0" not in key:
+            del pruned_adj_list[key]
+        if "__OUTPUT0__" in adj_list[key] and len(adj_list[key]) > 1:
+            pruned_adj_list[key].remove("__OUTPUT0__")
+
+    # Remove duplicate join edges, retaining the latest source in topological
+    # order when the same parameter node is reachable along multiple paths.
+    pruned_adj_list = {tuple(v): k for k, v in pruned_adj_list.items()}
+    pruned_adj_list = {v: list(k) for k, v in pruned_adj_list.items()}
+    pruned_adj_list_copy = copy.deepcopy(pruned_adj_list)
+
+    for key0, value0 in pruned_adj_list_copy.items():
+        for key1, value1 in pruned_adj_list_copy.items():
+            for val in value1:
+                if val in value0 and key0 != key1:
+                    node0 = loop_body.get_node_from_name(key0)
+                    id0 = (
+                        loop_body.get_node_index(node0)
+                        if loop_body.get_node_index(node0) is not None
+                        else -1
+                    )
+                    node1 = loop_body.get_node_from_name(key1)
+                    id1 = (
+                        loop_body.get_node_index(node1)
+                        if loop_body.get_node_index(node1) is not None
+                        else -1
+                    )
+                    if id0 < id1:
+                        pruned_adj_list[key0].remove(val)
+
+    pruned_adj_list = {key: value for key, value in pruned_adj_list.items() if value}
+    return adj_list, pruned_adj_list
+
+
 def collect_ip_dirs(model, ipstitch_path):
     # collect list of all IP dirs
     ip_dirs = []
@@ -671,6 +724,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # add RTL streamer IP
         ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/memstream")
         loop_model = self.get_nodeattr("body")
+        loop_body_intf_names = eval(loop_model.get_metadata_prop("vivado_stitch_ifnames"))
         for node in loop_model.graph.node:
             node_inst = getCustomOp(node)
             ip_dir_value = node_inst.get_nodeattr("ip_path")
@@ -683,13 +737,16 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # create and instantiate FINNLoop node overarching block design
         cmd.append("create_bd_design %s_bd_design" % (self.onnx_node.name))
         cmd.append("create_bd_cell -type hier %s" % (self.onnx_node.name))
-        clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
-        rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
+        node_intf = self.get_verilog_top_module_intf_names()
+        clk_name = node_intf["clk"][0]
+        rst_name = node_intf["rst"][0]
+        clk2x_name = node_intf.get("clk2x", [None])[0]
         # clock and reset
         cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (self.onnx_node.name, clk_name))
         cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (self.onnx_node.name, rst_name))
+        if clk2x_name is not None:
+            cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (self.onnx_node.name, clk2x_name))
         # interfaces
-        node_intf = self.get_verilog_top_module_intf_names()
         m_axis_intfs = node_intf["m_axis"]
         s_axis_intfs = node_intf["s_axis"]
         control_intfs = node_intf["ap_none"]
@@ -793,21 +850,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         for f in sourcefiles:
             cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
 
-        adj_list = adjacency_list(
-            loop_body,
-            lambda node: (
-                node.op_type == "Thresholding_rtl"
-                and any(attr.name == "mlo_max_iter" and attr.i > 0 for attr in node.attribute)
-            )
-            or (
-                node.op_type == "MVAU_rtl"
-                and any(attr.name == "mlo_max_iter" and attr.i > 0 for attr in node.attribute)
-            )
-            or (
-                node.op_type.startswith("Elementwise")
-                and any(attr.name == "mlo_max_iter" and attr.i > 0 for attr in node.attribute)
-            ),
-        )
+        adj_list, pruned_adj_list = _get_stream_tap_adjacency(loop_body)
 
         # create map that maps each stream tap to its param node
         st_map = {}
@@ -833,49 +876,6 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 "connect_bd_intf_net [get_bd_intf_pins %s/m_axis_%s] "
                 "[get_bd_intf_pins %s/%s/m_axis_1]" % (bd_name, id + 1, bd_name, st_name)
             )
-
-        # prune adj_list to remove join duplicates
-        pruned_adj_list = copy.deepcopy(adj_list)
-
-        for key in adj_list:
-            if key.startswith("__INPUT") and "INPUT0" not in key:
-                del pruned_adj_list[key]
-            if "__OUTPUT0__" in adj_list[key] and len(adj_list[key]) > 1:
-                pruned_adj_list[key].remove("__OUTPUT0__")
-
-        pruned_adj_list = {tuple(v): k for k, v in pruned_adj_list.items()}  # exchange keys, values
-        pruned_adj_list = {v: list(k) for k, v in pruned_adj_list.items()}
-
-        # look for double edges,
-        # e.g. input connected to node_x and intermediate node connected to node_x
-
-        pruned_adj_list_copy = copy.deepcopy(pruned_adj_list)
-
-        for key0, value0 in pruned_adj_list_copy.items():
-            for key1, value1 in pruned_adj_list_copy.items():
-                for val in value1:
-                    if val in value0 and key0 != key1:
-                        # check which src is in the topological order last
-                        # key0
-                        node0 = loop_body.get_node_from_name(key0)
-                        id0 = (
-                            loop_body.get_node_index(node0)
-                            if loop_body.get_node_index(node0) is not None
-                            else -1
-                        )
-                        # key1
-                        node1 = loop_body.get_node_from_name(key1)
-                        id1 = (
-                            loop_body.get_node_index(node1)
-                            if loop_body.get_node_index(node1) is not None
-                            else -1
-                        )
-                        # if node0 is earlier in the graph remove val from list
-                        if id0 < id1:
-                            pruned_adj_list[key0].remove(val)
-
-        # filter pruned_adj_list in case some of the values are now empty lists
-        pruned_adj_list = {key: value for key, value in pruned_adj_list.items() if value != []}
 
         # create stg
         for src, dsts in pruned_adj_list.items():
@@ -1038,7 +1038,6 @@ class FINNLoop(HWCustomOp, RTLBackend):
 
         loop_body_ipstitch_path = loop_body.get_metadata_prop("vivado_stitch_proj")
         loop_body_vlnv = loop_body.get_metadata_prop("vivado_stitch_vlnv")
-        loop_body_intf_names = eval(loop_body.get_metadata_prop("vivado_stitch_ifnames"))
         ip_dirs = ["list"]
         ip_dirs += collect_ip_dirs(loop_body, loop_body_ipstitch_path)
         ip_dirs_str = "[%s]" % (" ".join(ip_dirs))
@@ -1059,6 +1058,12 @@ class FINNLoop(HWCustomOp, RTLBackend):
             "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
             % (self.onnx_node.name, clk_name, finn_ip_name, clk_name)
         )
+        if clk2x_name is not None:
+            loop_body_clk2x_name = loop_body_intf_names["clk2x"][0]
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
+                % (self.onnx_node.name, clk2x_name, finn_ip_name, loop_body_clk2x_name)
+            )
         # Expose the loop body's sim_finish control to the top of the FINNLoop IP.
         # The body's stitched IP carries a sim_ctrl (inserted by CreateStitchedIP)
         # whose sim_finish input triggers $finish. Asserting it during rtlsim runs
@@ -1141,6 +1146,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
         cmd.append("set_property name in0_V [get_bd_intf_ports in0_V_0]")
         cmd.append("set_property name ap_clk [get_bd_ports ap_clk_0]")
         cmd.append("set_property name ap_rst_n [get_bd_ports ap_rst_n_0]")
+        if clk2x_name is not None:
+            cmd.append("set_property name %s [get_bd_ports %s_0]" % (clk2x_name, clk2x_name))
         cmd.append("set_property name out0_V [get_bd_intf_ports out0_V_0]")
         cmd.append(
             "set_property name m_axi_intermediate_frame "
@@ -1274,6 +1281,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
 
         loop_body = self.get_nodeattr("body")
         loop_body_intf = eval(loop_body.get_metadata_prop("vivado_stitch_ifnames"))
+        if loop_body_intf.get("clk2x"):
+            intf_names["clk2x"] = loop_body_intf["clk2x"]
         for intf in loop_body_intf["aximm"]:
             intf_names["aximm"].append(intf)
 

@@ -208,17 +208,28 @@ class SimEngine:
 
         self.enlist(InputStreamer(self, istream, values, throttle))
 
-    def collect_output(self, ostream, size, watchdog=None):
-        "Collect size outputs from the specified stream into the returned iterable buffer."
+    def collect_output(self, ostream, size, watchdog=None, frame_size=None):
+        """Collect output transactions and optionally record frame completions.
+
+        ``frame_size`` is the number of transactions in one output frame. When
+        provided, the returned collector exposes ``completion_ticks`` containing
+        the simulation tick at which each complete frame was accepted.
+        """
+
+        if frame_size is not None:
+            assert frame_size > 0, "Output frame size must be greater than zero"
+            assert size % frame_size == 0, "Output transaction count must contain whole frames"
 
         class OutputCollector:
-            def __init__(self, top, ostream, size, watchdog):
+            def __init__(self, top, ostream, size, watchdog, frame_size):
                 self.size = size
                 self.vld = top.get_bus_port(ostream, "tvalid")
                 self.rdy = top.get_bus_port(ostream, "tready")
                 self.dat = top.get_bus_port(ostream, "tdata")
                 self.buf = []
                 self.watchdog = watchdog
+                self.frame_size = frame_size
+                self.completion_ticks = []
 
             def __iter__(self):
                 return iter(self.buf)
@@ -231,6 +242,8 @@ class SimEngine:
                             self.watchdog.reset()
                         val = self.dat.read().as_hexstr()
                         self.buf.append(val)
+                        if self.frame_size is not None and len(self.buf) % self.frame_size == 0:
+                            self.completion_ticks.append(sim.ticks)
                         if len(self.buf) == size:
                             return {self.rdy: "0"}
                     return {}
@@ -239,7 +252,7 @@ class SimEngine:
                     return {self.rdy: "1"}
                 return None
 
-        ret = OutputCollector(self, ostream, size, watchdog)
+        ret = OutputCollector(self, ostream, size, watchdog, frame_size)
         self.enlist(ret)
         return ret
 
@@ -250,11 +263,13 @@ class SimEngine:
             def __init__(self, sim, stream):
                 self.vld = sim.get_bus_port(stream, "tvalid")
                 self.rdy = sim.get_bus_port(stream, "tready")
-                self.trace = ""
+                self.trace = bytearray()
 
             def __call__(self, sim):
-                self.trace += (
-                    "1" if self.vld.read().as_bool() and self.rdy.read().as_bool() else "0"
+                self.trace.append(
+                    ord("1")
+                    if self.vld.read().as_bool() and self.rdy.read().as_bool()
+                    else ord("0")
                 )
                 return {}
 
@@ -262,7 +277,7 @@ class SimEngine:
                 return False
 
             def __str__(self):
-                return self.trace
+                return self.trace.decode("ascii")
 
         ret = StreamTracer(self, stream)
         self.enlist(ret)
@@ -433,12 +448,14 @@ class SimEngine:
                     "arready",
                     "arvalid",
                     "araddr",
+                    "arid",
                     "arlen",
                     "arburst",
                     "arsize",
                     "rready",
                     "rvalid",
                     "rdata",
+                    "rid",
                     "rresp",
                     "rlast",
                 ):
@@ -454,37 +471,51 @@ class SimEngine:
                 for i in range(32):
                     self.img.append("00")  # Pad to 32 bytes
                 self.queue = []
+                self.arready_state = True
+                self.rvalid_state = False
+                self.ar_count = 0
+                self.r_count = 0
 
             def __bool__(self):
                 return False
 
             def __call__(self, sim):
                 ret = {}
+                address_handshake = self.arready_state and self.arvalid.read().as_bool()
 
                 # Push out Read Replies
-                if self.rready.read().as_bool() or not self.rvalid.as_bool():
+                if self.rready.read().as_bool() or not self.rvalid_state:
                     if len(self.queue) > 0:
                         # Work on Head of Queue
-                        addr, length, size = self.queue.pop(0)
+                        addr, length, size, txn_id = self.queue.pop(0)
                         data = ""
                         for i in range(size):
                             data = self.img[addr] + data
                             addr += 1
                         ret[self.rdata] = data
+                        if self.rid is not None:
+                            ret[self.rid] = txn_id
 
                         if length > 1:
-                            self.queue.insert(0, (addr, length - 1, size))
+                            self.queue.insert(0, (addr, length - 1, size, txn_id))
                             ret[self.rlast] = "0"
                         else:
                             ret[self.rlast] = "1"
+                            ret[self.arready] = "1"
+                            self.arready_state = True
                         ret[self.rvalid] = "1"
+                        self.rvalid_state = True
+                        self.r_count += 1
 
-                    elif self.rvalid.as_bool():
+                    elif self.rvalid_state:
                         # Silent Reply Interface
                         ret[self.rvalid] = "0"
+                        self.rvalid_state = False
+                        ret[self.arready] = "1"
+                        self.arready_state = True
 
                 # Queue up newly received Read Requests
-                if self.arvalid.read().as_bool():
+                if address_handshake:
                     assert self.arburst.read().as_unsigned() == 1, "Only INCR bursts supported."
 
                     addr = int(self.araddr.read().as_hexstr(), 16)
@@ -502,7 +533,11 @@ class SimEngine:
                         print(f"Range extends beyond range {addr=} {length=} {size=}")
                         # assert addr + length * size < len(self.img), "Read extends beyond range."
 
-                    self.queue.append((addr, length, size))
+                    txn_id = self.arid.read().as_hexstr() if self.arid is not None else "0"
+                    self.queue.append((addr, length, size, txn_id))
+                    ret[self.arready] = "0"
+                    self.arready_state = False
+                    self.ar_count += 1
 
                 return ret
 
@@ -516,11 +551,13 @@ class SimEngine:
 
         class AximmQueue:
             def __init__(self, top, mm_axi):
+                self.mm_axi = mm_axi
                 # Collect Ports of Read Channels
                 for name in (
                     "awready",
                     "awvalid",
                     "awaddr",
+                    "awid",
                     "awlen",
                     "awburst",
                     "awsize",
@@ -528,25 +565,29 @@ class SimEngine:
                     "wvalid",
                     "wdata",
                     "wlast",
+                    "wstrb",
                     "bready",
                     "bvalid",
+                    "bid",
                     "bdata",
                     "bresp",
                     "arready",
                     "arvalid",
                     "araddr",
+                    "arid",
                     "arlen",
                     "arburst",
                     "arsize",
                     "rready",
                     "rvalid",
                     "rdata",
+                    "rid",
                     "rresp",
                     "rlast",
                 ):
                     self.__dict__[name] = top.get_bus_port(mm_axi, name)
                 self.awready.set(1).write_back()
-                self.wready.set(1).write_back()
+                self.wready.set(0).write_back()
                 self.bvalid.set(0).write_back()
                 self.bresp.set(0).write_back()
                 self.arready.set(1).write_back()
@@ -556,82 +597,111 @@ class SimEngine:
                 # Hold on to Contents Map per transfer: addr -> data
                 self.map = {}  # addr -> (data, size)
 
-                # Queued transactions
-                self.wa_queue = []  # Write Addresses (addr, len, size)
-                self.wd_queue = []  # Write Data      (data)
-                self.ra_queue = []  # Read Addresses  (addr, len, size)
-                self.wr_completion_queue = []  # A queue to track the write completions
+                # Track one read and one write burst at a time. This matches a
+                # legal AXI slave with backpressure and avoids accepting the
+                # same request repeatedly while VALID remains asserted.
+                self.write_burst = None  # (addr, len, size, id)
+                self.read_burst = None  # (addr, len, size, id)
+                self.awready_state = True
+                self.wready_state = False
+                self.bvalid_state = False
+                self.arready_state = True
+                self.rvalid_state = False
+                self.ar_count = 0
+                self.r_count = 0
+                self.aw_count = 0
+                self.w_count = 0
+                self.b_count = 0
 
             def __bool__(self):
                 return False
 
             def __call__(self, sim):
                 ret = {}
+                write_address_handshake = self.awready_state and self.awvalid.read().as_bool()
+                write_data_handshake = self.wready_state and self.wvalid.read().as_bool()
+                write_response_handshake = self.bvalid_state and self.bready.read().as_bool()
+                read_address_handshake = self.arready_state and self.arvalid.read().as_bool()
 
-                # Process Write Updates
-                while len(self.wa_queue) > 0:
-                    addr, length, size = self.wa_queue.pop(0)
-                    while length > 0:
-                        if len(self.wd_queue) > 0:
-                            self.map[addr] = (self.wd_queue.pop(0), size)
-                            addr += size
-                            length -= 1
-                            if length == 0:
-                                self.wr_completion_queue.append((0, 1))
-                        else:
-                            self.wa_queue.insert(0, (addr, length, size))
-                            break
-                    if len(self.wd_queue) == 0:
-                        break
+                if write_response_handshake:
+                    self.b_count += 1
+                    ret[self.bvalid] = "0"
+                    self.bvalid_state = False
+                    ret[self.awready] = "1"
+                    self.awready_state = True
+
+                if write_address_handshake:
+                    self.aw_count += 1
+                    assert self.awburst.read().as_unsigned() == 1, "Only INCR bursts supported."
+                    addr = int(self.awaddr.read().as_hexstr(), 16)
+                    length = 1 + self.awlen.read().as_unsigned()
+                    size = 2 ** self.awsize.read().as_unsigned()
+                    txn_id = self.awid.read().as_hexstr() if self.awid is not None else "0"
+                    self.write_burst = (addr, length, size, txn_id)
+                    ret[self.awready] = "0"
+                    self.awready_state = False
+                    ret[self.wready] = "1"
+                    self.wready_state = True
+
+                if write_data_handshake:
+                    self.w_count += 1
+                    assert self.write_burst is not None, "Write data without an address"
+                    addr, length, size, txn_id = self.write_burst
+                    self.map[addr] = (self.wdata.read().as_hexstr(), size)
+                    if length > 1:
+                        if self.wlast is not None:
+                            assert not self.wlast.read().as_bool(), "Early WLAST"
+                        self.write_burst = (addr + size, length - 1, size, txn_id)
+                    else:
+                        if self.wlast is not None:
+                            assert self.wlast.read().as_bool(), "Missing WLAST"
+                        self.write_burst = None
+                        ret[self.wready] = "0"
+                        self.wready_state = False
+                        if self.bid is not None:
+                            ret[self.bid] = txn_id
+                        ret[self.bvalid] = "1"
+                        self.bvalid_state = True
 
                 # Push out Read Replies
-                if self.rready.read().as_bool() or not self.rvalid.as_bool():
-                    if len(self.ra_queue) > 0:
-                        # Work on Head of Queue
-                        addr, length, size0 = self.ra_queue.pop(0)
+                if self.rready.read().as_bool() or not self.rvalid_state:
+                    if self.read_burst is not None:
+                        addr, length, size0, txn_id = self.read_burst
                         assert addr in self.map, "Missing data entry"
                         data, size = self.map[addr]
                         assert size == size0, "Write and read size mismatch."
                         ret[self.rdata] = data
+                        if self.rid is not None:
+                            ret[self.rid] = txn_id
                         if length > 1:
-                            self.ra_queue.insert(0, (addr + size, length - 1, size))
+                            self.read_burst = (addr + size, length - 1, size, txn_id)
                             ret[self.rlast] = "0"
                         else:
+                            self.read_burst = None
                             ret[self.rlast] = "1"
+                            ret[self.arready] = "1"
+                            self.arready_state = True
                         ret[self.rvalid] = "1"
-                    elif self.rvalid.as_bool():
+                        self.rvalid_state = True
+                        self.r_count += 1
+                    elif self.rvalid_state:
                         # Silent Reply Interface
                         ret[self.rvalid] = "0"
-
-                # Process write completion queue items
-                if len(self.wr_completion_queue) > 0:
-                    if self.bready.read().as_bool():
-                        ret[self.bvalid] = "1"
-                        _ = self.wr_completion_queue.pop(0)
-                else:
-                    ret[self.bvalid] = "0"
-
-                # Queue new Write Address Requests
-                if self.awvalid.read().as_bool():
-                    assert self.awburst.read().as_unsigned() == 1, "Only INCR bursts supported."
-
-                    addr = int(self.awaddr.read().as_hexstr(), 16)
-                    length = 1 + self.awlen.read().as_unsigned()
-                    size = 2 ** self.awsize.read().as_unsigned()
-                    self.wa_queue.append((addr, length, size))
-
-                # Queue received Write Data
-                if self.wvalid.read().as_bool():
-                    self.wd_queue.append(self.wdata.read().as_hexstr())
+                        self.rvalid_state = False
+                        ret[self.arready] = "1"
+                        self.arready_state = True
 
                 # Queue new Read Requests
-                if self.arvalid.read().as_bool():
+                if read_address_handshake:
+                    self.ar_count += 1
                     assert self.arburst.read().as_unsigned() == 1, "Only INCR bursts supported."
-
                     addr = int(self.araddr.read().as_hexstr(), 16)
                     length = 1 + self.arlen.read().as_unsigned()
                     size = 2 ** self.arsize.read().as_unsigned()
-                    self.ra_queue.append((addr, length, size))
+                    txn_id = self.arid.read().as_hexstr() if self.arid is not None else "0"
+                    self.read_burst = (addr, length, size, txn_id)
+                    ret[self.arready] = "0"
+                    self.arready_state = False
 
                 return ret
 

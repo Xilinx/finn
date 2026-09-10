@@ -107,7 +107,10 @@ class MVAU_rtl(MVAU, RTLBackend):
 
                 if in_ind == 1:
                     if mem_mode in ["dynamic", "external"]:
-                        reshaped_input = context[inputs].reshape(-1, context[inputs].shape[-1])
+                        if mem_mode == "dynamic":
+                            reshaped_input = self.get_dynamic_weight_matrices(context[inputs])
+                        else:
+                            reshaped_input = context[inputs].reshape(-1, context[inputs].shape[-1])
                         self.make_weight_file(
                             reshaped_input, "decoupled_npy", "{}/input_1.npy".format(code_gen_dir)
                         )
@@ -125,8 +128,9 @@ class MVAU_rtl(MVAU, RTLBackend):
                 wei = npy_to_rtlsim_input("{}/input_1.npy".format(code_gen_dir), export_wdt, wnbits)
                 num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
                 num_w_reps = num_w_reps // self.get_nodeattr("TH")
+                weight_stream = wei if mem_mode == "dynamic" else wei * num_w_reps
                 io_dict = {
-                    "inputs": {"in0": inp, "in1": wei * num_w_reps},
+                    "inputs": {"in0": inp, "in1": weight_stream},
                     "outputs": {"out0": []},
                 }
             else:
@@ -297,8 +301,21 @@ class MVAU_rtl(MVAU, RTLBackend):
     def generate_hdl(self, model, fpgapart, clk):
         # Generate params as part of IP preparation
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        graph_inputs = {value_info.name for value_info in model.graph.input}
+        input0_is_const = (
+            model.get_initializer(self.onnx_node.input[0]) is not None
+            and self.onnx_node.input[0] not in graph_inputs
+        )
+        if input0_is_const and self.get_nodeattr("mem_mode") != "dynamic":
+            raise ValueError(
+                f"{self.onnx_node.name}: constant activation inputs are only "
+                "supported for dynamic MVAUs"
+            )
+        self.set_nodeattr("input0_memstream", int(input0_is_const))
         if not self.get_nodeattr("mlo_max_iter"):
             self.generate_params(model, code_gen_dir)
+        if input0_is_const:
+            self.generate_hdl_input0_memstream(model)
 
         template_path, code_gen_dict = self.prepare_codegen_default(fpgapart, clk)
         # determine if weights are narrow range and add parameter to code gen dict
