@@ -1,22 +1,17 @@
 # SigLIP ImageNet FINN example
 
-This example builds the image tower of `google/siglip2-base-patch16-224` for
-VCK190. The supplied profile expects a static `[1, 3, 224, 224]` ImageNet model
-quantized with QV-LSQ to W6A7, with 8-bit input and output layers.
+This example builds the image tower of `google/siglip2-base-patch16-224` for VCK190. The supplied profile expects a static `[1, 3, 224, 224]` ImageNet model quantized with QV-LSQ to W6A7, with 8-bit input and output layers.
 
-The FPGA graph ends at `image_embeds`. ImageNet class comparison remains on the
-host and the text tower is not part of the generated accelerator.
+The FPGA graph ends at `image_embeds`. ImageNet class comparison remains on the host and the text tower is not part of the generated accelerator.
 
 ## Inputs
 
-The quantized model is not distributed with FINN. Put these files somewhere
-visible inside the FINN container, for example under `build/siglip/`:
+The quantized model is not distributed with FINN. Put these files somewhere visible inside the FINN container, for example under `build/siglip/`:
 
 - `qat_static_imagenet_qonnx.onnx`: canonical, shape-inferred QONNX model;
 - `qat_report.json`: matching quantization and ImageNet evaluation report.
 
-The report is checked against the model identity, precision, transformer depth,
-image size, and patch size before the build starts.
+The report is checked against the model identity, precision, transformer depth, image size, and patch size before the build starts.
 
 ## Run
 
@@ -96,4 +91,3 @@ These results use the supplied W6A7 profile and the complete 50,000-image ImageN
 | VCK190 OOC clock target | 250.06 MHz (3.999 ns) |
 | VCK190 OOC timing | Passed; WNS 0.037 ns, hold slack 0.010 ns |
 | VCK190 OOC resources | 163,595 LUT; 285,187 FF; 911 DSP; 796 RAMB36; 89 RAMB18; 459 URAM |
-
