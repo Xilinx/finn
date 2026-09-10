@@ -28,6 +28,7 @@ from transformer_examples.siglip.config import (
 from transformer_examples.siglip.mlo import (
     make_mlo_boundary_step,
     step_round_siglip_thresholds_before_mlo,
+    step_size_siglip_top_residual_fifo,
 )
 from transformer_examples.siglip.phases import (
     make_siglip_folding_step,
@@ -184,7 +185,10 @@ def build_siglip(
         standalone_thresholds=True,
         infer_shuffle_skip_first=False,
         folding_two_pass_relaxation=False,
-        auto_fifo_depths=True,
+        # Loop bodies still use large-FIFO RTL sizing. The MLO top level uses
+        # explicit depths because characterization cannot size reconvergent
+        # residual paths.
+        auto_fifo_depths=False,
         fifo_depth_cap=int(build_config["fifo_depth_cap"]),
         save_intermediate_models=True,
         mlo=True,
@@ -196,7 +200,8 @@ def build_siglip(
             "step_loop_rolling": [
                 step_round_siglip_thresholds_before_mlo,
                 make_mlo_boundary_step(profile.model["vision_depth"]),
-            ]
+            ],
+            "step_set_fifo_depths": [step_size_siglip_top_residual_fifo],
         },
         inject_steps_after={
             "step_target_fps_parallelization": [pre_decomposition_folding],
@@ -207,7 +212,8 @@ def build_siglip(
         verify_input_npy=str(input_npy) if input_npy else None,
         verify_expected_output_npy=(str(expected_output_npy) if expected_output_npy else None),
         verification_atol=float(build_config["verification_atol"]),
-        verify_rtlsim_behavioral=True,
+        # Verify the finite FIFO implementation that will be synthesized.
+        verify_rtlsim_behavioral=False,
         rtlsim_batch_size=2,
         enable_build_pdb_debug=False,
     )

@@ -20,7 +20,10 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from transformer_examples.siglip.build import _verification_steps  # noqa: E402
+from transformer_examples.siglip.build import (  # noqa: E402
+    _verification_steps,
+    build_siglip,
+)
 from transformer_examples.siglip.config import (  # noqa: E402
     DEFAULT_PROFILE,
     load_profile,
@@ -29,6 +32,7 @@ from transformer_examples.siglip.mlo import (  # noqa: E402
     find_vision_loop_body_ranges,
     make_mlo_boundary_step,
     step_round_siglip_thresholds_before_mlo,
+    step_size_siglip_top_residual_fifo,
 )
 from transformer_examples.siglip.phases import (  # noqa: E402
     _absorb_pre_matmul_dequant,
@@ -222,6 +226,38 @@ def test_estimate_mode_rejects_simulators_it_does_not_build():
     for level in ("cppsim", "rtlsim"):
         with pytest.raises(ValueError, match="requires stitched_ip or ooc_synth"):
             _verification_steps(level, "estimate")
+
+
+def test_build_uses_explicit_top_level_fifo_sizing(monkeypatch, tmp_path):
+    captured = {}
+
+    def capture_config(model_path, cfg):
+        captured["model_path"] = model_path
+        captured["cfg"] = cfg
+        return 0
+
+    monkeypatch.setattr(
+        "transformer_examples.siglip.build.build.build_dataflow_cfg",
+        capture_config,
+    )
+    model_path = tmp_path / "siglip.onnx"
+    status = build_siglip(
+        model_path,
+        tmp_path / "output",
+        load_profile(DEFAULT_PROFILE),
+        "stitched_ip",
+        "none",
+        None,
+        None,
+        False,
+    )
+
+    assert status == 0
+    assert captured["model_path"] == str(model_path)
+    cfg = captured["cfg"]
+    assert cfg.auto_fifo_depths is False
+    assert cfg.verify_rtlsim_behavioral is False
+    assert cfg.inject_steps_before["step_set_fifo_depths"] == [step_size_siglip_top_residual_fifo]
 
 
 def test_selects_embedding_output_and_removes_comparison_branch():
@@ -499,3 +535,68 @@ def test_rounds_integer_thresholds_before_mlo_parameter_extraction():
         np.asarray([[-1.0, 1.0, 2.0]], dtype=np.float32),
     )
     assert model.get_tensor_datatype("thresholds").is_integer()
+
+
+def test_sizes_post_loop_layernorm_residual_for_a_complete_frame(monkeypatch):
+    fork = _node("DuplicateStreams_rtl", 0)
+    fork.input = ["x"]
+    fork.output = ["norm_input", "bypass"]
+    norm = _node("LayerNorm_rtl", 0)
+    norm.input = ["norm_input"]
+    norm.output = ["normalized"]
+    compute = _node("MVAU_rtl", 0)
+    compute.input = ["normalized"]
+    compute.output = ["branch"]
+    join = _node("ElementwiseAdd_rtl", 0)
+    join.input = ["bypass", "branch"]
+    join.output = ["y"]
+
+    class FakeInstance:
+        def __init__(self, attrs, folded_input_shape=None):
+            self.attrs = attrs
+            self.folded_input_shape = folded_input_shape
+
+        def get_nodeattr(self, name):
+            return self.attrs[name]
+
+        def set_nodeattr(self, name, value):
+            self.attrs[name] = value
+
+        def get_folded_input_shape(self, _index):
+            return self.folded_input_shape
+
+    instances = {
+        fork.name: FakeInstance({"outFIFODepths": [2, 2]}),
+        norm.name: FakeInstance({}, (1, 1, 768, 1)),
+        join.name: FakeInstance(
+            {"lhs_style": "input", "rhs_style": "input", "inFIFODepths": [2, 2]}
+        ),
+    }
+
+    class FakeModel:
+        def __init__(self, nodes):
+            self.nodes = nodes
+
+        def get_nodes_by_op_type(self, op_type):
+            return [node for node in self.nodes if node.op_type == op_type]
+
+        def find_consumer(self, tensor_name):
+            return next(
+                (node for node in self.nodes if tensor_name in node.input),
+                None,
+            )
+
+        def find_consumers(self, tensor_name):
+            return [node for node in self.nodes if tensor_name in node.input]
+
+    monkeypatch.setattr(
+        "transformer_examples.siglip.mlo.getCustomOp",
+        lambda node: instances[node.name],
+    )
+    cfg = SimpleNamespace(auto_fifo_depths=False, fifo_depth_cap=32)
+
+    model = FakeModel([fork, norm, compute, join])
+    assert step_size_siglip_top_residual_fifo(model, cfg) is model
+    assert instances[fork.name].attrs["outFIFODepths"] == [2, 1024]
+    assert instances[join.name].attrs["inFIFODepths"] == [1024, 2]
+    assert cfg.fifo_depth_cap == 1024

@@ -10,13 +10,14 @@
  module layernorm_tb;
 
 	localparam int unsigned  ROUNDS = 19;
-	localparam bit  FORCE_BEHAVIORAL = 1;
+	localparam bit  FORCE_BEHAVIORAL = 0;
+	localparam int unsigned  NUM_RSQRT_REFINEMENTS = 2;
 
 	typedef struct {
 		int unsigned  n;
 		int unsigned  simd;
 	} cfg_t;
-	localparam int unsigned  TESTS = 9;
+	localparam int unsigned  TESTS = 10;
 	localparam cfg_t  TEST_CFG[TESTS] = '{
 		'{  4,  4 },  // NN=1
 		'{ 10,  5 },  // NN=2
@@ -26,7 +27,8 @@
 		'{ 81,  9 },  // NN=9
 		'{100, 10 },  // NN=10
 		'{ 44,  4 },  // NN=11
-		'{ 60,  5 }   // NN=12
+		'{ 60,  5 },  // NN=12
+		'{768,  2 }   // SigLip shape, NN=384
 	};
 
 	//-----------------------------------------------------------------------
@@ -57,7 +59,11 @@
 		uwire [SIMD-1:0][31:0]  ydat;
 		uwire  yvld;
 		logic  yrdy;
-		layernorm #(.N(N), .SIMD(SIMD), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) dut (
+		layernorm #(
+			.N(N), .SIMD(SIMD),
+			.NUM_RSQRT_REFINEMENTS(NUM_RSQRT_REFINEMENTS),
+			.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
+		) dut (
 			.clk, .rst,
 			.xdat, .xvld, .xrdy,
 			.ydat, .yvld, .yrdy

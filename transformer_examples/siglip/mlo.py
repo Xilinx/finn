@@ -6,8 +6,10 @@
 from __future__ import annotations
 
 import json
+import math
 from collections import Counter
 from pathlib import Path
+from qonnx.custom_op.registry import getCustomOp
 from typing import Any
 
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
@@ -81,6 +83,85 @@ def step_round_siglip_thresholds_before_mlo(model, cfg):
     """Preserve integer threshold types when repeated blocks become loop parameters."""
 
     return model.transform(RoundAndClipThresholds())
+
+
+def _path_reaches_node(model, tensor_name: str, target_name: str) -> bool:
+    """Return whether a forward tensor path reaches the named node."""
+
+    pending = [tensor_name]
+    visited = set()
+    while pending:
+        current = pending.pop()
+        if current in visited:
+            continue
+        visited.add(current)
+        for consumer in model.find_consumers(current):
+            if consumer.name == target_name:
+                return True
+            pending.extend(consumer.output)
+    return False
+
+
+def step_size_siglip_top_residual_fifo(model, cfg):
+    """Buffer the post-loop residual while its sibling LayerNorm buffers a frame.
+
+    The generic characterization algorithm cannot size reconvergent residuals.
+    At the SigLIP MLP residual, LayerNorm consumes a complete folded frame before
+    producing output, so its bypass must hold at least that complete frame.
+    """
+
+    if cfg.auto_fifo_depths:
+        raise RuntimeError("SigLIP top-level residual sizing requires explicit FIFO sizing")
+
+    matches = []
+    for fork in model.get_nodes_by_op_type("DuplicateStreams_rtl"):
+        if len(fork.output) != 2:
+            continue
+        consumers = [model.find_consumer(output) for output in fork.output]
+        for norm_index, norm in enumerate(consumers):
+            if norm is None or not norm.op_type.startswith("LayerNorm"):
+                continue
+            bypass_index = 1 - norm_index
+            join = consumers[bypass_index]
+            if join is None or not join.op_type.startswith("ElementwiseAdd"):
+                continue
+            join_inst = getCustomOp(join)
+            if (
+                join_inst.get_nodeattr("lhs_style") != "input"
+                or join_inst.get_nodeattr("rhs_style") != "input"
+            ):
+                continue
+            if not _path_reaches_node(model, norm.output[0], join.name):
+                continue
+            matches.append((fork, bypass_index, norm, join))
+
+    if len(matches) != 1:
+        raise RuntimeError(
+            "Expected exactly one SigLIP LayerNorm residual fork, "
+            f"found {[match[0].name for match in matches]}"
+        )
+
+    fork, bypass_index, norm, join = matches[0]
+    folded_shape = getCustomOp(norm).get_folded_input_shape(0)
+    frame_words = math.prod(folded_shape[:-1])
+    # Round up so the memory-backed FIFO has a regular hardware depth.
+    fifo_depth = max(2, 1 << (int(frame_words) - 1).bit_length())
+
+    fork_inst = getCustomOp(fork)
+    fork_depths = list(fork_inst.get_nodeattr("outFIFODepths"))
+    fork_depths[bypass_index] = fifo_depth
+    fork_inst.set_nodeattr("outFIFODepths", fork_depths)
+
+    bypass_tensor = fork.output[bypass_index]
+    join_index = list(join.input).index(bypass_tensor)
+    join_depths = list(join_inst.get_nodeattr("inFIFODepths"))
+    join_depths[join_index] = fifo_depth
+    join_inst.set_nodeattr("inFIFODepths", join_depths)
+
+    # The loop body has already been sized and capped before this injected step.
+    # Raise only the subsequent top-level cap so it cannot truncate this FIFO.
+    cfg.fifo_depth_cap = max(int(cfg.fifo_depth_cap or 0), fifo_depth)
+    return model
 
 
 def make_mlo_boundary_step(depth: int):

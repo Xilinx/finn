@@ -169,10 +169,10 @@ def test_fpgadataflow_rtl_layernorm(idt, ishape, simd, sim_style):
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_fpgadataflow_rtl_layernorm_second_rsqrt_refinement():
+@pytest.mark.parametrize("ishape", [[1, 4, 48], [1, 4, 768]])
+def test_fpgadataflow_rtl_layernorm_second_rsqrt_refinement(ishape):
     """The optional second Newton step should closely match exact LayerNorm."""
     idt = DataType["FLOAT32"]
-    ishape = [1, 4, 48]
     model = create_layernorm_model(
         idt, ishape, has_scale=False, has_bias=False, epsilon=9.999999960041972e-13
     )

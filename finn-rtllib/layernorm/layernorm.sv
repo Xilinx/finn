@@ -225,7 +225,7 @@ module layernorm #(
 				else begin : genSecondRefinement
 					uwire edge_t  variance;
 					uwire  variance_rdy;
-					queue #(.DATA_WIDTH(32), .ELASTICITY(16)) variance_queue (
+					fifo #(.DATA_WIDTH(32), .DEPTH(16)) variance_queue (
 						.clk, .rst,
 						.idat(total.dat), .ivld(total.vld), .irdy(variance_rdy),
 						.odat(variance.dat), .ovld(variance.vld), .ordy(estimate.vld)
@@ -289,7 +289,8 @@ module layernorm #(
 
 			logic signed [$clog2(NN):0]  Cnt = 0;	// [-NN,] -NN+1, ..., -1, 0
 			assign	norm0_rdy = !Cnt[$left(Cnt)];
-			assign	issue = have_cap && (norm0.vld || Cnt[$left(Cnt)]);
+			// A memory-backed bypass FIFO may temporarily bubble under backpressure.
+			assign	issue = have_cap && bypass.vld && (norm0.vld || Cnt[$left(Cnt)]);
 			uwire  bload = norm0.vld && norm0_rdy;
 			always @(posedge clk) begin
 				if(rst)  Cnt <= 0;

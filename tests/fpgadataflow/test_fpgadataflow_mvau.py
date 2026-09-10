@@ -30,7 +30,7 @@ import pytest
 
 import numpy as np
 import qonnx.custom_op.general.xnorpopcount as xp
-from onnx import TensorProto, helper
+from onnx import TensorProto, helper, numpy_helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.multithreshold import multithreshold
@@ -263,6 +263,101 @@ def test_dynamic_mvau_packs_broadcast_weight_batches(tmp_path):
         axis=1,
     )
     np.testing.assert_array_equal(np.load(batched_path), expected_packed)
+
+
+def make_dynamic_mvau_constant_activation_model():
+    const_activation = np.asarray([[[[1, -2, 3, -4]]]], dtype=np.float32)
+    weights = helper.make_tensor_value_info("weights", TensorProto.FLOAT, [1, 1, 4, 4])
+    output = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 1, 1, 4])
+    node = helper.make_node(
+        "MVAU_rtl",
+        ["const_activation", "weights"],
+        ["output"],
+        name="MVAU_rtl_const_lhs",
+        domain="finn.custom_op.fpgadataflow.rtl",
+        backend="fpgadataflow",
+        MW=4,
+        MH=4,
+        SIMD=2,
+        PE=2,
+        TH=1,
+        inputDataType="INT8",
+        weightDataType="INT8",
+        outputDataType="INT32",
+        noActivation=1,
+        numInputVectors=[1, 1, 1],
+        mem_mode="dynamic",
+    )
+    graph = helper.make_graph(
+        nodes=[node],
+        name="dynamic-mvau-constant-activation",
+        inputs=[weights],
+        outputs=[output],
+        initializer=[numpy_helper.from_array(const_activation, "const_activation")],
+    )
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="finn-test"))
+    model.set_tensor_datatype("const_activation", DataType["INT8"])
+    model.set_tensor_datatype("weights", DataType["INT8"])
+    model.set_tensor_datatype("output", DataType["INT32"])
+    return model
+
+
+def test_dynamic_mvau_constant_activation_uses_internal_memstream(tmp_path):
+    model = make_dynamic_mvau_constant_activation_model()
+    node = model.graph.node[0]
+
+    instance = getCustomOp(node)
+    instance.set_nodeattr("code_gen_dir_ipgen", str(tmp_path))
+    instance.generate_hdl(model, "xcvc1902-vsva2197-2MP-e-S", 4.0)
+
+    assert instance.get_nodeattr("input0_memstream") == 1
+    init_file = tmp_path / "input0_memblock.dat"
+    wrapper = tmp_path / "MVAU_rtl_const_lhs_input0_memstream_wrapper.v"
+    assert init_file.is_file()
+    assert init_file.read_text().splitlines() == ["fe01", "fc03"]
+    assert wrapper.is_file()
+    assert "parameter  DEPTH = 2" in wrapper.read_text()
+    assert "parameter  WIDTH = 16" in wrapper.read_text()
+
+    ipi = instance.code_generation_ipi()
+    assert not any(
+        line.startswith("create_bd_intf_pin") and "/MVAU_rtl_const_lhs/in0_V" in line
+        for line in ipi
+    )
+    assert any(
+        "/MVAU_rtl_const_lhs/in1_V" in line and line.startswith("create_bd_intf_pin")
+        for line in ipi
+    )
+    assert any(
+        "MVAU_rtl_const_lhs_input0_memstream/m_axis_0" in line
+        and "MVAU_rtl_const_lhs/MVAU_rtl_const_lhs/in0_V" in line
+        for line in ipi
+    )
+
+
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+def test_dynamic_mvau_constant_activation_stitched_rtlsim():
+    part = "xcvc1902-vsva2197-2MP-e-S"
+    clk_ns = 4.0
+    model = make_dynamic_mvau_constant_activation_model()
+    dynamic_weights = np.asarray(
+        [
+            [1, 2, 3, 4],
+            [-1, 0, 1, 2],
+            [2, 1, 0, -1],
+            [3, -2, 1, 0],
+        ],
+        dtype=np.float32,
+    ).reshape(1, 1, 4, 4)
+    expected = np.matmul(model.get_initializer("const_activation"), dynamic_weights)
+
+    model = model.transform(PrepareIP(part, clk_ns))
+    model = model.transform(CreateStitchedIP(part, clk_ns))
+    model.set_metadata_prop("exec_mode", "rtlsim")
+    produced = oxe.execute_onnx(model, {"weights": dynamic_weights})["output"]
+
+    np.testing.assert_array_equal(produced, expected)
 
 
 def make_dynamic_matmul_modelwrapper(ifm, wfm, ofm, idt, wdt):
