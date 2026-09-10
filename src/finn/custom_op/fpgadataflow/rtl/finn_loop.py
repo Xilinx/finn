@@ -671,6 +671,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # add RTL streamer IP
         ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/memstream")
         loop_model = self.get_nodeattr("body")
+        loop_body_intf_names = eval(loop_model.get_metadata_prop("vivado_stitch_ifnames"))
         for node in loop_model.graph.node:
             node_inst = getCustomOp(node)
             ip_dir_value = node_inst.get_nodeattr("ip_path")
@@ -683,13 +684,18 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # create and instantiate FINNLoop node overarching block design
         cmd.append("create_bd_design %s_bd_design" % (self.onnx_node.name))
         cmd.append("create_bd_cell -type hier %s" % (self.onnx_node.name))
-        clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
-        rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
+        node_intf = self.get_verilog_top_module_intf_names()
+        clk_name = node_intf["clk"][0]
+        rst_name = node_intf["rst"][0]
+        clk2x_name = node_intf.get("clk2x", [None])[0]
         # clock and reset
         cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (self.onnx_node.name, clk_name))
         cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (self.onnx_node.name, rst_name))
+        if clk2x_name is not None:
+            cmd.append(
+                "create_bd_pin -dir I -type clk /%s/%s" % (self.onnx_node.name, clk2x_name)
+            )
         # interfaces
-        node_intf = self.get_verilog_top_module_intf_names()
         m_axis_intfs = node_intf["m_axis"]
         s_axis_intfs = node_intf["s_axis"]
         control_intfs = node_intf["ap_none"]
@@ -1038,7 +1044,6 @@ class FINNLoop(HWCustomOp, RTLBackend):
 
         loop_body_ipstitch_path = loop_body.get_metadata_prop("vivado_stitch_proj")
         loop_body_vlnv = loop_body.get_metadata_prop("vivado_stitch_vlnv")
-        loop_body_intf_names = eval(loop_body.get_metadata_prop("vivado_stitch_ifnames"))
         ip_dirs = ["list"]
         ip_dirs += collect_ip_dirs(loop_body, loop_body_ipstitch_path)
         ip_dirs_str = "[%s]" % (" ".join(ip_dirs))
@@ -1059,6 +1064,12 @@ class FINNLoop(HWCustomOp, RTLBackend):
             "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
             % (self.onnx_node.name, clk_name, finn_ip_name, clk_name)
         )
+        if clk2x_name is not None:
+            loop_body_clk2x_name = loop_body_intf_names["clk2x"][0]
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
+                % (self.onnx_node.name, clk2x_name, finn_ip_name, loop_body_clk2x_name)
+            )
         # Expose the loop body's sim_finish control to the top of the FINNLoop IP.
         # The body's stitched IP carries a sim_ctrl (inserted by CreateStitchedIP)
         # whose sim_finish input triggers $finish. Asserting it during rtlsim runs
@@ -1141,6 +1152,10 @@ class FINNLoop(HWCustomOp, RTLBackend):
         cmd.append("set_property name in0_V [get_bd_intf_ports in0_V_0]")
         cmd.append("set_property name ap_clk [get_bd_ports ap_clk_0]")
         cmd.append("set_property name ap_rst_n [get_bd_ports ap_rst_n_0]")
+        if clk2x_name is not None:
+            cmd.append(
+                "set_property name %s [get_bd_ports %s_0]" % (clk2x_name, clk2x_name)
+            )
         cmd.append("set_property name out0_V [get_bd_intf_ports out0_V_0]")
         cmd.append(
             "set_property name m_axi_intermediate_frame "
@@ -1274,6 +1289,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
 
         loop_body = self.get_nodeattr("body")
         loop_body_intf = eval(loop_body.get_metadata_prop("vivado_stitch_ifnames"))
+        if loop_body_intf.get("clk2x"):
+            intf_names["clk2x"] = loop_body_intf["clk2x"]
         for intf in loop_body_intf["aximm"]:
             intf_names["aximm"].append(intf)
 
