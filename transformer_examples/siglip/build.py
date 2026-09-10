@@ -28,6 +28,7 @@ from transformer_examples.siglip.config import (
 from transformer_examples.siglip.mlo import (
     make_mlo_boundary_step,
     step_round_siglip_thresholds_before_mlo,
+    step_size_siglip_loop_residual_fifos,
     step_size_siglip_top_residual_fifo,
 )
 from transformer_examples.siglip.phases import (
@@ -202,6 +203,7 @@ def build_siglip(
                 make_mlo_boundary_step(profile.model["vision_depth"]),
             ],
             "step_set_fifo_depths": [step_size_siglip_top_residual_fifo],
+            "step_hw_codegen": [step_size_siglip_loop_residual_fifos],
         },
         inject_steps_after={
             "step_target_fps_parallelization": [pre_decomposition_folding],

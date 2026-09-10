@@ -154,6 +154,7 @@ def step_size_siglip_top_residual_fifo(model, cfg):
 
     bypass_tensor = fork.output[bypass_index]
     join_index = list(join.input).index(bypass_tensor)
+    join_inst = getCustomOp(join)
     join_depths = list(join_inst.get_nodeattr("inFIFODepths"))
     join_depths[join_index] = fifo_depth
     join_inst.set_nodeattr("inFIFODepths", join_depths)
@@ -161,6 +162,61 @@ def step_size_siglip_top_residual_fifo(model, cfg):
     # The loop body has already been sized and capped before this injected step.
     # Raise only the subsequent top-level cap so it cannot truncate this FIFO.
     cfg.fifo_depth_cap = max(int(cfg.fifo_depth_cap or 0), fifo_depth)
+    return model
+
+
+def step_size_siglip_loop_residual_fifos(model, cfg):
+    """Restore full-frame bypass FIFOs after capped loop-body RTL sizing."""
+
+    sized = []
+    for loop in model.get_nodes_by_op_type("FINNLoop"):
+        loop_inst = getCustomOp(loop)
+        body = loop_inst.get_nodeattr("body")
+        for fifo in body.get_nodes_by_op_type("StreamingFIFO_rtl"):
+            fork = body.find_producer(fifo.input[0])
+            join = body.find_consumer(fifo.output[0])
+            if (
+                fork is None
+                or fork.op_type != "DuplicateStreams_rtl"
+                or len(fork.output) != 2
+                or join is None
+                or not join.op_type.startswith("ElementwiseAdd")
+            ):
+                continue
+            join_inst = getCustomOp(join)
+            if (
+                join_inst.get_nodeattr("lhs_style") != "input"
+                or join_inst.get_nodeattr("rhs_style") != "input"
+            ):
+                continue
+            bypass_index = list(fork.output).index(fifo.input[0])
+            norm_path = fork.output[1 - bypass_index]
+            matching_norms = [
+                norm
+                for norm in body.get_nodes_by_op_type("LayerNorm_rtl")
+                if _path_reaches_node(body, norm_path, norm.name)
+                and _path_reaches_node(body, norm.output[0], join.name)
+            ]
+            if len(matching_norms) != 1:
+                continue
+            fifo_inst = getCustomOp(fifo)
+            frame_words = math.prod(fifo_inst.get_folded_input_shape(0)[:-1])
+            fifo_inst.set_nodeattr("depth", frame_words)
+
+            fork_inst = getCustomOp(fork)
+            fork_depths = list(fork_inst.get_nodeattr("outFIFODepths"))
+            fork_depths[bypass_index] = frame_words
+            fork_inst.set_nodeattr("outFIFODepths", fork_depths)
+
+            join_index = list(join.input).index(fifo.output[0])
+            join_depths = list(join_inst.get_nodeattr("inFIFODepths"))
+            join_depths[join_index] = frame_words
+            join_inst.set_nodeattr("inFIFODepths", join_depths)
+            sized.append((fifo.name, frame_words))
+        loop_inst.set_nodeattr("body", body.graph)
+
+    if len(sized) != 2:
+        raise RuntimeError(f"Expected two sized SigLIP loop residual FIFOs, found {sized}")
     return model
 
 

@@ -32,6 +32,7 @@ from transformer_examples.siglip.mlo import (  # noqa: E402
     find_vision_loop_body_ranges,
     make_mlo_boundary_step,
     step_round_siglip_thresholds_before_mlo,
+    step_size_siglip_loop_residual_fifos,
     step_size_siglip_top_residual_fifo,
 )
 from transformer_examples.siglip.phases import (  # noqa: E402
@@ -258,6 +259,7 @@ def test_build_uses_explicit_top_level_fifo_sizing(monkeypatch, tmp_path):
     assert cfg.auto_fifo_depths is False
     assert cfg.verify_rtlsim_behavioral is False
     assert cfg.inject_steps_before["step_set_fifo_depths"] == [step_size_siglip_top_residual_fifo]
+    assert cfg.inject_steps_before["step_hw_codegen"] == [step_size_siglip_loop_residual_fifos]
 
 
 def test_selects_embedding_output_and_removes_comparison_branch():
@@ -600,3 +602,93 @@ def test_sizes_post_loop_layernorm_residual_for_a_complete_frame(monkeypatch):
     assert instances[fork.name].attrs["outFIFODepths"] == [2, 1024]
     assert instances[join.name].attrs["inFIFODepths"] == [1024, 2]
     assert cfg.fifo_depth_cap == 1024
+
+
+def test_restores_full_frame_depth_for_loop_body_residual_fifos(monkeypatch):
+    nodes = []
+    instances = {}
+
+    class FakeInstance:
+        def __init__(self, attrs, folded_input_shape=None):
+            self.attrs = attrs
+            self.folded_input_shape = folded_input_shape
+
+        def get_nodeattr(self, name):
+            return self.attrs[name]
+
+        def set_nodeattr(self, name, value):
+            self.attrs[name] = value
+
+        def get_folded_input_shape(self, _index):
+            return self.folded_input_shape
+
+    for index in range(2):
+        fork = _node("DuplicateStreams_rtl", index)
+        fork.input = [f"x_{index}"]
+        fork.output = [f"norm_fifo_in_{index}", f"bypass_fifo_in_{index}"]
+        norm_fifo = _node("StreamingFIFO_rtl", 2 * index)
+        norm_fifo.input = [fork.output[0]]
+        norm_fifo.output = [f"norm_input_{index}"]
+        norm = _node("LayerNorm_rtl", index)
+        norm.input = [norm_fifo.output[0]]
+        norm.output = [f"normalized_{index}"]
+        compute = _node("MVAU_rtl", index)
+        compute.input = [norm.output[0]]
+        compute.output = [f"branch_{index}"]
+        bypass_fifo = _node("StreamingFIFO_rtl", 2 * index + 1)
+        bypass_fifo.input = [fork.output[1]]
+        bypass_fifo.output = [f"bypass_{index}"]
+        join = _node("ElementwiseAdd_rtl", index)
+        join.input = [bypass_fifo.output[0], compute.output[0]]
+        join.output = [f"y_{index}"]
+        nodes.extend([fork, norm_fifo, norm, compute, bypass_fifo, join])
+        instances[fork.name] = FakeInstance({"outFIFODepths": [32, 32]})
+        instances[bypass_fifo.name] = FakeInstance({"depth": 32}, (1, 196, 768, 1))
+        instances[join.name] = FakeInstance(
+            {"lhs_style": "input", "rhs_style": "input", "inFIFODepths": [32, 2]}
+        )
+
+    class FakeModel:
+        def __init__(self, graph_nodes):
+            self.nodes = graph_nodes
+            self.graph = SimpleNamespace(node=graph_nodes)
+
+        def get_nodes_by_op_type(self, op_type):
+            return [node for node in self.nodes if node.op_type == op_type]
+
+        def find_consumer(self, tensor_name):
+            return next(
+                (node for node in self.nodes if tensor_name in node.input),
+                None,
+            )
+
+        def find_producer(self, tensor_name):
+            return next(
+                (node for node in self.nodes if tensor_name in node.output),
+                None,
+            )
+
+        def find_consumers(self, tensor_name):
+            return [node for node in self.nodes if tensor_name in node.input]
+
+    body = FakeModel(nodes)
+    loop = _node("FINNLoop", 0)
+    top = FakeModel([loop])
+    instances[loop.name] = FakeInstance({"body": body})
+    monkeypatch.setattr(
+        "transformer_examples.siglip.mlo.getCustomOp",
+        lambda node: instances[node.name],
+    )
+
+    assert step_size_siglip_loop_residual_fifos(top, SimpleNamespace()) is top
+    for index in range(2):
+        bypass_fifo = instances[f"StreamingFIFO_rtl_{2 * index + 1}"]
+        assert bypass_fifo.attrs["depth"] == 150_528
+        assert instances[f"DuplicateStreams_rtl_{index}"].attrs["outFIFODepths"] == [
+            32,
+            150_528,
+        ]
+        assert instances[f"ElementwiseAdd_rtl_{index}"].attrs["inFIFODepths"] == [
+            150_528,
+            2,
+        ]
