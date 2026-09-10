@@ -169,6 +169,7 @@ def test_default_profile_records_verified_w6a7_contract():
     for index in (0, 1):
         key = f"FINNLoop_0_body_FINNLoop_0_LayerNorm_rtl_{index}"
         assert folding[key]["numRsqrtRefinements"] == 2
+    assert folding["FINNLoop_0_body_FINNLoop_0_PWPolyF_rtl_0"]["K"] == 2
     for op_type in ("ElementwiseAdd", "ElementwiseMul"):
         key = f"FINNLoop_0_body_FINNLoop_0_{op_type}_rtl_7"
         assert folding[key]["ram_style"] == "distributed"

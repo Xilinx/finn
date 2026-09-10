@@ -363,7 +363,8 @@
     "runtime_writeable_weights": 0
   },
   "FINNLoop_0_body_FINNLoop_0_PWPolyF_rtl_0": {
-    "PE": 4
+    "PE": 4,
+    "K": 2
   },
   "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_9": {
     "PE": 4,
