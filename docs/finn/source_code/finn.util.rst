@@ -180,15 +180,6 @@ finn.util.torch_hw_modules
    :show-inheritance:
 
 
-finn.util.pwpolyf
--------------------
-
-.. automodule:: finn.util.pwpolyf
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-
 finn.util.test
 ---------------------
 

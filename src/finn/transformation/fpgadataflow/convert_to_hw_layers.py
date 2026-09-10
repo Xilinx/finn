@@ -274,9 +274,6 @@ class InferPWPolyFLayer(Transformation):
     """Convert activations to piecewise polynomial HW layers."""
 
     _SINGLE_OP_MAP = {"Gelu": "gelu", "Tanh": "tanh"}
-    # Brevitas exports opset 1 in finn.pwpolyf. Keep accepting the old
-    # domain-less FINN helper export for backward compatibility.
-    _EXTERNAL_DOMAINS = {"", "finn.pwpolyf"}
 
     def __init__(self):
         super().__init__()
@@ -360,8 +357,8 @@ class InferPWPolyFLayer(Transformation):
         for node in graph.node:
             node_ind += 1
 
-            # Case 1: explicit Brevitas PWPolyF custom op
-            if node.op_type == "PWPolyF" and node.domain in self._EXTERNAL_DOMAINS:
+            # Case 1: explicit PWPolyFunction custom op from PWPolyFActivation export
+            if node.op_type == "PWPolyFunction":
                 pwp_input = node.input[0]
                 pwp_output = node.output[0]
                 pwp_in_shape = model.get_tensor_shape(pwp_input)

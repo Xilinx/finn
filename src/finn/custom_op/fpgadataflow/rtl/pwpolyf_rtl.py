@@ -8,18 +8,14 @@ from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.pwpolyf import PWPolyF
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.util.data_packing import array2hexstring
-from finn.util.torch_hw_modules import (
+from finn.custom_op.general.pwpolyfunction import (
     CLAMP_CFG,
     NUM_OCTAVES,
     SUPPORTED_FUNCS,
     _fit_coefficients,
 )
-
-
-def _float_to_hex(f):
-    """Convert a Python float to a 32-bit IEEE 754 hex string."""
-    return array2hexstring(np.array([f]), DataType["FLOAT32"], 32, prefix="").upper()
+from finn.util.basic import fifo_rtl_files
+from finn.util.data_packing import array2hexstring
 
 
 def _generate_coeffs_pkg_data(K, degree=2, num_samples=1000, package_name="pwpolyf_pkg"):
@@ -55,8 +51,12 @@ def _generate_coeffs_pkg_data(K, degree=2, num_samples=1000, package_name="pwpol
         cfg = CLAMP_CFG[func_name]
         coeffs = _fit_coefficients(func_name, K, degree=degree, num_samples=num_samples)
         label = func_name.upper()
-        neg_hex = _float_to_hex(cfg["neg_clamp"])
-        pos_hex = _float_to_hex(cfg["pos_clamp"])
+        neg_hex = array2hexstring(
+            np.array([cfg["neg_clamp"]]), DataType["FLOAT32"], 32, prefix=""
+        ).upper()
+        pos_hex = array2hexstring(
+            np.array([cfg["pos_clamp"]]), DataType["FLOAT32"], 32, prefix=""
+        ).upper()
         passthrough = 1 if cfg["pos_passthrough"] else 0
 
         lines.append("")
@@ -68,7 +68,10 @@ def _generate_coeffs_pkg_data(K, degree=2, num_samples=1000, package_name="pwpol
         for seg in range(num_segs):
             coeff_strs = []
             for c in range(degree + 1):
-                coeff_strs.append("32'h%s" % _float_to_hex(coeffs[seg, c]))
+                hex_val = array2hexstring(
+                    np.array([coeffs[seg, c]]), DataType["FLOAT32"], 32, prefix=""
+                ).upper()
+                coeff_strs.append("32'h%s" % hex_val)
             comma = "," if seg < num_segs - 1 else ""
             lines.append("            '{ %s }%s\t// seg %d" % (", ".join(coeff_strs), comma, seg))
         lines.append("        }")
@@ -107,8 +110,7 @@ class PWPolyF_rtl(PWPolyF, RTLBackend):
 
     def _namespace_rtl(self, source):
         namespace = self.get_nodeattr("gen_top_module")
-        identifiers = ["pwpolyf_dspfp32", "pwpolyf_pkg", "pwpolyf", "queue"]
-        for identifier in identifiers:
+        for identifier in ["pwpolyf_dspfp32", "pwpolyf_pkg", "pwpolyf"]:
             source = re.sub(
                 r"\b%s\b" % re.escape(identifier),
                 "%s_%s" % (namespace, identifier),
@@ -147,11 +149,10 @@ class PWPolyF_rtl(PWPolyF, RTLBackend):
 
         # Generate node-scoped helper modules so flattened stitched simulation
         # cannot bind this node to another PWPolyF node's coefficient package.
-        for sv_file in ["pwpolyf.sv", "queue.sv"]:
-            with open(rtllib_dir + sv_file, "r") as f:
-                source = self._namespace_rtl(f.read())
-            with open(os.path.join(code_gen_dir, self._namespaced_rtl_file(sv_file)), "w") as f:
-                f.write(source)
+        with open(rtllib_dir + "pwpolyf.sv", "r") as f:
+            source = self._namespace_rtl(f.read())
+        with open(os.path.join(code_gen_dir, self._namespaced_rtl_file("pwpolyf.sv")), "w") as f:
+            f.write(source)
 
         # generate package with coefficients matching the node's K and degree
         package_name = "%s_pwpolyf_pkg" % topname
@@ -173,10 +174,9 @@ class PWPolyF_rtl(PWPolyF, RTLBackend):
         verilog_files = [
             code_gen_dir + self._namespaced_rtl_file("pwpolyf_pkg.sv"),
             code_gen_dir + self._namespaced_rtl_file("pwpolyf.sv"),
-            code_gen_dir + self._namespaced_rtl_file("queue.sv"),
             code_gen_dir + self.get_nodeattr("gen_top_module") + ".v",
         ]
-        return verilog_files
+        return verilog_files + fifo_rtl_files(abspath=abspath)
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
@@ -191,10 +191,10 @@ class PWPolyF_rtl(PWPolyF, RTLBackend):
         sourcefiles = [
             self._namespaced_rtl_file("pwpolyf_pkg.sv"),
             self._namespaced_rtl_file("pwpolyf.sv"),
-            self._namespaced_rtl_file("queue.sv"),
         ]
         sourcefiles.append(self.get_nodeattr("gen_top_module") + ".v")
         sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
+        sourcefiles += fifo_rtl_files(abspath=True)
 
         cmd = []
         for f in sourcefiles:

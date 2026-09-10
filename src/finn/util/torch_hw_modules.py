@@ -13,58 +13,22 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# Constants matching the SystemVerilog pwpolyf module
-NUM_OCTAVES = 5
-EXP_BIAS = 127
-EXP_BASE = 125
-EXP_CLAMP = 130
+# Import constants from the ONNX custom op package (importing from the package
+# triggers registration of PWPolyFunction with QONNX's custom op registry)
+from finn.custom_op.general import (
+    CLAMP_CFG,
+    NUM_OCTAVES,
+    SUPPORTED_FUNCS,
+    _segment_boundaries,
+)
 
-SUPPORTED_FUNCS = ("gelu", "silu", "sigmoid", "tanh")
-PWPOLYF_ONNX_DOMAIN = "finn.pwpolyf"
-PWPOLYF_ONNX_OPSET = 1
-
+# PyTorch reference functions for coefficient fitting
 REFERENCE_FUNCS = {
     "gelu": lambda x: F.gelu(x),
     "silu": lambda x: F.silu(x),
     "sigmoid": lambda x: torch.sigmoid(x),
     "tanh": lambda x: torch.tanh(x),
 }
-
-CLAMP_CFG = {
-    "gelu": {"neg_clamp": 0.0, "pos_clamp": 0.0, "pos_passthrough": True},
-    "silu": {"neg_clamp": 0.0, "pos_clamp": 0.0, "pos_passthrough": True},
-    "sigmoid": {"neg_clamp": 0.0, "pos_clamp": 1.0, "pos_passthrough": False},
-    "tanh": {"neg_clamp": -1.0, "pos_clamp": 1.0, "pos_passthrough": False},
-}
-
-
-def _segment_boundaries(K):
-    """Return (lo, hi) bounds for every PWPolyF segment."""
-    num_subs = 1 << K
-    bounds = []
-
-    # Segment 0: near-zero
-    bounds.append((-0.25, 0.25))
-
-    # Positive segments
-    for octave in range(NUM_OCTAVES):
-        exp_val = EXP_BASE + octave - EXP_BIAS
-        base = 2.0**exp_val
-        for sub in range(num_subs):
-            lo = base * (1.0 + sub / num_subs)
-            hi = base * (1.0 + (sub + 1) / num_subs)
-            bounds.append((lo, hi))
-
-    # Negative segments (mirror of positive)
-    for octave in range(NUM_OCTAVES):
-        exp_val = EXP_BASE + octave - EXP_BIAS
-        base = 2.0**exp_val
-        for sub in range(num_subs):
-            lo = base * (1.0 + sub / num_subs)
-            hi = base * (1.0 + (sub + 1) / num_subs)
-            bounds.append((-hi, -lo))
-
-    return bounds
 
 
 def _fit_coefficients(func_name, K, degree=2, num_samples=1000):
@@ -115,40 +79,47 @@ def _segment_index(x, K, num_subs, num_segs):
     return seg_idx, is_neg_clamp, is_pos_clamp
 
 
+def _pwpolyf_eval(x, coeffs, neg_clamp_val, pos_clamp_val, func, K, degree):
+    """Evaluate piecewise polynomial activation. Used by both Module and Function."""
+    num_subs = 1 << K
+    num_segs = 1 + 2 * NUM_OCTAVES * num_subs
+    degree = int(degree)
+    pos_passthrough = CLAMP_CFG[func]["pos_passthrough"]
+
+    orig_shape = x.shape
+    x_flat = x.contiguous().view(-1)
+
+    seg_idx, is_neg_clamp, is_pos_clamp = _segment_index(x_flat, K, num_subs, num_segs)
+
+    c = coeffs[seg_idx]
+    # Horner evaluation: y = c0 + x*(c1 + x*(c2 + ...))
+    y = c[:, degree]
+    for i in range(degree - 1, -1, -1):
+        y = c[:, i] + x_flat * y
+
+    if pos_passthrough:
+        pos_val = x_flat
+    else:
+        pos_val = pos_clamp_val.expand_as(y)
+    y = torch.where(is_pos_clamp, pos_val, y)
+    y = torch.where(is_neg_clamp, neg_clamp_val.expand_as(y), y)
+
+    return y.view(orig_shape)
+
+
 class PWPolyFFunction(torch.autograd.Function):
-    """Emit a single PWPolyF ONNX node during legacy torch.onnx export."""
+    """Emit a single PWPolyFunction ONNX node during torch.onnx export."""
 
     @staticmethod
     def forward(ctx, x, coeffs, neg_clamp_val, pos_clamp_val, func, K, degree):
-        num_subs = 1 << K
-        num_segs = 1 + 2 * NUM_OCTAVES * num_subs
-        degree = int(degree)
-        pos_passthrough = CLAMP_CFG[func]["pos_passthrough"]
-
-        orig_shape = x.shape
-        x_flat = x.contiguous().view(-1)
-
-        seg_idx, is_neg_clamp, is_pos_clamp = _segment_index(x_flat, K, num_subs, num_segs)
-
-        c = coeffs[seg_idx]
-        # Horner evaluation: y = c0 + x*(c1 + x*(c2 + ...))
-        y = c[:, degree]
-        for i in range(degree - 1, -1, -1):
-            y = c[:, i] + x_flat * y
-
-        if pos_passthrough:
-            pos_val = x_flat
-        else:
-            pos_val = pos_clamp_val.expand_as(y)
-        y = torch.where(is_pos_clamp, pos_val, y)
-        y = torch.where(is_neg_clamp, neg_clamp_val.expand_as(y), y)
-
-        return y.view(orig_shape)
+        return _pwpolyf_eval(x, coeffs, neg_clamp_val, pos_clamp_val, func, K, degree)
 
     @staticmethod
     def symbolic(g, x, coeffs, neg_clamp_val, pos_clamp_val, func, K, degree):
+        # Use qonnx.custom_op.general domain to match Brevitas export convention
+        # and enable QONNX's registry to find the PWPolyFunction custom op
         ret = g.op(
-            "%s::PWPolyF" % PWPOLYF_ONNX_DOMAIN,
+            "qonnx.custom_op.general::PWPolyFunction",
             x,
             func_s=func,
             K_i=K,
@@ -188,35 +159,12 @@ class PWPolyFActivation(nn.Module):
         self.register_buffer("pos_clamp_val", pos_cv)
 
     def forward(self, x):
-        if torch.onnx.is_in_onnx_export():
-            return PWPolyFFunction.apply(
-                x,
-                self.coeffs,
-                self.neg_clamp_val,
-                self.pos_clamp_val,
-                self.func,
-                self.K,
-                self.degree,
-            )
-
-        orig_shape = x.shape
-        x_flat = x.contiguous().view(-1)
-
-        seg_idx, is_neg_clamp, is_pos_clamp = _segment_index(
-            x_flat, self.K, self.num_subs, self.num_segs
+        return PWPolyFFunction.apply(
+            x,
+            self.coeffs,
+            self.neg_clamp_val,
+            self.pos_clamp_val,
+            self.func,
+            self.K,
+            self.degree,
         )
-
-        c = self.coeffs[seg_idx]
-        # Horner evaluation: y = c0 + x*(c1 + x*(c2 + ...))
-        y = c[:, self.degree]
-        for i in range(self.degree - 1, -1, -1):
-            y = c[:, i] + x_flat * y
-
-        if self.pos_passthrough:
-            pos_val = x_flat
-        else:
-            pos_val = self.pos_clamp_val.expand_as(y)
-        y = torch.where(is_pos_clamp, pos_val, y)
-        y = torch.where(is_neg_clamp, self.neg_clamp_val.expand_as(y), y)
-
-        return y.view(orig_shape)

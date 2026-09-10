@@ -8,6 +8,7 @@ Submodules
 .. toctree::
    :maxdepth: 2
 
+   finn.custom_op.general
    finn.custom_op.fpgadataflow
    qonnx.custom_op.channels_last
    qonnx.custom_op.general

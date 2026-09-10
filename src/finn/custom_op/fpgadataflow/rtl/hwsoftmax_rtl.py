@@ -36,8 +36,8 @@ class HWSoftmax_rtl(HWSoftmax, RTLBackend):
             "softmaxf.sv",
             "softmaxf_pkg.sv",
             "binopf.sv",
-            "pwpolyf_pkg.sv",
-            "pwpolyf.sv",
+            "pwpolyf_k3_pkg.sv",
+            "softmax_pwpolyf.sv",
             "int_to_fp32.sv",
         ]
 
