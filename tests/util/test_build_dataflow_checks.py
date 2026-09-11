@@ -166,6 +166,7 @@ class TestConfigCheckIntegration:
                             board=board,
                             shell_flow_type=flow,
                             generate_outputs=[DataflowOutputType.BITFILE],
+                            target_fps=1000,
                         ),
                     )
             else:
@@ -176,6 +177,7 @@ class TestConfigCheckIntegration:
                         board=board,
                         shell_flow_type=flow,
                         generate_outputs=[DataflowOutputType.BITFILE],
+                        target_fps=1000,
                     ),
                 )
                 assert os.path.exists(os.path.join(output_dir, "config_check_report.txt"))
@@ -232,3 +234,63 @@ class TestConfigCheckIntegration:
             c["name"] for c in report["checks"] if not c["passed"] and c["severity"] == "ERROR"
         ]
         assert "zynq7000_retired" in error_names
+
+    def test_folding_missing_errors(self):
+        """A non-estimate output with neither target_fps nor folding_config_file
+        should error, instead of silently building at PE=1/SIMD=1."""
+        build_dir = make_build_dir("test_config_check_")
+        model_path = make_test_model(build_dir)
+        output_dir = os.path.join(build_dir, "output")
+
+        with patch.dict("os.environ", {"XILINX_VIVADO": "/tools/Vivado/2024.2"}):
+            with pytest.raises(AssertionError, match="Configuration check failed"):
+                build_dataflow_cfg(
+                    model_path,
+                    cfg(
+                        output_dir,
+                        board="AUP-ZU3_8GB",
+                        shell_flow_type=ShellFlowType.VIVADO_ZYNQ,
+                        generate_outputs=[DataflowOutputType.BITFILE],
+                    ),
+                )
+
+    def test_folding_missing_estimate_only_ok(self):
+        """ESTIMATE_REPORTS alone doesn't require target_fps or folding_config_file."""
+        build_dir = make_build_dir("test_config_check_")
+        model_path = make_test_model(build_dir)
+        output_dir = os.path.join(build_dir, "output")
+
+        with patch.dict("os.environ", {"XILINX_VIVADO": "/tools/Vivado/2024.2"}):
+            build_dataflow_cfg(model_path, cfg(output_dir))
+
+        with open(os.path.join(output_dir, "config_check_report.json")) as f:
+            report = json.load(f)
+        error_names = [
+            c["name"] for c in report["checks"] if not c["passed"] and c["severity"] == "ERROR"
+        ]
+        assert "folding_missing" not in error_names
+
+    def test_folding_target_fps_satisfies_check(self):
+        """Setting target_fps clears the folding_missing check."""
+        build_dir = make_build_dir("test_config_check_")
+        model_path = make_test_model(build_dir)
+        output_dir = os.path.join(build_dir, "output")
+
+        with patch.dict("os.environ", {"XILINX_VIVADO": "/tools/Vivado/2024.2"}):
+            build_dataflow_cfg(
+                model_path,
+                cfg(
+                    output_dir,
+                    board="AUP-ZU3_8GB",
+                    shell_flow_type=ShellFlowType.VIVADO_ZYNQ,
+                    generate_outputs=[DataflowOutputType.BITFILE],
+                    target_fps=1000,
+                ),
+            )
+
+        with open(os.path.join(output_dir, "config_check_report.json")) as f:
+            report = json.load(f)
+        error_names = [
+            c["name"] for c in report["checks"] if not c["passed"] and c["severity"] == "ERROR"
+        ]
+        assert "folding_missing" not in error_names
