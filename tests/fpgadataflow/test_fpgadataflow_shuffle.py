@@ -15,6 +15,7 @@ import os
 import tempfile
 import torch
 import torch.onnx
+import warnings
 from brevitas.export import export_qonnx
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -737,9 +738,12 @@ def test_shuffle_config_consolidation():
 
 @pytest.mark.fpgadataflow
 def test_outer_shuffle_exp_cycles_without_vivado(monkeypatch):
-    """get_exp_cycles must work for estimate-only builds with no Vivado configured."""
-    monkeypatch.delenv("XILINX_VIVADO", raising=False)
+    """get_exp_cycles must work for estimate-only builds with no Vivado configured.
 
+    With no XILINX_VIVADO the estimate assumes the recommended Vivado 2024.2+
+    behaviour (and warns about it), so it must match the estimate produced with
+    a 2024.2 install configured.
+    """
     dt = DataType["INT8"]
     model = construct_onnx_model(
         input_shape=(1, 128, 384),
@@ -757,10 +761,19 @@ def test_outer_shuffle_exp_cycles_without_vivado(monkeypatch):
 
     outer_nodes = [n for n in model.graph.node if n.op_type == "OuterShuffle_hls"]
     assert len(outer_nodes) > 0, "expected at least one OuterShuffle_hls node"
-    for node in outer_nodes:
-        cycles = getCustomOp(node).get_exp_cycles()
+
+    monkeypatch.setenv("XILINX_VIVADO", "/tools/Xilinx/Vivado/2024.2")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        expected_cycles = [getCustomOp(n).get_exp_cycles() for n in outer_nodes]
+
+    monkeypatch.delenv("XILINX_VIVADO", raising=False)
+    for node, expected in zip(outer_nodes, expected_cycles):
+        with pytest.warns(UserWarning, match="assuming Vivado 2024.2 or newer"):
+            cycles = getCustomOp(node).get_exp_cycles()
         assert isinstance(cycles, int)
         assert cycles > 0
+        assert cycles == expected
 
 
 @pytest.mark.fpgadataflow
