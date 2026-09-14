@@ -17,6 +17,7 @@ from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 from finn.core.onnx_exec import execute_onnx
+from finn.custom_op.fpgadataflow.rtl.elementwise_binary_rtl import ElementwiseAdd_rtl
 from finn.transformation.fpgadataflow.convert_to_hw_layers import (
     InferElementwiseBinaryOperation,
 )
@@ -39,6 +40,29 @@ NUMPY_REFERENCES = {
     "ElementwiseAdd": np.add,
     "ElementwiseMul": np.multiply,
 }
+
+
+def test_elementwise_rtl_accepts_reshape_equivalent_dynamic_input():
+    node = oh.make_node(
+        "ElementwiseAdd_rtl",
+        ["lhs", "rhs"],
+        ["out"],
+        domain="finn.custom_op.fpgadataflow.rtl",
+        lhs_shape=[1, 2, 3],
+        rhs_shape=[1, 2, 3],
+        name="ElementwiseAdd_rtl_test",
+    )
+    instance = ElementwiseAdd_rtl(node)
+    input_value = np.arange(6, dtype=np.float32).reshape(1, 3, 2)
+
+    reshaped = instance._reshape_dynamic_input(input_value, 0)
+
+    assert reshaped.shape == (1, 2, 3)
+    assert np.array_equal(reshaped, input_value.reshape(1, 2, 3))
+    assert input_value.shape == (1, 3, 2)
+
+    with pytest.raises(AssertionError, match="Input shape mismatch for lhs"):
+        instance._reshape_dynamic_input(np.zeros((1, 4), dtype=np.float32), 0)
 
 
 def create_elementwise_model(op_type, lhs_dtype, rhs_dtype, lhs_shape, rhs_shape, out_dtype=None):
