@@ -893,7 +893,14 @@ def test_finnloop_end2end_mlo(
 
 @pytest.mark.parametrize(
     "dim, simd, pe, bitwidth, weight_bitwidth",
-    [(16, 1, 1, 8, 8), (8, 8, 4, 3, 3)],
+    [
+        # Coverage matrix over {folding} x {256-divisibility of the element widths}.
+        (16, 1, 1, 8, 8),  # unfolded, divisor (8|256): baseline PASS
+        (8, 8, 4, 4, 4),  # folded, divisor (4|256, DMA_PE=64): guards word-aligned image
+        #   stays byte-identical for divisors at the real folding
+        (8, 8, 4, 3, 3),  # folded, non-divisor (3 wasted bits/word): exercises the
+        #   DMA-word-aligned fix on both the activation and weight paths
+    ],
 )
 # iteration count, number of models chained together
 @pytest.mark.parametrize("iteration", [3])

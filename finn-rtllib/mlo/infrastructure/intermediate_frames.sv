@@ -59,17 +59,21 @@
  *    - Write path: OPE elements/beat → DMA_PE elements/beat (body → DDR)
  *    - Read path:  DMA_PE elements/beat → IPE elements/beat (DDR → body)
  *
- *  PAD_ZEROS=0 on both VPCs because the downstream consumer discards excess
- *  lanes — zero-padding would waste logic.
+ *  PAD_ZEROS=1 on both VPCs so the unused tail lanes of the last AXI beat are
+ *  driven to zero rather than left as X.  When ELEM_BITS does not divide
+ *  DATA_BITS the top DATA_BITS - DMA_PE*ELEM_BITS bits of each bus word are
+ *  unused; zeroing them keeps the DDR write word fully defined.
  *
  *  Alignment assumptions:
  *    - FM_BYTES is always a multiple of DATA_BITS/8 (AXI bus width in bytes),
  *      so every slot starts at a bus-aligned address.
  *    - Partial last AXI beats occur when FM_ELEMS does not divide evenly by
  *      DMA_PE; the VPCs (N=FM_ELEMS) crop them.
- *    - ELEM_BITS must evenly divide DATA_BITS so that DMA_PE is an integer.
- *      OLEN_BITS and ILEN_BITS are multiples of ELEM_BITS by construction
- *      (= PE * ELEM_BITS).  All three are checked by initial-block assertions.
+ *    - ELEM_BITS need NOT divide DATA_BITS: DMA_PE = DATA_BITS / ELEM_BITS is
+ *      the whole-elements-per-bus-word count and any residual top bits are
+ *      unused (PAD_ZEROS keeps them zero).  OLEN_BITS and ILEN_BITS are
+ *      multiples of ELEM_BITS by construction (= PE * ELEM_BITS); this is
+ *      checked by initial-block assertions.
  *
  *****************************************************************************/
 
@@ -487,7 +491,7 @@ logic [ILEN_BITS-1:0] m_axis_int_tdata;
 
 // VPC write: OPE -> DMA_PE elements (body output -> DMA)
 logic [DMA_PE-1:0][ELEM_BITS-1:0]  vpc_wr_odat;
-vpc #(.W(ELEM_BITS), .N(FM_ELEMS), .PI(OPE), .PO(DMA_PE), .PAD_ZEROS(0)) inst_dwc_wr (
+vpc #(.W(ELEM_BITS), .N(FM_ELEMS), .PI(OPE), .PO(DMA_PE), .PAD_ZEROS(1)) inst_dwc_wr (
     .clk(aclk), .rst(!aresetn),
     .ivld(s_axis_int_tvalid), .irdy(s_axis_int_tready),
     .idat(s_axis_int_tdata),
@@ -497,7 +501,7 @@ vpc #(.W(ELEM_BITS), .N(FM_ELEMS), .PI(OPE), .PO(DMA_PE), .PAD_ZEROS(0)) inst_dw
 assign  axis_dma_wr_tdata = DATA_BITS'(vpc_wr_odat);
 
 // VPC read: DMA_PE -> IPE elements (DMA -> body input)
-vpc #(.W(ELEM_BITS), .N(FM_ELEMS), .PI(DMA_PE), .PO(IPE), .PAD_ZEROS(0)) inst_dwc_rd (
+vpc #(.W(ELEM_BITS), .N(FM_ELEMS), .PI(DMA_PE), .PO(IPE), .PAD_ZEROS(1)) inst_dwc_rd (
     .clk(aclk), .rst(!aresetn),
     .ivld(axis_dma_rd_tvalid), .irdy(axis_dma_rd_tready),
     .idat(axis_dma_rd_tdata[DMA_PE*ELEM_BITS-1:0]),
