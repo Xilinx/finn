@@ -1,6 +1,52 @@
 /******************************************************************************
  * Copyright Advanced Micro Devices, Inc.
  * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * @brief	DMA engine for fetching weight matrices from external memory.
+ *
+ * @description
+ *  Reads weight matrices from external memory (DDR/HBM) via AXI-MM and
+ *  delivers them as a narrow stream to the MVU/VVU compute path.
+ *
+ *  Expected memory layout (produced by make_weight_file in the FINN compiler):
+ *
+ *    base_address + ADDRESS_OFFSET
+ *    ├── Layer 0   @ offset 0
+ *    ├── Layer 1   @ offset LAYER_OFFS
+ *    ├── Layer 2   @ offset 2 * LAYER_OFFS
+ *    │   ...
+ *    └── Layer N-1 @ offset (N-1) * LAYER_OFFS
+ *
+ *  Within each layer, MH*MW weight elements are stored DMA-word-aligned: each
+ *  DATA_BITS-wide bus word holds exactly DMA_PE = DATA_BITS/WEIGHT_WIDTH whole
+ *  elements in its low DMA_PE*WEIGHT_WIDTH bits, and the top
+ *  DATA_BITS - DMA_PE*WEIGHT_WIDTH bits are zero padding.  No element straddles
+ *  a bus-word boundary — this is exactly what the external VPC width converter
+ *  (wrapper, N=MH*MW, PI=DATA_BITS/WEIGHT_WIDTH) consumes: it takes DMA_PE
+ *  elements from the low bits of every beat and discards the padded top bits.
+ *  When WEIGHT_WIDTH divides DATA_BITS this reduces to tight packing.  The
+ *  per-layer size is:
+ *
+ *    dma_len = ceil(MH*MW / DMA_PE) * (DATA_BITS/8)  bytes   (already bus-aligned)
+ *
+ *  LAYER_OFFS == dma_len (bus-aligned), so each layer's start address is
+ *  bus-aligned and the last AXI beat's unused element lanes are padding that
+ *  the VPC crops (N=MH*MW), preventing stale data bleeding across transfers.
+ *
+ *  IWSIMD depends on the operating mode:
+ *    TH > 1 (tiled): IWSIMD = (PE * SIMD) / TH — one tile's worth of weights
+ *    TH = 1 (direct): IWSIMD = SIMD — one dot-product group
+ *
+ *  Alignment assumptions:
+ *    - LAYER_OFFS is a multiple of DATA_BITS/8 (AXI bus width in bytes),
+ *      so every layer starts at a bus-aligned address.
+ *    - Partial last AXI beats occur when dma_len does not divide evenly by
+ *      the bus width; the external VPC (N=MH*MW) crops them.
+ *    - MH*MW must be divisible by IWSIMD (guaranteed by the FINN compiler's
+ *      folding constraints: MH is divisible by PE, MW by SIMD).
+ *    - WEIGHT_WIDTH * IWSIMD need not be a multiple of 8; per-group byte
+ *      padding is applied in both the memory image and dma_len calculation.
+ *
  *****************************************************************************/
 
 module fetch_weights #(
@@ -87,15 +133,11 @@ module fetch_weights #(
 	output logic                     axis_dma_tvalid,
 	input  logic                     axis_dma_tready,
 	output logic[DATA_BITS-1:0]      axis_dma_tdata,
-	output logic[DATA_BITS/8-1:0]    axis_dma_tkeep,
-	output logic                     axis_dma_tlast,
 
 	// DWC stream in (from external width converter)
 	input  logic                     axis_dwc_tvalid,
 	output logic                     axis_dwc_tready,
 	input  logic[DS_BITS_BA-1:0]     axis_dwc_tdata,
-	input  logic[(DS_BITS_BA)/8-1:0] axis_dwc_tkeep,
-	input  logic                     axis_dwc_tlast,
 
 	// Stream
 	output logic                     m_axis_tvalid,
@@ -106,8 +148,50 @@ module fetch_weights #(
 	input logic [ADDR_BITS-1:0]      base_address
 );
 
+	//=== Parameter Assertions ==============================================
+	initial begin
+		if(PE == 0 || SIMD == 0 || TH == 0) begin
+			$error("%m: PE (%0d), SIMD (%0d), and TH (%0d) must be non-zero.", PE, SIMD, TH);
+			$finish;
+		end
+		if(MH == 0 || MW == 0) begin
+			$error("%m: MH (%0d) and MW (%0d) must be non-zero.", MH, MW);
+			$finish;
+		end
+		if(WEIGHT_WIDTH == 0) begin
+			$error("%m: WEIGHT_WIDTH must be non-zero.");
+			$finish;
+		end
+		if((PE * SIMD) % TH != 0) begin
+			$error("%m: PE*SIMD (%0d) must be divisible by TH (%0d).", PE * SIMD, TH);
+			$finish;
+		end
+		if((MH * MW) % IWSIMD != 0) begin
+			$error("%m: MH*MW (%0d) must be divisible by IWSIMD (%0d).", MH * MW, IWSIMD);
+			$finish;
+		end
+		if(DS_BITS_BA % WEIGHT_WIDTH != 0) begin
+			$error("%m: DS_BITS_BA (%0d) must be divisible by WEIGHT_WIDTH (%0d).", DS_BITS_BA, WEIGHT_WIDTH);
+			$finish;
+		end
+		if(N_REPS == 0) begin
+			$error("%m: N_REPS must be non-zero.");
+			$finish;
+		end
+		if(DATA_BITS == 0 || (DATA_BITS & (DATA_BITS - 1)) != 0) begin
+			$error("%m: DATA_BITS (%0d) must be a power of two.", DATA_BITS);
+			$finish;
+		end
+	end
+
 	//=== Layer Offsets =====================================================
-	localparam int unsigned  LAYER_OFFS = ((MH*MW/IWSIMD)*((IWSIMD*WEIGHT_WIDTH+7)/8) + (DATA_BITS/8-1)) & ~(DATA_BITS/8-1); // AXI bus-width aligned
+	// Weights are stored DMA-word-aligned: DMA_PE = DATA_BITS/WEIGHT_WIDTH whole
+	// elements per bus word (low bits), the top DATA_BITS%WEIGHT_WIDTH bits zero.
+	// The per-layer fetch is exactly ceil(MH*MW / DMA_PE) bus words, so it is
+	// already bus-aligned and LAYER_OFFS == the fetch length.
+	localparam int unsigned  DMA_PE     = DATA_BITS / WEIGHT_WIDTH;                  // whole elements per bus word
+	localparam int unsigned  WORD_BEATS = (MH*MW + DMA_PE - 1) / DMA_PE;            // bus words per layer
+	localparam int unsigned  LAYER_OFFS = WORD_BEATS * (DATA_BITS/8);              // AXI bus-width aligned
 	logic [N_LAYERS-1:0][ADDR_BITS-1:0]  l_offsets;
 	for(genvar i = 0; i < N_LAYERS; i++) begin : genOffs
 		assign	l_offsets[i] = i * LAYER_OFFS;
@@ -148,12 +232,11 @@ module fetch_weights #(
 		);
 
 		assign	dma_addr = base_address + ADDRESS_OFFSET + l_offsets[Idx];
-		// External memory (DDR, HBM, ...) stores weights as byte-aligned per-IWSIMD
-		// packets: each group of IWSIMD weights occupies roundup(IWSIMD*WEIGHT_WIDTH, 8)
-		// bits (= DS_BITS_BA). The total fetch length must reflect that per-group
-		// padding (not tight bit-packing), otherwise sub-byte weights under-fetch.
-		// Reduces to the tight value whenever IWSIMD*WEIGHT_WIDTH is already byte-aligned.
-		assign dma_len = (MH*MW/IWSIMD) * ((IWSIMD*WEIGHT_WIDTH+7)/8);
+		// DMA-word-aligned fetch: ceil(MH*MW / DMA_PE) bus words, where each word
+		// carries DMA_PE = DATA_BITS/WEIGHT_WIDTH whole elements (top bits padded).
+		// This matches the wrapper VPC (PI=DMA_PE, discards the padded top bits) and
+		// make_weight_file's word-aligned image; no element straddles a bus word.
+		assign dma_len = WORD_BEATS * (DATA_BITS/8);
 
 		//--- Sequential ----------------------------------------------------
 		always_ff @(posedge aclk) begin
@@ -219,12 +302,10 @@ module fetch_weights #(
 		);
 
 		assign	dma_addr = base_address + ADDRESS_OFFSET + l_offsets[q_idx_dat];
-		// Same byte-aligned per-IWSIMD-group packing as the tiled path (see above):
-		// each of the MH*MW/IWSIMD groups occupies roundup(IWSIMD*WEIGHT_WIDTH, 8)
-		// bits (= DS_BITS_BA) in external memory. Using tight bit-packing here would
-		// under-fetch whenever IWSIMD*WEIGHT_WIDTH is not byte-aligned (e.g. SIMD=1,
-		// sub-byte weights). Reduces to the tight value when it is byte-aligned.
-		assign dma_len = (MH*MW/IWSIMD) * ((IWSIMD*WEIGHT_WIDTH+7)/8);
+		// Same DMA-word-aligned fetch as the tiled path (see above): ceil(MH*MW/DMA_PE)
+		// bus words, DMA_PE = DATA_BITS/WEIGHT_WIDTH whole elements per word (top bits
+		// padded), matching the wrapper VPC and make_weight_file's word-aligned image.
+		assign dma_len = WORD_BEATS * (DATA_BITS/8);
 
 	end : genDirect
 
@@ -276,8 +357,8 @@ module fetch_weights #(
 		.m_axis_ddr_tvalid(axis_dma_tvalid),
 		.m_axis_ddr_tready(axis_dma_tready),
 		.m_axis_ddr_tdata(axis_dma_tdata),
-		.m_axis_ddr_tkeep(axis_dma_tkeep),
-		.m_axis_ddr_tlast(axis_dma_tlast)
+		.m_axis_ddr_tkeep(),
+		.m_axis_ddr_tlast()
 	);
 
 	//=== Local Weight Buffer ===============================================
