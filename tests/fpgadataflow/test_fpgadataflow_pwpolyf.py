@@ -308,3 +308,37 @@ def test_fpgadataflow_pwpolyf_rtl_constants_match():
 
     # Check NUM_OCTAVES is used consistently
     assert NUM_OCTAVES == 5, f"NUM_OCTAVES should be 5, got {NUM_OCTAVES}"
+
+
+@pytest.mark.parametrize("func", ["gelu", "tanh"])
+@pytest.mark.parametrize("fold", [-1, 2])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+def test_pwpolyf_generate_hdl_namespaces_helpers(func, fold):
+    num_channels = 4
+    pe = 1 if fold == -1 else max(1, num_channels // fold)
+    model = make_pwpolyf_modelwrapper(func, 3, num_channels, [1], pe=pe)
+    model = model.transform(SpecializeLayers(TEST_FPGA_PART))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareIP(TEST_FPGA_PART, TARGET_CLK_NS))
+
+    inst = getCustomOp(model.graph.node[0])
+    code_gen_dir = inst.get_nodeattr("code_gen_dir_ipgen")
+    topname = inst.get_nodeattr("gen_top_module")
+    package_path = os.path.join(code_gen_dir, topname + "_pwpolyf_pkg.sv")
+    core_path = os.path.join(code_gen_dir, topname + "_pwpolyf.sv")
+
+    assert os.path.isfile(package_path)
+    assert os.path.isfile(core_path)
+    assert os.path.isfile(os.path.join(code_gen_dir, topname + ".v"))
+
+    with open(package_path, "r") as f:
+        pkg_content = f.read()
+    with open(core_path, "r") as f:
+        core_content = f.read()
+    assert "package %s_pwpolyf_pkg;" % topname in pkg_content
+    assert "import %s_pwpolyf_pkg::*;" % topname in core_content
+    assert "module %s_pwpolyf " % topname in core_content
+    assert "DEGREE      = 2;" in pkg_content
+    assert "K           = 3;" in pkg_content
+    assert func.upper() + " = '{" in pkg_content

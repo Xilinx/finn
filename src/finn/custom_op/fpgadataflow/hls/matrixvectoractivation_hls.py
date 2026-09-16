@@ -523,7 +523,10 @@ class MVAU_hls(MVAU, HLSBackend):
 
             if in_ind == 1:
                 if mem_mode in ["dynamic", "external", "internal_decoupled", "external_mem"]:
-                    reshaped_input = context[inputs].reshape(-1, context[inputs].shape[-1])
+                    if mem_mode == "dynamic":
+                        reshaped_input = self.get_dynamic_weight_matrices(context[inputs])
+                    else:
+                        reshaped_input = context[inputs].reshape(-1, context[inputs].shape[-1])
                     self.make_weight_file(
                         reshaped_input, "decoupled_npy", "{}/input_1.npy".format(code_gen_dir)
                     )
@@ -560,9 +563,10 @@ class MVAU_hls(MVAU, HLSBackend):
 
                 wei = npy_to_rtlsim_input("{}/input_1.npy".format(code_gen_dir), export_wdt, wnbits)
                 num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
+                weight_stream = wei if mem_mode == "dynamic" else wei * num_w_reps
 
                 io_dict = {
-                    "inputs": {"in0": inp, "in1": wei * num_w_reps},
+                    "inputs": {"in0": inp, "in1": weight_stream},
                     "outputs": {"out0": []},
                 }
             else:

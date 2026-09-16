@@ -1,5 +1,6 @@
 import pytest
 
+import json
 import numpy as np
 import os
 import re
@@ -17,6 +18,7 @@ from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 import finn.core.onnx_exec as oxe
+from finn.custom_op.fpgadataflow.rtl.finn_loop import _get_stream_tap_adjacency
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
@@ -30,6 +32,34 @@ verif_steps = [
 
 fpga_part = "xcvc1902-vsva2197-2MP-e-S"
 clk_ns = 5
+
+
+def test_stream_tap_adjacency_includes_hls_mvau_fork():
+    """HLS MVAUs in a Q/K/V fork must receive the forwarded loop index."""
+    activation = create_tensor_info("activation", [1, 8])
+    weights = [create_tensor_info(f"weights_{name}", [8, 8]) for name in ("q", "k", "v")]
+    outputs = [create_tensor_info(f"output_{name}", [1, 8]) for name in ("q", "k", "v")]
+    nodes = [
+        helper.make_node(
+            "MVAU_hls",
+            ["activation", f"weights_{name}"],
+            [f"output_{name}"],
+            name=f"MVAU_hls_{name}",
+            domain="finn.custom_op.fpgadataflow.hls",
+            mlo_max_iter=12,
+        )
+        for name in ("q", "k", "v")
+    ]
+    graph = helper.make_graph(nodes, "qkv", [activation] + weights, outputs)
+    loop_body = ModelWrapper(qonnx_make_model(graph, producer_name="qkv-loop-body"))
+
+    _, pruned_adjacency = _get_stream_tap_adjacency(loop_body)
+
+    assert pruned_adjacency["__INPUT0__"] == [
+        "MVAU_hls_q",
+        "MVAU_hls_k",
+        "MVAU_hls_v",
+    ]
 
 
 def generate_random_threshold_values(data_type, num_input_channels, num_steps):
@@ -763,12 +793,28 @@ def test_finnloop_end2end_mlo(
         and not non_mlo_nodes
     )
 
+    # Exercise multi-frame stitched-MLO performance measurement once. This
+    # path uses the ideal AXI-MM models for loop storage and MVAU weights.
+    run_rtlsim_performance = (
+        mvau_cfg == (16, 2, 2, 1, 2)
+        and elemwise_optype == "ElementwiseAdd_hls"
+        and rhs_shape == [1]
+        and eltw_param_dtype == "INT8"
+        and not non_mlo_nodes
+    )
+    generate_outputs = [
+        build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
+        build_cfg.DataflowOutputType.STITCHED_IP,
+    ]
+    if run_rtlsim_performance:
+        generate_outputs.append(build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE)
+
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
         steps=steps,
         synth_clk_period_ns=10.0,
         board="V80",
-        rtlsim_batch_size=100,
+        rtlsim_batch_size=2 if run_rtlsim_performance else 100,
         standalone_thresholds=True,
         mlo=True,
         loop_body_hierarchy=[["", "layers.0"]],
@@ -781,10 +827,7 @@ def test_finnloop_end2end_mlo(
         verify_expected_output_npy=tmp_output_dir + "/expected_output.npy",
         verify_save_full_context=True,  # Enable per-iteration context saving
         debug_fifo=run_fifo_debug,  # snapshot per-FIFO sizing logs (tagged per loop body)
-        generate_outputs=[
-            build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
-            build_cfg.DataflowOutputType.STITCHED_IP,
-        ],
+        generate_outputs=generate_outputs,
     )
     build.build_dataflow_cfg(tmp_output_dir + "/mlo_model.onnx", cfg)
 
@@ -810,6 +853,19 @@ def test_finnloop_end2end_mlo(
     assert os.path.isfile(report_dir + "/op_and_param_counts_FINNLoop_0.json")
     assert os.path.isfile(report_dir + "/op_and_param_counts.json")
     assert os.path.isfile(tmp_output_dir + "/stitched_ip/ip/component.xml")
+    if run_rtlsim_performance:
+        with open(report_dir + "/rtlsim_performance.json") as f:
+            rtlsim_perf = json.load(f)
+        assert rtlsim_perf["measurement_scope"] == "stitched_mlo"
+        assert rtlsim_perf["external_memory_model"] == "ideal_axi_mm"
+        assert rtlsim_perf["external_memory_model_is_ideal"] is True
+        assert rtlsim_perf["performance_interpretation"] == "ideal_memory_upper_bound"
+        assert rtlsim_perf["N"] == 2
+        assert rtlsim_perf["completed_output_frames"] == 2
+        assert rtlsim_perf["interval_valid"] == 1
+        assert rtlsim_perf["steady_state_frames"] == 1
+        assert rtlsim_perf["steady_state_cycles"] > 0
+        assert rtlsim_perf["stable_throughput_valid"] is True
 
     verif_dir = tmp_output_dir + "/verification_output"
     # With verify_save_full_context=True, all verification steps save the full

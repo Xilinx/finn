@@ -121,7 +121,30 @@ class OuterShuffle_hls(OuterShuffle, HLSBackend):
         ]
 
     def execute_node(self, context, graph):
-        HLSBackend.execute_node(self, context, graph)
+        node = self.onnx_node
+        input_name = node.input[0]
+        input_value = context[input_name]
+        expected_shape = tuple(self.get_normal_input_shape())
+        if input_value.shape == expected_shape:
+            HLSBackend.execute_node(self, context, graph)
+            return
+
+        expected_elements = int(np.prod(expected_shape))
+        if input_value.size != expected_elements:
+            raise RuntimeError(
+                f"{node.name}: cannot reshape input {input_value.shape} to {expected_shape}"
+            )
+
+        # OuterShuffle explicitly begins with a reshape before applying its
+        # permutation. Some decomposed shuffle chains preserve the tensor's
+        # logical graph shape while using another equal-sized view as the HLS
+        # stream shape. Present that view to the generic HLS executor, then
+        # restore the full execution context for surrounding nodes.
+        context[input_name] = input_value.reshape(expected_shape)
+        try:
+            HLSBackend.execute_node(self, context, graph)
+        finally:
+            context[input_name] = input_value
 
     def timeout_value(self):
         """Set timeout value for HLS functions defined for one clock cycle"""

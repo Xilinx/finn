@@ -136,3 +136,38 @@ def test_set_folding(target_fps, platform):
     assert achieved_cycles_per_frame <= max(
         min_cycles[platform], target_cycles_per_frame
     ), "Folding target not met"
+
+
+@pytest.mark.fpgadataflow
+def test_set_folding_duplicate_streams_rtl():
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, 4, 16])
+    out0 = helper.make_tensor_value_info("out0", TensorProto.FLOAT, [1, 4, 16])
+    out1 = helper.make_tensor_value_info("out1", TensorProto.FLOAT, [1, 4, 16])
+    dup_node = helper.make_node(
+        "DuplicateStreams_rtl",
+        ["inp"],
+        ["out0", "out1"],
+        domain="finn.custom_op.fpgadataflow.rtl",
+        backend="fpgadataflow",
+        NumChannels=16,
+        NumOutputStreams=2,
+        PE=1,
+        inputDataType="INT8",
+        numInputVectors=[1, 4],
+        name="DuplicateStreams_rtl_0",
+    )
+    graph = helper.make_graph(
+        nodes=[dup_node],
+        name="dup_rtl_graph",
+        inputs=[inp],
+        outputs=[out0, out1],
+    )
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="dup-rtl-model"))
+    model.set_tensor_datatype("inp", DataType["INT8"])
+
+    model = model.transform(SetFolding(target_cycles_per_frame=2, two_pass_relaxation=False))
+
+    folded_node = model.get_nodes_by_op_type("DuplicateStreams_rtl")[0]
+    folded_inst = getCustomOp(folded_node)
+    assert folded_inst.get_nodeattr("PE") == 16
+    assert folded_inst.get_exp_cycles() == 4

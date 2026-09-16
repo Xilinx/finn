@@ -30,7 +30,7 @@ import pytest
 
 import numpy as np
 import qonnx.custom_op.general.xnorpopcount as xp
-from onnx import TensorProto, helper
+from onnx import TensorProto, helper, numpy_helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.multithreshold import multithreshold
@@ -49,6 +49,8 @@ from finn import xsi
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.core.rtlsim_exec import rtlsim_exec
+from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.custom_op.fpgadataflow.rtl.matrixvectoractivation_rtl import MVAU_rtl
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.derive_characteristic import DeriveCharacteristic
@@ -162,6 +164,200 @@ def make_single_matmul_modelwrapper(ifm, ofm, idt, wdt, W):
     # model.set_tensor_layout("ifm", DataLayout.NHWC)
 
     return model
+
+
+def test_fetch_weights_forwards_buffer_configuration(tmp_path):
+    node = helper.make_node(
+        "MVAU_rtl",
+        ["inp", "weights"],
+        ["outp"],
+        name="MVAU_rtl_0",
+        domain="finn.custom_op.fpgadataflow",
+        backend="fpgadataflow",
+        MW=12,
+        MH=8,
+        SIMD=4,
+        PE=2,
+        inputDataType="INT8",
+        weightDataType="INT8",
+        outputDataType="INT32",
+        noActivation=1,
+        mem_mode="external_mem",
+        ram_style="ultra",
+        weight_buffer_count=1,
+        code_gen_dir_ipgen=str(tmp_path),
+    )
+    MVAU_rtl(node).generate_hdl_fetch_weights()
+
+    wrapper = (tmp_path / "MVAU_rtl_0_fetch_weights_wrapper.v").read_text()
+    assert 'RAM_STYLE = "ultra"' in wrapper
+    assert "N_BUFFERS = 1" in wrapper
+    assert ".RAM_STYLE(RAM_STYLE), .N_BUFFERS(N_BUFFERS)" in wrapper
+
+
+def test_mvau_external_mem_characterization_streams_weights(monkeypatch):
+    wdt = DataType["INT4"]
+    idt = DataType["INT4"]
+    odt = DataType["INT32"]
+    weights = gen_finn_dt_tensor(wdt, (8, 8))
+    model = make_single_fclayer_modelwrapper(weights, 2, 2, wdt, idt, odt)
+    inst = getCustomOp(model.graph.node[0])
+    inst.set_nodeattr("mem_mode", "external_mem")
+    captured = {}
+
+    def capture_io_dict(self, period, override_rtlsim_dict=None, pre_hook=None):
+        captured.update(override_rtlsim_dict)
+
+    monkeypatch.setattr(HWCustomOp, "derive_characteristic_fxns", capture_io_dict)
+    inst.derive_characteristic_fxns(100)
+
+    expected_weight_words = inst.calc_wmem() * np.prod(inst.get_nodeattr("numInputVectors"))
+    assert len(captured["inputs"]["in1"]) == expected_weight_words
+
+
+def test_dynamic_mvau_packs_broadcast_weight_batches(tmp_path):
+    node = helper.make_node(
+        "MVAU_rtl",
+        ["inp", "weights"],
+        ["outp"],
+        name="MVAU_rtl_dynamic_test",
+        domain="finn.custom_op.fpgadataflow.rtl",
+        backend="fpgadataflow",
+        MW=2,
+        MH=3,
+        SIMD=1,
+        PE=1,
+        TH=1,
+        inputDataType="INT4",
+        weightDataType="INT4",
+        outputDataType="INT16",
+        noActivation=1,
+        numInputVectors=[1, 2, 3],
+        mem_mode="dynamic",
+    )
+    instance = MVAU_rtl(node)
+    weights = np.asarray(
+        [
+            [
+                [[0, 1, 2], [3, 4, 5]],
+                [[-6, -5, -4], [-3, -2, -1]],
+            ]
+        ],
+        dtype=np.float32,
+    )
+
+    expanded = instance.get_dynamic_weight_matrices(weights)
+
+    expected_matrices = np.repeat(weights.reshape(2, 2, 3), 3, axis=0)
+    np.testing.assert_array_equal(expanded, expected_matrices)
+
+    batched_path = tmp_path / "batched.npy"
+    instance.make_weight_file(expanded, "decoupled_npy", batched_path)
+    individually_packed = []
+    for index, matrix in enumerate(weights.reshape(2, 2, 3)):
+        single_path = tmp_path / f"single_{index}.npy"
+        instance.make_weight_file(matrix, "decoupled_npy", single_path)
+        individually_packed.append(np.load(single_path))
+    expected_packed = np.concatenate(
+        [individually_packed[0]] * 3 + [individually_packed[1]] * 3,
+        axis=1,
+    )
+    np.testing.assert_array_equal(np.load(batched_path), expected_packed)
+
+
+def make_dynamic_mvau_constant_activation_model():
+    const_activation = np.asarray([[[[1, -2, 3, -4]]]], dtype=np.float32)
+    weights = helper.make_tensor_value_info("weights", TensorProto.FLOAT, [1, 1, 4, 4])
+    output = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 1, 1, 4])
+    node = helper.make_node(
+        "MVAU_rtl",
+        ["const_activation", "weights"],
+        ["output"],
+        name="MVAU_rtl_const_lhs",
+        domain="finn.custom_op.fpgadataflow.rtl",
+        backend="fpgadataflow",
+        MW=4,
+        MH=4,
+        SIMD=2,
+        PE=2,
+        TH=1,
+        inputDataType="INT8",
+        weightDataType="INT8",
+        outputDataType="INT32",
+        noActivation=1,
+        numInputVectors=[1, 1, 1],
+        mem_mode="dynamic",
+    )
+    graph = helper.make_graph(
+        nodes=[node],
+        name="dynamic-mvau-constant-activation",
+        inputs=[weights],
+        outputs=[output],
+        initializer=[numpy_helper.from_array(const_activation, "const_activation")],
+    )
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="finn-test"))
+    model.set_tensor_datatype("const_activation", DataType["INT8"])
+    model.set_tensor_datatype("weights", DataType["INT8"])
+    model.set_tensor_datatype("output", DataType["INT32"])
+    return model
+
+
+def test_dynamic_mvau_constant_activation_uses_internal_memstream(tmp_path):
+    model = make_dynamic_mvau_constant_activation_model()
+    node = model.graph.node[0]
+
+    instance = getCustomOp(node)
+    instance.set_nodeattr("code_gen_dir_ipgen", str(tmp_path))
+    instance.generate_hdl(model, "xcvc1902-vsva2197-2MP-e-S", 4.0)
+
+    assert instance.get_nodeattr("input0_memstream") == 1
+    init_file = tmp_path / "input0_memblock.dat"
+    wrapper = tmp_path / "MVAU_rtl_const_lhs_input0_memstream_wrapper.v"
+    assert init_file.is_file()
+    assert init_file.read_text().splitlines() == ["fe01", "fc03"]
+    assert wrapper.is_file()
+    assert "parameter  DEPTH = 2" in wrapper.read_text()
+    assert "parameter  WIDTH = 16" in wrapper.read_text()
+
+    ipi = instance.code_generation_ipi()
+    assert not any(
+        line.startswith("create_bd_intf_pin") and "/MVAU_rtl_const_lhs/in0_V" in line
+        for line in ipi
+    )
+    assert any(
+        "/MVAU_rtl_const_lhs/in1_V" in line and line.startswith("create_bd_intf_pin")
+        for line in ipi
+    )
+    assert any(
+        "MVAU_rtl_const_lhs_input0_memstream/m_axis_0" in line
+        and "MVAU_rtl_const_lhs/MVAU_rtl_const_lhs/in0_V" in line
+        for line in ipi
+    )
+
+
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+def test_dynamic_mvau_constant_activation_stitched_rtlsim():
+    part = "xcvc1902-vsva2197-2MP-e-S"
+    clk_ns = 4.0
+    model = make_dynamic_mvau_constant_activation_model()
+    dynamic_weights = np.asarray(
+        [
+            [1, 2, 3, 4],
+            [-1, 0, 1, 2],
+            [2, 1, 0, -1],
+            [3, -2, 1, 0],
+        ],
+        dtype=np.float32,
+    ).reshape(1, 1, 4, 4)
+    expected = np.matmul(model.get_initializer("const_activation"), dynamic_weights)
+
+    model = model.transform(PrepareIP(part, clk_ns))
+    model = model.transform(CreateStitchedIP(part, clk_ns))
+    model.set_metadata_prop("exec_mode", "rtlsim")
+    produced = oxe.execute_onnx(model, {"weights": dynamic_weights})["output"]
+
+    np.testing.assert_array_equal(produced, expected)
 
 
 def make_dynamic_matmul_modelwrapper(ifm, wfm, ofm, idt, wdt):
@@ -879,6 +1075,7 @@ def test_fpgadataflow_rtl_mvau(
             "TH": th,
             "resType": "dsp",
             "mem_mode": mem_mode,
+            "weight_buffer_count": 1 if mem_mode == "external_mem" else 2,
             "pumpedMemory": pumpedMemory,
             "pumpedCompute": pumpedCompute,
         },

@@ -1,0 +1,27 @@
+{
+  "Defaults": {
+    "preferred_impl_style": [
+      "rtl",
+      [
+        "MVAU",
+        "DuplicateStreams",
+        "HWSoftmax",
+        "LayerNorm",
+        "PWPolyF",
+        "ElementwiseAdd",
+                "ElementwiseSub",
+                "ElementwiseMul",
+                "Requant"
+      ]
+    ]
+  },
+  "MVAU_0": {
+    "preferred_impl_style": "hls"
+  },
+  "MVAU_97": {
+    "preferred_impl_style": "hls"
+  },
+  "MVAU_98": {
+    "preferred_impl_style": "hls"
+  }
+}

@@ -90,6 +90,13 @@ def prepare_inputs(input_tensor, dt):
         ([1, 4], 4, 2, DataType["INT2"]),
         ([1, 2, 8], 4, 4, DataType["INT2"]),
         ([1, 2, 8], 8, 16, DataType["INT2"]),
+        # A 32-bit word holds 16 INT2 elements and spans both 8-channel rows.
+        pytest.param(([1, 2, 8], 32, 16, DataType["INT2"]), id="wide-input-stream"),
+        # lcm(128, 130) = 8320, which exercises HLS element-width splitting.
+        pytest.param(
+            ([1, 65, 128], 128, 130, DataType["BINARY"]),
+            id="wide-output-stream-oversized-lcm",
+        ),
     ],
 )
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])

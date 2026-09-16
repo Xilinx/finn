@@ -13,6 +13,7 @@ from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.util.basic import qonnx_make_model
 
 import finn.core.onnx_exec as oxe
+from finn import xsi as finnxsi
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.res_estimation import (
     res_estimation,
@@ -26,6 +27,7 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.data_packing import npy_to_rtlsim_input
 from finn.util.vivado import parse_ooc_synth_results
 
 FPGA_PART = "xc7z020clg400-1"
@@ -33,9 +35,15 @@ CLK_NS = 10
 PATCHES = np.arange(12, dtype=np.float32).reshape(1, 3, 4)
 
 
-def make_pad1d_modelwrapper(pad_left, pad_right, pad_tokens, finn_dtype):
+def make_pad1d_modelwrapper(
+    pad_left,
+    pad_right,
+    pad_tokens,
+    finn_dtype,
+    patch_shape=(1, 3, 4),
+):
     left_pad_token, right_pad_token = pad_tokens
-    patch_shape = [1, 3, 4]
+    patch_shape = list(patch_shape)
     patches = helper.make_tensor_value_info("patches", TensorProto.FLOAT, patch_shape)
     output_shape = [1, patch_shape[1] + pad_left + pad_right, patch_shape[2]]
     output = helper.make_tensor_value_info("out", TensorProto.FLOAT, output_shape)
@@ -96,6 +104,43 @@ def prepare_pad1d_stitched_ip_model(model, run_pnr=False):
     model = model.transform(PrepareIP(FPGA_PART, CLK_NS))
     model = model.transform(HLSSynthIP())
     return model.transform(CreateStitchedIP(FPGA_PART, CLK_NS, run_pnr=run_pnr))
+
+
+def assert_rtlsim_quiescent_after_frame(inst):
+    """A left pad must not announce another frame while the input is idle."""
+    code_gen_dir = inst.get_nodeattr("code_gen_dir_ipgen")
+    packed_input = npy_to_rtlsim_input(
+        code_gen_dir + "/input_0.npy",
+        inst.get_input_datatype(),
+        inst.get_instream_width(),
+    )
+    io_dict = {"inputs": {"in0": packed_input}, "outputs": {"out0": []}}
+
+    sim = inst.get_rtlsim()
+    try:
+        inst.reset_rtlsim(sim)
+        inst.rtlsim_multi_io(sim, io_dict)
+        output_valid = sim.get_bus_port("out0_V", "tvalid")
+
+        class IdleProbe:
+            def __init__(self, cycles):
+                self.remaining = cycles
+                self.saw_valid = False
+
+            def __bool__(self):
+                return True
+
+            def __call__(self, _sim):
+                self.saw_valid |= output_valid.read().as_bool()
+                self.remaining -= 1
+                return None if self.remaining == 0 else {}
+
+        probe = IdleProbe(8)
+        sim.enlist(probe)
+        sim.run()
+        assert not probe.saw_valid
+    finally:
+        finnxsi.close_rtlsim(sim)
 
 
 def expected_resources(pad_left, pad_right):
@@ -188,10 +233,40 @@ def test_fpgadataflow_pad1d(config, dtype_and_tokens, exec_mode):
 
     if exec_mode == "rtlsim":
         node = model.get_nodes_by_op_type("Pad1D_rtl")[0]
-        cycles_rtlsim = getCustomOp(node).get_nodeattr("cycles_rtlsim")
+        inst = getCustomOp(node)
+        cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles = model.analysis(exp_cycles_per_layer)[node.name]
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
         assert exp_cycles != 0
+        assert_rtlsim_quiescent_after_frame(inst)
+
+
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_pad1d_tinydeit_shape_rtlsim():
+    """Exercise TinyDeiT's exact large FLOAT32 class-token insertion."""
+    patches = np.arange(196 * 192, dtype=np.float32).reshape(1, 196, 192)
+    cls_token = np.arange(192, dtype=np.float32).reshape(1, 1, 192)
+    unused_right = np.zeros((1, 1, 192), dtype=np.float32)
+    model = make_pad1d_modelwrapper(
+        1,
+        0,
+        (cls_token, unused_right),
+        DataType["FLOAT32"],
+        patch_shape=patches.shape,
+    )
+    expected = np.concatenate((cls_token, patches), axis=1)
+    model = infer_and_specialize_pad1d(model, simd=3)
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareIP(FPGA_PART, CLK_NS))
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareRTLSim())
+
+    produced = oxe.execute_onnx(model, {"patches": patches})["out"]
+    assert np.array_equal(produced.reshape(expected.shape), expected)
+    inst = getCustomOp(model.get_nodes_by_op_type("Pad1D_rtl")[0])
+    assert_rtlsim_quiescent_after_frame(inst)
 
 
 @pytest.mark.fpgadataflow

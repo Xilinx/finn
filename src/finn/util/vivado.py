@@ -71,13 +71,19 @@ def _parse_vivado_utilization_report(report_path):
             r"^\|\s*Slice Registers\s*\|",
             r"^\|\s*Register as Flip Flop\s*\|",
         ],
-        # DSP patterns - generic to match DSP48E1, DSP48E2, DSP58, etc.
-        "DSP": [r"^\|\s*DSPs\s*\|", r"^\|\s*DSP48E\d*\s*\|", r"^\|\s*DSP58\s*\|"],
+        # Prefer the aggregate row because Versal reports DSP58 and DSPFP32
+        # subtypes separately.
+        "DSP": [
+            r"^\|\s*DSP Slices\s*\|",
+            r"^\|\s*DSPs\s*\|",
+            r"^\|\s*DSP58\s*\|",
+            r"^\|\s*DSP48E\d*\s*\|",
+        ],
         # BRAM patterns - provide raw counts, users can calculate combined BRAM if needed
         # RAMB36/FIFO* is the 36K count
         # RAMB18 is the 18K count
-        "BRAM_36K": [r"^\|\s*RAMB36/FIFO\*\s*\|", r"^\|\s*RAMB36E\d*\s*\|"],
-        "BRAM_18K": [r"^\|\s*RAMB18\s*\|", r"^\|\s*RAMB18E\d*\s*\|"],
+        "BRAM_36K": [r"^\|\s*RAMB36/FIFO\*\s*\|", r"^\|\s*RAMB36E\d*\*?\s*\|"],
+        "BRAM_18K": [r"^\|\s*RAMB18\s*\|", r"^\|\s*RAMB18E\d*\*?\s*\|"],
         # URAM patterns
         "URAM": [r"^\|\s*URAM\s*\|", r"^\|\s*URAM288\s*\|"],
         # SRL patterns

@@ -17,6 +17,7 @@ from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 from finn.core.onnx_exec import execute_onnx
+from finn.custom_op.fpgadataflow.rtl.elementwise_binary_rtl import ElementwiseAdd_rtl
 from finn.transformation.fpgadataflow.convert_to_hw_layers import (
     InferElementwiseBinaryOperation,
 )
@@ -39,6 +40,92 @@ NUMPY_REFERENCES = {
     "ElementwiseAdd": np.add,
     "ElementwiseMul": np.multiply,
 }
+
+
+def test_elementwise_rtl_accepts_reshape_equivalent_dynamic_input():
+    node = oh.make_node(
+        "ElementwiseAdd_rtl",
+        ["lhs", "rhs"],
+        ["out"],
+        domain="finn.custom_op.fpgadataflow.rtl",
+        lhs_shape=[1, 2, 3],
+        rhs_shape=[1, 2, 3],
+        name="ElementwiseAdd_rtl_test",
+    )
+    instance = ElementwiseAdd_rtl(node)
+    input_value = np.arange(6, dtype=np.float32).reshape(1, 3, 2)
+
+    reshaped = instance._reshape_dynamic_input(input_value, 0)
+
+    assert reshaped.shape == (1, 2, 3)
+    assert np.array_equal(reshaped, input_value.reshape(1, 2, 3))
+    assert input_value.shape == (1, 3, 2)
+
+    with pytest.raises(AssertionError, match="Input shape mismatch for lhs"):
+        instance._reshape_dynamic_input(np.zeros((1, 4), dtype=np.float32), 0)
+
+
+@pytest.mark.parametrize(
+    "lhs_shape,rhs_shape,expected_wmem,expected_reps,expected_values",
+    [
+        (
+            [2, 4, 3],
+            [1, 1, 3],
+            3,
+            8,
+            np.array([1.0, 2.0, 3.0], dtype=np.float32),
+        ),
+        (
+            [2, 3, 2, 2],
+            [1, 3, 1, 1],
+            12,
+            2,
+            np.repeat(np.array([1.0, 2.0, 3.0], dtype=np.float32), 4),
+        ),
+        (
+            [2, 3, 2, 4],
+            [1, 3, 1, 1],
+            12,
+            2,
+            np.repeat(np.array([1.0, 2.0, 3.0], dtype=np.float32), 8),
+        ),
+    ],
+)
+def test_elementwise_rtl_const_stream_follows_output_order(
+    tmp_path,
+    lhs_shape,
+    rhs_shape,
+    expected_wmem,
+    expected_reps,
+    expected_values,
+):
+    pe = 2 if lhs_shape[-1] == 4 else 1
+    node = oh.make_node(
+        "ElementwiseAdd_rtl",
+        ["lhs", "rhs"],
+        ["out"],
+        domain="finn.custom_op.fpgadataflow.rtl",
+        lhs_shape=lhs_shape,
+        rhs_shape=rhs_shape,
+        out_shape=lhs_shape,
+        lhs_dtype="FLOAT32",
+        rhs_dtype="FLOAT32",
+        out_dtype="FLOAT32",
+        lhs_style="input",
+        rhs_style="const",
+        PE=pe,
+        name="ElementwiseAdd_rtl_test",
+    )
+    instance = ElementwiseAdd_rtl(node)
+    weights = np.array([1.0, 2.0, 3.0], dtype=np.float32).reshape(rhs_shape)
+    output = tmp_path / "weights.npy"
+
+    instance.make_weight_file(weights, "decoupled_npy", output)
+
+    packed = np.load(output)
+    assert instance.calc_wmem() == expected_wmem
+    assert instance.calc_wmem_reps() == expected_reps
+    assert np.array_equal(packed.reshape(-1), expected_values)
 
 
 def create_elementwise_model(op_type, lhs_dtype, rhs_dtype, lhs_shape, rhs_shape, out_dtype=None):
@@ -180,10 +267,17 @@ def test_elementwise_rtl(op_type, lhs_dtype, rhs_dtype, lhs_shape, rhs_shape, rh
 
 @pytest.mark.parametrize("op_type", ["ElementwiseAdd", "ElementwiseMul"])
 @pytest.mark.parametrize("pe", [1, 8, 64])  # min, middle, max
+@pytest.mark.parametrize(
+    "lhs_shape,rhs_shape",
+    [
+        ([32, 64], [64]),
+        ([1, 3, 2, 2], [1, 3, 1, 1]),
+    ],
+)
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_elementwise_rtl_stitched_ip(op_type, pe):
+def test_elementwise_rtl_stitched_ip(op_type, pe, lhs_shape, rhs_shape):
     """Test RTL elementwise with stitched IP to verify memstream wrapper.
 
     The memstream wrapper is only inserted during CreateStitchedIP, so this test
@@ -191,8 +285,8 @@ def test_elementwise_rtl_stitched_ip(op_type, pe):
     """
     lhs_dtype = "FLOAT32"
     rhs_dtype = "FLOAT32"
-    lhs_shape = [32, 64]
-    rhs_shape = [64]  # Broadcast constant
+    if lhs_shape[-1] % pe != 0:
+        pytest.skip(f"PE ({pe}) must divide last dimension ({lhs_shape[-1]})")
 
     model = create_elementwise_model(op_type, lhs_dtype, rhs_dtype, lhs_shape, rhs_shape)
 

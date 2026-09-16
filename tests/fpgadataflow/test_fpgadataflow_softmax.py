@@ -10,9 +10,11 @@
 import pytest
 
 import numpy as np
+import os
 import torch
 import torch.nn as nn
 from brevitas.export import export_qonnx
+from pathlib import Path
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -57,6 +59,41 @@ def create_softmax_model(io_shape, idt, build_dir):
     model = ModelWrapper(export_onnx_path)
     model.set_tensor_datatype(model.graph.input[0].name, idt)
     return model
+
+
+@pytest.mark.fpgadataflow
+def test_hwsoftmax_rtl_generated_helpers_are_node_scoped():
+    build_dir = make_build_dir(prefix="test_hwsoftmax_rtl_namespaced_")
+    try:
+        model = create_softmax_model((1, 32), DataType["FLOAT32"], build_dir)
+        model = model.transform(InferHWSoftmax())
+        getCustomOp(model.graph.node[0]).set_nodeattr("preferred_impl_style", "rtl")
+        model = model.transform(SpecializeLayers(test_fpga_part))
+        model = model.transform(GiveUniqueNodeNames())
+        inst = getCustomOp(model.graph.node[0])
+        inst.set_nodeattr("SIMD", 4)
+        model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+
+        inst = getCustomOp(model.graph.node[0])
+        topname = inst.get_nodeattr("gen_top_module")
+        source_paths = inst.get_rtl_file_list(abspath=True)
+        helper_paths = source_paths[: len(inst._rtllib_files())]
+        assert all(os.path.basename(path).startswith(topname + "_") for path in helper_paths)
+
+        sources = {os.path.basename(path): Path(path).read_text() for path in helper_paths}
+        softmax_pkg = sources[topname + "_softmaxf_pkg.sv"]
+        softmax_core = sources[topname + "_softmaxf.sv"]
+        pwpolyf_pkg = sources[topname + "_pwpolyf_pkg.sv"]
+        pwpolyf_core = sources[topname + "_pwpolyf.sv"]
+
+        assert "package %s_softmaxf_pkg;" % topname in softmax_pkg
+        assert "import %s_softmaxf_pkg::*;" % topname in softmax_core
+        assert "module %s_softmaxf #" % topname in softmax_core
+        assert "package %s_pwpolyf_pkg;" % topname in pwpolyf_pkg
+        assert "import %s_pwpolyf_pkg::*;" % topname in pwpolyf_core
+        assert "module %s_pwpolyf #" % topname in pwpolyf_core
+    finally:
+        robust_rmtree(build_dir)
 
 
 @pytest.mark.parametrize("simd", [1, 2, 4])

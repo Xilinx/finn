@@ -147,6 +147,21 @@ class InnerShuffle_rtl(InnerShuffle, RTLBackend):
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         if mode == "rtlsim":
-            RTLBackend.execute_node(self, context, graph)
+            node = self.onnx_node
+            input_name = node.input[0]
+            input_value = context[input_name]
+            expected_shape = tuple(self.get_normal_input_shape())
+            if input_value.shape == expected_shape:
+                RTLBackend.execute_node(self, context, graph)
+                return
+            if input_value.size != math.prod(expected_shape):
+                raise RuntimeError(
+                    f"{node.name}: cannot reshape input {input_value.shape} to {expected_shape}"
+                )
+            context[input_name] = input_value.reshape(expected_shape)
+            try:
+                RTLBackend.execute_node(self, context, graph)
+            finally:
+                context[input_name] = input_value
         else:
             InnerShuffle.execute_node(self, context, graph)

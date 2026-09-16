@@ -164,6 +164,63 @@ def test_fpgadataflow_duplicatestreams(idt, ch, fold, imdim, n_dupl, exec_mode, 
         assert exp_cycles != 0
 
 
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+def test_fpgadataflow_duplicatestreams_rtl_backpressure():
+    model = make_dupstreams_modelwrapper(8, 8, 2, DataType["INT4"], 3, "rtl")
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+    model = model.transform(GiveUniqueNodeNames())
+    assert model.graph.node[0].op_type == "DuplicateStreams_rtl"
+
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareIP("xc7z020clg400-1", 5))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+    inst = getCustomOp(model.graph.node[0])
+
+    input_tensor = gen_finn_dt_tensor(DataType["INT4"], (1, 2, 2, 8))
+    output_dict = oxe.execute_onnx(model, {"inp": input_tensor})
+    for output_name in model.graph.node[0].output:
+        assert (output_dict[output_name] == input_tensor).all()
+
+    class ThrottledOutputCollector:
+        def __init__(self, sim, stream, size, ready_pattern):
+            self.valid = sim.get_bus_port(stream, "tvalid")
+            self.ready = sim.get_bus_port(stream, "tready")
+            self.data = sim.get_bus_port(stream, "tdata")
+            self.size = size
+            self.ready_pattern = ready_pattern
+            self.values = []
+            self.tick = 0
+
+        def __call__(self, sim):
+            was_ready = self.ready.as_bool()
+            if was_ready and self.valid.read().as_bool():
+                self.values.append(int(self.data.read().as_hexstr(), 16))
+            if len(self.values) == self.size:
+                return {self.ready: "0"} if was_ready else None
+            next_ready = self.ready_pattern[self.tick % len(self.ready_pattern)]
+            self.tick += 1
+            return {self.ready: str(next_ready)}
+
+    input_words = [0x10203040, 0x50607080, 0x90A0B0C0, 0xD0E0F000]
+    sim = inst.get_rtlsim()
+    try:
+        inst.reset_rtlsim(sim)
+        sim.stream_input("in0_V", (f"{value:x}" for value in input_words))
+        collectors = [
+            ThrottledOutputCollector(sim, "out0_V", len(input_words), (1,)),
+            ThrottledOutputCollector(sim, "out1_V", len(input_words), (0, 0, 1)),
+            ThrottledOutputCollector(sim, "out2_V", len(input_words), (1, 0, 1, 1)),
+        ]
+        for collector in collectors:
+            sim.enlist(collector)
+        assert sim.run(cycles=200) == []
+        assert [collector.values for collector in collectors] == [input_words] * 3
+    finally:
+        inst.close_rtlsim(sim)
+
+
 # Test scenarios with different numbers of successors and global outputs
 # Tuples: (split_source, num_successors, num_global_outputs)
 # split_source: "global_input" or "first_node"
