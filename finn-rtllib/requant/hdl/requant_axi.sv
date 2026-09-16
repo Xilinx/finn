@@ -88,11 +88,12 @@ module requant_axi #(
 		end
 	end
 
-	queue #(
-		.DATA_WIDTH(PE*N),
-		.ELASTICITY(CREDIT)
+	fifo #(
+		.DEPTH(CREDIT),
+		.DATA_WIDTH(PE*N)
 	) outq (
 		.clk(ap_clk), .rst,
+		.count(), .maxcount(),
 		.idat(core_odat), .ivld(core_ovld), .irdy(q_irdy),
 		.odat(q_odat), .ovld(q_ovld), .ordy(m_axis_tready)
 	);

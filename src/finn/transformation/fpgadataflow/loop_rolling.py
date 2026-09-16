@@ -487,36 +487,40 @@ class LoopRolling(Transformation):
         # TODO: write a check to ensure that there is only one
         #       set of consecutive nodes.
         nodes = osh.find_nodes_of_optype(graph, LoopBody.function.name)
+        # MLO requires at least two repetitions of the loop body to roll into a
+        # FINNLoop. A single instance (iteration=1) cannot be handled by the
+        # downstream MLO machinery.
+        if len(nodes) < 2:
+            raise Exception(
+                f"LoopRolling: MLO requires at least 2 repetitions of the loop "
+                f"body, but found {len(nodes)}. A single-instance model cannot be "
+                f"rolled into a FINNLoop. Disable 'mlo' (or fix 'loop_body_hierarchy'/"
+                f"'loop_body_range') for this model."
+            )
         # Loop through all the nodes (execept the last one) and
         # identify the input to output pairs
 
         # my loop rolling code assumes that the activation inputs are listed first and
         # that corresponding output activations have the same index as the input
         input_swaps = []
-        if len(nodes) == 1:
-            # find and label the activation inputs
-            for i, input in enumerate(nodes[0].inputs):
-                if not input.is_initializer():
-                    if input.is_graph_input() or input.producer().op_type != "Constant":
-                        input_swaps.append((len(input_swaps), i))
-        else:
-            for i in range(len(nodes) - 1):
-                a_node = nodes[i]
-                b_node = nodes[i + 1]
+        # nodes is guaranteed to have >= 2 entries (checked above).
+        for i in range(len(nodes) - 1):
+            a_node = nodes[i]
+            b_node = nodes[i + 1]
 
-                for a_out in a_node.outputs:
-                    # Require that outputs of a have a single use of b_node
-                    assert len(a_out.uses()) == 1
-                    assert a_out.uses()[0][0] is b_node
+            for a_out in a_node.outputs:
+                # Require that outputs of a have a single use of b_node
+                assert len(a_out.uses()) == 1
+                assert a_out.uses()[0][0] is b_node
 
-                    a_use_index = a_out.uses()[0][1]
-                    input_swap = (a_out.index(), a_use_index)
-                    if i == 0:
-                        # add swaps from the first node
-                        input_swaps.append(input_swap)
-                    else:
-                        # check that they are the same in the rest
-                        assert input_swap in input_swaps
+                a_use_index = a_out.uses()[0][1]
+                input_swap = (a_out.index(), a_use_index)
+                if i == 0:
+                    # add swaps from the first node
+                    input_swaps.append(input_swap)
+                else:
+                    # check that they are the same in the rest
+                    assert input_swap in input_swaps
 
         # apply the input swaps to each nodes
         for node in nodes:

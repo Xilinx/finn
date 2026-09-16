@@ -59,6 +59,15 @@ Map<String, Map> BUILD_BOARD_ZIP_PATHS = [:]
 @Field
 static final String FINN_BUILD_LABEL = 'finn-build'
 
+// The commit every stage checks out. Resolved once from the branch tip on the
+// first checkoutPinned() call (Get node status) and reused unchanged for the
+// rest of the build, so the test file Collect stashes and the reports
+// aggregated at the end all come from one commit even if the branch moves
+// mid-run. @Field so the SHA survives CPS replay across stages/agents. Mirrors
+// the same field in Jenkinsfile.
+@Field
+String PINNED_SCM_COMMIT = ''
+
 // The only test file a board runs: stashed by Collect, given to pytest on the board.
 @Field
 static final String HW_TEST_FILE = 'test_bnn_hw_pytest.py'
@@ -119,6 +128,10 @@ pipeline {
     disableConcurrentBuilds()
     // Backstop only. Every board-facing step is bounded already.
     timeout(time: 4, unit: 'HOURS')
+    // Every stage checks out through checkoutPinned() instead of the implicit
+    // per-agent checkout, so the whole build stashes and tests one commit even
+    // if the branch is pushed mid-run. See checkoutPinned() / PINNED_SCM_COMMIT.
+    skipDefaultCheckout()
   }
   parameters {
     string(name: 'build_job_name', defaultValue: 'finn',
@@ -133,20 +146,20 @@ pipeline {
   stages {
     stage('Get node status') {
       agent { label "${FINN_BUILD_LABEL}" }
-      steps { script { loadHwShards(); validateBoardFilter(); refreshNodeOnlineFlags() } }
+      steps { script { checkoutPinned(); loadHwShards(); validateBoardFilter(); refreshNodeOnlineFlags() } }
     }
     stage('Reboot Zynq platforms') {
       steps { script { runRebootParallelStage() } }
     }
     stage('Wait for Nodes to reboot') {
-      options { skipDefaultCheckout() }
+      // No checkoutPinned(): this stage touches only board agents, not the source.
       agent { label "${FINN_BUILD_LABEL}" }
       steps { script { waitForRebootedNodes() } }
     }
-    // Default checkout puts ci/test_bnn_hw_pytest.py in the workspace to stash.
+    // checkoutPinned() puts ci/test_bnn_hw_pytest.py in the workspace to stash.
     stage('Collect build information for HW testing') {
       agent { label "${FINN_BUILD_LABEL}" }
-      steps { script { collectBuildArtifacts() } }
+      steps { script { checkoutPinned(); collectBuildArtifacts() } }
     }
     // Nested `stage(name)` per test type so each gets its own row in the UI.
     stage('Run Hardware Tests') {
@@ -163,19 +176,47 @@ pipeline {
     }
   }
   // post so boards that did report still publish when an earlier stage fails.
-  // checkout scm replaces the one a stage agent would have implied.
+  // checkoutPinned() replaces the checkout a stage agent would have implied.
   post {
     always {
       node("${FINN_BUILD_LABEL}") {
         script {
           stage('Check Stage Results') {
-            checkout scm
+            checkoutPinned()
             aggregateReports()
           }
         }
       }
     }
   }
+}
+
+
+// ============================================================================
+// Checkout
+// ============================================================================
+
+// Single checkout entry point for every stage (skipDefaultCheckout() is set, so
+// nothing else clones). The first call (Get node status) resolves the branch
+// tip and records it in PINNED_SCM_COMMIT; every later call — on any agent —
+// checks out that exact SHA, reusing the job's configured
+// remotes/extensions/browser so credentials, refspecs and tag fetching match a
+// plain `checkout scm`. Keeps the stashed test file and finn_ci behaviour
+// constant across stages even if the branch moves mid-build. Mirrors the helper
+// in Jenkinsfile.
+void checkoutPinned() {
+  if (!PINNED_SCM_COMMIT) {
+    def vars = checkout scm
+    PINNED_SCM_COMMIT = vars.GIT_COMMIT
+    echo "checkoutPinned: pinned build to ${PINNED_SCM_COMMIT}"
+    return
+  }
+  checkout([
+    $class: 'GitSCM',
+    branches: [[name: PINNED_SCM_COMMIT]],
+    userRemoteConfigs: scm.userRemoteConfigs,
+    extensions: scm.extensions,
+  ])
 }
 
 
