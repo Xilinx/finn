@@ -53,6 +53,7 @@ Contributors
 * Simon Gerber (@sgerber-amd)
 * Suranga Mahesh (@surangamh)
 * Syed Asad Alam (@asadalam)
+* Thomas Keller (@tafk7)
 * Tim Paine (@timkpaine)
 * Tobias Alonso (@Tobi-Alonso)
 * Uma Maheshwari (@umav1511)
