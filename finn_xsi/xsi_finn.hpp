@@ -332,6 +332,7 @@ public:
 	unsigned as_unsigned() const { return  buf()->aVal; }
 	std::string as_binstr() const;
 	std::string as_hexstr() const;
+	std::string as_hexstr_2state() const;
 
 	// Manipulation
 	Port& clear();
