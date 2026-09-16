@@ -8,7 +8,7 @@ Quickstart
 ==========
 
 1. Install Docker to run `without root <https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user>`_
-2. Set up ``FINN_XILINX_PATH`` and ``FINN_XILINX_VERSION`` environment variables pointing respectively to the Xilinx tools installation directory and version (e.g. ``FINN_XILINX_PATH=/opt/Xilinx`` and ``FINN_XILINX_VERSION=2022.2``)
+2. Set up ``FINN_XILINX_PATH`` and ``FINN_XILINX_VERSION`` environment variables pointing respectively to the Xilinx tools installation directory and version (e.g. ``FINN_XILINX_PATH=/opt/Xilinx`` and ``FINN_XILINX_VERSION=2024.2``)
 3. Clone the FINN compiler from the repo: ``git clone https://github.com/Xilinx/finn/`` and go into the directory where it is cloned
 4. Execute ``./run-docker.sh quicktest verify`` to verify your installation. It is normal to see warnings during the tests - FINN uses warnings to inform users about certain conditions. As long as all tests pass, your installation is successful.
 5. Optionally, follow the instructions on :ref:`getting_started:PYNQ board first-time setup`, :ref:`getting_started:Vitis-based Alveo first-time setup`, or :ref:`getting_started:Slash-based Alveo first-time setup` for board setup.
@@ -97,7 +97,7 @@ For a complete list, please have a look in the `run-docker.sh <https://github.co
 The most relevant are summarized below:
 
 * (required) ``FINN_XILINX_PATH`` points to your Xilinx tools installation on the host (e.g. ``/opt/Xilinx``)
-* (required) ``FINN_XILINX_VERSION`` sets the Xilinx tools version to be used (e.g. ``2022.2``)
+* (required) ``FINN_XILINX_VERSION`` sets the Xilinx tools version to be used (e.g. ``2024.2``)
 * (required for Vitis) ``PLATFORM_REPO_PATHS`` points to the Vitis platform files (DSA).
 * (required for Vitis) ``XRT_DEB_VERSION`` specifies the .deb to be installed for XRT inside the container (see default value in ``run-docker.sh``).
 * (required for Slash) ``SLASHKIT_DEB_PACKAGE`` specifies the .deb to be installed for Slash's slashkit linker. This replaces the former ``V80PP_DEB_PACKAGE`` variable, there is no backwards compatibility.
@@ -135,7 +135,7 @@ Prerequisites
 * Ubuntu 22.04 (other distributions may work but are not officially tested)
 * Python 3.10
 * System dependencies (see below)
-* Vivado/Vitis 2022.2 or later (for synthesis and simulation)
+* Vivado/Vitis 2024.2 or later (for synthesis and simulation)
 
 Quick Start
 ***********
@@ -147,7 +147,7 @@ Quick Start
 2. Set up Xilinx tools environment variables::
 
     export FINN_XILINX_PATH=/opt/Xilinx
-    export FINN_XILINX_VERSION=2022.2
+    export FINN_XILINX_VERSION=2024.2
 
 3. Clone FINN and run the local setup script::
 
@@ -206,7 +206,13 @@ Supported FPGA Hardware
 =======================
 **Vivado IPI support for any Xilinx FPGA:** FINN generates a Vivado IP Integrator (IPI) design from the neural network with AXI stream (FIFO) in-out interfaces, which can be integrated onto any Xilinx-AMD FPGA as part of a larger system. It’s up to you to take the FINN-generated accelerator (what we call “stitched IP” in the tutorials), wire it up to your FPGA design and send/receive neural network data to/from the accelerator.
 
-**Shell-integrated accelerator + driver:** For quick deployment, we target boards supported by  `PYNQ <http://www.pynq.io/>`_ . For these platforms, we can build a full bitfile including DMAs to move data into and out of the FINN-generated accelerator, as well as a Python driver to launch the accelerator. We support the Pynq-Z1, Pynq-Z2, Kria SOM, Ultra96, ZCU102 and ZCU104 boards, as well as UltraScale+-based Alveo datacenter accelerator cards.
+**Shell-integrated accelerator + driver:** For quick deployment, we target boards supported by  `PYNQ <http://www.pynq.io/>`_ . For these platforms, we can build a full bitfile including DMAs to move data into and out of the FINN-generated accelerator, as well as a Python driver to launch the accelerator. We support the AUP-ZU3, Kria SOM, Ultra96, ZCU102 and ZCU104 boards, as well as UltraScale+-based Alveo datacenter accelerator cards.
+
+Retired boards (Pynq-Z1/Pynq-Z2)
+********************************
+The Zynq-7000 based Pynq-Z1 and Pynq-Z2 boards were retired from official support with the move to Vivado 2024.2. The AUP-ZU3 (a Zynq UltraScale+ board from the AMD University Program) is the recommended supported replacement for academic use.
+
+These boards are no longer officially supported and have been removed from our CI and testing, so we make no guarantees about them. That said, the build flow itself is unchanged and Vivado 2024.2 still supports the ``xc7z020`` part, so you can re-enable them at your own decision by removing them from the ``retired_pynq_boards`` set in ``src/finn/util/basic.py``. The board entries in ``pynq_part_map``, ``pynq_native_port_width`` and ``util/platforms.py`` are kept in place. You will also need to uncomment the Pynq-Z1/Pynq-Z2 board file downloads in ``fetch-repos.sh`` (and regenerate the ``EXP_BOARD_FILES_MD5`` checksum as described in that file) so the board files are fetched again.
 
 PYNQ board first-time setup
 ****************************
@@ -242,7 +248,7 @@ On the target side:
 
 On the host side:
 
-1. Install Vitis 2022.2 and set up the ``VITIS_PATH`` environment variable to point to your installation.
+1. Install Vitis 2024.2 and set up the ``VITIS_PATH`` environment variable to point to your installation.
 2. Install Xilinx XRT. Ensure that the ``XRT_DEB_VERSION`` environment variable reflects which version of XRT you have installed.
 3. Install the Vitis platform files for Alveo and set up the ``PLATFORM_REPO_PATHS`` environment variable to point to your installation. *This must be the same path as the target's platform files (target step 2)*
 4. `Set up public key authentication <https://www.digitalocean.com/community/tutorials/how-to-configure-ssh-key-based-authentication-on-a-linux-server>`_. Copy your private key to the ``finn/ssh_keys`` folder on the host to get password-less deployment and remote execution.
@@ -250,7 +256,7 @@ On the host side:
 
 Slash-based Alveo first-time setup
 ***********************************
-The Slash toolchain targets Versal-based Alveo cards such as the V80 using the V80++
+The Slash toolchain targets Versal-based Alveo cards such as the V80 using the ``slashkit``
 linker. We use *host* to refer to the PC running the FINN Docker environment, which will
 build the accelerator and package it up, and *target* to refer to the PC where the V80
 card is installed. These two can be the same PC, or connected over the network.
@@ -293,9 +299,9 @@ value of the ``XILINXD_LICENSE_FILE`` environment variable.
 System Requirements
 ====================
 
-* Ubuntu 18.04 with ``bash`` installed
+* A Linux host with ``bash`` (the FINN Docker image provides the required OS environment, so the host distribution/version is not critical)
 * Docker `without root <https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user>`_
-* A working Vitis/Vivado 2022.2 installation
+* A working Vitis/Vivado 2024.2 installation
 * ``FINN_XILINX_PATH`` and ``FINN_XILINX_VERSION`` environment variables correctly set, see `Quickstart`_
 * *(optional)* `Vivado/Vitis license`_ if targeting non-WebPack FPGA parts.
 * *(optional)* A PYNQ board with a network connection, see `PYNQ board first-time setup`_
