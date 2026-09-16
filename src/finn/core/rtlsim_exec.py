@@ -41,7 +41,7 @@ from finn.util.basic import (
     make_build_dir,
 )
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
-from finn.util.rtlsim import dat_file_to_numpy_array
+from finn.util.rtlsim import dat_file_to_numpy_array, mlo_prehook_func_factory
 
 finnxsi = xsi if xsi.is_available() else None
 
@@ -134,7 +134,7 @@ def rtlsim_exec_cppxsi(
     dummy data or real data. The execution_context parameter must be formatted
     according to whether dummy or real data is used.
     If behav=True (default), FINN_SIMULATION is defined and fifo_gauge is used.
-    If behav=False, Q_srl is used instead (no debug logging).
+    If behav=False, the synthesizable fifo.sv is used instead (no debug logging).
 
     Example with dummy_data = True::
 
@@ -391,6 +391,15 @@ def rtlsim_exec_finnxsi(model, execution_context, pre_hook=None, post_hook=None)
             weight_data = dat_file_to_numpy_array(dat_path)
             sim.aximm_ro_image(aximm_name, 0, weight_data.flatten())
 
+    if pre_hook is None:
+        # FINNLoop (MLO) models need their weight memories initialized via a pre-hook
+        finnloop_nodes = model.get_nodes_by_op_type("FINNLoop")
+        if len(finnloop_nodes) == 1:
+            pre_hook = mlo_prehook_func_factory(finnloop_nodes[0])
+        elif len(finnloop_nodes) > 1:
+            raise NotImplementedError(
+                "rtlsim of models with multiple FINNLoop nodes is not supported"
+            )
     if pre_hook is not None:
         pre_hook(sim)
     liveness_estimate = model.get_metadata_prop("rtlsim_liveness_estimate")

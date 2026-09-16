@@ -15,6 +15,7 @@ import os
 import tempfile
 import torch
 import torch.onnx
+import warnings
 from brevitas.export import export_qonnx
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -642,8 +643,9 @@ def test_rtlsim_shuffle_layer(shuffle_param, datatype, simd, monkeypatch):
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_stitched_ip_shuffle_layer(shuffle_sip_param, datatype, simd):
+def test_stitched_ip_shuffle_layer(shuffle_sip_param, datatype, simd, monkeypatch):
     """Build stitched IP for shuffle layer tests and save results for buffer analysis"""
+    monkeypatch.setenv("LIVENESS_THRESHOLD", "10000000")
     dt = DataType[datatype]
     simd = int(simd[-1])
     in_shape = shuffle_sip_param["in_shape"]
@@ -732,6 +734,116 @@ def test_shuffle_config_consolidation():
     for decomposed_name in decomposed_nodes:
         assert decomposed_name not in consolidated_config
     robust_rmtree(test_dir)
+
+
+@pytest.mark.fpgadataflow
+def test_outer_shuffle_exp_cycles_without_vivado(monkeypatch):
+    """get_exp_cycles must work for estimate-only builds with no Vivado configured.
+
+    With no XILINX_VIVADO the estimate assumes the recommended Vivado 2024.2+
+    behaviour (and warns about it), so it must match the estimate produced with
+    a 2024.2 install configured.
+    """
+    dt = DataType["INT8"]
+    model = construct_onnx_model(
+        input_shape=(1, 128, 384),
+        transpose_perm=(0, 2, 1, 3),
+        reshape1_shape=(1, 128, 12, 32),
+        reshape2_shape=None,
+        dt=dt,
+    )
+    model = model.transform(InferShuffle(_filter=lambda *_: True))
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(ShuffleDecomposition())
+    model = model.transform(InferInnerOuterShuffles())
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+
+    outer_nodes = [n for n in model.graph.node if n.op_type == "OuterShuffle_hls"]
+    assert len(outer_nodes) > 0, "expected at least one OuterShuffle_hls node"
+
+    monkeypatch.setenv("XILINX_VIVADO", "/tools/Xilinx/Vivado/2024.2")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        expected_cycles = [getCustomOp(n).get_exp_cycles() for n in outer_nodes]
+
+    monkeypatch.delenv("XILINX_VIVADO", raising=False)
+    for node, expected in zip(outer_nodes, expected_cycles):
+        with pytest.warns(UserWarning, match="assuming Vivado 2024.2 or newer"):
+            cycles = getCustomOp(node).get_exp_cycles()
+        assert isinstance(cycles, int)
+        assert cycles > 0
+        assert cycles == expected
+
+
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_inner_shuffle_rtlsim_stalled_final_write_is_quiescent(monkeypatch):
+    """An incomplete page must not be announced while its final write is stalled."""
+    monkeypatch.setenv("LIVENESS_THRESHOLD", "10000000")
+    if not finnxsi.is_available():
+        pytest.skip("finn_xsi (XSI rtlsim) not available")
+
+    simd = 2
+    dt = DataType["UINT8"]
+    in_shape = (1, 4, 4)
+    model = construct_onnx_model(
+        input_shape=in_shape,
+        transpose_perm=(0, 2, 1),
+        reshape1_shape=None,
+        reshape2_shape=None,
+        dt=dt,
+    )
+    model = model.transform(InferShuffle(_filter=lambda *_: True))
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(SetShuffleSIMD(simd))
+    model = model.transform(ShuffleDecomposition())
+    model = model.transform(InferInnerOuterShuffles())
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareIP(test_fpga_part, test_synth_clk_period_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+
+    inst = getCustomOp(model.get_nodes_by_op_type("InnerShuffle_rtl")[0])
+    in_folded = inst.get_folded_input_shape(0)
+    frame = np.arange(16, dtype=np.float32).reshape(in_folded)
+    packed_frame = npy_to_rtlsim_input(
+        frame,
+        inst.get_input_datatype(0),
+        inst.get_instream_width(0),
+    )
+
+    sim = inst.get_rtlsim()
+    try:
+        inst.reset_rtlsim(sim)
+        sim.stream_input("in0_V", (f"{value:x}" for value in packed_frame[:-1]))
+        assert not sim.run()
+
+        output_valid = sim.get_bus_port("out0_V", "tvalid")
+
+        class IdleProbe:
+            def __init__(self, cycles):
+                self.remaining = cycles
+                self.saw_valid = False
+
+            def __bool__(self):
+                return True
+
+            def __call__(self, _sim):
+                self.saw_valid |= output_valid.read().as_bool()
+                self.remaining -= 1
+                return None if self.remaining == 0 else {}
+
+        probe = IdleProbe(32)
+        sim.enlist(probe)
+        assert not sim.run()
+        assert not probe.saw_valid
+    finally:
+        inst.close_rtlsim(sim)
 
 
 @pytest.mark.parametrize("throttle", [(float("inf"), 0), (1, 15)], ids=["backtoback", "bursty"])

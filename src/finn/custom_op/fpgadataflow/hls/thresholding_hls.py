@@ -90,7 +90,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
         n_thres_steps = self.get_nodeattr("numSteps")
         return pe * weight_bits * n_thres_steps
 
-    def bram_estimation(self):
+    def bram_estimation(self, fpgapart):
         """Calculates BRAM cost if resource set to BRAM"""
         style = self.get_nodeattr("ram_style")
         mem_width = self._threshold_mem_width()
@@ -101,7 +101,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
         else:
             return 0
 
-    def uram_estimation(self):
+    def uram_estimation(self, fpgapart):
         """Calculates URAM cost if resource set to URAM"""
         style = self.get_nodeattr("ram_style")
         tmem = self.calc_tmem()
@@ -110,26 +110,26 @@ class Thresholding_hls(Thresholding, HLSBackend):
         else:
             return 0
 
-    def bram_efficiency_estimation(self):
-        bram16_est = self.bram_estimation()
+    def bram_efficiency_estimation(self, fpgapart):
+        bram16_est = self.bram_estimation(fpgapart)
         if bram16_est == 0:
             return 1
         wbits = self._threshold_mem_width() * self.calc_tmem()
         bram16_est_capacity = bram16_est * 18 * 1024
         return wbits / bram16_est_capacity
 
-    def uram_efficiency_estimation(self):
+    def uram_efficiency_estimation(self, fpgapart):
         # TODO: Versal URAM supports flexible bit widths (9/18/36/72) unlike
         # UltraScale+ which only supports 72-bit. This could improve efficiency
         # for narrow data types on Versal devices.
-        uram_est = self.uram_estimation()
+        uram_est = self.uram_estimation(fpgapart)
         if uram_est == 0:
             return 1
         wbits = self._threshold_mem_width() * self.calc_tmem()
         uram_est_capacity = uram_est * 72 * 4096
         return wbits / uram_est_capacity
 
-    def lut_estimation(self):
+    def lut_estimation(self, fpgapart):
         """Calculates LUT cost, taking memory resource type into account"""
         # TODO add in/out FIFO contributions
         style = self.get_nodeattr("ram_style")

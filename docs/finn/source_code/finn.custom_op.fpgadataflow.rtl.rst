@@ -21,6 +21,14 @@ finn.custom\_op.fpgadataflow.convolutioninputgenerator\_rtl
    :undoc-members:
    :show-inheritance:
 
+finn.custom\_op.fpgadataflow.crop\_rtl
+----------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.rtl.crop_rtl
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.custom\_op.fpgadataflow.fmpadding\_rtl
 ---------------------------------------------
 
@@ -37,6 +45,14 @@ finn.custom\_op.fpgadataflow.matrixvectoractivation\_rtl
    :undoc-members:
    :show-inheritance:
 
+finn.custom\_op.fpgadataflow.selecttoken\_rtl
+-----------------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.rtl.selecttoken_rtl
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.custom\_op.fpgadataflow.streamingdatawidthconverter\_rtl
 ---------------------------------------------------------------
 
@@ -45,10 +61,26 @@ finn.custom\_op.fpgadataflow.streamingdatawidthconverter\_rtl
    :undoc-members:
    :show-inheritance:
 
+finn.custom\_op.fpgadataflow.hwwhere\_rtl
+---------------------------------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.rtl.hwwhere_rtl
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.custom\_op.fpgadataflow.streamingfifo\_rtl
 -------------------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.rtl.streamingfifo_rtl
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+finn.custom\_op.fpgadataflow.pwpolyf\_rtl
+--------------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.rtl.pwpolyf_rtl
    :members:
    :undoc-members:
    :show-inheritance:
