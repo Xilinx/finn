@@ -44,7 +44,6 @@ def cfg(output_dir, **kw):
 
 
 @pytest.mark.util
-@pytest.mark.vivado
 class TestConfigCheckIntegration:
     def test_report_files_created(self):
         """Config check report should be saved to output_dir."""
