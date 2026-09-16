@@ -141,14 +141,23 @@ wire [DS_BITS_BA-1:0]  axis_dwc_tdata;
 
 // Width converter: VPC with N=MH*MW properly crops the partial last AXI beat
 // so that consecutive DMA transfers don't bleed stale data across boundaries.
-localparam  IWSIMD = DS_BITS_BA / WEIGHT_WIDTH;
+// PO is the *logical* group size (one dot-product group for TH=1, one tile for
+// TH>1) of real weight elements, matching fetch_weights' IWSIMD. DS_BITS_BA
+// byte-aligns that group, so the VPC output (IWSIMD*WEIGHT_WIDTH real bits, data
+// in the low bits) is zero-extended up to DS_BITS_BA; the pad bits are unused by
+// fetch_weights. When IWSIMD*WEIGHT_WIDTH is already byte-aligned the pad width
+// is zero and this is a no-op. (Deriving PO from DS_BITS_BA/WEIGHT_WIDTH would
+// wrongly treat the byte-pad bits as extra elements for sub-byte groups.)
+localparam  IWSIMD = (TH > 1)? ((PE*SIMD)/TH) : SIMD;
+wire [IWSIMD*WEIGHT_WIDTH-1:0]  vpc_odat;
 vpc #(.W(WEIGHT_WIDTH), .N(MH*MW), .PI(DATA_BITS/WEIGHT_WIDTH), .PO(IWSIMD)) inst_dwc (
 	.clk(ap_clk), .rst(!ap_rst_n),
 	.ivld(axis_dma_tvalid), .irdy(axis_dma_tready),
 	.idat(axis_dma_tdata[DATA_BITS-1:0]),
 	.ovld(axis_dwc_tvalid), .ordy(axis_dwc_tready),
-	.odat(axis_dwc_tdata)
+	.odat(vpc_odat)
 );
+assign  axis_dwc_tdata = { {(DS_BITS_BA - IWSIMD*WEIGHT_WIDTH){1'b0}}, vpc_odat };
 
 fetch_weights #(
 	.PE(PE), .SIMD(SIMD), .TH(TH),
