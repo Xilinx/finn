@@ -768,7 +768,6 @@ def test_finnloop_end2end_mlo(
         steps=steps,
         synth_clk_period_ns=10.0,
         board="V80",
-        target_fps=1,  # dummy: folding done by custom build steps, not by target_fps
         rtlsim_batch_size=100,
         standalone_thresholds=True,
         mlo=True,
@@ -1021,7 +1020,6 @@ def test_finnloop_end2end_mlo_ddr(
         synth_clk_period_ns=10.0,
         board="AUP-ZU3_8GB",
         shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
-        target_fps=1,  # dummy: folding done by custom build steps, not by target_fps
         rtlsim_batch_size=100,
         standalone_thresholds=True,
         mlo=True,
