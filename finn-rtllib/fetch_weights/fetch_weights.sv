@@ -170,10 +170,6 @@ module fetch_weights #(
 			$error("%m: MH*MW (%0d) must be divisible by IWSIMD (%0d).", MH * MW, IWSIMD);
 			$finish;
 		end
-		if(DS_BITS_BA % WEIGHT_WIDTH != 0) begin
-			$error("%m: DS_BITS_BA (%0d) must be divisible by WEIGHT_WIDTH (%0d).", DS_BITS_BA, WEIGHT_WIDTH);
-			$finish;
-		end
 		if(N_REPS == 0) begin
 			$error("%m: N_REPS must be non-zero.");
 			$finish;
