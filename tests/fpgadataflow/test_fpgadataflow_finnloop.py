@@ -113,6 +113,10 @@ def make_loop_modelwrapper(
     T3 = np.sort(
         generate_random_threshold_values(T3_dtype, 1, dtype.get_num_possible_values() - 1), axis=1
     )
+    # Requant scale/bias for non-float path (per-tensor, magnitudes in safe range)
+    # Scale must be >= ~0.125 (exponent >= -3) for INT8 output due to fixed-point constraints
+    requant_scale = np.random.uniform(0.5, 2.0, [1]).astype(np.float32)
+    requant_bias = np.random.uniform(-4.0, 4.0, [1]).astype(np.float32)
     # RTL elementwise requires matching bitwidths for int/int path
     actual_eltw_param_dtype = (
         add_out_dtype.name
@@ -129,10 +133,23 @@ def make_loop_modelwrapper(
     output_shapes = {f"mm{name_suffix}": [1, 3, 3, mh], f"ofm{name_suffix}": (1, 3, 3, mh)}
 
     tensor_infos = {k: create_tensor_info(k, v) for k, v in tensor_shapes.items()}
-    thresholds = [
-        create_threshold(f"thresh{i}{name_suffix}", (1, dtype.get_num_possible_values() - 1))
-        for i in range(4)
-    ]
+    # For float path: 4 thresholds (including thresh3 for final Thresholding)
+    # For int path: 3 thresholds + scale/bias for final Requant
+    if is_float:
+        thresholds = [
+            create_threshold(f"thresh{i}{name_suffix}", (1, dtype.get_num_possible_values() - 1))
+            for i in range(4)
+        ]
+        requant_inputs = []
+    else:
+        thresholds = [
+            create_threshold(f"thresh{i}{name_suffix}", (1, dtype.get_num_possible_values() - 1))
+            for i in range(3)
+        ]
+        requant_inputs = [
+            helper.make_tensor_value_info(f"scale{name_suffix}", TensorProto.FLOAT, [1]),
+            helper.make_tensor_value_info(f"bias{name_suffix}", TensorProto.FLOAT, [1]),
+        ]
 
     nodes = [
         create_node(
@@ -312,23 +329,43 @@ def make_loop_modelwrapper(
     else:
         thresholding_input_tensor = f"ofm_ew{name_suffix}"
 
-    nodes.append(
-        create_node(
-            "Thresholding_rtl",
-            [thresholding_input_tensor, f"thresh3{name_suffix}"],
-            [f"ofm_final{name_suffix}"],
-            f"Thresholding_rtl4{name_suffix}",
-            {
-                "NumChannels": mh,
-                "PE": helper_pe,
-                "numSteps": dtype.get_num_possible_values() - 1,
-                "inputDataType": thresholding_input_dtype.name,
-                "weightDataType": thresholding_input_dtype.name,
-                "outputDataType": dtype.name,
-                "ActVal": int(dtype.min()),
-            },
-        ),
-    )
+    # Use Requant_rtl for integer path, Thresholding_rtl for float path
+    # (Requant only supports integer inputs)
+    if is_float:
+        nodes.append(
+            create_node(
+                "Thresholding_rtl",
+                [thresholding_input_tensor, f"thresh3{name_suffix}"],
+                [f"ofm_final{name_suffix}"],
+                f"Thresholding_rtl4{name_suffix}",
+                {
+                    "NumChannels": mh,
+                    "PE": helper_pe,
+                    "numSteps": dtype.get_num_possible_values() - 1,
+                    "inputDataType": thresholding_input_dtype.name,
+                    "weightDataType": thresholding_input_dtype.name,
+                    "outputDataType": dtype.name,
+                    "ActVal": int(dtype.min()),
+                },
+            ),
+        )
+    else:
+        nodes.append(
+            create_node(
+                "Requant_rtl",
+                [thresholding_input_tensor, f"scale{name_suffix}", f"bias{name_suffix}"],
+                [f"ofm_final{name_suffix}"],
+                f"Requant_rtl_0{name_suffix}",
+                {
+                    "NumChannels": mh,
+                    "PE": helper_pe,
+                    "inputDataType": thresholding_input_dtype.name,
+                    "outputDataType": dtype.name,
+                    "narrow": 0,
+                    "numInputVectors": [1, 3, 3],
+                },
+            ),
+        )
 
     # Build value_info list
     value_info_list = [
@@ -360,7 +397,7 @@ def make_loop_modelwrapper(
     loop_body = helper.make_graph(
         nodes=nodes,
         name=f"matmul_graph{name_suffix}",
-        inputs=[tensor_infos[f"ifm{name_suffix}"]] + thresholds,
+        inputs=[tensor_infos[f"ifm{name_suffix}"]] + thresholds + requant_inputs,
         outputs=[create_tensor_info(f"ofm_final{name_suffix}", output_shapes[f"ofm{name_suffix}"])],
         value_info=value_info_list,
     )
@@ -375,13 +412,18 @@ def make_loop_modelwrapper(
     loop_body_model.set_initializer(f"thresh0{name_suffix}", T0)
     loop_body_model.set_initializer(f"thresh1{name_suffix}", T1)
     loop_body_model.set_initializer(f"thresh2{name_suffix}", T2)
-    loop_body_model.set_initializer(f"thresh3{name_suffix}", T3)
     loop_body_model.set_initializer(f"mul_param{name_suffix}", EltwParam)
 
-    # Add RTL elementwise parameter when FLOAT32
+    # Add final-node-specific initializers
     if is_float:
+        # Float path: Thresholding with thresh3
+        loop_body_model.set_initializer(f"thresh3{name_suffix}", T3)
         EltwParamRtl = gen_finn_dt_tensor(DataType["FLOAT32"], rhs_shape)
         loop_body_model.set_initializer(f"mul_param_rtl{name_suffix}", EltwParamRtl)
+    else:
+        # Int path: Requant with scale/bias
+        loop_body_model.set_initializer(f"scale{name_suffix}", requant_scale)
+        loop_body_model.set_initializer(f"bias{name_suffix}", requant_bias)
 
     # Set tensor datatypes
     tensors = [
@@ -401,14 +443,17 @@ def make_loop_modelwrapper(
     for w in (f"weights0{name_suffix}", f"weights1{name_suffix}", f"weights2{name_suffix}"):
         loop_body_model.set_tensor_datatype(w, wdtype)
 
-    loop_body_model.set_tensor_datatype(f"thresh3{name_suffix}", T3_dtype)
     loop_body_model.set_tensor_datatype(
         f"mul_param{name_suffix}", DataType[actual_eltw_param_dtype]
     )
 
-    # Set RTL elementwise parameter datatype when FLOAT32
+    # Set final-node-specific datatypes
     if is_float:
+        loop_body_model.set_tensor_datatype(f"thresh3{name_suffix}", T3_dtype)
         loop_body_model.set_tensor_datatype(f"mul_param_rtl{name_suffix}", DataType["FLOAT32"])
+    else:
+        loop_body_model.set_tensor_datatype(f"scale{name_suffix}", DataType["FLOAT32"])
+        loop_body_model.set_tensor_datatype(f"bias{name_suffix}", DataType["FLOAT32"])
 
     return loop_body_model
 
