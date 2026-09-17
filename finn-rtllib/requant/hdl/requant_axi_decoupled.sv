@@ -121,9 +121,9 @@ module requant_axi_decoupled #(
 		end
 	end
 
-	queue #(
+	fifo #(
 		.DATA_WIDTH(PE*N),
-		.ELASTICITY(CREDIT)
+		.DEPTH(CREDIT)
 	) outq (
 		.clk(ap_clk), .rst,
 		.idat(core_odat), .ivld(core_ovld), .irdy(q_irdy),

@@ -61,7 +61,7 @@ from finn.util.basic import (
 from finn.util.test import load_test_checkpoint_or_skip
 from finn.util.vivado import parse_ooc_synth_results
 
-test_pynq_board = "Pynq-Z1"
+test_pynq_board = "AUP-ZU3_8GB"
 test_fpga_part = pynq_part_map[test_pynq_board]
 
 ip_stitch_model_dir = os.environ["FINN_BUILD_DIR"]
@@ -302,7 +302,7 @@ def test_fpgadataflow_ipstitch_iodma_floorplan():
 
 
 # board
-@pytest.mark.parametrize("board", ["U250"])
+@pytest.mark.parametrize("board", ["U55C"])
 # clock period
 @pytest.mark.parametrize("period_ns", [5])
 # override mem_mode to external
@@ -336,7 +336,7 @@ def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
 
 
 # board
-@pytest.mark.parametrize("board", ["Pynq-Z1"])
+@pytest.mark.parametrize("board", ["AUP-ZU3_8GB"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado

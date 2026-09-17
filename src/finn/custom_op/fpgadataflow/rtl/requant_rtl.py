@@ -7,7 +7,12 @@ from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.requant import Requant
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.util.basic import get_dsp_block, make_build_dir, roundup_to_integer_multiple
+from finn.util.basic import (
+    fifo_rtl_files,
+    get_dsp_block,
+    make_build_dir,
+    roundup_to_integer_multiple,
+)
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
@@ -410,21 +415,19 @@ class Requant_rtl(Requant, RTLBackend):
 
         if self.get_nodeattr("mem_mode") == "internal_decoupled":
             rtl_files = [
-                rtllib_dir + "queue.sv",
                 rtllib_dir + "requant_decoupled.sv",
                 rtllib_dir + "requant_axi_decoupled.sv",
                 # generated Verilog wrapper (directly instantiates the SV core)
                 os.path.join(code_gen_dir, top_module + ".v"),
-            ]
+            ] + fifo_rtl_files()
         else:
             rtl_files = [
-                rtllib_dir + "queue.sv",
                 rtllib_dir + "requant.sv",
                 rtllib_dir + "requant_axi.sv",
                 # generated SystemVerilog impl + Verilog stub wrapper
                 os.path.join(code_gen_dir, top_module + "_impl.sv"),
                 os.path.join(code_gen_dir, top_module + ".v"),
-            ]
+            ] + fifo_rtl_files()
 
         if abspath:
             return rtl_files

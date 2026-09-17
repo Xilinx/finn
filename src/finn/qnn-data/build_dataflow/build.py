@@ -36,7 +36,7 @@ import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 
 model_name = "tfc_w1a1"
-platform_name = "Pynq-Z1"
+platform_name = "AUP-ZU3_8GB"
 
 cfg = build.DataflowBuildConfig(
     output_dir="output_%s_%s" % (model_name, platform_name),

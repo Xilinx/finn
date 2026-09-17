@@ -52,3 +52,26 @@ Run tests with `--dist loadgroup` if running with multiple workers (i.e. `-n <N>
 Decorate tests with the existing markers. For example, `@pytest.mark.fpgadataflow`.
 
 *For more detailed marker, pipeline, sharding, and Jenkins configurations, see [ci/README.md](../ci/README.md).*
+
+### 5. Randomness
+
+Every test gets a stable `finn_test_seed` through `conftest.py`. An autouse fixture seeds Python `random`, `numpy.random`, and the PyTorch CPU generator when installed.
+
+For example, the below test receives identical weights and input on every run.
+
+```python
+def test_my_op():
+    weights = np.random.rand(64, 64).astype(np.float32)
+    inp = np.random.randn(1, 64).astype(np.float32)
+```
+
+Seed independent generators from `finn_test_seed`:
+
+```python
+def test_my_op(finn_test_seed):
+    rng = np.random.default_rng(finn_test_seed)
+    weights = rng.random((64, 64), dtype=np.float32)
+```
+
+- Some tests will fail at the given seed. This should be treated as a deficiency in the test.
+- If coverage across a range of random inputs is required, build it into the test as a parametrisation.

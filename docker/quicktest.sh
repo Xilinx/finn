@@ -6,7 +6,7 @@ cd $FINN_ROOT
 # check if command line argument is empty or not present
 if [ -z $1 ]; then
   echo "Running quicktest: not (vivado or slow or board or bnn) with pytest-xdist"
-  pytest -m 'not (vivado or slow or vitis or board or notebooks or sanity_bnn or bnn_pynq or bnn_zcu104 or bnn_kv260 or bnn_u250)' --dist=loadgroup -n $PYTEST_PARALLEL
+  pytest -m 'not (vivado or slow or vitis or board or notebooks or sanity_bnn or bnn_aup_zu3 or bnn_zcu104 or bnn_kv260 or bnn_u55c)' --dist=loadgroup -n $PYTEST_PARALLEL
 elif [ $1 = "verify" ]; then
   echo "Running verification tests (minimal install verification with Vivado)"
   $FINN_ROOT/scripts/quicktest-local.sh vivado
