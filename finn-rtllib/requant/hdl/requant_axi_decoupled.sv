@@ -24,8 +24,8 @@ module requant_axi_decoupled #(
 	int unsigned  C,  // Channel count
 	int unsigned  PE = 1,  // parallel processing elements, requires C = k*PE
 
-	int unsigned  TAP_MIN,  // Worst-case minimum tap across all channels
-	int unsigned  TAP_MAX,  // Worst-case maximum tap across all channels
+	int unsigned  SHIFT_MIN,  // Worst-case minimum shift across all channels
+	int unsigned  SHIFT_MAX,  // Worst-case maximum shift across all channels
 
 	bit  SIGNED_OUT = 0,  // 0: unsigned clip [0, 2^N-1], 1: signed clip [-2^(N-1), 2^(N-1)-1]
 
@@ -35,9 +35,9 @@ module requant_axi_decoupled #(
 	localparam int unsigned  X_WIDTH = (K <= (VERSION==3? 24 : 18))? K :
 	                                    ((VERSION==1? 25 : 27) < K? (VERSION==1? 25 : 27) : K),
 	localparam int unsigned  BIAS_WIDTH  = S_WIDTH + X_WIDTH,
-	localparam int unsigned  TAP_RANGE = TAP_MAX - TAP_MIN + 1,
-	localparam int unsigned  TAP_WIDTH  = (TAP_RANGE > 1)? $clog2(TAP_RANGE) : 1,
-	localparam int unsigned  PARAMS_LANE_WIDTH = S_WIDTH + TAP_WIDTH + BIAS_WIDTH,
+	localparam int unsigned  SHIFT_RANGE = SHIFT_MAX - SHIFT_MIN + 1,
+	localparam int unsigned  SHIFT_WIDTH  = (SHIFT_RANGE > 1)? $clog2(SHIFT_RANGE) : 1,
+	localparam int unsigned  PARAMS_LANE_WIDTH = S_WIDTH + SHIFT_WIDTH + BIAS_WIDTH,
 
 	localparam int unsigned  INPUT_STREAM_WIDTH  = ((PE*K+7)/8)*8,
 	localparam int unsigned  OUTPUT_STREAM_WIDTH = ((PE*N+7)/8)*8,
@@ -100,7 +100,7 @@ module requant_axi_decoupled #(
 	requant_decoupled #(
 		.VERSION(VERSION),
 		.K(K), .N(N), .C(C), .PE(PE),
-		.TAP_MIN(TAP_MIN), .TAP_MAX(TAP_MAX),
+		.SHIFT_MIN(SHIFT_MIN), .SHIFT_MAX(SHIFT_MAX),
 		.SIGNED_OUT(SIGNED_OUT)
 	) impl (
 		.clk(ap_clk), .rst,

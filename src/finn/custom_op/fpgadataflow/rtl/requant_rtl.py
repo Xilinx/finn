@@ -127,37 +127,37 @@ class Requant_rtl(Requant, RTLBackend):
         params = self.decompose_params(model, version)
         s_width = params["s_width"]
         x_width = params["x_width"]
-        tap_min = params["tap_min"]
-        tap_max = params["tap_max"]
+        shift_min = params["shift_min"]
+        shift_max = params["shift_max"]
 
         pe = self.get_nodeattr("PE")
         k = self.get_input_datatype(0).bitwidth()
         n = self.get_output_datatype().bitwidth()
 
-        # In MLO mode the scale stream WIDTH and the core TAP_MIN/TAP_MAX are
+        # In MLO mode the scale stream WIDTH and the core SHIFT_MIN/SHIFT_MAX are
         # baked once at generate_hdl time but must cover *every* loop iteration's
-        # params. Since a valid tap is structurally bounded to
-        # 0 <= tap <= s_width + x_width + 1 - n (see decompose_params, purely
+        # params. Since a valid shift is structurally bounded to
+        # 0 <= shift <= s_width + x_width + 1 - n (see decompose_params, purely
         # datatype/version-derived), size the window to that worst case instead
         # of the per-layer [min, max]. This makes the layout iteration-invariant
         # and leaf-local (no cross-iteration knowledge needed).
         if self.get_nodeattr("mlo_max_iter") > 0:
-            tap_min = 0
-            tap_max = s_width + x_width + 1 - n
+            shift_min = 0
+            shift_max = s_width + x_width + 1 - n
 
         bias_width = s_width + x_width
-        tap_range = tap_max - tap_min + 1
-        tap_width = max(1, _clog2(tap_range)) if tap_range > 1 else 1
-        params_lane_width = s_width + tap_width + bias_width
+        shift_range = shift_max - shift_min + 1
+        shift_width = max(1, _clog2(shift_range)) if shift_range > 1 else 1
+        params_lane_width = s_width + shift_width + bias_width
 
         info = dict(params)
         info.update(
             {
                 "version": version,
-                "tap_min": tap_min,
-                "tap_max": tap_max,
+                "shift_min": shift_min,
+                "shift_max": shift_max,
                 "bias_width": bias_width,
-                "tap_width": tap_width,
+                "shift_width": shift_width,
                 "params_lane_width": params_lane_width,
                 "in_stream_width": roundup_to_integer_multiple(pe * k, 8),
                 "out_stream_width": roundup_to_integer_multiple(pe * n, 8),
@@ -169,14 +169,14 @@ class Requant_rtl(Requant, RTLBackend):
     def _pack_param_words(self, info):
         """Pack the decomposed params into per-fold stream words.
 
-        All three fields (scale, tap-offset, bias) are packed into a single
+        All three fields (scale, shift-offset, bias) are packed into a single
         struct per PE lane. Lane 0 (pe=0) occupies the least significant bits.
         Returns a single list of ``CF`` Python integers.
 
         Per-lane layout (LSB to MSB):
-            [S_WIDTH-1 : 0]                                    = SCALE  (signed mantissa)
-            [S_WIDTH+TAP_WIDTH-1 : S_WIDTH]                    = T      (tap - TAP_MIN, unsigned)
-            [S_WIDTH+TAP_WIDTH+BIAS_WIDTH-1 : S_WIDTH+TAP_WIDTH] = BIAS (signed)
+            [S_WIDTH-1 : 0]                                        = SCALE (signed mantissa)
+            [S_WIDTH+SHIFT_WIDTH-1 : S_WIDTH]                      = T (shift-SHIFT_MIN, unsigned)
+            [S_WIDTH+SHIFT_WIDTH+BIAS_WIDTH-1 : S_WIDTH+SHIFT_WIDTH] = BIAS (signed)
         """
         pe = self.get_nodeattr("PE")
         num_channels = self.get_nodeattr("NumChannels")
@@ -184,10 +184,10 @@ class Requant_rtl(Requant, RTLBackend):
 
         scale = info["scale"]
         bias = info["bias"]
-        tap = info["tap"]
-        tap_min = info["tap_min"]
+        shift = info["shift"]
+        shift_min = info["shift_min"]
         s_width = info["s_width"]
-        tap_width = info["tap_width"]
+        shift_width = info["shift_width"]
         bias_width = info["bias_width"]
         params_lane_width = info["params_lane_width"]
 
@@ -195,11 +195,11 @@ class Requant_rtl(Requant, RTLBackend):
         for c in range(cf):
             p_word = 0
             for p in range(pe):
-                t_off = int(tap[p][c]) - tap_min
-                # Pack: { BIAS[BIAS_WIDTH], T[TAP_WIDTH], SCALE[S_WIDTH] }
+                t_off = int(shift[p][c]) - shift_min
+                # Pack: { BIAS[BIAS_WIDTH], T[SHIFT_WIDTH], SCALE[S_WIDTH] }
                 lane = (
-                    (_twos(bias[p][c], bias_width) << (s_width + tap_width))
-                    | (_twos(t_off, tap_width) << s_width)
+                    (_twos(bias[p][c], bias_width) << (s_width + shift_width))
+                    | (_twos(t_off, shift_width) << s_width)
                     | _twos(scale[p][c], s_width)
                 )
                 p_word |= lane << (p * params_lane_width)
@@ -343,12 +343,12 @@ class Requant_rtl(Requant, RTLBackend):
         self.set_nodeattr("gen_top_module", top_module_name)
 
     def _generate_hdl_decoupled(self, model, fpgapart, clk, code_gen_dir):
-        """Decoupled mode: stream scale/tap/bias from a unified param memstream.
+        """Decoupled mode: stream scale/shift/bias from a unified param memstream.
 
         The float->fixed-point decomposition is done in Python
         (``decompose_params``); the resulting per-channel words are packed into
         a single struct-based stream and emitted as one memstream init file, and
-        the compute core is elaborated with the worst-case TAP_MIN/TAP_MAX
+        the compute core is elaborated with the worst-case SHIFT_MIN/SHIFT_MAX
         window instead of embedded params.
         """
         info = self._derive_decoupled_widths(model, fpgapart)
@@ -370,8 +370,8 @@ class Requant_rtl(Requant, RTLBackend):
             "$N$": str(n),
             "$C$": str(num_channels),
             "$PE$": str(pe),
-            "$TAP_MIN$": str(info["tap_min"]),
-            "$TAP_MAX$": str(info["tap_max"]),
+            "$SHIFT_MIN$": str(info["shift_min"]),
+            "$SHIFT_MAX$": str(info["shift_max"]),
             "$SIGNED_OUT$": str(int(odt.signed())),
         }
 
@@ -393,7 +393,7 @@ class Requant_rtl(Requant, RTLBackend):
             np.array(params_words, dtype=object),
         )
 
-        # Emit the unified memstream wrapper (params = scale + tap + bias)
+        # Emit the unified memstream wrapper (params = scale + shift + bias)
         node_name = self.onnx_node.name
         self.generate_hdl_memstream(
             fpgapart,

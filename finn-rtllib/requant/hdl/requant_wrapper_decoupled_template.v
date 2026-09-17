@@ -19,17 +19,17 @@ module $TOP_MODULE_NAME$ #(
     parameter N       = $N$,
     parameter C       = $C$,
     parameter PE      = $PE$,
-    parameter TAP_MIN = $TAP_MIN$,
-    parameter TAP_MAX = $TAP_MAX$,
+    parameter SHIFT_MIN = $SHIFT_MIN$,
+    parameter SHIFT_MAX = $SHIFT_MAX$,
     parameter SIGNED_OUT = $SIGNED_OUT$,
 
     // Derived widths (matching requant_axi_decoupled.sv localparam chain)
     parameter S_WIDTH = (K <= (VERSION == 3 ? 24 : 18)) ? 25 : (VERSION == 3 ? 24 : 18),
     parameter X_WIDTH = (K <= (VERSION == 3 ? 24 : 18)) ? K  : ((VERSION == 1 ? 25 : 27) < K ? (VERSION == 1 ? 25 : 27) : K),
     parameter BIAS_WIDTH  = S_WIDTH + X_WIDTH,
-    parameter TAP_RANGE = TAP_MAX - TAP_MIN + 1,
-    parameter TAP_WIDTH  = (TAP_RANGE > 1) ? $clog2(TAP_RANGE) : 1,
-    parameter PARAMS_LANE_WIDTH = S_WIDTH + TAP_WIDTH + BIAS_WIDTH,
+    parameter SHIFT_RANGE = SHIFT_MAX - SHIFT_MIN + 1,
+    parameter SHIFT_WIDTH  = (SHIFT_RANGE > 1) ? $clog2(SHIFT_RANGE) : 1,
+    parameter PARAMS_LANE_WIDTH = S_WIDTH + SHIFT_WIDTH + BIAS_WIDTH,
     parameter INPUT_STREAM_WIDTH  = ((PE * K + 7) / 8) * 8,
     parameter OUTPUT_STREAM_WIDTH = ((PE * N + 7) / 8) * 8,
     parameter PARAMS_STREAM_WIDTH = ((PE * PARAMS_LANE_WIDTH + 7) / 8) * 8
@@ -60,7 +60,7 @@ module $TOP_MODULE_NAME$ #(
     requant_axi_decoupled #(
         .VERSION(VERSION),
         .K(K), .N(N), .C(C), .PE(PE),
-        .TAP_MIN(TAP_MIN), .TAP_MAX(TAP_MAX),
+        .SHIFT_MIN(SHIFT_MIN), .SHIFT_MAX(SHIFT_MAX),
         .SIGNED_OUT(SIGNED_OUT)
     ) core (
         .ap_clk(ap_clk),

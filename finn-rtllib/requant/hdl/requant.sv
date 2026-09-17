@@ -29,7 +29,7 @@
  *	produce bit-exact agreement with the floating-point specification.
  *
  *	Similarly, the bias mantissa is aligned into the product datapath
- *	by shifting. When the bias exponent is small relative to the tap
+ *	by shifting. When the bias exponent is small relative to the shift
  *	position, right-shifting truncates least-significant mantissa bits,
  *	which can also contribute to ±1 deviations at rounding boundaries.
  ***************************************************************************/
@@ -104,7 +104,7 @@ module requant #(
 	typedef struct {
 		bit signed   [MUL_WIDTHS.s               -1:0]  scale;
 		bit signed   [MUL_WIDTHS.s + MUL_WIDTHS.x  :0]  bias;
-		int unsigned  tap;
+		int unsigned  shift;
 	} params_t;
 	typedef params_t  params_mat_t[PE][CF];
 	function automatic params_mat_t derive_PARAMS();
@@ -124,13 +124,13 @@ module requant #(
 			bit [23:0]  bm = { 1'b1, b[0+:23] }; // * 2^-23
 			int         be = int'(bc) - 127;
 
-			// Tap from Product Datapath
-			p.tap = (MUL_WIDTHS.s - 2) - se;
-			if(p.tap < 0) begin
+			// Shift amount from Product Datapath
+			p.shift = (MUL_WIDTHS.s - 2) - se;
+			if(p.shift < 0) begin
 				$error("%m: Scale is too large for the output precision.");
 				$finish;
 			end
-			if(MUL_WIDTHS.s + MUL_WIDTHS.x + 1 < p.tap+N) begin
+			if(MUL_WIDTHS.s + MUL_WIDTHS.x + 1 < p.shift+N) begin
 				$error("%m: Scale is too small for the output precision.");
 				$finish;
 			end
@@ -146,21 +146,21 @@ module requant #(
 				$finish;
 			end
 			else begin
-				// - p.tap identifies the number of fractional bits in the product datapath, bm comes with 23
-				// - a bias exponent equal to 23-p.tap requires no shifting of its mantissa for alignment
-				// - a bias exponent smaller than 23-p.tap requires a right shift
-				// - a bias exponent larger than 23-p.tap requires a left shift
-				automatic int  shift = be - (23 - p.tap);
+				// - p.shift identifies the number of fractional bits in the product datapath, bm comes with 23
+				// - a bias exponent equal to 23-p.shift requires no shifting of its mantissa for alignment
+				// - a bias exponent smaller than 23-p.shift requires a right shift
+				// - a bias exponent larger than 23-p.shift requires a left shift
+				automatic int  bias_shift = be - (23 - p.shift);
 				p.bias =
-					(shift < -24)? 0 :
-					(shift <   0)? bm >> -shift :
-					/* else */     bm <<  shift;
+					(bias_shift < -24)? 0 :
+					(bias_shift <   0)? bm >> -bias_shift :
+					/* else */          bm <<  bias_shift;
 
 					if(b[31])  p.bias = -p.bias;
 
 					// Rounding
-					if(p.tap > 0)       p.bias += 1 << (p.tap-1);
-					else if(shift < 0)  p.bias += bm[-shift-1];
+					if(p.shift > 0)          p.bias += 1 << (p.shift-1);
+					else if(bias_shift < 0)  p.bias += bm[-bias_shift-1];
 			end
 
 			res[pe][cf] = p;
@@ -185,16 +185,16 @@ module requant #(
 		int unsigned  min;
 		int unsigned  max;
 	} minmax_t;
-	function automatic minmax_t derive_TAP_MINMAX(input int unsigned  pe);
+	function automatic minmax_t derive_SHIFT_MINMAX(input int unsigned  pe);
 		minmax_t  res = '{ min: 2**32-1, max: 0 };
 		for(int unsigned  cf = 0; cf < CF; cf++) begin
-			automatic int unsigned  tap = PARAMS[pe][cf].tap;
-			if(tap < res.min)  res.min = tap;
-			if(tap > res.max)  res.max = tap;
+			automatic int unsigned  shift = PARAMS[pe][cf].shift;
+			if(shift < res.min)  res.min = shift;
+			if(shift > res.max)  res.max = shift;
 		end
 
 		return  res;
-	endfunction : derive_TAP_MINMAX
+	endfunction : derive_SHIFT_MINMAX
 
 	int unsigned  cnl_sel;
 	if(CF == 1)  assign  cnl_sel = 0;
@@ -217,14 +217,14 @@ module requant #(
 
 	// Instantiate individual compute lanes
 	for(genvar  pe = 0; pe < PE; pe++) begin : genPE
-		localparam minmax_t  TAP_MINMAX = derive_TAP_MINMAX(pe);
-		localparam int unsigned  TAP_RANGE = TAP_MINMAX.max - TAP_MINMAX.min + 1;
-		typedef logic [((TAP_RANGE > 1)? $clog2(TAP_RANGE) : 1)-1:0]  tap_t;
+		localparam minmax_t  SHIFT_MINMAX = derive_SHIFT_MINMAX(pe);
+		localparam int unsigned  SHIFT_RANGE = SHIFT_MINMAX.max - SHIFT_MINMAX.min + 1;
+		typedef logic [((SHIFT_RANGE > 1)? $clog2(SHIFT_RANGE) : 1)-1:0]  shift_t;
 
 		logic signed [             MUL_WIDTHS.x-1:0]  X1 = 'x;
 		logic signed [MUL_WIDTHS.s             -1:0]  S1 = 'x;
 		logic signed [MUL_WIDTHS.s+MUL_WIDTHS.x-1:0]  B1 = 'x;
-		tap_t  T1 = 'x;
+		shift_t  T1 = 'x;
 		always_ff @(posedge clk) begin
 			if(rst) begin
 				X1 <= 'x;
@@ -237,13 +237,13 @@ module requant #(
 				X1 <= K > MUL_WIDTHS.x? idat[pe][K-MUL_WIDTHS.x+:MUL_WIDTHS.x] : idat[pe];
 				S1 <= p.scale;
 				B1 <= p.bias;
-				T1 <= p.tap - TAP_MINMAX.min;
+				T1 <= p.shift - SHIFT_MINMAX.min;
 			end
 		end
 
 		logic signed [MUL_WIDTHS.s+MUL_WIDTHS.x-1:0]  M2 = 'x;
 		logic signed [MUL_WIDTHS.s+MUL_WIDTHS.x-1:0]  B2 = 'x;
-		tap_t  T2 = 'x;
+		shift_t  T2 = 'x;
 		always_ff @(posedge clk) begin
 			if(rst) begin
 				M2 <= 'x;
@@ -258,7 +258,7 @@ module requant #(
 		end
 
 		logic signed [MUL_WIDTHS.s+MUL_WIDTHS.x:0]  P3 = 'x;
-		tap_t  T3 = 'x;
+		shift_t  T3 = 'x;
 		always_ff @(posedge clk) begin
 			if(rst) begin
 				P3 <= 'x;
@@ -271,33 +271,33 @@ module requant #(
 		end
 
 		logic [N-1:0]  R4 = 'x;
-		localparam int unsigned  TAP_SPAN = TAP_MINMAX.max - TAP_MINMAX.min;
+		localparam int unsigned  SHIFT_SPAN = SHIFT_MINMAX.max - SHIFT_MINMAX.min;
 		uwire  neg = P3[$left(P3)];
 		if(!SIGNED_OUT) begin : blkStage4Unsigned
-			uwire [TAP_SPAN + N-1:0]  win = P3[TAP_MINMAX.max+N-1 : TAP_MINMAX.min];
-			uwire [TAP_SPAN + N-1:0]  tap = win >> T3;
+			uwire [SHIFT_SPAN + N-1:0]  win = P3[SHIFT_MINMAX.max+N-1 : SHIFT_MINMAX.min];
+			uwire [SHIFT_SPAN + N-1:0]  shifted = win >> T3;
 			uwire  ovf =
-				(($left(P3)      > TAP_MINMAX.max+N)? |P3[$left(P3)-1:TAP_MINMAX.max+N] : 0) ||
-				((TAP_MINMAX.min < TAP_MINMAX.max  )? |tap[$left(tap):N] : 0);
+				(($left(P3)        > SHIFT_MINMAX.max+N)? |P3[$left(P3)-1:SHIFT_MINMAX.max+N] : 0) ||
+				((SHIFT_MINMAX.min < SHIFT_MINMAX.max  )? |shifted[$left(shifted):N] : 0);
 			always_ff @(posedge clk) begin
 				if(rst)  R4 <= 'x;
 				else begin
 					R4 <=
 						neg?  0 :
 						ovf? '1 :
-						tap[N-1:0];
+						shifted[N-1:0];
 				end
 			end
 		end : blkStage4Unsigned
 		else begin : blkStage4Signed
-			uwire signed [TAP_SPAN + N-1:0]  win = P3[TAP_MINMAX.max+N-1 : TAP_MINMAX.min];
-			uwire signed [TAP_SPAN + N-1:0]  tap = win >>> T3;
+			uwire signed [SHIFT_SPAN + N-1:0]  win = P3[SHIFT_MINMAX.max+N-1 : SHIFT_MINMAX.min];
+			uwire signed [SHIFT_SPAN + N-1:0]  shifted = win >>> T3;
 			uwire  ovf =
-				(($left(P3)      > TAP_MINMAX.max+N-1)? |(P3[$left(P3)-1:TAP_MINMAX.max+N-1] ^ {($left(P3)-TAP_MINMAX.max-N+1){neg}}) : 0) ||
-				((TAP_MINMAX.min < TAP_MINMAX.max    )? ~(&tap[$left(tap):N-1]) && (|tap[$left(tap):N-1]) : 0);
+				(($left(P3)        > SHIFT_MINMAX.max+N-1)? |(P3[$left(P3)-1:SHIFT_MINMAX.max+N-1] ^ {($left(P3)-SHIFT_MINMAX.max-N+1){neg}}) : 0) ||
+				((SHIFT_MINMAX.min < SHIFT_MINMAX.max    )? ~(&shifted[$left(shifted):N-1]) && (|shifted[$left(shifted):N-1]) : 0);
 			always_ff @(posedge clk) begin
 				if(rst)  R4 <= 'x;
-				else     R4 <= ovf? {neg, {(N-1){!neg}}} : tap[N-1:0];
+				else     R4 <= ovf? {neg, {(N-1){!neg}}} : shifted[N-1:0];
 			end
 		end : blkStage4Signed
 

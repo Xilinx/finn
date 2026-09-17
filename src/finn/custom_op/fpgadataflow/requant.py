@@ -98,12 +98,12 @@ class Requant(HWCustomOp):
         Decomposes the float32 scale/bias per channel into the fixed-point
         parameters the RTL datapath consumes: an integer ``scale`` mantissa, an
         aligned integer ``bias`` (with the round-half-up constant folded in) and
-        a per-channel ``tap`` shift amount. This is the single source of truth
+        a per-channel ``shift`` amount. This is the single source of truth
         for the float->fixed-point conversion, used both by the embedded codegen
         and by the decoupled memstream param generation.
 
         Returns a dict with numpy int arrays shaped ``[PE][CF]``:
-        ``scale``, ``bias``, ``tap`` plus scalars ``tap_min``, ``tap_max`` and
+        ``scale``, ``bias``, ``shift`` plus scalars ``shift_min``, ``shift_max`` and
         the operand widths ``s_width`` (scale), ``x_width`` (data).
         Raises ``ValueError`` for the same out-of-range conditions the RTL
         asserts (``$error``/``$finish``), so failures surface at build time.
@@ -131,7 +131,7 @@ class Requant(HWCustomOp):
 
         scale_fixed = np.zeros((pe, cf), dtype=object)
         bias_fixed = np.zeros((pe, cf), dtype=object)
-        tap_arr = np.zeros((pe, cf), dtype=object)
+        shift_arr = np.zeros((pe, cf), dtype=object)
 
         for p in range(pe):
             for c in range(cf):
@@ -150,13 +150,13 @@ class Requant(HWCustomOp):
                 be = ((b_bits >> 23) & 0xFF) - 127
                 sign_b = (b_bits >> 31) & 1
 
-                tap = (s_width - 2) - se
-                if tap < 0:
+                shift = (s_width - 2) - se
+                if shift < 0:
                     raise ValueError(
                         f"{self.onnx_node.name}: Scale {sc_val} is too large "
                         f"for the output precision."
                     )
-                if s_width + x_width + 1 < tap + n:
+                if s_width + x_width + 1 < shift + n:
                     raise ValueError(
                         f"{self.onnx_node.name}: Scale {sc_val} is too small "
                         f"for the output precision."
@@ -172,31 +172,31 @@ class Requant(HWCustomOp):
                     raise ValueError(
                         f"{self.onnx_node.name}: Bias {bs_val} overflows the " f"output range."
                     )
-                shift = be - (23 - tap)
-                if shift < -24:
+                bias_shift = be - (23 - shift)
+                if bias_shift < -24:
                     bias_mag = 0
-                elif shift < 0:
-                    bias_mag = bm >> (-shift)
+                elif bias_shift < 0:
+                    bias_mag = bm >> (-bias_shift)
                 else:
-                    bias_mag = bm << shift
+                    bias_mag = bm << bias_shift
                 p_bias = -bias_mag if sign_b else bias_mag
                 # Rounding (round-half-up constant folded into the bias)
-                if tap > 0:
-                    p_bias += 1 << (tap - 1)
-                elif shift < 0:
-                    p_bias += (bm >> (-shift - 1)) & 1
+                if shift > 0:
+                    p_bias += 1 << (shift - 1)
+                elif bias_shift < 0:
+                    p_bias += (bm >> (-bias_shift - 1)) & 1
 
                 scale_fixed[p][c] = p_scale
                 bias_fixed[p][c] = p_bias
-                tap_arr[p][c] = tap
+                shift_arr[p][c] = shift
 
-        tap_flat = [int(tap_arr[p][c]) for p in range(pe) for c in range(cf)]
+        shift_flat = [int(shift_arr[p][c]) for p in range(pe) for c in range(cf)]
         return {
             "scale": scale_fixed,
             "bias": bias_fixed,
-            "tap": tap_arr,
-            "tap_min": min(tap_flat),
-            "tap_max": max(tap_flat),
+            "shift": shift_arr,
+            "shift_min": min(shift_flat),
+            "shift_max": max(shift_flat),
             "s_width": s_width,
             "x_width": x_width,
         }

@@ -13,9 +13,9 @@
  *	constant-folded into fixed-point in requant.sv), this variant receives the
  *	*already decomposed* fixed-point parameters through a single stream, one
  *	word per compute beat.  Each PE lane carries a packed struct (LSB to MSB):
- *		- SCALE [S_WIDTH]     — signed scale mantissa
- *		- T     [TAP_WIDTH]   — tap - TAP_MIN (unsigned)
- *		- BIAS  [BIAS_WIDTH]  — signed bias (round constant folded in)
+ *		- SCALE [S_WIDTH]       — signed scale mantissa
+ *		- T     [SHIFT_WIDTH]   — shift - SHIFT_MIN (unsigned)
+ *		- BIAS  [BIAS_WIDTH]    — signed bias (round constant folded in)
  *
  *	The fixed-point precision considerations documented in requant.sv apply
  *	equally here: the exact integer multiply may produce results differing
@@ -33,8 +33,8 @@ module requant_decoupled #(
 	int unsigned  C,       // Channel count
 	int unsigned  PE = 1,  // Vector parallelism, must divide C
 
-	int unsigned  TAP_MIN,  // Worst-case minimum tap across all channels
-	int unsigned  TAP_MAX,  // Worst-case maximum tap across all channels
+	int unsigned  SHIFT_MIN,  // Worst-case minimum shift across all channels
+	int unsigned  SHIFT_MAX,  // Worst-case maximum shift across all channels
 
 	bit  SIGNED_OUT = 0,  // 0: unsigned clip [0, 2^N-1], 1: signed clip [-2^(N-1), 2^(N-1)-1]
 
@@ -44,9 +44,9 @@ module requant_decoupled #(
 	localparam int unsigned  X_WIDTH = (K <= (VERSION==3? 24 : 18))? K :
 	                                    ((VERSION==1? 25 : 27) < K? (VERSION==1? 25 : 27) : K),
 	localparam int unsigned  BIAS_WIDTH  = S_WIDTH + X_WIDTH,
-	localparam int unsigned  TAP_RANGE = TAP_MAX - TAP_MIN + 1,
-	localparam int unsigned  TAP_WIDTH  = (TAP_RANGE > 1)? $clog2(TAP_RANGE) : 1,
-	localparam int unsigned  PARAMS_LANE_WIDTH = S_WIDTH + TAP_WIDTH + BIAS_WIDTH
+	localparam int unsigned  SHIFT_RANGE = SHIFT_MAX - SHIFT_MIN + 1,
+	localparam int unsigned  SHIFT_WIDTH  = (SHIFT_RANGE > 1)? $clog2(SHIFT_RANGE) : 1,
+	localparam int unsigned  PARAMS_LANE_WIDTH = S_WIDTH + SHIFT_WIDTH + BIAS_WIDTH
 )(
 	input	logic  clk,
 	input	logic  rst,
@@ -71,8 +71,8 @@ module requant_decoupled #(
 			$error("%m: Parallelism PE=%0d does not divide channel count C=%0d.", PE, C);
 			$finish;
 		end
-		if(TAP_MAX < TAP_MIN) begin
-			$error("%m: TAP_MAX=%0d smaller than TAP_MIN=%0d.", TAP_MAX, TAP_MIN);
+		if(SHIFT_MAX < SHIFT_MIN) begin
+			$error("%m: SHIFT_MAX=%0d smaller than SHIFT_MIN=%0d.", SHIFT_MAX, SHIFT_MIN);
 			$finish;
 		end
 	end
@@ -87,13 +87,13 @@ module requant_decoupled #(
 
 	// Instantiate individual compute lanes
 	for(genvar  pe = 0; pe < PE; pe++) begin : genPE
-		typedef logic [TAP_WIDTH-1:0]  tap_t;
+		typedef logic [SHIFT_WIDTH-1:0]  shift_t;
 
 		//- Stage #1: sample input + streamed parameters
 		logic signed [X_WIDTH-1:0]  X1 = 'x;
 		logic signed [S_WIDTH-1:0]  S1 = 'x;
 		logic signed [BIAS_WIDTH -1:0]  B1 = 'x;
-		tap_t  T1 = 'x;
+		shift_t  T1 = 'x;
 		always_ff @(posedge clk) begin
 			if(rst) begin
 				X1 <= 'x;
@@ -104,15 +104,15 @@ module requant_decoupled #(
 			else begin
 				X1 <= K > X_WIDTH? idat[pe][K-X_WIDTH+:X_WIDTH] : idat[pe];
 				S1 <= $signed(pdat[pe][0+:S_WIDTH]);
-				T1 <= pdat[pe][S_WIDTH+:TAP_WIDTH];
-				B1 <= $signed(pdat[pe][S_WIDTH+TAP_WIDTH+:BIAS_WIDTH]);
+				T1 <= pdat[pe][S_WIDTH+:SHIFT_WIDTH];
+				B1 <= $signed(pdat[pe][S_WIDTH+SHIFT_WIDTH+:BIAS_WIDTH]);
 			end
 		end
 
 		//- Stage #2: multiply
 		logic signed [BIAS_WIDTH-1:0]  M2 = 'x;
 		logic signed [BIAS_WIDTH-1:0]  B2 = 'x;
-		tap_t  T2 = 'x;
+		shift_t  T2 = 'x;
 		always_ff @(posedge clk) begin
 			if(rst) begin
 				M2 <= 'x;
@@ -128,7 +128,7 @@ module requant_decoupled #(
 
 		//- Stage #3: add bias
 		logic signed [BIAS_WIDTH:0]  P3 = 'x;
-		tap_t  T3 = 'x;
+		shift_t  T3 = 'x;
 		always_ff @(posedge clk) begin
 			if(rst) begin
 				P3 <= 'x;
@@ -142,33 +142,33 @@ module requant_decoupled #(
 
 		//- Stage #4: window extract, shift, clip (window sized worst-case)
 		logic [N-1:0]  R4 = 'x;
-		localparam int unsigned  TAP_SPAN = TAP_MAX - TAP_MIN;
+		localparam int unsigned  SHIFT_SPAN = SHIFT_MAX - SHIFT_MIN;
 		uwire  neg = P3[$left(P3)];
 		if(!SIGNED_OUT) begin : blkStage4Unsigned
-			uwire [TAP_SPAN + N-1:0]  win = P3[TAP_MAX+N-1 : TAP_MIN];
-			uwire [TAP_SPAN + N-1:0]  tap = win >> T3;
+			uwire [SHIFT_SPAN + N-1:0]  win = P3[SHIFT_MAX+N-1 : SHIFT_MIN];
+			uwire [SHIFT_SPAN + N-1:0]  shifted = win >> T3;
 			uwire  ovf =
-				(($left(P3)  > TAP_MAX+N)? |P3[$left(P3)-1:TAP_MAX+N] : 0) ||
-				((TAP_MIN    < TAP_MAX  )? |tap[$left(tap):N] : 0);
+				(($left(P3)    > SHIFT_MAX+N)? |P3[$left(P3)-1:SHIFT_MAX+N] : 0) ||
+				((SHIFT_MIN    < SHIFT_MAX  )? |shifted[$left(shifted):N] : 0);
 			always_ff @(posedge clk) begin
 				if(rst)  R4 <= 'x;
 				else begin
 					R4 <=
 						neg?  0 :
 						ovf? '1 :
-						tap[N-1:0];
+						shifted[N-1:0];
 				end
 			end
 		end : blkStage4Unsigned
 		else begin : blkStage4Signed
-			uwire signed [TAP_SPAN + N-1:0]  win = P3[TAP_MAX+N-1 : TAP_MIN];
-			uwire signed [TAP_SPAN + N-1:0]  tap = win >>> T3;
+			uwire signed [SHIFT_SPAN + N-1:0]  win = P3[SHIFT_MAX+N-1 : SHIFT_MIN];
+			uwire signed [SHIFT_SPAN + N-1:0]  shifted = win >>> T3;
 			uwire  ovf =
-				(($left(P3)  > TAP_MAX+N-1)? |(P3[$left(P3)-1:TAP_MAX+N-1] ^ {($left(P3)-TAP_MAX-N+1){neg}}) : 0) ||
-				((TAP_MIN    < TAP_MAX     )? ~(&tap[$left(tap):N-1]) && (|tap[$left(tap):N-1]) : 0);
+				(($left(P3)    > SHIFT_MAX+N-1)? |(P3[$left(P3)-1:SHIFT_MAX+N-1] ^ {($left(P3)-SHIFT_MAX-N+1){neg}}) : 0) ||
+				((SHIFT_MIN    < SHIFT_MAX     )? ~(&shifted[$left(shifted):N-1]) && (|shifted[$left(shifted):N-1]) : 0);
 			always_ff @(posedge clk) begin
 				if(rst)  R4 <= 'x;
-				else     R4 <= ovf? {neg, {(N-1){!neg}}} : tap[N-1:0];
+				else     R4 <= ovf? {neg, {(N-1){!neg}}} : shifted[N-1:0];
 			end
 		end : blkStage4Signed
 
