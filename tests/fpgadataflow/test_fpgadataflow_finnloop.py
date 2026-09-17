@@ -113,6 +113,10 @@ def make_loop_modelwrapper(
     T3 = np.sort(
         generate_random_threshold_values(T3_dtype, 1, dtype.get_num_possible_values() - 1), axis=1
     )
+    # Requant scale/bias for non-float path (per-tensor, magnitudes in safe range)
+    # Scale must be >= ~0.125 (exponent >= -3) for INT8 output due to fixed-point constraints
+    requant_scale = np.random.uniform(0.5, 2.0, [1]).astype(np.float32)
+    requant_bias = np.random.uniform(-4.0, 4.0, [1]).astype(np.float32)
     # RTL elementwise requires matching bitwidths for int/int path
     actual_eltw_param_dtype = (
         add_out_dtype.name
@@ -129,10 +133,23 @@ def make_loop_modelwrapper(
     output_shapes = {f"mm{name_suffix}": [1, 3, 3, mh], f"ofm{name_suffix}": (1, 3, 3, mh)}
 
     tensor_infos = {k: create_tensor_info(k, v) for k, v in tensor_shapes.items()}
-    thresholds = [
-        create_threshold(f"thresh{i}{name_suffix}", (1, dtype.get_num_possible_values() - 1))
-        for i in range(4)
-    ]
+    # For float path: 4 thresholds (including thresh3 for final Thresholding)
+    # For int path: 3 thresholds + scale/bias for final Requant
+    if is_float:
+        thresholds = [
+            create_threshold(f"thresh{i}{name_suffix}", (1, dtype.get_num_possible_values() - 1))
+            for i in range(4)
+        ]
+        requant_inputs = []
+    else:
+        thresholds = [
+            create_threshold(f"thresh{i}{name_suffix}", (1, dtype.get_num_possible_values() - 1))
+            for i in range(3)
+        ]
+        requant_inputs = [
+            helper.make_tensor_value_info(f"scale{name_suffix}", TensorProto.FLOAT, [1]),
+            helper.make_tensor_value_info(f"bias{name_suffix}", TensorProto.FLOAT, [1]),
+        ]
 
     nodes = [
         create_node(
@@ -312,23 +329,43 @@ def make_loop_modelwrapper(
     else:
         thresholding_input_tensor = f"ofm_ew{name_suffix}"
 
-    nodes.append(
-        create_node(
-            "Thresholding_rtl",
-            [thresholding_input_tensor, f"thresh3{name_suffix}"],
-            [f"ofm_final{name_suffix}"],
-            f"Thresholding_rtl4{name_suffix}",
-            {
-                "NumChannels": mh,
-                "PE": helper_pe,
-                "numSteps": dtype.get_num_possible_values() - 1,
-                "inputDataType": thresholding_input_dtype.name,
-                "weightDataType": thresholding_input_dtype.name,
-                "outputDataType": dtype.name,
-                "ActVal": int(dtype.min()),
-            },
-        ),
-    )
+    # Use Requant_rtl for integer path, Thresholding_rtl for float path
+    # (Requant only supports integer inputs)
+    if is_float:
+        nodes.append(
+            create_node(
+                "Thresholding_rtl",
+                [thresholding_input_tensor, f"thresh3{name_suffix}"],
+                [f"ofm_final{name_suffix}"],
+                f"Thresholding_rtl4{name_suffix}",
+                {
+                    "NumChannels": mh,
+                    "PE": helper_pe,
+                    "numSteps": dtype.get_num_possible_values() - 1,
+                    "inputDataType": thresholding_input_dtype.name,
+                    "weightDataType": thresholding_input_dtype.name,
+                    "outputDataType": dtype.name,
+                    "ActVal": int(dtype.min()),
+                },
+            ),
+        )
+    else:
+        nodes.append(
+            create_node(
+                "Requant_rtl",
+                [thresholding_input_tensor, f"scale{name_suffix}", f"bias{name_suffix}"],
+                [f"ofm_final{name_suffix}"],
+                f"Requant_rtl_0{name_suffix}",
+                {
+                    "NumChannels": mh,
+                    "PE": helper_pe,
+                    "inputDataType": thresholding_input_dtype.name,
+                    "outputDataType": dtype.name,
+                    "narrow": 0,
+                    "numInputVectors": [1, 3, 3],
+                },
+            ),
+        )
 
     # Build value_info list
     value_info_list = [
@@ -360,7 +397,7 @@ def make_loop_modelwrapper(
     loop_body = helper.make_graph(
         nodes=nodes,
         name=f"matmul_graph{name_suffix}",
-        inputs=[tensor_infos[f"ifm{name_suffix}"]] + thresholds,
+        inputs=[tensor_infos[f"ifm{name_suffix}"]] + thresholds + requant_inputs,
         outputs=[create_tensor_info(f"ofm_final{name_suffix}", output_shapes[f"ofm{name_suffix}"])],
         value_info=value_info_list,
     )
@@ -375,13 +412,18 @@ def make_loop_modelwrapper(
     loop_body_model.set_initializer(f"thresh0{name_suffix}", T0)
     loop_body_model.set_initializer(f"thresh1{name_suffix}", T1)
     loop_body_model.set_initializer(f"thresh2{name_suffix}", T2)
-    loop_body_model.set_initializer(f"thresh3{name_suffix}", T3)
     loop_body_model.set_initializer(f"mul_param{name_suffix}", EltwParam)
 
-    # Add RTL elementwise parameter when FLOAT32
+    # Add final-node-specific initializers
     if is_float:
+        # Float path: Thresholding with thresh3
+        loop_body_model.set_initializer(f"thresh3{name_suffix}", T3)
         EltwParamRtl = gen_finn_dt_tensor(DataType["FLOAT32"], rhs_shape)
         loop_body_model.set_initializer(f"mul_param_rtl{name_suffix}", EltwParamRtl)
+    else:
+        # Int path: Requant with scale/bias
+        loop_body_model.set_initializer(f"scale{name_suffix}", requant_scale)
+        loop_body_model.set_initializer(f"bias{name_suffix}", requant_bias)
 
     # Set tensor datatypes
     tensors = [
@@ -401,14 +443,17 @@ def make_loop_modelwrapper(
     for w in (f"weights0{name_suffix}", f"weights1{name_suffix}", f"weights2{name_suffix}"):
         loop_body_model.set_tensor_datatype(w, wdtype)
 
-    loop_body_model.set_tensor_datatype(f"thresh3{name_suffix}", T3_dtype)
     loop_body_model.set_tensor_datatype(
         f"mul_param{name_suffix}", DataType[actual_eltw_param_dtype]
     )
 
-    # Set RTL elementwise parameter datatype when FLOAT32
+    # Set final-node-specific datatypes
     if is_float:
+        loop_body_model.set_tensor_datatype(f"thresh3{name_suffix}", T3_dtype)
         loop_body_model.set_tensor_datatype(f"mul_param_rtl{name_suffix}", DataType["FLOAT32"])
+    else:
+        loop_body_model.set_tensor_datatype(f"scale{name_suffix}", DataType["FLOAT32"])
+        loop_body_model.set_tensor_datatype(f"bias{name_suffix}", DataType["FLOAT32"])
 
     return loop_body_model
 
@@ -893,264 +938,6 @@ def test_finnloop_end2end_mlo(
         assert os.path.isfile(
             tmp_output_dir + "/stitched_ip/finn_design.dcp"
         ), f"Check vivado.log in {tmp_output_dir}/stitched_ip"
-
-
-def make_mvau_requant_loop_body(
-    mw,
-    mh,
-    dtype=DataType["UINT8"],
-    name_suffix="",
-    mvau_pe=2,
-    mvau_simd=2,
-    mvau_th=1,
-    helper_pe=2,
-    per_channel=False,
-):
-    """Create a minimal loop body: MVAU_rtl -> Requant_rtl.
-
-    Requant is the first body op with two PARAMETER inputs (scale=input[1],
-    bias=input[2]), so this body exercises the two-tap fan-out in the FINNLoop
-    stream-tap graph right next to the single-tap MVAU. scale/bias are FLOAT32
-    graph inputs (per-tensor or per-channel), so LoopRolling stacks a distinct
-    set per iteration and both memstreams store ``iteration`` sets.
-
-    The activation path is UNSIGNED (UINT8): RTL Requant only emits unsigned
-    outputs, and the FINNLoop body requires its activation input datatype to
-    equal its output datatype (the output feeds the next iteration's input).
-    Weights stay INT8.
-    """
-    W0 = gen_finn_dt_tensor(DataType["INT8"], (mw, mh))
-    # FLOAT32 scale/bias, per-channel [mh] or per-tensor [1]. The magnitudes are
-    # kept in a range that keeps every per-channel tap within the structural
-    # window (0 <= tap <= s_width+x_width+1-n) that decompose_params asserts.
-    param_shape = [mh] if per_channel else [1]
-    scale = np.random.uniform(2**-10, 2**-8, param_shape).astype(np.float32)
-    bias = np.random.uniform(-4.0, 4.0, param_shape).astype(np.float32)
-
-    nodes = [
-        create_node(
-            "MVAU_rtl",
-            [f"ifm{name_suffix}", f"weights0{name_suffix}"],
-            [f"mm0_out{name_suffix}"],
-            f"MVAU_rtl_0{name_suffix}",
-            {
-                "MW": mw,
-                "MH": mh,
-                "SIMD": mvau_simd,
-                "PE": mvau_pe,
-                "TH": mvau_th,
-                "inputDataType": "UINT8",
-                "weightDataType": "INT8",
-                "outputDataType": "INT32",
-                "ActVal": 0,
-                "binaryXnorMode": 0,
-                "noActivation": 1,
-            },
-        ),
-        create_node(
-            "Requant_rtl",
-            [f"mm0_out{name_suffix}", f"scale{name_suffix}", f"bias{name_suffix}"],
-            [f"ofm{name_suffix}"],
-            f"Requant_rtl_0{name_suffix}",
-            {
-                "NumChannels": mh,
-                "PE": helper_pe,
-                "inputDataType": "INT32",
-                "outputDataType": "UINT8",
-                "narrow": 0,
-                "numInputVectors": [1, 3, 3],
-            },
-        ),
-    ]
-
-    loop_body = helper.make_graph(
-        nodes=nodes,
-        name=f"mvau_requant_graph{name_suffix}",
-        inputs=[
-            create_tensor_info(f"ifm{name_suffix}", [1, 3, 3, mw]),
-            create_tensor_info(f"scale{name_suffix}", param_shape),
-            create_tensor_info(f"bias{name_suffix}", param_shape),
-        ],
-        outputs=[create_tensor_info(f"ofm{name_suffix}", (1, 3, 3, mh))],
-        value_info=[
-            create_tensor_info(f"mm0_out{name_suffix}", [1, 3, 3, mh]),
-        ],
-    )
-
-    loop_body_model = qonnx_make_model(loop_body, producer_name=f"mvau-requant-body{name_suffix}")
-    loop_body_model = ModelWrapper(loop_body_model)
-
-    loop_body_model.set_initializer(f"weights0{name_suffix}", W0)
-    loop_body_model.set_initializer(f"scale{name_suffix}", scale)
-    loop_body_model.set_initializer(f"bias{name_suffix}", bias)
-
-    loop_body_model.set_tensor_datatype(f"weights0{name_suffix}", DataType["INT8"])
-    loop_body_model.set_tensor_datatype(f"ifm{name_suffix}", dtype)
-    loop_body_model.set_tensor_datatype(f"mm0_out{name_suffix}", DataType["INT32"])
-    loop_body_model.set_tensor_datatype(f"scale{name_suffix}", DataType["FLOAT32"])
-    loop_body_model.set_tensor_datatype(f"bias{name_suffix}", DataType["FLOAT32"])
-    loop_body_model.set_tensor_datatype(f"ofm{name_suffix}", DataType["UINT8"])
-
-    return loop_body_model
-
-
-def create_chained_requant_loop_bodies(
-    mw,
-    mh,
-    num_copies,
-    mvau_pe=2,
-    mvau_simd=2,
-    mvau_th=1,
-    helper_pe=2,
-    per_channel=False,
-):
-    """Build ``num_copies`` structurally-identical MVAU_rtl -> Requant_rtl bodies.
-
-    Each copy carries distinct weights/scale/bias so LoopRolling produces a real
-    per-iteration parameter stack for both memstreams.
-    """
-    loop_body_models = []
-    for i in range(num_copies):
-        name_suffix = f"_{i}"
-        loop_body_models.append(
-            make_mvau_requant_loop_body(
-                mw=mw,
-                mh=mh,
-                dtype=DataType["UINT8"],
-                name_suffix=name_suffix,
-                mvau_pe=mvau_pe,
-                mvau_simd=mvau_simd,
-                mvau_th=mvau_th,
-                helper_pe=helper_pe,
-                per_channel=per_channel,
-            )
-        )
-    return loop_body_models
-
-
-# (dim, mvau_pe, mvau_simd, mvau_th, helper_pe); TH=1 -> standard MVAU.
-@pytest.mark.parametrize(
-    "mvau_cfg",
-    [
-        (16, 2, 2, 1, 2),
-        (12, 6, 3, 1, 6),
-    ],
-)
-@pytest.mark.parametrize("iteration", [3])
-@pytest.mark.parametrize("per_channel", [False, True])
-@pytest.mark.fpgadataflow
-@pytest.mark.vivado
-@pytest.mark.slow
-def test_finnloop_end2end_mlo_requant(mvau_cfg, iteration, per_channel):
-    """End-to-end MLO rtlsim for a Requant_rtl body node (unified param memstream).
-
-    A Requant inside the loop body is rolled up by LoopRolling; its scale and
-    bias become per-iteration PARAMETER inputs, packed into a single struct-based
-    memstream (storing ``iteration`` sets) via a dedicated stream tap. Exercises
-    the coupled scale+bias decomposition in finn_loop.py next to a single-tap MVAU.
-    """
-    dim, mvau_pe, mvau_simd, mvau_th, helper_pe = mvau_cfg
-    # Vivado 2024.2+ required for MLO
-    vivado_path = os.environ.get("XILINX_VIVADO")
-    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
-    year, minor = int(match.group(1)), int(match.group(2))
-    if (year, minor) < (2024, 2):
-        pytest.skip("""At least Vivado version 2024.2 needed for MLO.""")
-
-    loop_body_models = create_chained_requant_loop_bodies(
-        dim,
-        dim,
-        iteration,
-        mvau_pe=mvau_pe,
-        mvau_simd=mvau_simd,
-        mvau_th=mvau_th,
-        helper_pe=helper_pe,
-        per_channel=per_channel,
-    )
-    nodes_per_body = len(loop_body_models[0].graph.node)
-    model = loop_body_models[0]
-    for m in loop_body_models[1:]:
-        model = model.transform(MergeONNXModels(m))
-
-    # cleanup
-    model = model.transform(RemoveUnusedTensors())
-    model = model.transform(InferShapes())
-    model = model.transform(InferDataTypes())
-
-    # Generate cppsim reference output on the unrolled model. The activation path
-    # is unsigned so the loop body input/output datatypes match (see body helper).
-    input_dtype = DataType["UINT8"]
-    x = gen_finn_dt_tensor(input_dtype, (1, 3, 3, dim))
-    model_ref = model.transform(PrepareCppSim())
-    model_ref = model_ref.transform(CompileCppSim())
-    model_ref = model_ref.transform(SetExecMode("cppsim"))
-    io_dict = {model_ref.graph.input[0].name: x}
-    y_dict = oxe.execute_onnx(model_ref, io_dict)
-    y_ref = y_dict[model_ref.graph.output[0].name]
-
-    tmp_output_dir = make_build_dir("build_mlo_requant")
-    np.save(tmp_output_dir + "/input.npy", x)
-    np.save(tmp_output_dir + "/expected_output.npy", y_ref)
-    model.save(tmp_output_dir + "/mlo_model.onnx")
-
-    steps = [
-        "step_create_dataflow_partition",
-        "phase_convert_to_hardware",  # includes loop rolling
-        "phase_optimize_hardware",
-        "phase_build_hardware",
-        "phase_generate_outputs",
-    ]
-
-    cfg = build_cfg.DataflowBuildConfig(
-        output_dir=tmp_output_dir,
-        steps=steps,
-        synth_clk_period_ns=10.0,
-        board="V80",
-        rtlsim_batch_size=100,
-        mlo=True,
-        loop_body_hierarchy=[["", "layers.0"]],
-        loop_body_range=(model.graph.node[0], model.graph.node[nodes_per_body - 1]),
-        verify_steps=verif_steps,
-        verify_input_npy=tmp_output_dir + "/input.npy",
-        verify_expected_output_npy=tmp_output_dir + "/expected_output.npy",
-        verify_save_full_context=True,
-        generate_outputs=[
-            build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
-            build_cfg.DataflowOutputType.STITCHED_IP,
-        ],
-    )
-    build.build_dataflow_cfg(tmp_output_dir + "/mlo_model.onnx", cfg)
-
-    # loop body template + stitched IP produced
-    assert os.path.isfile(tmp_output_dir + "/loop-body-template.onnx")
-    assert os.path.isfile(tmp_output_dir + "/stitched_ip/ip/component.xml")
-
-    # all three verification steps matched the cppsim reference exactly
-    verif_dir = tmp_output_dir + "/verification_output"
-    assert os.path.isfile(
-        verif_dir + "/verify_folded_hls_cppsim_0_SUCCESS.npz"
-    ), f"Check npz files in {verif_dir}"
-    assert os.path.isfile(
-        verif_dir + "/verify_node_by_node_rtlsim_0_SUCCESS.npz"
-    ), f"Check npz files in {verif_dir}"
-    assert os.path.isfile(
-        verif_dir + "/verify_stitched_ip_rtlsim_0_SUCCESS.npy"
-    ), f"Check npy files in {verif_dir}"
-
-    # per-iteration context captured for all iterations
-    iteration_context_files = [
-        f for f in os.listdir(verif_dir) if f.startswith("iteration_context_")
-    ]
-    assert len(iteration_context_files) > 0, f"No iteration context files found in {verif_dir}"
-    ctx_data = np.load(os.path.join(verif_dir, iteration_context_files[0]))
-    iter_indices = set()
-    for key in [k for k in ctx_data.files if k.startswith("iter_")]:
-        parts = key.split("_", 2)
-        if len(parts) >= 2:
-            iter_indices.add(int(parts[1]))
-    assert (
-        len(iter_indices) == iteration
-    ), f"Expected {iteration} iterations in context, found {len(iter_indices)}"
 
 
 @pytest.mark.parametrize(

@@ -120,9 +120,7 @@ def create_requant_model(abits, max_val, ishape, per_channel):
 )
 @pytest.mark.parametrize("pe", [1, 16])
 @pytest.mark.parametrize("sim_style", ["cppsim", "node_by_node", "stitched_ip"])
-@pytest.mark.parametrize(
-    "mem_mode", ["internal_decoupled"]
-)  # "internal_embedded", "internal_decoupled"])
+@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
