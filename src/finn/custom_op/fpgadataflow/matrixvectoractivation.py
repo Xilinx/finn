@@ -41,7 +41,7 @@ from qonnx.util.basic import (
 )
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
-from finn.util.basic import is_versal
+from finn.util.basic import fifo_rtl_files, is_versal
 from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation:
@@ -367,7 +367,7 @@ class MVAU(HWCustomOp):
             pe = self.get_nodeattr("PE")
             return mh // pe
 
-    def uram_estimation(self):
+    def uram_estimation(self, fpgapart):
         P = self.get_nodeattr("PE")
         Q = self.get_nodeattr("SIMD")
         wdt = self.get_input_datatype(1)
@@ -389,7 +389,7 @@ class MVAU(HWCustomOp):
         depth_multiplier = math.ceil(omega / 4096)
         return width_multiplier * depth_multiplier
 
-    def bram_estimation(self):
+    def bram_estimation(self, fpgapart):
         """Calculates resource estimation for BRAM based on:
         - FINN-R: An End-to-End Deep-Learning Framework for Fast
         Exploration of Quantized Neural Networks
@@ -431,19 +431,19 @@ class MVAU(HWCustomOp):
         else:
             return (math.ceil(omega / 512)) * (math.ceil(mem_width / 36))
 
-    def bram_efficiency_estimation(self):
+    def bram_efficiency_estimation(self, fpgapart):
         wdt = self.get_input_datatype(1)
         W = wdt.bitwidth()
         D_in = self.get_nodeattr("MW")
         D_out = self.get_nodeattr("MH")
-        bram16_est = self.bram_estimation()
+        bram16_est = self.bram_estimation(fpgapart)
         if bram16_est == 0:
             return 1
         wbits = W * D_in * D_out
         bram16_est_capacity = bram16_est * 36 * 512
         return wbits / bram16_est_capacity
 
-    def uram_efficiency_estimation(self):
+    def uram_efficiency_estimation(self, fpgapart):
         """Function for URAM efficiency estimation: actual parameter storage
         needed divided by the allocated URAM storage (from estimation)."""
         # TODO: Versal URAM supports flexible bit widths (9/18/36/72) unlike
@@ -453,7 +453,7 @@ class MVAU(HWCustomOp):
         W = wdt.bitwidth()
         D_in = self.get_nodeattr("MW")
         D_out = self.get_nodeattr("MH")
-        uram_est = self.uram_estimation()
+        uram_est = self.uram_estimation(fpgapart)
         if uram_est == 0:
             return 1
         wbits = W * D_in * D_out
@@ -1110,7 +1110,6 @@ class MVAU(HWCustomOp):
 
                     # instantiate a fetch weights component and connect it to the IP
                     reg_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/skid/")
-                    que_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/fifo/hdl/")
                     fwg_rtllib_dir = os.path.join(
                         os.environ["FINN_ROOT"], "finn-rtllib/fetch_weights/"
                     )
@@ -1124,10 +1123,9 @@ class MVAU(HWCustomOp):
                     sourcefiles = [
                         os.path.join(code_gen_dir, strm_tmpl),
                         reg_rtllib_dir + "skid.sv",
-                        que_rtllib_dir + "Q_srl.v",
                         fwg_rtllib_dir + "fetch_weights.sv",
                         fwg_rtllib_dir + "local_weight_buffer.sv",
-                    ]
+                    ] + fifo_rtl_files()
                     # Create Vivado axis_dwidth_converter IP
                     theight = self.get_nodeattr("TH")
                     wdt = self.get_input_datatype(1)

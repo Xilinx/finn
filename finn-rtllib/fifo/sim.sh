@@ -3,7 +3,7 @@
 # Copyright Advanced Micro Devices, Inc.
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# @brief	FIFO gauge simulation script.
+# @brief	FIFO simulation script.
 # @author	Thomas B. Preußer <thomas.preusser@amd.com>
 ##############################################################################
 set -euo pipefail
@@ -23,3 +23,8 @@ else
 	diff fifo_ref.log fifo_trace_data.log | head -20
 	exit 1
 fi
+
+echo "---"
+xvlog -sv hdl/fifo.sv fifo_tb.sv
+xelab fifo_tb -debug off -s sim_fifo
+xsim sim_fifo -runall

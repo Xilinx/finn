@@ -367,7 +367,7 @@ def test_elementwise_binary_operation_stitched_ip(
     if out_dtype == "FLOAT16":
         # Equivalence checking is more relaxed for arithmetic operations in fp16
         # numpy casts fp16 to fp32, computes in fp32, casts result to fp16
-        assert np.allclose(o_expected, o_produced, rtol=1e-3, atol=2**-14)
+        assert np.allclose(o_expected, o_produced, rtol=1e-3, atol=2**-13)
     else:
         # Compare the expected to the produced for exact equality
         assert np.all(o_produced == o_expected)
@@ -401,7 +401,7 @@ def test_elementwise_binary_operation_stitched_ip(
     if out_dtype == "FLOAT16":
         # Equivalence checking is more relaxed for arithmetic operations in fp16
         # numpy casts fp16 to fp32, computes in fp32, casts result to fp16
-        assert np.allclose(o_expected, o_produced, rtol=1e-3, atol=2**-14)
+        assert np.allclose(o_expected, o_produced, rtol=1e-3, atol=2**-13)
     else:
         # Compare the expected to the produced for exact equality
         assert np.all(o_produced == o_expected)

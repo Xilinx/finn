@@ -136,29 +136,29 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         res_dict, _, _ = self._get_memory_estimate_details()
         return res_dict
 
-    def bram_estimation(self):
+    def bram_estimation(self, fpgapart):
         """return the number of BRAMs required for this node"""
         res_dict = self.get_memory_estimate()
         return res_dict.get("BRAM", 0)
 
-    def uram_estimation(self):
+    def uram_estimation(self, fpgapart):
         """return the number of URAMs required for this node"""
         res_dict = self.get_memory_estimate()
         return res_dict.get("URAM", 0)
 
-    def lut_estimation(self):
+    def lut_estimation(self, fpgapart):
         """return the number of LUTs required for this node"""
         res_dict = self.get_memory_estimate()
         return res_dict.get("LUTRAM", 0)
 
-    def bram_efficiency_estimation(self):
+    def bram_efficiency_estimation(self, fpgapart):
         """return BRAM parameter storage efficiency for this node"""
         _, used_bits, capacity_bits = self._get_memory_estimate_details()
         if capacity_bits.get("BRAM", 0) == 0:
             return 1
         return used_bits["BRAM"] / capacity_bits["BRAM"]
 
-    def uram_efficiency_estimation(self):
+    def uram_efficiency_estimation(self, fpgapart):
         """return URAM parameter storage efficiency for this node."""
         # TODO: Versal URAM supports flexible bit widths (9/18/36/72) unlike
         # UltraScale+ which only supports 72-bit. This could improve efficiency
@@ -502,9 +502,13 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             if thresholds.shape[0] == 1:
                 thresholds = np.broadcast_to(thresholds, (pe, expected_thresholds))
                 num_channels = pe
-            width_padded = roundup_to_integer_multiple(thresholds.shape[1], 2**o_bitwidth)
+            # Calculate width_padded to match RTL AXI address space allocation.
+            # RTL uses $clog2(N) bits for threshold addressing in the AXI interface,
+            # so the address space per channel is 2^clog2(n_thres_steps).
+            # For N=1, clog2(1)=0, so only 1 slot per channel.
+            width_padded = 1 << max(0, math.ceil(math.log2(n_thres_steps)))
             thresh_padded = np.zeros((thresholds.shape[0], width_padded))
-            thresh_padded[: thresholds.shape[0], :expected_thresholds] = thresholds
+            thresh_padded[: thresholds.shape[0], :n_thres_steps] = thresholds[:, :n_thres_steps]
             thresh_stream = []
             bw_hexdigit = roundup_to_integer_multiple(wdt.bitwidth(), 32)
             padding = np.zeros(width_padded, dtype=np.int32)

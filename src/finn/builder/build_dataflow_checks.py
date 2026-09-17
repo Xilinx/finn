@@ -266,6 +266,25 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                 )
             )
 
+    needs_folding = cfg.generate_outputs and any(
+        o != DataflowOutputType.ESTIMATE_REPORTS for o in cfg.generate_outputs
+    )
+    if needs_folding and cfg.target_fps is None and cfg.folding_config_file is None:
+        checks.append(
+            _check(
+                "folding_missing",
+                Severity.ERROR,
+                False,
+                "Neither target_fps nor folding_config_file is set. Nodes stay at "
+                "their creation-time PE=1/SIMD=1, the most folded and slowest "
+                "implementation, and the build will silently run to completion "
+                "with it instead of failing fast",
+                "Set target_fps for automatic folding, or provide folding_config_file "
+                "for manual PE/SIMD settings, so a slow build isn't mistaken for "
+                "a deliberate choice",
+            )
+        )
+
     # === Environment Variables ===
     if has_bitfile and cfg.shell_flow_type == ShellFlowType.VITIS_ALVEO:
         missing = [

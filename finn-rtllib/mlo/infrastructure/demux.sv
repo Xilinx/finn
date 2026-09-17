@@ -156,13 +156,13 @@ always_comb begin: DP_CTRL
     endcase
 end
 
-Q_srl #(
-    .depth(QDEPTH), .width(1)
+fifo #(
+    .DEPTH(QDEPTH), .DATA_WIDTH(1)
 ) inst_queue_seq (
-    .clock(aclk), .reset(!aresetn),
+    .clk(aclk), .rst(!aresetn),
     .count(), .maxcount(),
-    .i_d(seq_C), .i_v(val_seq_C), .i_r(seq_tready),
-    .o_d(seq_out_tdata), .o_v(seq_out_tvalid), .o_r(seq_out_tready)
+    .idat(seq_C), .ivld(val_seq_C), .irdy(seq_tready),
+    .odat(seq_out_tdata), .ovld(seq_out_tvalid), .ordy(seq_out_tready)
 );
 
 assign m_idx_tvalid = val_idx_C;
