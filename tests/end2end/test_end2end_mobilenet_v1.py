@@ -538,6 +538,10 @@ def test_end2end_mobilenet_build_v80():
             build_cfg.DataflowOutputType.CPP_DRIVER,
             build_cfg.DataflowOutputType.DEPLOYMENT_PACKAGE,
         ],
+        # Folding is already baked into the resumed checkpoint and the folding step is
+        # skipped via start_step, so this only satisfies the folding_missing check; it
+        # does not re-fold the model.
+        target_fps=1000,
         # Start from the set_fifo_depths checkpoint, skip earlier steps
         start_step="step_create_stitched_ip",
     )
