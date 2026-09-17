@@ -782,6 +782,10 @@ def test_finnloop_end2end_mlo(
         verify_expected_output_npy=tmp_output_dir + "/expected_output.npy",
         verify_save_full_context=True,  # Enable per-iteration context saving
         debug_fifo=run_fifo_debug,  # snapshot per-FIFO sizing logs (tagged per loop body)
+        # MLO pins folding via mvau_pe/mvau_simd on the nodes at creation time, so the
+        # folding_missing check (which assumes creation-time PE=1/SIMD=1) is a false
+        # positive here; target_fps would instead override the deliberate folding.
+        mute_config_assertions=True,
         generate_outputs=[
             build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
             build_cfg.DataflowOutputType.STITCHED_IP,
@@ -1028,6 +1032,10 @@ def test_finnloop_end2end_mlo_ddr(
         verify_input_npy=tmp_output_dir + "/input.npy",
         verify_expected_output_npy=tmp_output_dir + "/expected_output.npy",
         verify_save_full_context=True,  # Enable per-iteration context saving
+        # MLO pins folding via mvau_pe/mvau_simd on the nodes at creation time, so the
+        # folding_missing check (which assumes creation-time PE=1/SIMD=1) is a false
+        # positive here; target_fps would instead override the deliberate folding.
+        mute_config_assertions=True,
         generate_outputs=[
             build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
             build_cfg.DataflowOutputType.STITCHED_IP,
