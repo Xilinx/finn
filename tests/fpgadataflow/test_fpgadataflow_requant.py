@@ -20,7 +20,7 @@ import os
 import torch
 from brevitas.core.scaling import ScalingImplType
 from brevitas.export import export_qonnx
-from brevitas.nn import QuantReLU
+from brevitas.nn import QuantIdentity, QuantReLU
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -107,6 +107,48 @@ def create_requant_model(abits, max_val, ishape, per_channel):
     return model
 
 
+def create_signed_requant_model(abits, max_val, ishape, per_channel):
+    """Create a model with QuantIdentity (signed output) that will be converted to Requant."""
+    num_channels = ishape[1]
+
+    if per_channel:
+        b_act = QuantIdentity(
+            bit_width=abits,
+            max_val=max_val,
+            min_val=-max_val,
+            scaling_impl_type=ScalingImplType.CONST,
+            scaling_per_output_channel=True,
+            per_channel_broadcastable_shape=(1, num_channels) + (1,) * (len(ishape) - 2),
+        )
+    else:
+        b_act = QuantIdentity(
+            bit_width=abits,
+            max_val=max_val,
+            min_val=-max_val,
+            scaling_impl_type=ScalingImplType.CONST,
+        )
+
+    # Export to QONNX
+    build_dir = make_build_dir(prefix="test_requant_signed_")
+    m_path = os.path.join(build_dir, "model.onnx")
+    export_qonnx(b_act, torch.randn(ishape), m_path)
+    qonnx_cleanup(m_path, out_file=m_path)
+
+    # Convert to FINN format (creates MultiThreshold)
+    # Use filter function to allow higher bit widths (default is 8)
+    model = ModelWrapper(m_path)
+    model = model.transform(
+        ConvertQONNXtoFINN(
+            filter_function=default_filter_function_generator(max_multithreshold_bit_width=abits)
+        )
+    )
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferDataLayouts())
+
+    return model
+
+
 # =============================================================================
 # RTL Backend Test - tests different devices/DSP variants
 # =============================================================================
@@ -121,10 +163,11 @@ def create_requant_model(abits, max_val, ishape, per_channel):
 @pytest.mark.parametrize("pe", [1, 16])
 @pytest.mark.parametrize("sim_style", ["cppsim", "node_by_node", "stitched_ip"])
 @pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
+@pytest.mark.parametrize("signed_out", [False, True])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_requant_rtl(abits, ishape, per_channel, part, pe, sim_style, mem_mode):
+def test_requant_rtl(abits, ishape, per_channel, part, pe, sim_style, mem_mode, signed_out):
     """Test Requant RTL backend with different devices (DSP variants).
 
     Tests integer input which uses the RTL backend.
@@ -141,7 +184,11 @@ def test_requant_rtl(abits, ishape, per_channel, part, pe, sim_style, mem_mode):
     if num_channels % pe != 0:
         pytest.skip(f"PE={pe} does not divide num_channels={num_channels}")
 
-    model = create_requant_model(abits, max_val, ishape, per_channel)
+    # Use QuantIdentity (signed) or QuantReLU (unsigned) based on signed_out parameter
+    if signed_out:
+        model = create_signed_requant_model(abits, max_val, ishape, per_channel)
+    else:
+        model = create_requant_model(abits, max_val, ishape, per_channel)
 
     # Set input datatype to INT8 for RTL backend
     model.set_tensor_datatype(model.graph.input[0].name, DataType[input_dtype])
