@@ -38,10 +38,13 @@ module $TOP_MODULE_NAME$_impl (
 	localparam shortreal  SCALES[PE][CF] = $SCALES$;
 	localparam shortreal  BIASES[PE][CF] = $BIASES$;
 
+	localparam bit  SIGNED_OUT = $SIGNED_OUT$;
+
 	requant_axi #(
 		.VERSION(VERSION),
 		.K(K), .N(N), .C(C), .PE(PE),
-		.SCALES(SCALES), .BIASES(BIASES)
+		.SCALES(SCALES), .BIASES(BIASES),
+		.SIGNED_OUT(SIGNED_OUT)
 	) core (
 		.ap_clk(ap_clk),
 		.ap_rst_n(ap_rst_n),
