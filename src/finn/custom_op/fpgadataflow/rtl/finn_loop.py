@@ -31,6 +31,7 @@ import math
 import numpy as np
 import os
 import shutil
+import subprocess
 from pathlib import Path
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -1233,7 +1234,10 @@ class FINNLoop(HWCustomOp, RTLBackend):
             f.write("{} -mode batch -source make_loop_ip.tcl\n".format(vivado_cmd))
             f.write("cd {}\n".format(working_dir))
         bash_command = ["bash", make_project_sh]
-        launch_process_helper(bash_command, check=True)
+        try:
+            launch_process_helper(bash_command, check=True)
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"IPGen failed: {wrapper_filename} not found") from e
         assert os.path.isfile(wrapper_filename), "IPGen failed: %s not found" % (wrapper_filename)
         self.set_nodeattr("ipgen_path", wrapper_filename)
         self.set_nodeattr("ip_path", vivado_stitch_proj_dir + "/ip")

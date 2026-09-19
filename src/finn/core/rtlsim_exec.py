@@ -29,6 +29,7 @@
 import json
 import numpy as np
 import os
+import subprocess
 from qonnx.custom_op.registry import getCustomOp
 
 from finn import xsi
@@ -295,7 +296,10 @@ def rtlsim_exec_cppxsi(
     # write compilation command to a file for easy re-running/debugging
     with open(sim_base + "/compile_rtlsim.sh", "w") as f:
         f.write(" ".join(build_cmd))
-    launch_process_helper(build_cmd, cwd=sim_base, check=True)
+    try:
+        launch_process_helper(build_cmd, cwd=sim_base, check=True)
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError("Failed to compile rtlsim executable") from e
     assert os.path.isfile(sim_base + "/rtlsim_xsi"), "Failed to compile rtlsim executable"
 
     # launch the rtlsim executable

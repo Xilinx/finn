@@ -30,6 +30,7 @@
 import json
 import multiprocessing as mp
 import os
+import subprocess
 import warnings
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
@@ -767,7 +768,12 @@ close $ofile
             f.write("{} -mode batch -source make_project.tcl\n".format(vivado_cmd))
             f.write("cd {}\n".format(working_dir))
         bash_command = ["bash", make_project_sh]
-        launch_process_helper(bash_command, check=True)
+        try:
+            launch_process_helper(bash_command, check=True)
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(
+                "CreateStitchedIP failed, check logs under %s" % vivado_stitch_proj_dir
+            ) from e
         # wrapper may be created in different location depending on Vivado version
         if not os.path.isfile(wrapper_filename):
             # check in alternative location (.gen instead of .srcs)

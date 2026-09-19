@@ -29,6 +29,7 @@
 
 import multiprocessing as mp
 import os
+import subprocess
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
@@ -277,7 +278,12 @@ class MakeZYNQProject(Transformation):
 
         # call the synthesis script
         bash_command = ["bash", synth_project_sh]
-        launch_process_helper(bash_command, check=True)
+        try:
+            launch_process_helper(bash_command, check=True)
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(
+                "Synthesis failed, check logs under %s" % vivado_pynq_proj_dir
+            ) from e
         bitfile_name = vivado_pynq_proj_dir + "/finn_zynq_link.runs/impl_1/top_wrapper.bit"
         if not os.path.isfile(bitfile_name):
             raise Exception(

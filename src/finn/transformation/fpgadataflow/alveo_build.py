@@ -189,7 +189,12 @@ class CreateVitisXO(Transformation):
             f.write("{} -mode batch -source gen_xo.tcl\n".format(vivado_cmd))
             f.write("cd {}\n".format(working_dir))
         bash_command = ["bash", package_xo_sh]
-        launch_process_helper(bash_command, check=True)
+        try:
+            launch_process_helper(bash_command, check=True)
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(
+                "Vitis .xo file not created, check logs under %s" % vivado_proj_dir
+            ) from e
         assert os.path.isfile(xo_path), (
             "Vitis .xo file not created, check logs under %s" % vivado_proj_dir
         )
@@ -433,7 +438,12 @@ class VitisLink(Transformation):
             )
             f.write("cd {}\n".format(working_dir))
         bash_command = ["bash", script]
-        launch_process_helper(bash_command, check=True)
+        try:
+            launch_process_helper(bash_command, check=True)
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(
+                "Vitis .xclbin file not created, check logs under %s" % link_dir
+            ) from e
         # TODO rename xclbin appropriately here?
         xclbin = link_dir + "/a.xclbin"
         assert os.path.isfile(xclbin), (
