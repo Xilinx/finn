@@ -236,8 +236,11 @@ class TestConfigCheckIntegration:
         assert "zynq7000_retired" in error_names
 
     def test_verify_step_prereq_missing_phase(self):
-        """A verify_steps entry whose phase is excluded by stop_step should error,
-        since that verification would otherwise silently never run."""
+        """A verify_steps entry whose phase is excluded by stop_step should warn, since
+        that verification would otherwise silently never run.
+
+        This is a warning rather than an error: a custom step/flow can legitimately
+        handle verification itself, so this shouldn't block the build."""
         build_dir = make_build_dir("test_config_check_")
         model_path = make_test_model(build_dir)
         output_dir = os.path.join(build_dir, "output")
@@ -258,10 +261,10 @@ class TestConfigCheckIntegration:
 
         with open(os.path.join(output_dir, "config_check_report.json")) as f:
             report = json.load(f)
-        error_names = [
-            c["name"] for c in report["checks"] if not c["passed"] and c["severity"] == "ERROR"
+        warning_names = [
+            c["name"] for c in report["checks"] if not c["passed"] and c["severity"] == "WARNING"
         ]
-        assert "verify_step_prereq" in error_names
+        assert "verify_step_prereq" in warning_names
 
     def test_verify_step_prereq_present_phase_ok(self):
         """A verify_steps entry whose phase is included should not error."""

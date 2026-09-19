@@ -15,6 +15,7 @@ from finn.builder.build_dataflow_config import (
     DataflowBuildConfig,
     DataflowOutputType,
     ShellFlowType,
+    verify_step_prereqs,
 )
 from finn.util.basic import (
     get_vivado_version,
@@ -348,14 +349,9 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
         # each verify_steps entry is only ever triggered from inside one specific
         # step, itself part of one specific phase; if steps/start_step/stop_step
         # leaves that step out, the entry is silently never verified
-        verify_step_prereqs = {
-            "finn_onnx_python": ("phase_prepare_model", "step_qonnx_to_finn"),
-            "initial_python": ("phase_prepare_model", "step_tidy_up"),
-            "streamlined_python": ("phase_optimize_model", "step_streamline"),
-            "folded_hls_cppsim": ("phase_optimize_hardware", "step_minimize_bit_width"),
-            "node_by_node_rtlsim": ("phase_build_hardware", "step_hw_ipgen"),
-            "stitched_ip_rtlsim": ("phase_generate_outputs", "step_create_stitched_ip"),
-        }
+        #
+        # The (phase, step) prerequisite for each VerificationStepType is defined
+        # next to the enum itself, in build_dataflow_config.verify_step_prereqs.
         try:
             # imported lazily via importlib (rather than a top-level import) since
             # build_dataflow imports this module, and a top-level import back
@@ -371,14 +367,14 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
 
         if resolved_names is not None:
             for vstep in cfg._resolve_verification_steps():
-                phase_name, step_name = verify_step_prereqs.get(vstep.value, (None, None))
+                phase_name, step_name = verify_step_prereqs.get(vstep, (None, None))
                 phase_missing = phase_name and phase_name not in resolved_names
                 step_missing = step_name not in resolved_names
                 if phase_missing and step_missing:
                     checks.append(
                         _check(
                             "verify_step_prereq",
-                            Severity.ERROR,
+                            Severity.WARNING,
                             False,
                             f"verify_steps includes {vstep.value}, but neither "
                             f"{phase_name} nor {step_name} is in the resolved "
