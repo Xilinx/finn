@@ -294,7 +294,13 @@ module $TOP_MODULE_NAME$_impl #(
     // Alternatively, we could manually sign-extend and shave off a bit here or there.
     logic signed [$clog2(LAST_READ_ELEM+1)+1-1:0]  Newest_buffered_elem = -1;
     logic        [$clog2(LAST_READ_ELEM+1)+1-1:0]  Current_elem = 0;
-    logic        [$clog2(LAST_READ_ELEM+1)+1-1:0]  First_elem_next_window = 0;
+    // One bit wider than the other element counters: after the first fetch of the last
+    // window of a feature map, this holds (start of that window + TAIL_INCR_LAST), which
+    // exceeds LAST_READ_ELEM in depthwise mode. In the narrower register that value wrapped
+    // into the negative range of the $signed() comparison in read_cmd and blocked all further
+    // reads, so a depthwise SWG whose input arrives no faster than its own window rate
+    // deadlocked on the last element of every feature map.
+    logic        [$clog2(LAST_READ_ELEM+1)+1  :0]  First_elem_next_window = 0;
     logic        [$clog2(ELEM_PER_WINDOW)   -1:0]  Position_in_window = 0;
     logic        [$clog2(BUF_ELEM_TOTAL)+1  -1:0]  Window_buffer_read_addr_reg = 0;
     logic        [$clog2(BUF_ELEM_TOTAL)-1:0]      Window_buffer_write_addr_reg = 0;
