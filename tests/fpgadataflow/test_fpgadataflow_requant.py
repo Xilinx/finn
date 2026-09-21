@@ -60,6 +60,7 @@ from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.qonnx.quant_act_to_multithreshold import (
     default_filter_function_generator,
 )
+from finn.transformation.streamline.absorb import AbsorbScalarBiasIntoMultiThreshold
 from finn.util.basic import make_build_dir, pynq_part_map
 
 test_pynq_board = "ZCU104"
@@ -199,6 +200,10 @@ def test_requant_rtl(abits, ishape, per_channel, part, pe, sim_style, mem_mode, 
     input_dict = {model.graph.input[0].name: inp}
     y_golden = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
 
+    # Absorb Add into MultiThreshold before InferRequantLayer
+    # This is needed for signed outputs where the Add contains the signed offset
+    model = model.transform(AbsorbScalarBiasIntoMultiThreshold())
+
     # Apply InferRequantLayer
     model = model.transform(InferRequantLayer())
     model = model.transform(InferShapes())
@@ -286,13 +291,15 @@ def test_requant_rtl(abits, ishape, per_channel, part, pe, sim_style, mem_mode, 
 @pytest.mark.parametrize("input_dtype", ["FLOAT32", "INT8"])
 @pytest.mark.parametrize("pe", [1, 16])
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+@pytest.mark.parametrize("signed_out", [False, True])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_requant_hls(abits, ishape, per_channel, input_dtype, pe, exec_mode):
+def test_requant_hls(abits, ishape, per_channel, input_dtype, pe, exec_mode, signed_out):
     """Test Requant HLS backend.
 
     Tests float input (naturally uses HLS) and integer input with forced HLS.
+    Tests both unsigned output (QuantReLU) and signed output (QuantIdentity).
     """
     num_channels = ishape[1]
     max_val = 1.0
@@ -301,7 +308,11 @@ def test_requant_hls(abits, ishape, per_channel, input_dtype, pe, exec_mode):
     if num_channels % pe != 0:
         pytest.skip(f"PE={pe} does not divide num_channels={num_channels}")
 
-    model = create_requant_model(abits, max_val, ishape, per_channel)
+    # Use QuantIdentity (signed) or QuantReLU (unsigned) based on signed_out parameter
+    if signed_out:
+        model = create_signed_requant_model(abits, max_val, ishape, per_channel)
+    else:
+        model = create_requant_model(abits, max_val, ishape, per_channel)
 
     # Set input datatype
     model.set_tensor_datatype(model.graph.input[0].name, DataType[input_dtype])
@@ -311,6 +322,10 @@ def test_requant_hls(abits, ishape, per_channel, input_dtype, pe, exec_mode):
     inp = gen_finn_dt_tensor(DataType[input_dtype], ishape)
     input_dict = {model.graph.input[0].name: inp}
     y_golden = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
+
+    # Absorb Add into MultiThreshold before InferRequantLayer
+    # This is needed for signed outputs where the Add contains the signed offset
+    model = model.transform(AbsorbScalarBiasIntoMultiThreshold())
 
     # Apply InferRequantLayer
     model = model.transform(InferRequantLayer())
