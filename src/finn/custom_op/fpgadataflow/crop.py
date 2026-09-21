@@ -21,18 +21,15 @@ from finn.util.basic import flat_characteristic_leaf
 class Crop(HWCustomOp):
     """Abstraction layer for Crop layers."""
 
-    def __init__(self, onnx_node, **kwargs):
-        super().__init__(onnx_node, **kwargs)
-
     def get_nodeattr_types(self):
         my_attrs = {
             "DataType": ("s", True, ""),
             "ImgDim": ("ints", True, []),  # [h, w]
             "NumChannels": ("i", True, 0),
-            "CropNorth": ("i", True, []),
-            "CropSouth": ("i", True, []),
-            "CropWest": ("i", True, []),
-            "CropEast": ("i", True, []),
+            "CropNorth": ("i", True, 0),
+            "CropSouth": ("i", True, 0),
+            "CropWest": ("i", True, 0),
+            "CropEast": ("i", True, 0),
             "SIMD": ("i", False, 1),
             "numInputVectors": ("ints", False, []),
         }
@@ -126,50 +123,6 @@ class Crop(HWCustomOp):
         folded_ishape = normal_ishape[:-1] + [fold, simd]
         return tuple(folded_ishape)
 
-    def get_tree_model(self):
-        """Every input word is read; the ones inside the crop are written on.
-
-        The layer streams its input raster once at one word per cycle and passes
-        through the words that fall inside the kept window, so the two rows are
-        the raster and the raster masked by the crop. The read row never pauses:
-        the row and column counters that decide whether a word is kept advance
-        off the read itself, so a dropped row costs no cycle and the period is
-        the input frame -- what ``get_exp_cycles`` returns.
-
-        ``LATENCY`` is the fixed delay from reading a word to writing it, over
-        the three dataflow stages a word passes through. It rotates the write
-        row against the read one and changes neither the period nor either row's
-        token count.
-
-        The raster assumes the pass-through pipelines at II=1, as
-        ``get_exp_cycles`` does. A design that schedules slower stretches every
-        read by that factor and takes proportionally longer.
-
-        Valid for ImgDim up to 48 x 48 and NumChannels / SIMD 1..16, for integer
-        and float words alike, and for any crop that keeps at least one word.
-        """
-        LATENCY = 8
-        simd = self.get_nodeattr("SIMD")
-        h, w = self.get_nodeattr("ImgDim")
-        h = 1 if h == 0 else h
-        ch = self.get_nodeattr("NumChannels")
-        num_vec = self.get_nodeattr("numInputVectors")
-        n_vec = int(np.prod(num_vec)) if num_vec != [0] else 1
-        fold = ch // simd
-        if min(h, w, fold, n_vec) < 1:
-            return None
-        keep = np.zeros((n_vec, h, w, fold), dtype=np.int8)
-        north = self.get_nodeattr("CropNorth")
-        south = self.get_nodeattr("CropSouth")
-        west = self.get_nodeattr("CropWest")
-        east = self.get_nodeattr("CropEast")
-        keep[:, north : h - south, west : w - east, :] = 1
-        if keep.sum() < 1:
-            return None
-        wr = np.roll(keep.reshape(-1), LATENCY)
-        rd = np.ones_like(wr)
-        return flat_characteristic_leaf(rd, wr, "Crop raster")
-
     def get_exp_cycles(self):
         simd = self.get_nodeattr("SIMD")
         num_vec = self.get_nodeattr("numInputVectors")
@@ -184,3 +137,70 @@ class Crop(HWCustomOp):
             if num_vec != [0]
             else height * width * (ch // simd)
         )
+
+    def get_tree_model(self):
+        """Every input fold is read; the ones inside the crop are written on.
+
+        The layer streams its input raster once at one fold per cycle and passes
+        through the folds that fall inside the kept window, so the two rows are
+        the raster and the raster masked by the crop. The read row never pauses:
+        the row and column counters that decide whether a fold is kept advance
+        off the read itself, so a dropped row costs no cycle and the period is
+        the input frame -- what ``get_exp_cycles`` returns.
+
+        The latency is the delay from reading a kept fold to writing it. It
+        rotates the write row against the read one and changes neither the
+        period nor either row's token count, and it is placed in the frame of
+        the rtlsim window the model is checked against: that window opens a
+        cycle before the driver presents the first fold, and since the read row
+        is solid, the write row carries the offset alone. The two backends are
+        two circuits and each has its own:
+
+        - ``Crop_hls``: 8, **fitted** to the three dataflow stages of the HLS
+          pipeline. The raster assumes they pipeline at II=1, as
+          ``get_exp_cycles`` does; a design that schedules slower stretches
+          every read by that factor. Valid for ImgDim up to 48 x 48 and
+          NumChannels / SIMD 1..16, integer and float words alike.
+        - ``Crop_rtl``: 2, **derived** from ``finn-rtllib/crop/hdl/crop.sv``: one
+          cycle for the fold to reach the output register, one for the driver
+          offset above; the generated wrapper is wiring only. With the output
+          ready the register always loads, so ``irdy`` never drops. Checked
+          exact against rtlsim for H up to 16, W up to 48, NumChannels / SIMD
+          1..48, INT8, UINT4 and FLOAT32, batched input, the degenerate
+          ``H == 1`` and ``W == 1`` counters, a crop on every side and a crop
+          keeping a single fold.
+
+        Either holds for any crop that keeps at least one fold. The
+        backend-agnostic node is no circuit and has no schedule.
+
+        The write row is rolled rather than shifted because a crop that keeps
+        the last folds of a frame wraps their writes past the end of the period,
+        which is also why this is one flat leaf and not a nested row/column
+        tree.
+        """
+        op_type = self.onnx_node.op_type
+        if op_type.endswith("_rtl"):
+            latency = 2
+        elif op_type.endswith("_hls"):
+            latency = 8
+        else:
+            return None
+        simd = self.get_nodeattr("SIMD")
+        h, w = self.get_nodeattr("ImgDim")
+        h = 1 if h == 0 else h
+        cf = self.get_nodeattr("NumChannels") // simd
+        num_vec = self.get_nodeattr("numInputVectors")
+        n_vec = int(np.prod(num_vec)) if num_vec != [0] else 1
+        if min(h, w, cf, n_vec) < 1:
+            return None
+        keep = np.zeros((n_vec, h, w, cf), dtype=np.int8)
+        north = self.get_nodeattr("CropNorth")
+        south = self.get_nodeattr("CropSouth")
+        west = self.get_nodeattr("CropWest")
+        east = self.get_nodeattr("CropEast")
+        keep[:, north : h - south, west : w - east, :] = 1
+        if keep.sum() < 1:
+            return None
+        wr = np.roll(keep.reshape(-1), latency)
+        rd = np.ones_like(wr)
+        return flat_characteristic_leaf(rd, wr, "Crop raster")

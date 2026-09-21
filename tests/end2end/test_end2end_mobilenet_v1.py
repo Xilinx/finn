@@ -83,7 +83,6 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import (
     InsertAndSetFIFODepths,
     RemoveShallowFIFOs,
-    SplitLargeFIFOs,
 )
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
@@ -444,13 +443,11 @@ def test_end2end_mobilenet_set_fifo_depths():
             fpga_part,
             target_clk_ns,
             swg_exception=False,
-            vivado_ram_style="auto",
         )
     )
-    # perform FIFO splitting and shallow FIFO removal only after the final config
-    # json file has been written. otherwise, since these transforms may add/remove
-    # FIFOs, we get name mismatch problems when trying to reuse the final config.
-    model = model.transform(SplitLargeFIFOs())
+    # perform shallow FIFO removal only after the final config json file has been
+    # written. otherwise, since this transform removes FIFOs, we get name mismatch
+    # problems when trying to reuse the final config.
     model = model.transform(RemoveShallowFIFOs())
     # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again
     # this will only run for the new nodes (e.g. FIFOs and DWCs)
@@ -541,6 +538,10 @@ def test_end2end_mobilenet_build_v80():
             build_cfg.DataflowOutputType.CPP_DRIVER,
             build_cfg.DataflowOutputType.DEPLOYMENT_PACKAGE,
         ],
+        # Folding is already baked into the resumed checkpoint and the folding step is
+        # skipped via start_step, so this only satisfies the folding_missing check; it
+        # does not re-fold the model.
+        target_fps=1000,
         # Start from the set_fifo_depths checkpoint, skip earlier steps
         start_step="step_create_stitched_ip",
     )

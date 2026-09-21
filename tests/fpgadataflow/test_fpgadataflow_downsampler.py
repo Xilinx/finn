@@ -54,7 +54,6 @@ from finn.util.test import tree_model_test
 
 
 def build_model(is_1d, in_dim, k, stride, dt_in, dt_w, pad_half=0, flip_1d=False):
-    np.random.seed(0)
     out_dim = compute_conv_output_dim(in_dim, k, stride, 2 * pad_half)
     ifm = 8
     ofm = 16

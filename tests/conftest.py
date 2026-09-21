@@ -27,16 +27,51 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-# The Jenkins CI sharding + timing plugin lives in the top-level ci/ dir, out
-# of the shipped finn package. Put ci/ on sys.path so the finn_ci package and
-# the end2end board parametrisation can import it by bare name. Local pytest
-# collection is unaffected unless the --num-shards / --dry-run-shards options
-# are passed.
+# Pytest support modules live in the top-level ci/ directory, outside the
+# shipped finn package. Put ci/ on sys.path so tests can load them by bare name.
+import pytest
+
+import numpy as np
 import os
+import random
 import sys
+
+try:
+    import torch
+except ImportError:
+    torch = None
 
 _CI_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ci")
 if _CI_DIR not in sys.path:
     sys.path.insert(0, _CI_DIR)
 
+from finn_ci.rng_seed import (  # noqa: E402  # (needs to come after ci/ on sys.path)
+    seed_from_nodeid,
+)
+
 pytest_plugins = ["finn_ci.plugin"]
+
+
+@pytest.fixture
+def finn_test_seed(request):
+    return seed_from_nodeid(request.node.nodeid)
+
+
+@pytest.fixture(autouse=True)
+def _deterministic_random_state(request, finn_test_seed):
+    python_state = random.getstate()
+    numpy_state = np.random.get_state()
+    torch_state = torch.get_rng_state() if torch is not None else None
+
+    try:
+        random.seed(finn_test_seed)
+        np.random.seed(finn_test_seed)
+        if torch is not None:
+            torch.random.default_generator.manual_seed(finn_test_seed)
+        request.node.user_properties.append(("finn_test_rng_seed", str(finn_test_seed)))
+        yield
+    finally:
+        random.setstate(python_state)
+        np.random.set_state(numpy_state)
+        if torch_state is not None:
+            torch.set_rng_state(torch_state)

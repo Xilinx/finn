@@ -7,6 +7,7 @@ from dataclasses import replace
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import RemoveUnusedTensors
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
@@ -112,6 +113,10 @@ def make_loop_modelwrapper(
     T3 = np.sort(
         generate_random_threshold_values(T3_dtype, 1, dtype.get_num_possible_values() - 1), axis=1
     )
+    # Requant scale/bias for non-float path (per-tensor, magnitudes in safe range)
+    # Scale must be >= ~0.125 (exponent >= -3) for INT8 output due to fixed-point constraints
+    requant_scale = np.random.uniform(0.5, 2.0, [1]).astype(np.float32)
+    requant_bias = np.random.uniform(-4.0, 4.0, [1]).astype(np.float32)
     # RTL elementwise requires matching bitwidths for int/int path
     actual_eltw_param_dtype = (
         add_out_dtype.name
@@ -128,10 +133,23 @@ def make_loop_modelwrapper(
     output_shapes = {f"mm{name_suffix}": [1, 3, 3, mh], f"ofm{name_suffix}": (1, 3, 3, mh)}
 
     tensor_infos = {k: create_tensor_info(k, v) for k, v in tensor_shapes.items()}
-    thresholds = [
-        create_threshold(f"thresh{i}{name_suffix}", (1, dtype.get_num_possible_values() - 1))
-        for i in range(4)
-    ]
+    # For float path: 4 thresholds (including thresh3 for final Thresholding)
+    # For int path: 3 thresholds + scale/bias for final Requant
+    if is_float:
+        thresholds = [
+            create_threshold(f"thresh{i}{name_suffix}", (1, dtype.get_num_possible_values() - 1))
+            for i in range(4)
+        ]
+        requant_inputs = []
+    else:
+        thresholds = [
+            create_threshold(f"thresh{i}{name_suffix}", (1, dtype.get_num_possible_values() - 1))
+            for i in range(3)
+        ]
+        requant_inputs = [
+            helper.make_tensor_value_info(f"scale{name_suffix}", TensorProto.FLOAT, [1]),
+            helper.make_tensor_value_info(f"bias{name_suffix}", TensorProto.FLOAT, [1]),
+        ]
 
     nodes = [
         create_node(
@@ -311,23 +329,43 @@ def make_loop_modelwrapper(
     else:
         thresholding_input_tensor = f"ofm_ew{name_suffix}"
 
-    nodes.append(
-        create_node(
-            "Thresholding_rtl",
-            [thresholding_input_tensor, f"thresh3{name_suffix}"],
-            [f"ofm_final{name_suffix}"],
-            f"Thresholding_rtl4{name_suffix}",
-            {
-                "NumChannels": mh,
-                "PE": helper_pe,
-                "numSteps": dtype.get_num_possible_values() - 1,
-                "inputDataType": thresholding_input_dtype.name,
-                "weightDataType": thresholding_input_dtype.name,
-                "outputDataType": dtype.name,
-                "ActVal": int(dtype.min()),
-            },
-        ),
-    )
+    # Use Requant_rtl for integer path, Thresholding_rtl for float path
+    # (Requant only supports integer inputs)
+    if is_float:
+        nodes.append(
+            create_node(
+                "Thresholding_rtl",
+                [thresholding_input_tensor, f"thresh3{name_suffix}"],
+                [f"ofm_final{name_suffix}"],
+                f"Thresholding_rtl4{name_suffix}",
+                {
+                    "NumChannels": mh,
+                    "PE": helper_pe,
+                    "numSteps": dtype.get_num_possible_values() - 1,
+                    "inputDataType": thresholding_input_dtype.name,
+                    "weightDataType": thresholding_input_dtype.name,
+                    "outputDataType": dtype.name,
+                    "ActVal": int(dtype.min()),
+                },
+            ),
+        )
+    else:
+        nodes.append(
+            create_node(
+                "Requant_rtl",
+                [thresholding_input_tensor, f"scale{name_suffix}", f"bias{name_suffix}"],
+                [f"ofm_final{name_suffix}"],
+                f"Requant_rtl_0{name_suffix}",
+                {
+                    "NumChannels": mh,
+                    "PE": helper_pe,
+                    "inputDataType": thresholding_input_dtype.name,
+                    "outputDataType": dtype.name,
+                    "narrow": 0,
+                    "numInputVectors": [1, 3, 3],
+                },
+            ),
+        )
 
     # Build value_info list
     value_info_list = [
@@ -359,7 +397,7 @@ def make_loop_modelwrapper(
     loop_body = helper.make_graph(
         nodes=nodes,
         name=f"matmul_graph{name_suffix}",
-        inputs=[tensor_infos[f"ifm{name_suffix}"]] + thresholds,
+        inputs=[tensor_infos[f"ifm{name_suffix}"]] + thresholds + requant_inputs,
         outputs=[create_tensor_info(f"ofm_final{name_suffix}", output_shapes[f"ofm{name_suffix}"])],
         value_info=value_info_list,
     )
@@ -374,13 +412,18 @@ def make_loop_modelwrapper(
     loop_body_model.set_initializer(f"thresh0{name_suffix}", T0)
     loop_body_model.set_initializer(f"thresh1{name_suffix}", T1)
     loop_body_model.set_initializer(f"thresh2{name_suffix}", T2)
-    loop_body_model.set_initializer(f"thresh3{name_suffix}", T3)
     loop_body_model.set_initializer(f"mul_param{name_suffix}", EltwParam)
 
-    # Add RTL elementwise parameter when FLOAT32
+    # Add final-node-specific initializers
     if is_float:
+        # Float path: Thresholding with thresh3
+        loop_body_model.set_initializer(f"thresh3{name_suffix}", T3)
         EltwParamRtl = gen_finn_dt_tensor(DataType["FLOAT32"], rhs_shape)
         loop_body_model.set_initializer(f"mul_param_rtl{name_suffix}", EltwParamRtl)
+    else:
+        # Int path: Requant with scale/bias
+        loop_body_model.set_initializer(f"scale{name_suffix}", requant_scale)
+        loop_body_model.set_initializer(f"bias{name_suffix}", requant_bias)
 
     # Set tensor datatypes
     tensors = [
@@ -400,14 +443,17 @@ def make_loop_modelwrapper(
     for w in (f"weights0{name_suffix}", f"weights1{name_suffix}", f"weights2{name_suffix}"):
         loop_body_model.set_tensor_datatype(w, wdtype)
 
-    loop_body_model.set_tensor_datatype(f"thresh3{name_suffix}", T3_dtype)
     loop_body_model.set_tensor_datatype(
         f"mul_param{name_suffix}", DataType[actual_eltw_param_dtype]
     )
 
-    # Set RTL elementwise parameter datatype when FLOAT32
+    # Set final-node-specific datatypes
     if is_float:
+        loop_body_model.set_tensor_datatype(f"thresh3{name_suffix}", T3_dtype)
         loop_body_model.set_tensor_datatype(f"mul_param_rtl{name_suffix}", DataType["FLOAT32"])
+    else:
+        loop_body_model.set_tensor_datatype(f"scale{name_suffix}", DataType["FLOAT32"])
+        loop_body_model.set_tensor_datatype(f"bias{name_suffix}", DataType["FLOAT32"])
 
     return loop_body_model
 
@@ -534,6 +580,41 @@ def create_chained_loop_bodies(
     return loop_body_models
 
 
+def assert_finnloop_cycle_estimate(build_dir, x, rtol=0.35, atol=50):
+    """Compare FINNLoop.get_exp_cycles() against the measured rtlsim cycle count.
+
+    Reuses the loop-body IP already built by an MLO end-to-end build (no extra
+    synthesis): loads the node-by-node rtlsim child model saved by the build,
+    re-runs rtlsim on the single FINNLoop node (which populates its
+    ``cycles_rtlsim`` nodeattr, see HWCustomOp.rtlsim_multi_io) and asserts the
+    estimate is close to the measured value, mirroring the FMPadding cycle check.
+    """
+    child_fn = build_dir + "/intermediate_models/verify_node_by_node_rtlsim.onnx"
+    assert os.path.isfile(child_fn), f"missing node-by-node rtlsim model {child_fn}"
+    # child was saved by the build with exec_mode=rtlsim and rtlsim prepared; the
+    # loop params are baked as initializers, so only the activation input is needed
+    child = ModelWrapper(child_fn)
+    loop_nodes = child.get_nodes_by_op_type("FINNLoop")
+    assert len(loop_nodes) == 1, f"expected exactly one FINNLoop, got {len(loop_nodes)}"
+    inst = getCustomOp(loop_nodes[0])
+    in_name = child.graph.input[0].name
+    ishape = tuple(child.get_tensor_shape(in_name))
+    x_single = x.reshape((1,) + ishape[1:])
+    oxe.execute_onnx(child, {in_name: x_single})
+    cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
+    exp_cycles = inst.get_exp_cycles()
+    assert exp_cycles != 0
+    # The FINNLoop estimate is a conservative liveness bound and tends to slightly
+    # over-count (measured ~2928 vs ~2310 rtlsim, i.e. ~27% high, for the canonical
+    # config), which is the safe direction for the watchdog. A relative tolerance is
+    # used because the per-iteration overhead heuristic makes the error scale with
+    # the iteration count.
+    assert np.isclose(exp_cycles, cycles_rtlsim, rtol=rtol, atol=atol), (
+        f"FINNLoop cycle estimate {exp_cycles} not close to rtlsim {cycles_rtlsim} "
+        f"(rtol={rtol}, atol={atol})"
+    )
+
+
 # MVAU folding as a jointly-valid tuple (dim, mvau_pe, mvau_simd, mvau_th, helper_pe).
 # TH=1 selects the standard MVAU; TH>1 selects the tiled MVAU (Versal DSP58).
 # The dimensions must satisfy the tiling constraints: MW % SIMD == 0, MH % PE == 0
@@ -553,24 +634,25 @@ def create_chained_loop_bodies(
 @pytest.mark.parametrize("rhs_shape", [[1], [16]])
 # eltwise param dtype
 @pytest.mark.parametrize("eltw_param_dtype", ["INT8", "FLOAT32"])
-# tail node
-@pytest.mark.parametrize("tail_node", [False, True])
+# insert non-MLO head/tail nodes (and a non-HW parent node) around the FINNLoop
+@pytest.mark.parametrize("non_mlo_nodes", [False, True])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_finnloop_end2end_mlo(
-    mvau_cfg, iteration, elemwise_optype, rhs_shape, eltw_param_dtype, tail_node
+    mvau_cfg, iteration, elemwise_optype, rhs_shape, eltw_param_dtype, non_mlo_nodes
 ):
     dim, mvau_pe, mvau_simd, mvau_th, helper_pe = mvau_cfg
     # The tiled MVAU (TH>1) is only exercised on selected elementwise configs to
     # avoid a combinatorial explosion of long Vivado builds. rhs_shape is pinned to
     # [1] since [16] is incompatible with the tiled config's dim. Within that, we
-    # cover INT8/no-tail (canonical), FLOAT32/no-tail (float path) and INT8/tail
-    # (tail-node integration), skipping the redundant FLOAT32+tail combination.
+    # cover INT8/no-extra-nodes (canonical), FLOAT32/no-extra-nodes (float path) and
+    # INT8/extra-nodes (head/tail/parent integration), skipping the redundant
+    # FLOAT32+extra-nodes combination.
     if mvau_th > 1 and not (
         elemwise_optype == "ElementwiseMul_hls"
         and rhs_shape == [1]
-        and not (eltw_param_dtype == "FLOAT32" and tail_node)
+        and not (eltw_param_dtype == "FLOAT32" and non_mlo_nodes)
     ):
         pytest.skip("Tiled MVAU only exercised on selected elementwise configs")
     # Check vivado version
@@ -596,7 +678,8 @@ def test_finnloop_end2end_mlo(
     for m in loop_body_models[1:]:
         model = model.transform(MergeONNXModels(m))
 
-    if tail_node:
+    if non_mlo_nodes:
+        # tail node on the output side
         tail_outp = create_tensor_info("tail_outp", [1, 3, 3, dim])
         tr_node = create_node(
             "ElementwiseAdd_hls",
@@ -620,6 +703,68 @@ def test_finnloop_end2end_mlo(
         model.set_initializer("tail_add", AddtailParam)
         model.set_tensor_datatype("tail_add", DataType["INT8"])
 
+        # head node on the input side, symmetric with the tail node, kept inside the
+        # partition ahead of the FINNLoop. A zero-crop preserves shape and datatype so
+        # the loop-carried datatype (loop input dtype == loop output dtype) is intact.
+        loop_in_name = model.graph.input[0].name
+        first_body_node = model.find_consumer(loop_in_name)
+        head_node = create_node(
+            "Crop_hls",
+            [loop_in_name],
+            ["head_out"],
+            "Crop_head",
+            {
+                "DataType": "INT8",
+                "ImgDim": [3, 3],
+                "NumChannels": dim,
+                "CropNorth": 0,
+                "CropSouth": 0,
+                "CropWest": 0,
+                "CropEast": 0,
+                "SIMD": 1,
+                "numInputVectors": [1],
+                "cpp_interface": "hls_vector",
+                "hls_style": "freerunning",
+            },
+        )
+        for i, inp in enumerate(first_body_node.input):
+            if inp == loop_in_name:
+                first_body_node.input[i] = "head_out"
+        model.graph.node.insert(0, head_node)
+        model.graph.value_info.append(create_tensor_info("head_out", [1, 3, 3, dim]))
+        model.set_tensor_datatype("head_out", DataType["INT8"])
+
+    # A non-HW parent node (single config): prepended ahead of the head node so it
+    # lands in dataflow_parent.onnx, outside the SDP, exercising parent-routed
+    # stitched-IP verification. Shape-preserving Transpose over the two size-3 axes
+    # keeps (1, 3, 3, dim) but permutes values, so the hardware must reproduce it.
+    insert_parent_node = (
+        non_mlo_nodes
+        and mvau_cfg == (16, 2, 2, 1, 2)
+        and elemwise_optype == "ElementwiseMul_hls"
+        and rhs_shape == [1]
+        and eltw_param_dtype == "INT8"
+    )
+    if insert_parent_node:
+        parent_in = model.graph.input[0].name
+        parent_consumer = model.find_consumer(parent_in)
+        parent_tr = helper.make_node(
+            "Transpose",
+            [parent_in],
+            ["parent_transpose_out"],
+            name="Parent_Transpose",
+            perm=[0, 2, 1, 3],
+        )
+        for i, inp in enumerate(parent_consumer.input):
+            if inp == parent_in:
+                parent_consumer.input[i] = "parent_transpose_out"
+        model.graph.node.insert(0, parent_tr)
+        model.graph.value_info.append(create_tensor_info("parent_transpose_out", [1, 3, 3, dim]))
+        model.set_tensor_datatype("parent_transpose_out", DataType["INT8"])
+
+    # number of nodes prepended ahead of the first loop body (head + parent node)
+    n_prepended = int(non_mlo_nodes) + int(insert_parent_node)
+
     # cleanup
     model = model.transform(RemoveUnusedTensors())
     model = model.transform(InferShapes())
@@ -642,11 +787,12 @@ def test_finnloop_end2end_mlo(
 
     model.save(tmp_output_dir + "/mlo_model.onnx")
 
-    # Use phase-based pipeline
-    # Steps are adjusted because test model already has HLS and RTL layers
+    # Use phase-based pipeline. phase_convert_to_hardware already partitions
+    # internally, so step_create_dataflow_partition must not be listed separately:
+    # a second partition would re-derive dataflow_parent.onnx off the child and
+    # drop the non-HW parent nodes.
     steps = [
-        "step_create_dataflow_partition",  # Fine-grained (model already specialized)
-        "phase_convert_to_hardware",  # Phase (includes loop rolling)
+        "phase_convert_to_hardware",  # Phase (includes partition + loop rolling)
         "phase_optimize_hardware",  # Phase (includes folding, bit-width, reports)
         "phase_build_hardware",  # Phase (includes codegen, ipgen, FIFOs)
         "phase_generate_outputs",  # Phase (only stitched IP requested, so no full synth)
@@ -659,7 +805,7 @@ def test_finnloop_end2end_mlo(
         and elemwise_optype == "ElementwiseMul_hls"
         and rhs_shape == [1]
         and eltw_param_dtype == "INT8"
-        and not tail_node
+        and not non_mlo_nodes
     )
 
     cfg = build_cfg.DataflowBuildConfig(
@@ -671,18 +817,35 @@ def test_finnloop_end2end_mlo(
         standalone_thresholds=True,
         mlo=True,
         loop_body_hierarchy=[["", "layers.0"]],
-        loop_body_range=(model.graph.node[0], model.graph.node[nodes_per_body - 1]),
+        loop_body_range=(
+            model.graph.node[n_prepended],
+            model.graph.node[n_prepended + nodes_per_body - 1],
+        ),
         verify_steps=verif_steps,
         verify_input_npy=tmp_output_dir + "/input.npy",
         verify_expected_output_npy=tmp_output_dir + "/expected_output.npy",
         verify_save_full_context=True,  # Enable per-iteration context saving
         debug_fifo=run_fifo_debug,  # snapshot per-FIFO sizing logs (tagged per loop body)
+        # MLO pins folding via mvau_pe/mvau_simd on the nodes at creation time, so the
+        # folding_missing check (which assumes creation-time PE=1/SIMD=1) is a false
+        # positive here; target_fps would instead override the deliberate folding.
+        mute_config_assertions=True,
         generate_outputs=[
             build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
             build_cfg.DataflowOutputType.STITCHED_IP,
         ],
     )
     build.build_dataflow_cfg(tmp_output_dir + "/mlo_model.onnx", cfg)
+
+    if insert_parent_node:
+        # The prepended non-HW node must stay outside the StreamingDataflowPartition,
+        # i.e. it lands in dataflow_parent.onnx. This ensures stitched_ip_rtlsim
+        # verification actually routes the input through the parent graph.
+        parent_model = ModelWrapper(tmp_output_dir + "/intermediate_models/dataflow_parent.onnx")
+        non_sdp_nodes = [
+            n for n in parent_model.graph.node if n.op_type != "StreamingDataflowPartition"
+        ]
+        assert len(non_sdp_nodes) > 0, "Parent model has no non-SDP node to run"
 
     # check if expected files are there
     assert os.path.isfile(tmp_output_dir + "/loop-body-template.onnx")
@@ -698,8 +861,9 @@ def test_finnloop_end2end_mlo(
     assert os.path.isfile(tmp_output_dir + "/stitched_ip/ip/component.xml")
 
     verif_dir = tmp_output_dir + "/verification_output"
-    # With verify_save_full_context=True, cppsim and node_by_node_rtlsim save as .npz
-    # stitched_ip_rtlsim with MLO uses rtlsim_pre_hook so it saves as .npy
+    # With verify_save_full_context=True, all verification steps save the full
+    # context as .npz. MLO stitched_ip_rtlsim now routes through the parent model
+    # (need_parent=True), so it also saves the full context as .npz.
     assert os.path.isfile(
         verif_dir + "/verify_folded_hls_cppsim_0_SUCCESS.npz"
     ), f"Check npz files in {verif_dir}"
@@ -707,8 +871,8 @@ def test_finnloop_end2end_mlo(
         verif_dir + "/verify_node_by_node_rtlsim_0_SUCCESS.npz"
     ), f"Check npz files in {verif_dir}"
     assert os.path.isfile(
-        verif_dir + "/verify_stitched_ip_rtlsim_0_SUCCESS.npy"
-    ), f"Check npy files in {verif_dir}"
+        verif_dir + "/verify_stitched_ip_rtlsim_0_SUCCESS.npz"
+    ), f"Check npz files in {verif_dir}"
 
     # Verify that the per-iteration context file was created for FINNLoop
     iteration_context_files = [
@@ -731,6 +895,12 @@ def test_finnloop_end2end_mlo(
     assert (
         len(iter_indices) == iteration
     ), f"Expected {iteration} iterations in context, found {len(iter_indices)}"
+
+    # Cycle-count verification for the FINNLoop: compare get_exp_cycles() against the
+    # measured rtlsim cycles (FMPadding-style). Gated to the single canonical config so
+    # it reuses the already-built loop-body IP with just one extra rtlsim run.
+    if run_fifo_debug:
+        assert_finnloop_cycle_estimate(tmp_output_dir, x)
 
     # debug_fifo snapshots per-FIFO sizing logs. For MLO the loop-body FIFO sizing
     # tags each log with its enclosing FINNLoop name and stores them under a subdir
@@ -772,7 +942,14 @@ def test_finnloop_end2end_mlo(
 
 @pytest.mark.parametrize(
     "dim, simd, pe, bitwidth, weight_bitwidth",
-    [(16, 1, 1, 8, 8), (8, 8, 4, 3, 3)],
+    [
+        # Coverage matrix over {folding} x {256-divisibility of the element widths}.
+        (16, 1, 1, 8, 8),  # unfolded, divisor (8|256): baseline PASS
+        (8, 8, 4, 4, 4),  # folded, divisor (4|256, DMA_PE=64): guards word-aligned image
+        #   stays byte-identical for divisors at the real folding
+        (8, 8, 4, 3, 3),  # folded, non-divisor (3 wasted bits/word): exercises the
+        #   DMA-word-aligned fix on both the activation and weight paths
+    ],
 )
 # iteration count, number of models chained together
 @pytest.mark.parametrize("iteration", [3])
@@ -868,20 +1045,15 @@ def test_finnloop_end2end_mlo_ddr(
     test_id = re.sub(r"[^0-9A-Za-z_]+", "_", request.node.name)
     tmp_output_dir = make_build_dir(f"build_mlo_{test_id}_")
 
-    batch_size = 16
-    np.save(tmp_output_dir + "/input.npy", np.broadcast_to(x, (batch_size, 3, 3, dim)))
-    np.save(
-        tmp_output_dir + "/expected_output.npy",
-        np.broadcast_to(y_ref, (batch_size, 3, 3, dim)),
-    )
+    np.save(tmp_output_dir + "/input.npy", x)
+    np.save(tmp_output_dir + "/expected_output.npy", y_ref)
 
     model.save(tmp_output_dir + "/mlo_model.onnx")
 
-    # Use phase-based pipeline
-    # Steps are adjusted because test model already has HLS and RTL layers
+    # Use phase-based pipeline. phase_convert_to_hardware already partitions
+    # internally, so step_create_dataflow_partition must not be listed separately.
     steps = [
-        "step_create_dataflow_partition",  # Fine-grained (model already specialized)
-        "phase_convert_to_hardware",  # Phase (includes loop rolling)
+        "phase_convert_to_hardware",  # Phase (includes partition + loop rolling)
         "phase_optimize_hardware",  # Phase (includes folding, bit-width, reports)
         "phase_build_hardware",  # Phase (includes codegen, ipgen, FIFOs)
         "phase_generate_outputs",  # Phase (stitched IP, bitfile synth, driver, deployment)
@@ -903,6 +1075,10 @@ def test_finnloop_end2end_mlo_ddr(
         verify_input_npy=tmp_output_dir + "/input.npy",
         verify_expected_output_npy=tmp_output_dir + "/expected_output.npy",
         verify_save_full_context=True,  # Enable per-iteration context saving
+        # MLO pins folding via mvau_pe/mvau_simd on the nodes at creation time, so the
+        # folding_missing check (which assumes creation-time PE=1/SIMD=1) is a false
+        # positive here; target_fps would instead override the deliberate folding.
+        mute_config_assertions=True,
         generate_outputs=[
             build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
             build_cfg.DataflowOutputType.STITCHED_IP,
@@ -927,8 +1103,9 @@ def test_finnloop_end2end_mlo_ddr(
     assert os.path.isfile(tmp_output_dir + "/stitched_ip/ip/component.xml")
 
     verif_dir = tmp_output_dir + "/verification_output"
-    # With verify_save_full_context=True, cppsim and node_by_node_rtlsim save as .npz
-    # stitched_ip_rtlsim with MLO uses rtlsim_pre_hook so it saves as .npy
+    # With verify_save_full_context=True, all verification steps save the full
+    # context as .npz. MLO stitched_ip_rtlsim now routes through the parent model
+    # (need_parent=True), so it also saves the full context as .npz.
     assert os.path.isfile(
         verif_dir + "/verify_folded_hls_cppsim_0_SUCCESS.npz"
     ), f"Check npz files in {verif_dir}"
@@ -936,8 +1113,8 @@ def test_finnloop_end2end_mlo_ddr(
         verif_dir + "/verify_node_by_node_rtlsim_0_SUCCESS.npz"
     ), f"Check npz files in {verif_dir}"
     assert os.path.isfile(
-        verif_dir + "/verify_stitched_ip_rtlsim_0_SUCCESS.npy"
-    ), f"Check npy files in {verif_dir}"
+        verif_dir + "/verify_stitched_ip_rtlsim_0_SUCCESS.npz"
+    ), f"Check npz files in {verif_dir}"
 
     # Verify that the per-iteration context file was created for FINNLoop
     iteration_context_files = [

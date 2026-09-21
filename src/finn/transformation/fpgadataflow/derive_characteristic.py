@@ -1319,7 +1319,7 @@ def derive_chained_tav_depths(
     #: deadline is the frame. Inside a reconvergent branch that is false: the
     #: deadline is the *join*, whose other input is arriving on its own schedule,
     #: so a cycle lost here is a cycle the join waits and a cycle the graph loses.
-    def _reachable(tensor):
+    def reachable(tensor):
         seen, stack = set(), [model.find_consumer(tensor)]
         while stack:
             n = stack.pop()
@@ -1335,14 +1335,14 @@ def derive_chained_tav_depths(
         outs = [t for t in node.output if model.find_consumer(t) is not None]
         if len(outs) < 2:
             continue
-        reach = [_reachable(t) for t in outs]
+        reach = [reachable(t) for t in outs]
         shared = set.intersection(*reach)
         if not shared:
             continue  # the branches never meet again; ordinary chains
         for r in reach:
             in_branch |= r - shared
 
-    def _record(**row):
+    def record(**row):
         if trace is not None:
             trace.append(row)
 
@@ -1427,7 +1427,7 @@ def derive_chained_tav_depths(
             n *= int(d)
         return int(n)
 
-    def _supply_deficit(write_times, read_times, local_reads, hold=0):
+    def supply_deficit(write_times, read_times, local_reads, hold=0):
         """Tokens the consumer must find already buffered to never wait.
 
         ``read_times`` is the *stretched* schedule the arrival propagation
@@ -1487,7 +1487,7 @@ def derive_chained_tav_depths(
             # already been stretched to the supply's rate. Whichever is larger
             # wins.
             depth = max(int(peak), int(burst_floor))
-            _record(
+            record(
                 tensor=tensor,
                 consumer=consumer,
                 peak=int(peak),
@@ -1542,7 +1542,7 @@ def derive_chained_tav_depths(
                 floor = burst_above_rate(read_times, rate)
             elif floor_mode == "deficit":
                 hold = max(0, global_period - t_down) if not drives_pacer.get(consumer, True) else 0
-                floor = _supply_deficit(write_times, read_times, local_reads, hold)
+                floor = supply_deficit(write_times, read_times, local_reads, hold)
             elif floor_mode.startswith("const:"):
                 floor = int(floor_mode.split(":", 1)[1])
             else:
@@ -1591,7 +1591,7 @@ def derive_chained_tav_depths(
         depth = max(after_slack, floor)
         if small_peak and peak < small_peak * per_frame and not capped:
             depth = 0
-        _record(
+        record(
             tensor=tensor,
             consumer=consumer,
             peak=int(peak),
@@ -1608,10 +1608,10 @@ def derive_chained_tav_depths(
             burst_supply=int(burst_above_rate(read_times, per_frame / float(max(t_up, 1))))
             if read_times is not None
             else 0,
-            deficit=_supply_deficit(write_times, read_times, local_reads, 0)
+            deficit=supply_deficit(write_times, read_times, local_reads, 0)
             if read_times is not None
             else 0,
-            deficit_slack=_supply_deficit(
+            deficit_slack=supply_deficit(
                 write_times, read_times, local_reads, max(0, global_period - t_down)
             )
             if read_times is not None
@@ -1709,7 +1709,7 @@ def derive_chained_tav_depths(
 
         clock = cycles + np.maximum.accumulate(req - cycles)
 
-        def _times(curve_t):
+        def token_times(curve_t):
             n = int(curve_t[-1])
             return clock[
                 np.minimum(np.searchsorted(curve_t, np.arange(1, n + 1), side="left"), span - 1)
@@ -1728,7 +1728,7 @@ def derive_chained_tav_depths(
                 # the one answer this shape cannot tolerate.
                 depths[t] = max(depths.get(t, 0), absorbed_frame_floor(model, node, t))
                 continue
-            read_times = _times(curve_t)
+            read_times = token_times(curve_t)
             curve = in_curves[t]
             n_frame = int(curve[len(curve) // 2 - 1]) if len(curve) >= 2 else 0
             #: where the consumer *wants* each token, on its own unstretched
@@ -1764,7 +1764,7 @@ def derive_chained_tav_depths(
             curve = out_curves.get(t)
             if curve is None:
                 continue
-            wt = _times(curve)
+            wt = token_times(curve)
             arrival[t] = causal_writes(wt, in_scheds) if causal else wt
             per_frame_out = int(curve[len(curve) // 2 - 1]) if len(curve) >= 2 else int(curve[-1])
             supply[t] = (max(1, per_frame_out), t_up, t_prop)
@@ -1801,8 +1801,8 @@ class DeriveFIFOSizes(Transformation):
 
     #: Depth cap for edges whose consumer neither runs at the pacer's period nor
     #: feeds anything that does -- blocking such a consumer only makes it finish
-    #: its frame later. 256 is SplitLargeFIFOs' max_qsrl_depth, above which a
-    #: FIFO stops fitting in SRLs.
+    #: its frame later. 256 is the depth above which a FIFO stops fitting in
+    #: SRLs.
     CHAINED_TAV_THROTTLED_CAP = 256
 
     #: Which side's slack the relaxation spends. ``up`` (the default) charges the

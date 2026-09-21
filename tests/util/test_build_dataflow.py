@@ -49,7 +49,7 @@ def test_end2end_build_dataflow_directory():
     copytree(example_data_dir, target_dir)
     build_dataflow_directory(target_dir)
     # check the generated files
-    output_dir = target_dir + "/output_tfc_w1a1_Pynq-Z1"
+    output_dir = target_dir + "/output_tfc_w1a1_AUP-ZU3_8GB"
     assert os.path.isfile(output_dir + "/build_dataflow.log")
     assert os.path.isfile(output_dir + "/time_per_step.json")
     assert os.path.isfile(output_dir + "/auto_folding_config.json")

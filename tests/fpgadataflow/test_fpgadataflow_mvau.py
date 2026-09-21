@@ -532,16 +532,6 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, pumpe
 def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
     mem_mode, idt, wdt, act, nf, sf, mw, mh, preferred_impl_style, ram_style, part
 ):
-    # TODO: bring back skipped test when solved
-    if (
-        preferred_impl_style == "rtl"
-        and part == "xczu7ev-ffvc1156-2-e"
-        and ram_style == "ultra"
-        and mw == mh == 128
-        and nf == sf == -1
-        and act is None
-    ):
-        pytest.skip("Temporarily xfail this test, because last address can't be read back.")
     if preferred_impl_style == "rtl" and act is not None:
         pytest.skip("RTL-MVAU doesn't support const mem mode or embedded activations")
     if nf == -1:
@@ -1165,8 +1155,16 @@ def test_mvau_tree_model_declines_unmodelled_mem_modes(mem_mode):
     assert inst.get_tree_model() is None
 
 
-def _tiled_mvau_inst(mh):
-    """A bare MVAU_rtl node instance, to call its schedule builders on."""
+@pytest.mark.fpgadataflow
+def test_mvau_tiled_tree_model_token_counts():
+    """One period of the tiled schedule moves exactly one folded frame.
+
+    The check that costs the most when it fails and needs no reference at all:
+    a schedule one token short per period makes the sizer's steady-state
+    occupancy accumulate a deficit over every frame.
+    """
+    mh, n_vec = 18, 18
+    # a bare MVAU_rtl node instance, to call its schedule builders on
     node = helper.make_node(
         "MVAU_rtl",
         ["inp", "weights"],
@@ -1180,22 +1178,10 @@ def _tiled_mvau_inst(mh):
         inputDataType="INT4",
         weightDataType="INT4",
         outputDataType="INT16",
-        numInputVectors=[18],
+        numInputVectors=[n_vec],
         noActivation=1,
     )
-    return getCustomOp(node)
-
-
-@pytest.mark.fpgadataflow
-def test_mvau_tiled_tree_model_token_counts():
-    """One period of the tiled schedule moves exactly one folded frame.
-
-    The check that costs the most when it fails and needs no reference at all:
-    a schedule one token short per period makes the sizer's steady-state
-    occupancy accumulate a deficit over every frame.
-    """
-    mh, n_vec = 18, 18
-    mvau = _tiled_mvau_inst(mh)
+    mvau = getCustomOp(node)
     for mw, pe, simd, th in TILED_TAV_CONFIGS:
         sf, nf = mw // simd, mh // pe
         tree = mvau.mvau_tiled_tree(sf, nf, n_vec, simd, th)

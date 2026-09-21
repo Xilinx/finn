@@ -165,7 +165,8 @@ class Shuffle(HWCustomOp):
             out_shape = list(itemgetter(*P)(current_shape))
 
             if _is_inner_shuffle(P, current_shape):
-                # InnerShuffle: in_shape = current_shape
+                # InnerShuffle: no reshape fused here, so physical in_shape and
+                # logical transpose_in_shape are both the current stage shape.
                 tmp_node = helper.make_node(
                     "InnerShuffle",
                     ["tmp_in"],
@@ -173,6 +174,7 @@ class Shuffle(HWCustomOp):
                     domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
                     in_shape=current_shape,
+                    transpose_in_shape=current_shape,
                     data_type=data_type,
                     SIMD=simd,
                     name=f"tmp_inner_{step_idx}",

@@ -345,11 +345,7 @@ class VitisLink(Transformation):
                 node_mem_port = sdp_node.get_nodeattr("mem_port")
                 if node_mem_port == "":
                     # configure good defaults based on board
-                    if (
-                        "u50" in self.vitis_platform
-                        or "u280" in self.vitis_platform
-                        or "u55c" in self.vitis_platform
-                    ):
+                    if "u50" in self.vitis_platform or "u55c" in self.vitis_platform:
                         # Use HBM where available (also U50 does not have DDR)
                         mem_type = "HBM"
                         node_mem_port = "%s[%d]" % (mem_type, mem_idx)

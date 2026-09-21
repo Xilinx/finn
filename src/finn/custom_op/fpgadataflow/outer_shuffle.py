@@ -9,23 +9,54 @@
 
 import math
 import numpy as np
-import os
-import re
 import warnings
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
-from finn.util.basic import Characteristic_Node
+from finn.util.basic import Characteristic_Node, get_vivado_version
 
-# Write-pointer pipeline latency in input_gen(), and the extra beat an output
-# takes to appear behind it. Both are properties of the HLS source.
-_WP_DELAY = 4
-_READ_TO_WRITE = _WP_DELAY - 1
 
-# Above this buffer depth the reorder buffer is mapped to URAM, whose read
-# latency of 3 the pipeline cannot hide, so it schedules at II=3 instead of 1.
-# Vivado reached II=1 at every depth before 2024.2.
-_URAM_DEPTH_THRESHOLD = 262144
+class _NestSim:
+    """Simulate the Nest<R, W, N, C, V...> HLS template from input_gen.hpp.
+
+    Models the read-pointer and free-pointer update logic of the HLS reorder
+    buffer, including loop termination and counter reset behavior.
+    """
+
+    def __init__(self, R, W, *rest):
+        self.R = R
+        self.W = W
+        self.is_terminal = len(rest) == 0
+        if self.is_terminal:
+            self._rp_rewind = 0
+            self._fp_rewind = 0
+            self.max_rp_retract = 0
+        else:
+            self.N = rest[0]
+            self.C = rest[1]
+            self.R_INNER = R and (self.C > 0) and (self.C * self.N <= W)
+            self.inner = _NestSim(self.R_INNER, self.C, *rest[2:])
+            self._rp_rewind = (self.N - 1) * self.C + self.inner._rp_rewind
+            self._fp_rewind = (self.N - 1) * self.C + self.inner._fp_rewind if self.R_INNER else 0
+            self.terminal_rp_inc = W - self._rp_rewind
+            self.cnt = self.N - 2
+            self.max_rp_retract = max(-self.terminal_rp_inc, self.inner.max_rp_retract)
+
+    def tick(self):
+        if self.is_terminal:
+            return self.W, (self.W if self.R else 0), True
+        rp_inc, fp_inc, term = self.inner.tick()
+        if term:
+            if self.cnt < 0:
+                rp_inc = self.terminal_rp_inc
+                if self.R:
+                    fp_inc = self.W - self._fp_rewind
+                self.cnt = self.N - 2
+                return rp_inc, fp_inc, True
+            else:
+                self.cnt -= 1
+                return rp_inc, fp_inc, False
+        return rp_inc, fp_inc, False
 
 
 class OuterShuffle(HWCustomOp):
@@ -113,6 +144,113 @@ class OuterShuffle(HWCustomOp):
         fold = int(normal_ishape[-1] / simd)
         folded_ishape = normal_ishape[:-1] + [fold, simd]
         return tuple(folded_ishape)
+
+    def get_exp_cycles(self):
+        """Estimate cycles by simulating the input_gen HLS pipeline.
+
+        Derives all parameters from transpose_in_shape, perm, and SIMD:
+        - output shape: apply perm to input shape
+        - loop coefficients: input strides permuted by perm
+        - buffer size: power-of-2 >= max_rp_retract + WP_DELAY + 2
+
+        The HLS pipeline has three stall sources:
+        1. WP_DELAY (=4): write-pointer pipeline latency before reads begin
+        2. Read stalls: consumer waits for data (rp >= wp_delayed)
+        3. Write stalls: producer blocked by full buffer (wp - fp >= buf_size)
+
+        When buf_size > 262144 (URAM), pipeline II=3 due to read latency.
+        """
+        simd = self.get_nodeattr("SIMD")
+        in_shape = list(self.get_nodeattr("transpose_in_shape"))
+        perm = list(self.get_nodeattr("perm"))
+
+        # Derive output shape and loop coefficients from input shape and perm
+        out_shape = [in_shape[p] for p in perm]
+        adjusted = in_shape + [1]
+        input_strides = [int(np.prod(adjusted[i + 1 :])) for i in range(len(in_shape))]
+        loop_coeffs = [input_strides[p] for p in perm]
+
+        # Apply SIMD folding to innermost dimension
+        out_shape[-1] = int(out_shape[-1] / simd)
+        lc = [1 if x == 1 else int(x / simd) for x in loop_coeffs]
+        total_elems = int(np.prod(out_shape))
+
+        # Build the Nest args: Nest<true, IFM_SIZE, N0, C0, N1, C1, ..., Nn, Cn>
+        interleaved = [int(item) for pair in zip(out_shape, lc) for item in pair]
+
+        # Create Nest simulation and compute buffer size
+        nest = _NestSim(True, total_elems, *tuple(interleaved))
+        WP_DELAY = 4
+        addr_bits = max(1, math.ceil(math.log2(max(1, nest.max_rp_retract + WP_DELAY + 2))))
+        buf_size = 1 << addr_bits
+
+        pipeline_ii = self.pipeline_ii(buf_size)
+
+        # Simulate the input_gen pipeline at II=1.
+        # Models the wp delay pipeline, finite buffer backpressure,
+        # and the Nest-driven read pointer pattern.
+        wp = [0] * WP_DELAY
+        rp = 0
+        fp = 0
+        ovld = False
+        input_consumed = 0
+        output_produced = 0
+        cycle = 0
+
+        while output_produced < total_elems and cycle < total_elems * 10:
+            cycle += 1
+
+            # Shift write pointer delay pipeline
+            for i in range(WP_DELAY - 1, 0, -1):
+                wp[i] = wp[i - 1]
+
+            # Write into buffer if space available
+            if wp[0] - fp < buf_size and input_consumed < total_elems:
+                wp[0] += 1
+                input_consumed += 1
+
+            # Drain output buffer
+            if ovld:
+                output_produced += 1
+                ovld = False
+
+            # Refill output buffer via Nest tick
+            if not ovld and rp < wp[WP_DELAY - 1]:
+                rp_inc, fp_inc, _ = nest.tick()
+                rp += rp_inc
+                fp += fp_inc
+                ovld = True
+
+        if ovld:
+            output_produced += 1
+
+        return cycle * pipeline_ii
+
+    def pipeline_ii(self, buf_size):
+        """Cycles per pipeline iteration: 1, or 3 where the buffer lands in URAM.
+
+        Vivado pipelines ``input_gen`` at II=1 whatever the buffer depth up to
+        2024.1. From 2024.2 a buffer deep enough to be inferred as URAM carries
+        that memory's read latency of 3 into the recurrence, and the loop
+        schedules at II=3 instead. Estimate-only builds have no Vivado to ask,
+        and assume the currently recommended 2024.2+ behaviour.
+
+        Its own method because the schedule in ``get_tree_model`` is paced by
+        the same II as the cycle count is.
+        """
+        vivado_version = get_vivado_version()
+        if vivado_version is None:
+            warnings.warn(
+                "%s: XILINX_VIVADO is not set; OuterShuffle cycle estimates are "
+                "Vivado-version dependent, assuming Vivado 2024.2 or newer." % self.onnx_node.name
+            )
+            vivado_version = (2024, 2)
+        if vivado_version < (2024, 2):
+            return 1
+        # BRAM (depth <= 262144) achieves II=1; URAM (depth > 262144) has read
+        # latency 3, forcing II=3.
+        URAM_DEPTH_THRESHOLD = 262144
+        return 3 if buf_size > URAM_DEPTH_THRESHOLD else 1
 
     def loop_nest(self):
         """The ``Nest<>`` the HLS input generator is instantiated with.
@@ -208,14 +346,18 @@ class OuterShuffle(HWCustomOp):
         A completed loop always leaves the read pointer net forward, so the only
         backward movement is a single loop's terminal retraction; the deepest of
         those bounds how far behind the write pointer a read can reach.
+
+        The closed form over the nest of what ``get_exp_cycles`` reads off
+        ``_NestSim.max_rp_retract``, to the same ``WP_DELAY``.
         """
+        WP_DELAY = 4
         L = len(extents)
         W = [num_words] + [coeffs[j - 1] for j in range(1, L + 1)]
         rewind = [0] * (L + 1)
         for j in range(L - 1, -1, -1):
             rewind[j] = (extents[j] - 1) * coeffs[j] + rewind[j + 1]
         retract = max([0] + [-(W[j] - rewind[j]) for j in range(L)])
-        addr_bits = max(1, math.ceil(math.log2(max(1, retract + _WP_DELAY + 2))))
+        addr_bits = max(1, math.ceil(math.log2(max(1, retract + WP_DELAY + 2))))
         return 1 << addr_bits
 
     def free_lead(self, extents, coeffs, num_words, buf_size):
@@ -262,98 +404,6 @@ class OuterShuffle(HWCustomOp):
         t0 = min(outrun)
         return strides[t0], coeffs[t0] - strides[t0], extents[t0]
 
-    def pipeline_ii(self):
-        """Cycles per pipeline iteration: 1, or 3 where the buffer lands in URAM.
-
-        Vivado pipelines ``input_gen`` at II=1 whatever the buffer depth up to
-        2024.1. From 2024.2 a buffer deep enough to be inferred as URAM carries
-        that memory's read latency into the recurrence and the loop schedules at
-        II=3 instead.
-        """
-        extents, coeffs, num_words = self.loop_nest()
-        if self.buffer_depth(extents, coeffs, num_words) <= _URAM_DEPTH_THRESHOLD:
-            return 1
-        vivado_path = os.environ.get("XILINX_VIVADO")
-        match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path) if vivado_path else None
-        if match is None:
-            return 1
-        return 1 if (int(match.group(1)), int(match.group(2))) < (2024, 2) else 3
-
-    def word_addresses(self, extents, coeffs):
-        """The input word each output wants, over one frame."""
-        indices = np.meshgrid(*[np.arange(n) for n in extents], indexing="ij")
-        addresses = np.zeros(indices[0].shape, dtype=np.int64)
-        for index, coeff in zip(indices, coeffs):
-            addresses += index * coeff
-        return addresses.ravel()
-
-    def stalled_frame_cycles(self, extents, coeffs, num_words, buf_size):
-        """One frame where the writer waits on the free pointer of that frame.
-
-        Two waits hold each other up. Output ``k`` cannot leave before the
-        writer has supplied ``needed(k)`` words; input word ``m`` cannot be
-        placed before the reader has released the slot ``buf_size`` behind it.
-        Neither side is one wait deep -- each release lets the writer run until
-        the next, so the two alternate as many times as the free pointer steps,
-        and the frame is the fixed point rather than a sum.
-
-        Both recurrences are ``x(i) = max(x(i-1) + 1, y(f(i)) + c)``, which is a
-        prefix maximum of ``y(f(i)) + c - i``. So a pass over either side is one
-        ``maximum.accumulate`` over the loop nest's own words -- no cycle is ever
-        stepped through, and the alternations converge in as many passes as there
-        are steps in the free pointer.
-        """
-        addresses = self.word_addresses(extents, coeffs)
-        needed = np.maximum.accumulate(addresses) + 1
-        steps = self.free_pointer_steps(extents, coeffs, num_words)
-        released = self.free_pointer_at(np.arange(1, num_words + 1), steps)
-        words = np.arange(num_words, dtype=np.int64)
-        # the output after which word m may be written; words within buf_size of
-        # the frame start are already free and wait for nothing
-        waits = words + 1 - buf_size
-        release_of = np.searchsorted(released, waits, side="left")
-        held = waits > 0
-        if np.any(held & (release_of >= num_words)):
-            return None  # a word this frame needs is never released inside it
-        # one pass carries one writer-reader alternation, and there are no more
-        # of those than the free pointer has steps
-        passes = num_words // min(period for period, _ in steps) + 8
-        emitted = np.zeros(num_words, dtype=np.int64)
-        for _ in range(passes):
-            ready = np.where(held, emitted[np.clip(release_of, 0, num_words - 1)] + 1, 1)
-            written = words + np.maximum.accumulate(ready - words)
-            arrived = written[needed - 1] + _WP_DELAY
-            settled = words + np.maximum.accumulate(arrived - words)
-            if np.array_equal(settled, emitted):
-                break
-            emitted = settled
-        return int(emitted[-1])
-
-    def get_exp_cycles(self):
-        """Cycles for one frame: the demand lead, then the frame drained at II=1.
-
-        The output cannot run faster than one word per cycle, and output ``k``
-        additionally waits for the input word it needs. The frame therefore ends
-        at ``max_k (needed(k) + (num_words - k))``, which is the demand lead
-        past the frame, plus the write-pointer pipeline behind it.
-
-        That is the whole story while the reorder buffer holds a frame, which is
-        the shape the decomposition usually produces: the writer streams in
-        without ever waiting, so a closed form over the nest is exact. Below that
-        it waits on the free pointer of its own frame and the two waits have to
-        be solved together -- see ``stalled_frame_cycles``. This count also sets
-        the window ``derive_characteristic`` records a node over, so running
-        short here would quietly truncate that too.
-        """
-        extents, coeffs, num_words = self.loop_nest()
-        cycles = num_words + self.demand_lead(extents, coeffs) + _READ_TO_WRITE
-        buf_size = self.buffer_depth(extents, coeffs, num_words)
-        if buf_size < num_words:
-            stalled = self.stalled_frame_cycles(extents, coeffs, num_words, buf_size)
-            if stalled is not None:
-                cycles = max(cycles, stalled)
-        return int(cycles * self.pipeline_ii())
-
     def beats(self, runs, ii, label):
         """One phase of the schedule, as ``(cycles, [read, write])`` runs.
 
@@ -399,6 +449,9 @@ class OuterShuffle(HWCustomOp):
         against its own frame rather than the previous one, several times over,
         and the period stops being one wait of each kind.
         """
+        # the beat an output takes to appear behind the write pointer, which
+        # runs WP_DELAY cycles ahead of it
+        READ_TO_WRITE = 3
         extents, coeffs, num_words = self.loop_nest()
         buf_size = self.buffer_depth(extents, coeffs, num_words)
         if buf_size < num_words:
@@ -406,7 +459,7 @@ class OuterShuffle(HWCustomOp):
         lead = self.free_lead(extents, coeffs, num_words, buf_size)
         if lead is None:
             return None
-        ii = self.pipeline_ii()
+        ii = self.pipeline_ii(buf_size)
         if lead == 0:
             # a slot is released per output, so the writer never waits and a
             # frame costs exactly its own words
@@ -414,7 +467,7 @@ class OuterShuffle(HWCustomOp):
         else:
             # one beat under the frame count: a period is measured between two
             # last-outputs, which spans one cycle fewer than a frame does
-            span = lead + self.demand_lead(extents, coeffs) + _READ_TO_WRITE - 1
+            span = lead + self.demand_lead(extents, coeffs) + READ_TO_WRITE - 1
             period = max(num_words, span)
         surplus = period - num_words
         if surplus == 0:

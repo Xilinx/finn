@@ -53,13 +53,11 @@ module dwc_axi #(
 	output	logic [AXI_OBITS-1:0]  m_axis_tdata
 );
 
-	dwc #(.IBITS(IBITS), .OBITS(OBITS)) core (
+	vpc #(.W(1), .N(IBITS * OBITS), .PI(IBITS), .PO(OBITS)) core (
 		.clk(ap_clk), .rst(!ap_rst_n),
-		.irdy(s_axis_tready), .ivld(s_axis_tvalid), .idat(s_axis_tdata[IBITS-1:0]),
-		.ordy(m_axis_tready), .ovld(m_axis_tvalid), .odat(m_axis_tdata[OBITS-1:0])
+		.idat(s_axis_tdata[IBITS-1:0]), .ivld(s_axis_tvalid), .irdy(s_axis_tready),
+		.odat(m_axis_tdata[OBITS-1:0]), .ovld(m_axis_tvalid), .ordy(m_axis_tready)
 	);
-	if(OBITS < AXI_OBITS) begin
-		assign	m_axis_tdata[AXI_OBITS-1:OBITS] = '0;
-	end
+	if(OBITS < AXI_OBITS)  assign  m_axis_tdata[AXI_OBITS-1:OBITS] = '0;
 
 endmodule : dwc_axi

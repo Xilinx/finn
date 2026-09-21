@@ -50,7 +50,7 @@ from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import pynq_part_map
 from finn.util.test import tree_model_test
 
-test_pynq_board = "Pynq-Z1"
+test_pynq_board = "AUP-ZU3_8GB"
 test_fpga_part = pynq_part_map[test_pynq_board]
 target_clk_ns = 10
 
