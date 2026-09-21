@@ -124,10 +124,20 @@ class Thresholding(HWCustomOp):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
-    def minimize_weight_bit_width(self, model):
+    def minimize_weight_bit_width(self, model, datatype_only=False):
         """Minimize threshold datatype bitwidth based on actual threshold values.
         This function should not round or clip the threshold values,
-        that is done in RoundAndClipThresholds."""
+        that is done in RoundAndClipThresholds.
+
+        Parameters
+        ----------
+        datatype_only : bool
+            If True, skip value-based minimization and return the current
+            weight datatype. Useful for early passes before folding decisions.
+        """
+        # Skip value-based minimization if datatype_only
+        if datatype_only:
+            return DataType[self.get_nodeattr("weightDataType")]
 
         thresholds = model.get_initializer(self.onnx_node.input[1])
         if self.get_nodeattr("runtime_writeable_weights") or self.get_nodeattr("mlo_max_iter"):

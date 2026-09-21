@@ -37,10 +37,21 @@ from finn.util.fpgadataflow import is_fpgadataflow_node
 class MinimizeAccumulatorWidth(Transformation):
     """For relevant nodes, call the accumulator width minimization
     functions to save on resources. May alter tensor DataType for
-    certain nodes if they produce an accumulator as result."""
+    certain nodes if they produce an accumulator as result.
 
-    def __init__(self):
+    Parameters
+    ----------
+    datatype_only : bool
+        If True, force datatype-based minimization (worst-case bounds from
+        datatypes) instead of value-based minimization (using actual weight
+        values). This is useful for a first pass before specialization, where
+        we want realistic bit widths for RTL/HLS decisions without committing
+        to value-based minimization (which should happen after folding decisions).
+    """
+
+    def __init__(self, datatype_only=False):
         super().__init__()
+        self.datatype_only = datatype_only
 
     def apply(self, model):
         for node_id in range(len(model.graph.node)):
@@ -50,7 +61,7 @@ class MinimizeAccumulatorWidth(Transformation):
             if is_fpgadataflow_node(node):
                 inst = getCustomOp(node)
                 if hasattr(inst, "minimize_accumulator_width"):
-                    inst.minimize_accumulator_width(model)
+                    inst.minimize_accumulator_width(model, datatype_only=self.datatype_only)
                     # Since this transformation is applied iteratively, we have to ensure that
                     # we propagate the new datatype to other layers
                     model = model.transform(InferDataTypes())
