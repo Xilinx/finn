@@ -517,47 +517,59 @@ class VVAU_hls(VVAU, HLSBackend):
                 ("#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds " "complete dim=3")
             )
 
-    def minimize_weight_bit_width(self, model):
+    def minimize_weight_bit_width(self, model, datatype_only=False):
         """Minimize weight and threshold datatypes, with HLS-specific adjustments.
 
         The HLS implementation uses the threshold datatype for comparisons.
         When the threshold datatype is narrower than the accumulator datatype,
         accumulator values get truncated, which can cause incorrect results.
         To prevent this, ensure threshold datatype is at least as wide as
-        accumulator datatype."""
-        # First, call the base class implementation to minimize weight datatype
-        wdt = super().minimize_weight_bit_width(model)
+        accumulator datatype.
 
-        # Minimize threshold datatype if node has thresholds (noActivation=0)
+        Parameters
+        ----------
+        datatype_only : bool
+            If True, skip value-based minimization and return the current
+            weight datatype. Useful for early passes before folding decisions.
+        """
+        # First, call the base class implementation to minimize weight datatype
+        wdt = super().minimize_weight_bit_width(model, datatype_only=datatype_only)
+
+        # Handle threshold datatype if node has thresholds (noActivation=0)
         if self.get_nodeattr("noActivation") == 0 and len(self.onnx_node.input) > 2:
             thresholds = model.get_initializer(self.onnx_node.input[2])
             acc_dt = self.get_accumulator_datatype()
+            current_tdt = model.get_tensor_datatype(self.onnx_node.input[2])
 
-            # Only minimize if accumulator and thresholds are integer
-            if (
-                acc_dt.is_integer()
-                and model.get_tensor_datatype(self.onnx_node.input[2]).is_integer()
-            ):
-                # Use double precision for intermediate calculations to prevent overflow
-                min_threshold = np.float64(thresholds.min())
-                max_threshold = np.float64(thresholds.max())
-                # Check if accumulator datatype is signed
-                acc_is_signed = acc_dt.signed()
-                if min_threshold < 0:
-                    if abs(min_threshold) > max_threshold:
-                        tdt = DataType.get_smallest_possible(min_threshold)
-                    else:
-                        tdt = DataType.get_smallest_possible(-max_threshold - 1)
+            # Only process if accumulator and thresholds are integer
+            if acc_dt.is_integer() and current_tdt.is_integer():
+                if datatype_only:
+                    # In datatype_only mode, skip value-based minimization but
+                    # still do widening check since widening is always safe
+                    tdt = current_tdt
                 else:
-                    # If accumulator is signed,
-                    # use signed threshold datatype even if thresholds are positive
-                    if acc_is_signed:
-                        tdt = DataType.get_smallest_possible(-max_threshold - 1)
+                    # Value-based minimization: compute smallest datatype that fits
+                    # Use double precision for intermediate calculations to prevent overflow
+                    min_threshold = np.float64(thresholds.min())
+                    max_threshold = np.float64(thresholds.max())
+                    # Check if accumulator datatype is signed
+                    acc_is_signed = acc_dt.signed()
+                    if min_threshold < 0:
+                        if abs(min_threshold) > max_threshold:
+                            tdt = DataType.get_smallest_possible(min_threshold)
+                        else:
+                            tdt = DataType.get_smallest_possible(-max_threshold - 1)
                     else:
-                        tdt = DataType.get_smallest_possible(max_threshold)
+                        # If accumulator is signed,
+                        # use signed threshold datatype even if thresholds are positive
+                        if acc_is_signed:
+                            tdt = DataType.get_smallest_possible(-max_threshold - 1)
+                        else:
+                            tdt = DataType.get_smallest_possible(max_threshold)
 
                 # HLS-specific: ensure threshold datatype is at least as wide as
-                # accumulator datatype to prevent truncation during comparison
+                # accumulator datatype to prevent truncation during comparison.
+                # This widening runs in both modes since widening is always safe.
                 if tdt.bitwidth() < acc_dt.bitwidth():
                     tdt = acc_dt
 

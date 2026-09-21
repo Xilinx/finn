@@ -306,7 +306,15 @@ class ElementwiseBinaryOperation(HWCustomOp):
 
     # Minimizes the width of the accumulator data type, 'accumulator width' here
     # due to convention, it is actually the output data type
-    def minimize_accumulator_width(self, model: ModelWrapper):
+    def minimize_accumulator_width(self, model: ModelWrapper, datatype_only=False):
+        """Minimize the output data type width.
+
+        Parameters
+        ----------
+        datatype_only : bool
+            Not used for elementwise ops since _derive_out_dtype is already
+            datatype-based (computes output type from input datatypes, not values).
+        """
         # If any of the inputs is not an integer, the bit-width cannot be
         # minimized
         if not all([self.lhs_dtype.is_integer(), self.rhs_dtype.is_integer()]):
@@ -338,7 +346,19 @@ class ElementwiseBinaryOperation(HWCustomOp):
 
     # Minimizes the width of the weight data type, 'weight' here due to
     # convention, it actually applies to any constant initializer input
-    def minimize_weight_bit_width(self, model: ModelWrapper):
+    def minimize_weight_bit_width(self, model: ModelWrapper, datatype_only=False):
+        """Minimize the constant input data type width.
+
+        Parameters
+        ----------
+        datatype_only : bool
+            If True, skip value-based minimization. Useful for early passes
+            before folding decisions.
+        """
+        # Skip minimization in datatype_only mode
+        if datatype_only:
+            return
+
         # Check for an initializer providing the left hand side input
         lhs = model.get_initializer(self.onnx_node.input[0])
         # If the left hand side input is provided as initializer, minimize the
@@ -923,7 +943,19 @@ class ElementwiseMax(ElementwiseBinaryOperation):
         return None
 
     # Override minimize_weight_bit_width to prevent type incompatibility
-    def minimize_weight_bit_width(self, model: ModelWrapper):
+    def minimize_weight_bit_width(self, model: ModelWrapper, datatype_only=False):
+        """Minimize the constant input data type width.
+
+        Parameters
+        ----------
+        datatype_only : bool
+            If True, skip value-based minimization. Useful for early passes
+            before folding decisions.
+        """
+        # Skip minimization in datatype_only mode
+        if datatype_only:
+            return
+
         # For comparison operations like max/min, both operands must have
         # compatible types. Don't minimize if one side is float and the
         # minimized constant would become integer.
