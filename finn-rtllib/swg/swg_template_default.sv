@@ -114,24 +114,20 @@ module $TOP_MODULE_NAME$_impl #(
     // Alternatively, we could manually sign-extend and shave off a bit here or there.
 
     //                                                                                          v ReadingLast     v ReadingDone
-    logic signed [$clog2(LAST_READ_ELEM+1)+1-1:0]  Newest_buffered_elem = -1; // -1, 0, 1, ..., LAST_READ_ELEM-1, LAST_READ_ELEM
+    logic signed [$clog2(LAST_READ_ELEM+1):0]  Newest_buffered_elem = -1; // -1, 0, 1, ..., LAST_READ_ELEM-1, LAST_READ_ELEM
     logic  ReadingLast = LAST_READ_ELEM == 0;
     logic  ReadingDone = 0;
-    logic        [$clog2(LAST_READ_ELEM+1)+1-1:0]  Current_elem = 0;
-    // One bit wider than the other element counters: after the first fetch of the last
-    // window of a feature map, this holds (start of that window + TAIL_INCR_LAST), which
-    // exceeds LAST_READ_ELEM in depthwise mode. In the narrower register that value wrapped
-    // into the negative range of the $signed() comparison in read_cmd and blocked all further
-    // reads, so a depthwise SWG whose input arrives no faster than its own window rate
-    // deadlocked on the last element of every feature map.
-    logic        [$clog2(LAST_READ_ELEM+1)+1  :0]  First_elem_next_window = 0;
+    logic signed [$clog2(LAST_READ_ELEM+1):0]  Current_elem = 0;             // 0, ..., LAST_WRITE_ELEM
+    // Wider than the other element counters: in depthwise mode, after the first fetch of the
+    // last window this holds (start of that window + TAIL_INCR_LAST) which exceeds LAST_READ_ELEM.
+    logic signed [$clog2(LAST_READ_ELEM+$TAIL_INCR_LAST$+1):0]  First_elem_next_window = 0;  // 0, ..., LAST_READ_ELEM + TAIL_INCR_LAST
 
     //                                                               v PositionZero
     logic [$clog2(ELEM_PER_WINDOW)-1:0]  Position_in_window = 0;  // 0, 1, ..., ELEM_PER_WINDOW-1
     logic  PositionZero = 1;
 
-    logic [$clog2(BUF_ELEM_TOTAL)+1-1:0]  Window_buffer_read_addr_reg = 0;
-    logic [$clog2(BUF_ELEM_TOTAL)  -1:0]  Window_buffer_write_addr_reg = 0;
+    logic signed [$clog2(BUF_ELEM_TOTAL)  :0]  Window_buffer_read_addr_reg = 0;   // 0, 1, ..., BUF_ELEM_TOTAL-1
+    logic        [$clog2(BUF_ELEM_TOTAL)-1:0]  Window_buffer_write_addr_reg = 0;  // 0, 1, ..., BUF_ELEM_TOTAL-1
 
     // Control signals/registers
     logic  Write_cmd    = 0;
@@ -140,13 +136,13 @@ module $TOP_MODULE_NAME$_impl #(
     uwire  write_blocked = Write_cmd && !out_V_V_TREADY;
 
     logic  Fetching_done = 0;
-    uwire  fetch_cmd = !($signed(Current_elem) > Newest_buffered_elem) && !write_blocked && !Fetching_done;
+    uwire  fetch_cmd = !(Current_elem > Newest_buffered_elem) && !write_blocked && !Fetching_done;
 
     uwire  read_cmd =
         !ReadingDone && ( // if there is still an input element left to read
             Fetching_done || ( // if fetching is done (e.g. for skipped rows at FM end due to stride)
-                $signed(((Newest_buffered_elem - (BUF_ELEM_TOTAL - 1)))) < $signed(First_elem_next_window) &&
-                $signed(((Newest_buffered_elem - (BUF_ELEM_TOTAL - 1)))) < $signed(Current_elem)
+                $signed(Newest_buffered_elem - (BUF_ELEM_TOTAL - 1)) < First_elem_next_window &&
+                $signed(Newest_buffered_elem - (BUF_ELEM_TOTAL - 1)) < Current_elem
             ) // (over-)write to buffer if oldest buffered element will no longer be needed
         );
     uwire  read_ok      = read_cmd && in0_V_V_TVALID;
@@ -215,8 +211,8 @@ module $TOP_MODULE_NAME$_impl #(
                 //use increment value calculated by controller
 
                 // absolute buffer address wrap-around
-                automatic logic signed [$clog2(BUF_ELEM_TOTAL)+1:0]  ra = $signed(Window_buffer_read_addr_reg) + $signed(addr_incr);
-                automatic logic signed [$clog2(BUF_ELEM_TOTAL+1):0]  ra_correct =
+                automatic logic signed [$clog2(2*BUF_ELEM_TOTAL-1):0]  ra = Window_buffer_read_addr_reg + addr_incr;  // -(BUF_ELEM_TOTAL-1), ..., 2*(BUF_ELEM_TOTAL-1)
+                automatic logic signed [$clog2(  BUF_ELEM_TOTAL+1):0]  ra_correct =                                   // -BUF_ELEM_TOTAL, 0, BUF_ELEM_TOTAL
                     (ra >= BUF_ELEM_TOTAL)? -BUF_ELEM_TOTAL :
                     (ra <               0)?  BUF_ELEM_TOTAL : 0;
                 Window_buffer_read_addr_reg <= ra + ra_correct;
@@ -233,7 +229,7 @@ module $TOP_MODULE_NAME$_impl #(
                 if (Current_elem == LAST_WRITE_ELEM)
                     Fetching_done <= 1;
                 else
-                    Current_elem <= $signed(Current_elem) + addr_incr;
+                    Current_elem <= Current_elem + addr_incr;
 
                 // determine if prefetched data will be outstanding in the next cycle
                 // if we fetch in this cycle -> yes
