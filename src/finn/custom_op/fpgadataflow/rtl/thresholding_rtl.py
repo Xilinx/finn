@@ -567,15 +567,20 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                         for val in threshs:
                             f.write(val + "\n")
 
-    def minimize_weight_bit_width(self, model):
+    def minimize_weight_bit_width(self, model, datatype_only=False):
         """Minimize threshold datatype, with RTL-specific adjustments.
 
         The RTL implementation saturates inputs to the threshold datatype range
         when the threshold datatype is narrower than the input datatype. To ensure
         correct comparisons at saturation boundaries, the threshold datatype must
-        be able to represent [min_threshold - 1 : max_threshold]."""
-        # First, call the base class implementation
-        tdt = super().minimize_weight_bit_width(model)
+        be able to represent [min_threshold - 1 : max_threshold].
+
+        Parameters
+        ----------
+        datatype_only : bool
+            If True, skip value-based minimization. See base class.
+        """
+        tdt = super().minimize_weight_bit_width(model, datatype_only=datatype_only)
 
         # Check if we need RTL-specific adjustments
         idt = self.get_input_datatype(0)
