@@ -42,6 +42,9 @@ import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.minimize_accumulator_width import (
+    MinimizeAccumulatorWidth,
+)
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
@@ -195,6 +198,15 @@ def test_convert_to_hw_pool(idt, odt, pool_config, ifm_ch, pe, op_type, exec_mod
         elif n.op_type.startswith("Pool"):
             inst = getCustomOp(n)
             inst.set_nodeattr("PE", pe)
+
+    # MinimizeAccumulatorWidth - for QuantAvgPool this should reduce AccumBits
+    if op_type == "QuantAvgPool2d":
+        pool_node = [n for n in new_model.graph.node if n.op_type.startswith("Pool")][0]
+        pool_inst = getCustomOp(pool_node)
+        initial_accum = pool_inst.get_nodeattr("AccumBits")
+        new_model = new_model.transform(MinimizeAccumulatorWidth())
+        new_accum = pool_inst.get_nodeattr("AccumBits")
+        assert new_accum <= initial_accum
 
     if stride <= k:
         if pad == 0:

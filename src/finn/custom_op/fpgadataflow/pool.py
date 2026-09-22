@@ -173,6 +173,39 @@ class Pool(HWCustomOp):
         odt = self.get_output_datatype()
         model.set_tensor_datatype(node.output[0], odt)
 
+    def minimize_accumulator_width(self, model, datatype_only=False):
+        """Minimize accumulator width for QuantAvgPool.
+
+        Parameters
+        ----------
+        datatype_only : bool
+            Not used - Pool has no weights, always uses datatype bounds.
+        """
+        fxn = self.get_nodeattr("Function")
+        if fxn != "QuantAvgPool":
+            return  # MaxPool doesn't need accumulator
+
+        idt = self.get_input_datatype()
+        k = self.get_nodeattr("KernelSize")
+        kernel_elements = np.prod(k)
+
+        # Compute worst-case accumulator range
+        if idt.signed():
+            acc_min = kernel_elements * idt.min()
+            acc_max = kernel_elements * idt.max()
+        else:
+            acc_min = 0
+            acc_max = kernel_elements * idt.max()
+
+        # Get smallest datatype that fits
+        if acc_min < 0:
+            adt = DataType.get_smallest_possible(min(acc_min, -acc_max - 1))
+        else:
+            adt = DataType.get_smallest_possible(acc_max)
+
+        self.set_nodeattr("AccumBits", adt.bitwidth())
+        return adt
+
     def verify_node(self):
         info_messages = []
         # verify that "backend" is set to "fpgadataflow"
