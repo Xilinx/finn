@@ -31,7 +31,7 @@ import os
 
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.util.basic import get_dsp_block
+from finn.util.basic import get_dsp_block, get_dsp_datapath_limits
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation_rtl:
@@ -392,6 +392,43 @@ class MVAU_rtl(MVAU, RTLBackend):
                 )
 
         dsp_block = get_dsp_block(fpgapart)
+
+        # the operand and accumulator widths must fit the target DSP datapath
+        # (activation->B, weight->A, accumulator->P); wider values would be
+        # silently truncated or fail synthesis on the DSP-based RTL MVU
+        max_act, max_weight, max_acc = get_dsp_datapath_limits(dsp_block)
+        idt = self.get_input_datatype(0)
+        signed_act = 1 if idt.signed() else 0
+        act_width = idt.bitwidth()
+        weight_width = self.get_input_datatype(1).bitwidth()
+        acc_width = self.get_output_datatype().bitwidth()
+        # activations sit in the signed B datapath; unsigned activations cost one
+        # extra bit, so the effective width must stay below the B datapath width
+        if act_width - signed_act >= max_act:
+            raise Exception(
+                "%s: %s activation width of %d bits exceeds the %s activation datapath "
+                "limit of %d bits. Use the HLS MVAU for wider activations."
+                % (
+                    self.onnx_node.name,
+                    "signed" if signed_act else "unsigned",
+                    act_width,
+                    dsp_block,
+                    max_act - 1 + signed_act,
+                )
+            )
+        if weight_width > max_weight:
+            raise Exception(
+                "%s: weight width of %d bits exceeds the %s weight datapath "
+                "limit of %d bits. Use the HLS MVAU for wider weights."
+                % (self.onnx_node.name, weight_width, dsp_block, max_weight)
+            )
+        if acc_width > max_acc:
+            raise Exception(
+                "%s: accumulator width of %d bits exceeds the %s accumulator datapath "
+                "limit of %d bits. Use the HLS MVAU for wider accumulators."
+                % (self.onnx_node.name, acc_width, dsp_block, max_acc)
+            )
+
         code_gen_dict = {}
         code_gen_dict["$IS_MVU$"] = [str(1)]
         code_gen_dict["$VERSION$"] = [str(self._resolve_dsp_version(dsp_block))]
