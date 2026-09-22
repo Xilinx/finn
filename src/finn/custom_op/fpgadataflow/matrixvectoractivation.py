@@ -508,9 +508,7 @@ class MVAU(HWCustomOp):
         Parameters
         ----------
         datatype_only : bool
-            If True, force datatype-based minimization using worst-case bounds
-            from datatypes instead of actual weight values. Useful for early
-            passes before folding decisions are made.
+            If True, use worst-case datatype bounds instead of actual weight values.
         """
         weights = model.get_initializer(self.onnx_node.input[1])
         # since in the calculation the values of the weight matrix are used,
@@ -575,10 +573,8 @@ class MVAU(HWCustomOp):
         Parameters
         ----------
         datatype_only : bool
-            If True, skip value-based minimization and return the current
-            weight datatype. Useful for early passes before folding decisions.
+            If True, skip value-based minimization.
         """
-        # Skip value-based minimization if datatype_only
         if datatype_only:
             return DataType[self.get_nodeattr("weightDataType")]
 

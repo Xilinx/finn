@@ -578,10 +578,8 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         Parameters
         ----------
         datatype_only : bool
-            If True, skip value-based minimization and return the current
-            weight datatype. Useful for early passes before folding decisions.
+            If True, skip value-based minimization. See base class.
         """
-        # First, call the base class implementation
         tdt = super().minimize_weight_bit_width(model, datatype_only=datatype_only)
 
         # Check if we need RTL-specific adjustments

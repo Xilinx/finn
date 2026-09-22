@@ -41,9 +41,6 @@ class MinimizeWeightBitWidth(Transformation):
     ----------
     datatype_only : bool
         If True, skip value-based minimization and only use datatype bounds.
-        This is useful for a first pass before specialization, where we want
-        realistic bit widths for RTL/HLS decisions without committing to
-        value-based minimization (which should happen after folding decisions).
     """
 
     def __init__(self, datatype_only=False):

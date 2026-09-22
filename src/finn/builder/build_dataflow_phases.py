@@ -36,6 +36,7 @@ from finn.builder.build_dataflow_steps import (
     step_make_driver,
     step_measure_rtlsim_performance,
     step_minimize_bit_width,
+    step_minimize_bit_width_datatype_only,
     step_qonnx_to_finn,
     step_set_fifo_depths,
     step_specialize_layers,
@@ -147,15 +148,10 @@ def phase_convert_to_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     are fpgadataflow layers or form a contiguous dataflow block, so a failed
     conversion is reported before the dataflow partition is created.
 
-    Before specialization, a datatype-only bit width minimization pass is run
-    (if minimize_bit_width is enabled). This gives specialization realistic bit
-    widths for RTL/HLS decisions without committing to value-based minimization,
-    which happens later after folding decisions are made.
-
     Internal steps:
     - step_convert_to_hw: Infer hardware layer types (validates conversion success)
     - step_create_dataflow_partition: Create accelerator subgraph
-    - step_minimize_bit_width (datatype_only): First pass for realistic bit widths
+    - step_minimize_bit_width_datatype_only: Datatype-based bit width minimization
     - step_specialize_layers: Convert to HLS or RTL variants
     - step_loop_rolling: Process FINNLoop nodes (auto-detects if needed)
 
@@ -171,12 +167,7 @@ def phase_convert_to_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     """
     model = _execute_step(step_convert_to_hw, model, cfg)
     model = _execute_step(step_create_dataflow_partition, model, cfg)
-
-    # First pass: datatype-based bit width minimization before specialization.
-    # This gives specialization realistic bit widths for RTL/HLS decisions
-    # without using actual weight values (which could change after folding
-    # decisions like runtime_writeable_weights are made).
-    model = step_minimize_bit_width(model, cfg, datatype_only=True)
+    model = _execute_step(step_minimize_bit_width_datatype_only, model, cfg)
 
     model = _execute_step(step_specialize_layers, model, cfg)
     model = _execute_step(step_loop_rolling, model, cfg)

@@ -43,10 +43,7 @@ class MinimizeAccumulatorWidth(Transformation):
     ----------
     datatype_only : bool
         If True, force datatype-based minimization (worst-case bounds from
-        datatypes) instead of value-based minimization (using actual weight
-        values). This is useful for a first pass before specialization, where
-        we want realistic bit widths for RTL/HLS decisions without committing
-        to value-based minimization (which should happen after folding decisions).
+        datatypes) instead of value-based minimization (using actual weight values).
     """
 
     def __init__(self, datatype_only=False):

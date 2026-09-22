@@ -132,10 +132,8 @@ class Thresholding(HWCustomOp):
         Parameters
         ----------
         datatype_only : bool
-            If True, skip value-based minimization and return the current
-            weight datatype. Useful for early passes before folding decisions.
+            If True, skip value-based minimization.
         """
-        # Skip value-based minimization if datatype_only
         if datatype_only:
             return DataType[self.get_nodeattr("weightDataType")]
 

@@ -307,14 +307,7 @@ class ElementwiseBinaryOperation(HWCustomOp):
     # Minimizes the width of the accumulator data type, 'accumulator width' here
     # due to convention, it is actually the output data type
     def minimize_accumulator_width(self, model: ModelWrapper, datatype_only=False):
-        """Minimize the output data type width.
-
-        Parameters
-        ----------
-        datatype_only : bool
-            Not used for elementwise ops since _derive_out_dtype is already
-            datatype-based (computes output type from input datatypes, not values).
-        """
+        """Minimize the output data type width."""
         # If any of the inputs is not an integer, the bit-width cannot be
         # minimized
         if not all([self.lhs_dtype.is_integer(), self.rhs_dtype.is_integer()]):
@@ -347,15 +340,7 @@ class ElementwiseBinaryOperation(HWCustomOp):
     # Minimizes the width of the weight data type, 'weight' here due to
     # convention, it actually applies to any constant initializer input
     def minimize_weight_bit_width(self, model: ModelWrapper, datatype_only=False):
-        """Minimize the constant input data type width.
-
-        Parameters
-        ----------
-        datatype_only : bool
-            If True, skip value-based minimization. Useful for early passes
-            before folding decisions.
-        """
-        # Skip minimization in datatype_only mode
+        """Minimize the constant input data type width."""
         if datatype_only:
             return
 
@@ -944,15 +929,7 @@ class ElementwiseMax(ElementwiseBinaryOperation):
 
     # Override minimize_weight_bit_width to prevent type incompatibility
     def minimize_weight_bit_width(self, model: ModelWrapper, datatype_only=False):
-        """Minimize the constant input data type width.
-
-        Parameters
-        ----------
-        datatype_only : bool
-            If True, skip value-based minimization. Useful for early passes
-            before folding decisions.
-        """
-        # Skip minimization in datatype_only mode
+        """Minimize the constant input data type width."""
         if datatype_only:
             return
 

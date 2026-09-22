@@ -803,36 +803,36 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
     return model
 
 
-def step_minimize_bit_width(
-    model: ModelWrapper, cfg: DataflowBuildConfig, datatype_only: bool = False
-):
-    """Tighten the weight and accumulator bit widths for each layer.
+def step_minimize_bit_width_datatype_only(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """First pass: datatype-based bit width minimization before specialization.
 
-    Parameters
-    ----------
-    datatype_only : bool
-        If True, perform datatype-based minimization only (using worst-case
-        bounds from datatypes) without value-based minimization. This is useful
-        for a first pass before specialization to give realistic bit widths for
-        RTL/HLS decisions. Skips RoundAndClipThresholds and verification since
-        those modify tensor values and should only happen after folding decisions.
+    Uses worst-case datatype bounds (not actual values) to give specialization
+    realistic bit widths for RTL/HLS decisions. Skips RoundAndClipThresholds
+    and verification. See also: step_minimize_bit_width (second pass).
     """
     if cfg.minimize_bit_width:
+        model = model.transform(MinimizeWeightBitWidth(datatype_only=True), apply_to_subgraphs=True)
         model = model.transform(
-            MinimizeWeightBitWidth(datatype_only=datatype_only), apply_to_subgraphs=True
+            MinimizeAccumulatorWidth(datatype_only=True), apply_to_subgraphs=True
         )
-        model = model.transform(
-            MinimizeAccumulatorWidth(datatype_only=datatype_only), apply_to_subgraphs=True
-        )
+        model = model.transform(InferDataTypes(), apply_to_subgraphs=True)
+    return model
+
+
+def step_minimize_bit_width(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Second pass: bit width minimization after folding decisions.
+
+    Uses value-based minimization where safe, datatype-based otherwise (e.g.,
+    runtime_writeable_weights). Runs RoundAndClipThresholds and verification.
+    See also: step_minimize_bit_width_datatype_only (first pass).
+    """
+    if cfg.minimize_bit_width:
+        model = model.transform(MinimizeWeightBitWidth(), apply_to_subgraphs=True)
+        model = model.transform(MinimizeAccumulatorWidth(), apply_to_subgraphs=True)
         # make sure the changed datatypes are propagated through the network
         model = model.transform(InferDataTypes(), apply_to_subgraphs=True)
     else:
         print("minimize_bit_width set to False, only run RoundAndClipThresholds.")
-
-    # Skip RoundAndClipThresholds for datatype_only mode - threshold values
-    # should only be modified after folding decisions (e.g., runtime_writeable_weights)
-    if datatype_only:
-        return model
 
     # Always run RoundAndClipThresholds after accumulator widths are determined
     model = model.transform(RoundAndClipThresholds(), apply_to_subgraphs=True)

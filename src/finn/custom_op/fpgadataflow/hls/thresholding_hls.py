@@ -790,21 +790,15 @@ class Thresholding_hls(Thresholding, HLSBackend):
         Parameters
         ----------
         datatype_only : bool
-            If True, skip value-based minimization and return the current
-            weight datatype. Useful for early passes before folding decisions.
+            If True, skip value-based minimization. See base class.
         """
-        # First, call the base class implementation
         tdt = super().minimize_weight_bit_width(model, datatype_only=datatype_only)
 
-        # Check if we need HLS-specific adjustments
         idt = self.get_input_datatype(0)
         if not idt.is_integer() or not tdt.is_integer():
             return tdt
 
-        # If threshold datatype is smaller than input datatype, widen it
-        # to match input datatype to prevent truncation issues.
-        # This widening check runs even in datatype_only mode since
-        # widening is always safe (conservative).
+        # Widen threshold to match input width to prevent truncation
         if tdt.bitwidth() < idt.bitwidth():
             # Use input datatype to ensure no truncation
             new_tdt = idt

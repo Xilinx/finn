@@ -606,26 +606,21 @@ class MVAU_hls(MVAU, HLSBackend):
         Parameters
         ----------
         datatype_only : bool
-            If True, skip value-based minimization and return the current
-            weight datatype. Useful for early passes before folding decisions.
+            If True, skip value-based minimization. See base class.
         """
-        # First, call the base class implementation to minimize weight datatype
         wdt = super().minimize_weight_bit_width(model, datatype_only=datatype_only)
 
-        # Handle threshold datatype if node has thresholds (noActivation=0)
+        # Minimize threshold datatype if node has thresholds (noActivation=0)
         if self.get_nodeattr("noActivation") == 0 and len(self.onnx_node.input) > 2:
             thresholds = model.get_initializer(self.onnx_node.input[2])
             acc_dt = self.get_accumulator_datatype()
             current_tdt = model.get_tensor_datatype(self.onnx_node.input[2])
 
-            # Only process if accumulator and thresholds are integer
+            # Only minimize if accumulator and thresholds are integer
             if acc_dt.is_integer() and current_tdt.is_integer():
                 if datatype_only:
-                    # In datatype_only mode, skip value-based minimization but
-                    # still do widening check since widening is always safe
                     tdt = current_tdt
                 else:
-                    # Value-based minimization: compute smallest datatype that fits
                     # Use double precision for intermediate calculations to prevent overflow
                     min_threshold = np.float64(thresholds.min())
                     max_threshold = np.float64(thresholds.max())
@@ -645,8 +640,7 @@ class MVAU_hls(MVAU, HLSBackend):
                             tdt = DataType.get_smallest_possible(max_threshold)
 
                 # HLS-specific: ensure threshold datatype is at least as wide as
-                # accumulator datatype to prevent truncation during comparison.
-                # This widening runs in both modes since widening is always safe.
+                # accumulator datatype to prevent truncation during comparison
                 if tdt.bitwidth() < acc_dt.bitwidth():
                     tdt = acc_dt
 
