@@ -243,6 +243,7 @@ def test_convert_to_hw_pool(idt, odt, pool_config, ifm_ch, pe, op_type, exec_mod
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
 
 
+@pytest.mark.fpgadataflow
 def test_pool_maxpool_infer_datatype_follows_input():
     """MaxPool's InputDataType/OutputDataType should track the producer's actual
     output datatype instead of staying stale (see issue #1694), since a stale
