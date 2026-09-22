@@ -47,6 +47,9 @@ from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferLookupLayer
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
+    MinimizeWeightBitWidth,
+)
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
@@ -154,6 +157,16 @@ def _test_fpgadataflow_lookup(edt, embedding_cfg, exec_mode, fpga_part, ram_styl
     assert model.graph.node[0].output[0] == oname
     ret_hw = execute_onnx(model, {iname: itensor})
     assert (exp_out == ret_hw[oname]).all()
+
+    # MinimizeWeightBitWidth - should optimize EmbeddingType based on actual values
+    model = model.transform(MinimizeWeightBitWidth())
+    new_edt_name = getCustomOp(model.graph.node[0]).get_nodeattr("EmbeddingType")
+    new_edt = DataType[new_edt_name]
+    # Verify embeddings still fit in the (possibly narrowed) datatype
+    new_embeddings = model.get_initializer(ename)
+    assert new_embeddings.min() >= new_edt.min()
+    assert new_embeddings.max() <= new_edt.max()
+
     # call transformation to convert abstraction layer into HLS layer
     model = model.transform(SpecializeLayers(fpga_part))
     assert model.graph.node[0].op_type == "Lookup_hls"

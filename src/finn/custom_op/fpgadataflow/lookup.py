@@ -245,6 +245,37 @@ class Lookup(HWCustomOp):
         else:
             return 0
 
+    def minimize_weight_bit_width(self, model, datatype_only=False):
+        """Minimize embedding datatype based on actual values.
+
+        Parameters
+        ----------
+        datatype_only : bool
+            If True, skip value-based analysis and return current datatype.
+        """
+        if datatype_only:
+            return DataType[self.get_nodeattr("EmbeddingType")]
+
+        # Skip external mode - embeddings may be written at runtime
+        if self.get_nodeattr("mem_mode") == "external":
+            return DataType[self.get_nodeattr("EmbeddingType")]
+
+        embeddings = model.get_initializer(self.onnx_node.input[1])
+        if embeddings is None:
+            return DataType[self.get_nodeattr("EmbeddingType")]
+
+        e_min = embeddings.min()
+        e_max = embeddings.max()
+
+        if e_min < 0:
+            edt = DataType.get_smallest_possible(min(e_min, -e_max - 1))
+        else:
+            edt = DataType.get_smallest_possible(e_max)
+
+        self.set_nodeattr("EmbeddingType", edt.name)
+        model.set_tensor_datatype(self.onnx_node.input[1], edt)
+        return edt
+
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         mem_mode = self.get_nodeattr("mem_mode")
