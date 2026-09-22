@@ -40,28 +40,9 @@ In the past, we also had a [Gitter channel](https://gitter.im/xilinx-finn/commun
 
 ## Citation
 
-The current implementation of the framework is based on the following publications. Please consider citing them if you find FINN useful.
+If you use FINN in your research, please cite both the software and the foundational paper. See [CITATION.cff](CITATION.cff) for citation metadata that can be imported into reference managers.
 
-    @article{blott2018finn,
-      title={FINN-R: An end-to-end deep-learning framework for fast exploration of quantized neural networks},
-      author={Blott, Michaela and Preu{\ss}er, Thomas B and Fraser, Nicholas J and Gambardella, Giulio and O’brien, Kenneth and Umuroglu, Yaman and Leeser, Miriam and Vissers, Kees},
-      journal={ACM Transactions on Reconfigurable Technology and Systems (TRETS)},
-      volume={11},
-      number={3},
-      pages={1--23},
-      year={2018},
-      publisher={ACM New York, NY, USA}
-    }
-
-    @inproceedings{finn,
-    author = {Umuroglu, Yaman and Fraser, Nicholas J. and Gambardella, Giulio and Blott, Michaela and Leong, Philip and Jahre, Magnus and Vissers, Kees},
-    title = {FINN: A Framework for Fast, Scalable Binarized Neural Network Inference},
-    booktitle = {Proceedings of the 2017 ACM/SIGDA International Symposium on Field-Programmable Gate Arrays},
-    series = {FPGA '17},
-    year = {2017},
-    pages = {65--74},
-    publisher = {ACM}
-    }
+GitHub also provides a "Cite this repository" option in the sidebar which uses this information.
 
 ## Old version
 

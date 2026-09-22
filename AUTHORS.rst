@@ -42,6 +42,7 @@ Contributors
 * Michail Rontionov (@mrontio)
 * Michal Danilowicz (@mdanilow)
 * Mirza Mrahorovic (@mmrahorovic)
+* mumallaeng (@mumallaeng)
 * Neil Kim Nielsen (@neilkimn)
 * Oliver Cassidy (@ollycassidy13)
 * Patrick Geel (@patrickgeel)
@@ -57,4 +58,5 @@ Contributors
 * Tim Paine (@timkpaine)
 * Tobias Alonso (@Tobi-Alonso)
 * Uma Maheshwari (@umav1511)
+* Vladimir Babin (@chiliec)
 * Zhuoran Liu (@liuzrcc)

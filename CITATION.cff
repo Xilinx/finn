@@ -1,0 +1,73 @@
+cff-version: 1.2.0
+message: "If you use FINN, please cite both the software and the foundational paper."
+title: "FINN: Fast, Scalable Quantized Neural Network Inference on FPGAs"
+authors:
+  - family-names: Petri-Koenig
+    given-names: Jakoba
+  - family-names: Umuroglu
+    given-names: Yaman
+  - family-names: Preußer
+    given-names: Thomas
+  - family-names: Fleming
+    given-names: Shane
+url: "https://github.com/Xilinx/finn"
+license: BSD-3-Clause
+repository-code: "https://github.com/Xilinx/finn"
+
+preferred-citation:
+  type: article
+  title: "FINN-R: An End-to-End Deep-Learning Framework for Fast Exploration of Quantized Neural Networks"
+  authors:
+    - family-names: Blott
+      given-names: Michaela
+    - family-names: Preußer
+      given-names: Thomas B.
+    - family-names: Fraser
+      given-names: Nicholas J.
+    - family-names: Gambardella
+      given-names: Giulio
+    - family-names: O'Brien
+      given-names: Kenneth
+    - family-names: Umuroglu
+      given-names: Yaman
+    - family-names: Leeser
+      given-names: Miriam
+    - family-names: Vissers
+      given-names: Kees
+  journal: "ACM Transactions on Reconfigurable Technology and Systems (TRETS)"
+  volume: 11
+  issue: 3
+  start: 1
+  end: 23
+  year: 2018
+  doi: "10.1145/3242897"
+  publisher:
+    name: "ACM"
+
+references:
+  - type: conference-paper
+    title: "FINN: A Framework for Fast, Scalable Binarized Neural Network Inference"
+    authors:
+      - family-names: Umuroglu
+        given-names: Yaman
+      - family-names: Fraser
+        given-names: Nicholas J.
+      - family-names: Gambardella
+        given-names: Giulio
+      - family-names: Blott
+        given-names: Michaela
+      - family-names: Leong
+        given-names: Philip
+      - family-names: Jahre
+        given-names: Magnus
+      - family-names: Vissers
+        given-names: Kees
+    collection-title: "Proceedings of the 2017 ACM/SIGDA International Symposium on Field-Programmable Gate Arrays"
+    conference:
+      name: "FPGA '17"
+    start: 65
+    end: 74
+    year: 2017
+    doi: "10.1145/3020078.3021744"
+    publisher:
+      name: "ACM"
