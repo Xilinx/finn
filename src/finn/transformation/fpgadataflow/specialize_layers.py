@@ -34,7 +34,7 @@ from qonnx.transformation.base import Transformation
 
 from finn.custom_op.fpgadataflow.hls import custom_op as hls_variants
 from finn.custom_op.fpgadataflow.rtl import custom_op as rtl_variants
-from finn.util.basic import get_dsp_block, is_versal
+from finn.util.basic import get_dsp_block, get_dsp_datapath_limits, is_versal
 
 
 def _determine_impl_style(node, fpgapart, model):
@@ -269,7 +269,18 @@ def _mvu_rtl_possible(n, fpgapart, model):
     inp_width_in_range = 2 <= idt.bitwidth()
     weight_width_in_range = 2 <= wdt.bitwidth()
 
-    return inp_width_in_range and weight_width_in_range
+    # the DSP-based RTL MVU also has an upper bound on the activation, weight and
+    # accumulator widths given by the target DSP datapath; widths beyond that would
+    # be silently truncated, so fall back to the (unbounded) HLS MVU instead
+    max_act, max_weight, max_acc = get_dsp_datapath_limits(dsp_block)
+    acc_width = node_inst.get_output_datatype().bitwidth()
+    # activations sit in the signed B datapath; unsigned activations cost one extra
+    # bit, so the effective width must stay strictly below the B datapath width
+    signed_act = 1 if idt.signed() else 0
+    act_fits = (idt.bitwidth() - signed_act) < max_act
+    widths_in_range = act_fits and wdt.bitwidth() <= max_weight and acc_width <= max_acc
+
+    return inp_width_in_range and weight_width_in_range and widths_in_range
 
 
 def _vvu_rtl_possible(n, fpgapart):
