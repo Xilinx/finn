@@ -806,16 +806,13 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
 def step_minimize_bit_width_datatype_only(model: ModelWrapper, cfg: DataflowBuildConfig):
     """First pass: datatype-based bit width minimization before specialization.
 
-    Uses worst-case datatype bounds (not actual values) to give specialization
-    realistic bit widths for RTL/HLS decisions. Skips RoundAndClipThresholds
-    and verification. See also: step_minimize_bit_width (second pass).
+    Always runs (ignores cfg.minimize_bit_width) because specialization needs
+    realistic bit widths for correct RTL/HLS decisions. Uses worst-case datatype
+    bounds, not actual values. See also: step_minimize_bit_width (second pass).
     """
-    if cfg.minimize_bit_width:
-        model = model.transform(MinimizeWeightBitWidth(datatype_only=True), apply_to_subgraphs=True)
-        model = model.transform(
-            MinimizeAccumulatorWidth(datatype_only=True), apply_to_subgraphs=True
-        )
-        model = model.transform(InferDataTypes(), apply_to_subgraphs=True)
+    model = model.transform(MinimizeWeightBitWidth(datatype_only=True), apply_to_subgraphs=True)
+    model = model.transform(MinimizeAccumulatorWidth(datatype_only=True), apply_to_subgraphs=True)
+    model = model.transform(InferDataTypes(), apply_to_subgraphs=True)
     return model
 
 
