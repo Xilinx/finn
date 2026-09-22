@@ -79,6 +79,8 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
         # backing; map the FINN-facing "srl" onto it at the RTL boundary
         code_gen_dict["$RAM_STYLE$"] = "shift" if ram_style == "srl" else ram_style
         code_gen_dict["$DATA_LOGFILE$"] = self.get_nodeattr("debug_log_path")
+        code_gen_dict["$LOG_VERBOSE$"] = str(int(self.get_nodeattr("fifo_log_verbose")))
+        code_gen_dict["$LOG_FLUSH$"] = str(int(self.get_nodeattr("fifo_log_flush")))
         # apply code generation to templates
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         with open(template_path, "r") as f:

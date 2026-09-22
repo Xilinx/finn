@@ -260,6 +260,8 @@ class InsertAndSetFIFODepths(Transformation):
         cfg_n_inferences=2,
         debug_log_dir=None,
         debug_log_prefix="",
+        fifo_log_verbose=False,
+        fifo_log_flush=65536,
     ):
         super().__init__()
         self.fpgapart = fpgapart
@@ -272,6 +274,8 @@ class InsertAndSetFIFODepths(Transformation):
         self.ind_map = {}
         self.debug_log_dir = debug_log_dir
         self.debug_log_prefix = debug_log_prefix
+        self.fifo_log_verbose = fifo_log_verbose
+        self.fifo_log_flush = fifo_log_flush
 
     def apply(self, model):
         model = model.transform(GiveUniqueNodeNames())
@@ -427,7 +431,10 @@ class InsertAndSetFIFODepths(Transformation):
                 log_path = os.path.abspath(
                     os.path.join(self.debug_log_dir, self.debug_log_prefix + node.name + ".log")
                 )
-                getCustomOp(node).set_nodeattr("debug_log_path", log_path)
+                node_inst = getCustomOp(node)
+                node_inst.set_nodeattr("debug_log_path", log_path)
+                node_inst.set_nodeattr("fifo_log_verbose", int(self.fifo_log_verbose))
+                node_inst.set_nodeattr("fifo_log_flush", int(self.fifo_log_flush))
 
         # insert FIFOs and do all transformations for RTLsim
         model = model.transform(AnnotateCycles())

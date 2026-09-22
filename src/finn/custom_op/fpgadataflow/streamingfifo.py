@@ -65,6 +65,8 @@ class StreamingFIFO(HWCustomOp):
                 "inFIFODepths": ("ints", False, [0]),
                 "outFIFODepths": ("ints", False, [0]),
                 "debug_log_path": ("s", False, ""),
+                "fifo_log_verbose": ("i", False, 0),
+                "fifo_log_flush": ("i", False, 65536),
             }
         )
 

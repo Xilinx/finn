@@ -1015,6 +1015,8 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     fifosim_input_throttle=cfg.fifosim_input_throttle,
                     cfg_n_inferences=cfg.fifosim_n_inferences,
                     debug_log_dir=(_fifo_debug_live_dir(cfg) if cfg.debug_fifo else None),
+                    fifo_log_verbose=cfg.fifo_log_verbose,
+                    fifo_log_flush=cfg.fifo_log_flush,
                 )
             )
             snapshot_fifo_logs(cfg, "fifo_sizing")
@@ -1435,6 +1437,8 @@ def step_loop_body_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig
             fifosim_input_throttle=cfg.fifosim_input_throttle,
             debug_log_dir=(_fifo_debug_live_dir(cfg) if cfg.debug_fifo else None),
             debug_log_prefix=(loop_context + "_") if loop_context else "",
+            fifo_log_verbose=cfg.fifo_log_verbose,
+            fifo_log_flush=cfg.fifo_log_flush,
         )
     )
     # snapshot per-FIFO debug logs for this loop body before the live dir is reused
