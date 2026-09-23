@@ -506,9 +506,15 @@ class MVAU(HWCustomOp):
         exp_cycles = (mh / pe) * (mw / simd) * np.prod(num_inp_vec) * th / mmv
         return int(exp_cycles)
 
-    def minimize_accumulator_width(self, model):
+    def minimize_accumulator_width(self, model, datatype_only=False):
         """Minimize the accumulator bit width according to the weight values,
-        input data types, and size of dot product"""
+        input data types, and size of dot product.
+
+        Parameters
+        ----------
+        datatype_only : bool
+            If True, use worst-case datatype bounds instead of actual weight values.
+        """
         weights = model.get_initializer(self.onnx_node.input[1])
         # since in the calculation the values of the weight matrix are used,
         # for the bipolar case they need to be converted to bipolar
@@ -517,10 +523,11 @@ class MVAU(HWCustomOp):
 
         idt = self.get_input_datatype(0)
 
-        # if runtime-writeable weights, mem_mode=external, or weights are absent (MLO),
-        # then we need to use the worst-case values from the datatypes
+        # if datatype_only, runtime-writeable weights, mem_mode=external, or
+        # weights are absent (MLO), then we use worst-case values from datatypes
         if (
-            self.get_nodeattr("runtime_writeable_weights")
+            datatype_only
+            or self.get_nodeattr("runtime_writeable_weights")
             or self.get_nodeattr("mem_mode") in ["external", "external_mem", "dynamic"]
             or weights is None
         ):
@@ -565,8 +572,17 @@ class MVAU(HWCustomOp):
         self.set_nodeattr("accDataType", adt.name)
         return DataType[self.get_nodeattr("accDataType")]
 
-    def minimize_weight_bit_width(self, model):
-        """Minimize the bit width based on the values of the weights."""
+    def minimize_weight_bit_width(self, model, datatype_only=False):
+        """Minimize the bit width based on the values of the weights.
+
+        Parameters
+        ----------
+        datatype_only : bool
+            If True, skip value-based minimization.
+        """
+        if datatype_only:
+            return DataType[self.get_nodeattr("weightDataType")]
+
         if not (
             self.get_nodeattr("runtime_writeable_weights")
             or self.get_nodeattr("mem_mode") in ["external", "external_mem", "dynamic"]

@@ -812,8 +812,26 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
     return model
 
 
+def step_minimize_bit_width_datatype_only(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """First pass: datatype-based bit width minimization before specialization.
+
+    Always runs (ignores cfg.minimize_bit_width) because specialization needs
+    realistic bit widths for correct RTL/HLS decisions. Uses worst-case datatype
+    bounds, not actual values. See also: step_minimize_bit_width (second pass).
+    """
+    model = model.transform(MinimizeWeightBitWidth(datatype_only=True), apply_to_subgraphs=True)
+    model = model.transform(MinimizeAccumulatorWidth(datatype_only=True), apply_to_subgraphs=True)
+    model = model.transform(InferDataTypes(), apply_to_subgraphs=True)
+    return model
+
+
 def step_minimize_bit_width(model: ModelWrapper, cfg: DataflowBuildConfig):
-    """Tighten the weight and accumulator bit widths for each layer."""
+    """Second pass: bit width minimization after folding decisions.
+
+    Uses value-based minimization where safe, datatype-based otherwise (e.g.,
+    runtime_writeable_weights). Runs RoundAndClipThresholds and verification.
+    See also: step_minimize_bit_width_datatype_only (first pass).
+    """
     if cfg.minimize_bit_width:
         model = model.transform(MinimizeWeightBitWidth(), apply_to_subgraphs=True)
         model = model.transform(MinimizeAccumulatorWidth(), apply_to_subgraphs=True)
@@ -821,6 +839,7 @@ def step_minimize_bit_width(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(InferDataTypes(), apply_to_subgraphs=True)
     else:
         print("minimize_bit_width set to False, only run RoundAndClipThresholds.")
+
     # Always run RoundAndClipThresholds after accumulator widths are determined
     model = model.transform(RoundAndClipThresholds(), apply_to_subgraphs=True)
     model = model.transform(InferDataTypes(), apply_to_subgraphs=True)

@@ -270,6 +270,11 @@ def test_end2end_mobilenet_convert_to_hw_layers():
 @pytest.mark.end2end
 def test_end2end_mobilenet_specialize_layers():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_hw_layers.onnx")
+    # First pass: datatype-only bit width minimization before specialization
+    # Gives specialization realistic bit widths for RTL/HLS decisions
+    model = model.transform(MinimizeWeightBitWidth(datatype_only=True))
+    model = model.transform(MinimizeAccumulatorWidth(datatype_only=True))
+    model = model.transform(InferDataTypes())
     model = model.transform(SpecializeLayers(fpga_part))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())

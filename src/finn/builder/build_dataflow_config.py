@@ -130,6 +130,26 @@ class VerificationStepType(str, Enum):
     STITCHED_IP_RTLSIM = "stitched_ip_rtlsim"
 
 
+#: Maps each VerificationStepType to the (phase, step) it depends on.
+#: run_all_config_checks uses this to flag a verify_steps entry whose
+#: owning step won't run given steps/start_step/stop_step.
+#: A new VerificationStepType member must add its own entry here too.
+verify_step_prereqs = {
+    VerificationStepType.QONNX_TO_FINN_PYTHON: ("phase_prepare_model", "step_qonnx_to_finn"),
+    VerificationStepType.TIDY_UP_PYTHON: ("phase_prepare_model", "step_tidy_up"),
+    VerificationStepType.STREAMLINED_PYTHON: ("phase_optimize_model", "step_streamline"),
+    VerificationStepType.FOLDED_HLS_CPPSIM: (
+        "phase_optimize_hardware",
+        "step_minimize_bit_width",
+    ),
+    VerificationStepType.NODE_BY_NODE_RTLSIM: ("phase_build_hardware", "step_hw_ipgen"),
+    VerificationStepType.STITCHED_IP_RTLSIM: (
+        "phase_generate_outputs",
+        "step_create_stitched_ip",
+    ),
+}
+
+
 #: List of steps that will be run as part of the standard dataflow build, in the
 #: specified order. Use the `steps` as part of build config to restrict which
 #: steps will be run.

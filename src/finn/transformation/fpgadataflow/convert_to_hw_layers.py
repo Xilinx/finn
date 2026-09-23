@@ -620,6 +620,19 @@ class InferRequantLayer(Transformation):
                     )
                     continue
 
+                # For signed outputs, out_bias must be set (non-zero) to account for
+                # the signed offset (e.g., -128 for INT8). If out_bias == 0 for signed
+                # output, the offset likely exists as a separate Add node downstream.
+                # Run AbsorbScalarBiasIntoMultiThreshold to fold it into out_bias.
+                if odt.signed() and out_bias == 0:
+                    warnings.warn(
+                        f"{node.name}: Signed output with out_bias=0. "
+                        f"The signed offset (e.g., -128 for INT8) may exist as a separate "
+                        f"Add node. Run AbsorbScalarBiasIntoMultiThreshold before "
+                        f"InferRequantLayer to absorb it into out_bias."
+                    )
+                    continue
+
                 # Compute requant scale and bias per channel
                 # For uniform thresholds: output = floor((input - T0) / step) + 1
                 # which is equivalent to: round(input * (1/step) + (0.5 - T0/step))

@@ -790,24 +790,27 @@ class Thresholding_hls(Thresholding, HLSBackend):
             model, period, strategy, fpga_part, clk_period, op_type, io_dict, pre_hook=pre_hook
         )
 
-    def minimize_weight_bit_width(self, model):
+    def minimize_weight_bit_width(self, model, datatype_only=False):
         """Minimize threshold datatype, with HLS-specific adjustments.
 
         The HLS implementation uses the threshold datatype for comparisons.
         When the threshold datatype is narrower than the input datatype,
         input values get truncated, which can cause incorrect results.
         To prevent this, ensure threshold datatype is at least as wide as
-        input datatype."""
-        # First, call the base class implementation
-        tdt = super().minimize_weight_bit_width(model)
+        input datatype.
 
-        # Check if we need HLS-specific adjustments
+        Parameters
+        ----------
+        datatype_only : bool
+            If True, skip value-based minimization. See base class.
+        """
+        tdt = super().minimize_weight_bit_width(model, datatype_only=datatype_only)
+
         idt = self.get_input_datatype(0)
         if not idt.is_integer() or not tdt.is_integer():
             return tdt
 
-        # If threshold datatype is smaller than input datatype, widen it
-        # to match input datatype to prevent truncation issues
+        # Widen threshold to match input width to prevent truncation
         if tdt.bitwidth() < idt.bitwidth():
             # Use input datatype to ensure no truncation
             new_tdt = idt
