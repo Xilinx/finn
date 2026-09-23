@@ -618,7 +618,7 @@ module softmaxf_exp #(
 				assign	dsp_c = CDly[j*DSP_LAT - 1];
 			end : genCdly
 
-			pwpolyf_dspfp32  dsp (
+			softmax_pwpolyf_dspfp32  dsp (
 				.clk, .rst,
 				.a(dsp_a), .b(dsp_b), .c(dsp_c),
 				.r(s[j]), .rvld(PolyVld[(j+1)*DSP_LAT - 1])

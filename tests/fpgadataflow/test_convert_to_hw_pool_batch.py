@@ -43,6 +43,9 @@ import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.minimize_accumulator_width import (
+    MinimizeAccumulatorWidth,
+)
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
@@ -200,6 +203,15 @@ def test_convert_to_hw_pool(idt, odt, pool_config, ifm_ch, pe, op_type, exec_mod
             inst = getCustomOp(n)
             inst.set_nodeattr("PE", pe)
 
+    # MinimizeAccumulatorWidth - for QuantAvgPool this should reduce AccumBits
+    if op_type == "QuantAvgPool2d":
+        pool_node = [n for n in new_model.graph.node if n.op_type.startswith("Pool")][0]
+        pool_inst = getCustomOp(pool_node)
+        initial_accum = pool_inst.get_nodeattr("AccumBits")
+        new_model = new_model.transform(MinimizeAccumulatorWidth())
+        new_accum = pool_inst.get_nodeattr("AccumBits")
+        assert new_accum <= initial_accum
+
     if stride <= k:
         if pad == 0:
             assert len(new_model.graph.node) == 4
@@ -312,3 +324,33 @@ def test_convert_to_hw_maxpool_ceil_mode(ceil_config, exec_mode):
 
     y_produced = oxe.execute_onnx(new_model, input_dict)["outp"]
     assert (y_produced == y_expected).all()
+
+
+@pytest.mark.fpgadataflow
+def test_pool_maxpool_infer_datatype_follows_input():
+    """MaxPool's InputDataType/OutputDataType should track the producer's actual
+    output datatype instead of staying stale (see issue #1694), since a stale
+    InputDataType makes the HLS backend generate an interface width that no
+    longer matches the AXI stream actually feeding it."""
+    idt = DataType["UINT8"]
+    model = make_single_maxpool_modelwrapper(
+        k=2, stride=2, pad=0, ifm_ch=4, ifm_dim=4, ofm_dim=2, idt=idt
+    )
+    model = model.transform(to_hw.InferPool())
+    pool_node = model.get_nodes_by_op_type("Pool")[0]
+    inst = getCustomOp(pool_node)
+    assert inst.get_input_datatype() == idt
+    assert inst.get_output_datatype() == idt
+
+    # simulate the producer's output datatype narrowing after conversion, as
+    # e.g. MinimizeAccumulatorWidth would do on an upstream node
+    narrower_idt = DataType["UINT4"]
+    model.set_tensor_datatype(pool_node.input[0], narrower_idt)
+    inst.infer_node_datatype(model)
+
+    assert inst.get_input_datatype() == narrower_idt
+    assert inst.get_output_datatype() == narrower_idt
+    assert model.get_tensor_datatype(pool_node.output[0]) == narrower_idt
+    pe = inst.get_nodeattr("PE")
+    assert inst.get_instream_width() == narrower_idt.bitwidth() * pe
+    assert inst.get_outstream_width() == narrower_idt.bitwidth() * pe

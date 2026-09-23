@@ -9,7 +9,6 @@
 
 import numpy as np
 import os
-import shutil
 
 from finn.custom_op.fpgadataflow.hwsoftmax import HWSoftmax
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
@@ -36,8 +35,8 @@ class HWSoftmax_rtl(HWSoftmax, RTLBackend):
             "softmaxf.sv",
             "softmaxf_pkg.sv",
             "binopf.sv",
-            "pwpolyf_pkg.sv",
-            "pwpolyf.sv",
+            "pwpolyf_k3_pkg.sv",
+            "softmax_pwpolyf.sv",
             "int_to_fp32.sv",
         ]
 
@@ -83,8 +82,6 @@ class HWSoftmax_rtl(HWSoftmax, RTLBackend):
         ) as f:
             f.write(template)
 
-        for sv_file in self._rtllib_files():
-            shutil.copy(rtllib_dir + sv_file, code_gen_dir)
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
         self.set_nodeattr("ipgen_path", code_gen_dir)
@@ -103,20 +100,13 @@ class HWSoftmax_rtl(HWSoftmax, RTLBackend):
         return verilog_files + fifo_rtl_files(abspath)
 
     def code_generation_ipi(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-
-        sourcefiles = list(self._rtllib_files())
-        sourcefiles.append(self.get_nodeattr("gen_top_module") + ".v")
-        sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
-        sourcefiles += fifo_rtl_files()
-
         cmd = []
-        for f in sourcefiles:
-            cmd += ["add_files -norecurse %s" % (f)]
-        cmd += [
+        for f in self.get_rtl_file_list(abspath=True):
+            cmd.append("add_files -norecurse %s" % f)
+        cmd.append(
             "create_bd_cell -type module -reference %s %s"
             % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)
-        ]
+        )
         return cmd
 
     def get_exp_cycles(self):

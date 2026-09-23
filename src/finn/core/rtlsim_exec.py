@@ -46,16 +46,33 @@ from finn.util.rtlsim import dat_file_to_numpy_array, mlo_prehook_func_factory
 finnxsi = xsi if xsi.is_available() else None
 
 
+def has_s_axis_port(node_onnx, node_inp_ind):
+    """Whether input `node_inp_ind` of `node_onnx` is backed by an s_axis port.
+
+    Mirrors the skip rule in CreateStitchedIP.connect_s_axis_external: an input
+    beyond the node's declared s_axis interfaces gets no external port and does
+    not consume an s_axis_<n> index. Requant_rtl in MLO mode is such a case, as
+    it packs its bias (input[2]) into the input[1] parameter memstream.
+    """
+    s_axis_names = getCustomOp(node_onnx).get_verilog_top_module_intf_names()["s_axis"]
+    return node_inp_ind < len(s_axis_names)
+
+
 def prep_rtlsim_io_dict(model, execution_context):
     # extract i/o info to prepare io_dict
     io_dict = {"inputs": {}, "outputs": {}}
     if_dict = eval(model.get_metadata_prop("vivado_stitch_ifnames"))
-    # go over and prepare inputs
-    for i, i_vi in enumerate(model.graph.input):
+    # go over and prepare inputs, skipping those without an s_axis port so that
+    # the rest stay aligned with if_dict
+    i = -1
+    for i_vi in model.graph.input:
         i_name = i_vi.name
+        first_node_onnx = model.find_consumer(i_name)
+        if not has_s_axis_port(first_node_onnx, list(first_node_onnx.input).index(i_name)):
+            continue
+        i += 1
         i_tensor = execution_context[i_name]
         i_dt = model.get_tensor_datatype(i_name)
-        first_node_onnx = model.find_consumer(i_name)
         first_node = getCustomOp(first_node_onnx)
         node_inp_ind = list(first_node_onnx.input).index(i_name)
         if node_inp_ind == 0:
@@ -213,6 +230,9 @@ def rtlsim_exec_cppxsi(
         assert first_node is not None, "Failed to find consumer for " + iname
         fnode_inst = getCustomOp(first_node)
         top_ind = list(first_node.input).index(iname)
+        # skip inputs without an s_axis port to stay aligned with ifnames below
+        if not has_s_axis_port(first_node, top_ind):
+            continue
         ishape_folded = fnode_inst.get_folded_input_shape(ind=top_ind)
         instream_iters.append(np.prod(ishape_folded[:-1]))
     for top_out in model.graph.output:
@@ -237,6 +257,12 @@ def rtlsim_exec_cppxsi(
         ), f"cppxsi sim doesn't know how to handle full AXI MM interfaces: {ifnames['aximm']}"
     instream_names = [x[0] for x in ifnames["s_axis"]]
     outstream_names = [x[0] for x in ifnames["m_axis"]]
+    assert len(instream_names) == len(
+        instream_iters
+    ), "stitched-IP s_axis ports (%d) don't match streamed graph inputs (%d)" % (
+        len(instream_names),
+        len(instream_iters),
+    )
     instream_descrs = [
         (instream_names[i], instream_iters[i], instream_iters[i] + throttle_cycles)
         for i in range(len(instream_names))
