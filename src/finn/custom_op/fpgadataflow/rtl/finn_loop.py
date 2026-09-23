@@ -779,8 +779,6 @@ class FINNLoop(HWCustomOp, RTLBackend):
             )
         # stream tap graph generation
         loop_body = self.get_nodeattr("body")
-        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
-        cmd.append("file mkdir %s" % source_target)
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         # create a hierarchy for this layer, with the same port names
         stg_intf = {}
@@ -840,7 +838,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
             dwc_rtllib_dir + "vpc.sv",
         ]
         for f in sourcefiles:
-            cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
+            cmd += ["add_files -norecurse %s" % f]
 
         adj_list = adjacency_list(
             loop_body,

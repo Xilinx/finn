@@ -807,8 +807,7 @@ class VVAU(HWCustomOp):
         return intf_names
 
     def code_generation_ipi(self):
-        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
-        cmd = ["file mkdir %s" % source_target]
+        cmd = []
         # add streamer if needed
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "internal_decoupled":
@@ -850,7 +849,7 @@ class VVAU(HWCustomOp):
                 ms_rtllib_dir + "memstream.sv",
             ]
             for f in sourcefiles:
-                cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
+                cmd += ["add_files -norecurse %s" % f]
             strm_inst = node_name + "_wstrm"
             cmd.append(
                 "create_bd_cell -type hier -reference %s /%s/%s"
