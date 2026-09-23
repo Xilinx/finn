@@ -1049,8 +1049,7 @@ class MVAU(HWCustomOp):
                 )
 
     def code_generation_ipi(self):
-        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
-        cmd = ["file mkdir %s" % source_target]
+        cmd = []
 
         #
         # check if additional components are needed
@@ -1119,7 +1118,7 @@ class MVAU(HWCustomOp):
                         dyn_rtllib_dir + "dynamic_load.sv",
                     ]
                     for f in sourcefiles:
-                        cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
+                        cmd += ["add_files -norecurse %s" % f]
                     strm_inst = node_name + "_wdynld"
                     strm_out_name = "m_axis_0"
 
@@ -1202,7 +1201,7 @@ class MVAU(HWCustomOp):
                         if file.endswith(".sv") or file.endswith(".svh"):
                             sourcefiles.append(os.path.join(dma_rtllib_dir + "cdma_x/", file))
                     for f in sourcefiles:
-                        cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
+                        cmd += ["add_files -norecurse %s" % f]
                     strm_inst = node_name + "_fetch_weights"
                     strm_out_name = "out0_V"
                     # update intf dict to remove weights input and replace with index/tap input
@@ -1229,7 +1228,7 @@ class MVAU(HWCustomOp):
                         ms_rtllib_dir + "memstream.sv",
                     ]
                     for f in sourcefiles:
-                        cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
+                        cmd += ["add_files -norecurse %s" % f]
                     strm_inst = node_name + "_wstrm"
                     strm_out_name = "m_axis_0"
 
