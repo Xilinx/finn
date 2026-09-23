@@ -40,6 +40,7 @@ from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
+from finn import xsi as finnxsi
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.custom_op.fpgadataflow.convolutioninputgenerator import swg_default_tree
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
@@ -49,6 +50,8 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.basic import get_watchdog_timeout_cycles
+from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 from finn.util.test import tree_model_test
 
 
@@ -522,3 +525,133 @@ def test_fpgadataflow_analytical_characterization_slidingwindow_mobilenet(
         volume_const,
         length_const,
     ), "characterized TAV does not match RTLsim'd one!"
+
+
+def _run_swg_depthwise_throttle_check(k, ifm_dim, ifm_ch, simd, throttle):
+    """Build a depthwise ConvolutionInputGenerator_rtl (reusing the file's
+    im2col model builder), drive its input stream with the given throttle
+    profile via XSI rtlsim, and assert it neither deadlocks (watchdog) nor
+    mismatches the reordered im2col reference."""
+    fpga_part = "xc7z020clg400-1"
+    clk_ns = 5
+    stride = [1, 1]
+    dilation = [1, 1]
+    idt = DataType["INT4"]
+    k_h, k_w = k
+    ofm_dim_h = compute_conv_output_dim(ifm_dim[0], k_h, stride[0], 0, dilation[0])
+    ofm_dim_w = compute_conv_output_dim(ifm_dim[1], k_w, stride[1], 0, dilation[1])
+    ofm_dim = [ofm_dim_h, ofm_dim_w]
+
+    # build the im2col model once and take the reference before converting to HW
+    model = make_single_im2col_modelwrapper(
+        k, ifm_ch, ifm_dim, ofm_dim, stride, dilation, idt, dw=1
+    )
+    x = gen_finn_dt_tensor(idt, (1, ifm_dim[0], ifm_dim[1], ifm_ch))
+    y_ref = oxe.execute_onnx(model, prepare_inputs(x))["outp"]
+    # reorder im2col output into the SWG depthwise channel/window layout
+    y_ref = y_ref.reshape(1, ofm_dim_h, ofm_dim_w, k_h * k_w, ifm_ch // simd, simd)
+    y_ref = y_ref.transpose(0, 1, 2, 4, 3, 5)
+    y_ref = y_ref.reshape(1, ofm_dim_h, ofm_dim_w, ifm_ch * k_h * k_w)
+
+    model = model.transform(to_hw.InferConvInpGen())
+    # force the RTL variant so we exercise the swg_template_default.sv datapath
+    getCustomOp(model.graph.node[0]).set_nodeattr("preferred_impl_style", "rtl")
+    model = model.transform(SpecializeLayers(fpga_part))
+    assert model.graph.node[0].op_type == "ConvolutionInputGenerator_rtl"
+    getCustomOp(model.graph.node[0]).set_nodeattr("SIMD", simd)
+    model = model.transform(GiveUniqueNodeNames())
+
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareIP(fpga_part, clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+
+    inst = getCustomOp(model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")[0])
+    in_dt, in_w, in_folded = (
+        inst.get_input_datatype(0),
+        inst.get_instream_width(0),
+        inst.get_folded_input_shape(0),
+    )
+    out_dt, out_w, out_folded = (
+        inst.get_output_datatype(0),
+        inst.get_outstream_width(0),
+        inst.get_folded_output_shape(0),
+    )
+    num_out = inst.get_number_output_values()
+
+    packed_in = npy_to_rtlsim_input(np.asarray(x, dtype=np.float32).reshape(in_folded), in_dt, in_w)
+    hex_in = map(lambda v: f"{v:0x}", packed_in)
+
+    sim = inst.get_rtlsim()
+    liveness = get_watchdog_timeout_cycles(inst.get_exp_cycles())
+    try:
+        inst.reset_rtlsim(sim)
+        sim.stream_input("in0_V", hex_in, throttle=throttle)
+        out_buf = sim.collect_output(
+            "out0_V", num_out, watchdog=sim.create_watchdog("out0_V timeout", liveness)
+        )
+        cfg = "k=%s, ifm_ch=%s, simd=%s, throttle=%s" % (k, ifm_ch, simd, throttle)
+        assert not sim.run(), "rtlsim watchdog timed out -> SWG deadlock (%s)" % cfg
+        packed_out = [int(v, base=16) for v in out_buf]
+    finally:
+        inst.close_rtlsim(sim)
+
+    got = rtlsim_output_to_npy(packed_out, None, out_dt, out_folded, out_w, out_dt.bitwidth())
+    got = np.asarray(got, dtype=np.float32).reshape(inst.get_normal_output_shape(0))
+
+    assert (got.reshape(y_ref.shape) == y_ref).all(), "SWG output mismatch (%s)" % cfg
+
+
+# throttle=(count_txns, wait_cycles): a back-to-back producer masks the bug,
+# a bursty producer feeding no faster than the window rate exposes the deadlock.
+@pytest.mark.parametrize("throttle", [(float("inf"), 0), (1, 32)], ids=["backtoback", "bursty"])
+# kernel size (4x4 over 4x4 -> single window = the exact last-window edge case)
+@pytest.mark.parametrize("k", [[2, 2], [3, 3], [4, 4]])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+def test_fpgadataflow_swg_depthwise_slow_producer_deadlock(k, throttle, monkeypatch):
+    """Regression test for the depthwise SWG deadlock (PR #1698).
+
+    In depthwise mode, ``First_elem_next_window`` overflowed its register at the
+    first fetch of a feature map's last window: advanced by ``TAIL_INCR_LAST`` it
+    exceeded ``LAST_READ_ELEM``, wrapped negative through ``$signed()`` in
+    ``read_cmd`` and permanently blocked the last input read. The stall only
+    appears when the producer feeds input no faster than the SWG's window rate,
+    so a back-to-back stream (``throttle=(inf, 0)``) passes even on the buggy RTL
+    while a bursty stream (``throttle=(1, 32)``) deadlocks. Post-fix both must
+    complete and return the reference im2col output.
+    """
+    if not finnxsi.is_available():
+        pytest.skip("finn_xsi (XSI rtlsim) not available")
+    # keep the default watchdog bound so a genuine deadlock aborts quickly
+    monkeypatch.delenv("LIVENESS_THRESHOLD", raising=False)
+    _run_swg_depthwise_throttle_check(k, [4, 4], ifm_ch=4, simd=1, throttle=throttle)
+
+
+# Wider channels / SIMD>1
+# (e.g. 4x4 depthwise over 4x4 with 512 channels, plus 3x3 / 2x2 variants).
+@pytest.mark.parametrize("throttle", [(float("inf"), 0), (1, 16)], ids=["backtoback", "bursty"])
+@pytest.mark.parametrize(
+    "k, ifm_dim, ifm_ch, simd",
+    [
+        ([4, 4], [4, 4], 512, 64),
+        ([4, 4], [4, 4], 512, 1),  # SIMD=1 (max channel_factor -> largest overflow)
+        ([3, 3], [4, 4], 256, 32),
+        ([2, 2], [4, 4], 128, 4),
+    ],
+    ids=["k4_ch512_simd64", "k4_ch512_simd1", "k3_ch256_simd32", "k2_ch128_simd4"],
+)
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_fpgadataflow_swg_depthwise_slow_producer_deadlock_wide(
+    k, ifm_dim, ifm_ch, simd, throttle, monkeypatch
+):
+    """Wide-channel / SIMD>1 coverage of the depthwise SWG deadlock (PR #1698),
+    matching the author's xsim sweep. Same trigger as the light test: the bursty
+    producer exposes the ``First_elem_next_window`` overflow, back-to-back masks
+    it."""
+    if not finnxsi.is_available():
+        pytest.skip("finn_xsi (XSI rtlsim) not available")
+    monkeypatch.delenv("LIVENESS_THRESHOLD", raising=False)
+    _run_swg_depthwise_throttle_check(k, ifm_dim, ifm_ch, simd, throttle)
