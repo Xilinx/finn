@@ -63,22 +63,20 @@ LOOP_NODES_PER_BODY = 6
 LOOP_N_HEAD = 2
 
 
-
 def log_variant_id(variant):
     """Test id (and build dir suffix) for one LOG_VARIANTS entry."""
     debug_fifo, verbose, flush = variant
     return "on-verbose%s-flush%d" % (verbose, flush) if debug_fifo else "off"
 
 
-
 def make_residual_model():
-    """ Create a graph with a residual node:
+    """Create a graph with a residual node:
 
-               .---> b ------.
-               |             v
-        inp -> a             e --> outp
-               |             ^
-               '-> c -> d ---'
+           .---> b ------.
+           |             v
+    inp -> a             e --> outp
+           |             ^
+           '-> c -> d ---'
     """
     consts = CONSTS
 
@@ -143,7 +141,7 @@ def _bitwise_node(op, inputs, output, name, rhs_shape):
 
 
 def make_finnloop_model():
-    """The graph A -> B -> G -> G -> G -> C, with G the fork/join body. """
+    """The graph A -> B -> G -> G -> G -> C, with G the fork/join body."""
     nodes = []
     value_info = []
     initializers = {}
@@ -168,9 +166,7 @@ def make_finnloop_model():
         a, a1, a2 = tensor("g%d_a" % i), tensor("g%d_a1" % i), tensor("g%d_a2" % i)
         b, c, d, o = (tensor("g%d_%s" % (i, t)) for t in ("b", "c", "d", "out"))
         nodes.append(
-            _bitwise_node(
-                "Xor", [src, const("g%d_cA" % i, LOOP_CONSTS_A[i])], a, "g%d_A" % i, [1]
-            )
+            _bitwise_node("Xor", [src, const("g%d_cA" % i, LOOP_CONSTS_A[i])], a, "g%d_A" % i, [1])
         )
         nodes.append(
             _hw_node(
@@ -231,6 +227,7 @@ def loop_expected_output(inp):
 
 def parse_fifo_log(path, verbose):
     """Parse one gauge log, asserting its format, and return its contents."""
+
     def word(text):
         return None if re.search(r"[xXzZ]", text) else int(text, 16)
 
@@ -288,7 +285,18 @@ def read_phase_logs(log_dir, verbose):
             continue
         logs[os.path.splitext(fname)[0]] = parse_fifo_log(path, verbose)
     assert len(logs) > 0, "no non-empty FIFO logs in " + log_dir
+    assert empty == [], "empty FIFO logs in %s: %s" % (log_dir, empty)
     return logs, empty
+
+
+def assert_logs_cover_fifos(logs, fifo_names, log_dir):
+    """Assert the snapshot has exactly one log per FIFO -- no gaps, no strays."""
+    logged = set(logs)
+    expected = set(fifo_names)
+    missing = sorted(expected - logged)
+    extra = sorted(logged - expected)
+    assert not missing, "%s: no log written for FIFO(s) %s" % (log_dir, missing)
+    assert not extra, "%s: log(s) %s do not correspond to a FIFO in this scope" % (log_dir, extra)
 
 
 def check_log_structure(log, verbose):
@@ -456,7 +464,6 @@ def _sim_ratio(a, b):
     return a["sim_s"] / max(b["sim_s"], 1e-9)
 
 
-
 def build_fork_join(debug_fifo, fifo_log_verbose, fifo_log_flush):
     """Build the fork/join graph with debug_fifo and check the resulting logs.
 
@@ -527,11 +534,16 @@ def build_fork_join(debug_fifo, fifo_log_verbose, fifo_log_flush):
     final_model = ModelWrapper(output_dir + "/intermediate_models/step_create_stitched_ip.onnx")
     expected_counts = final_model.analysis(fifo_transaction_counts)
     assert len(expected_counts) >= 6, "expected at least one FIFO per graph edge plus the IO FIFOs"
-    assert len(stitched_logs) == len(expected_counts), (
-        "%d FIFOs in the stitched model but %d non-empty logs"
-        % (len(expected_counts), len(stitched_logs))
+    assert_logs_cover_fifos(stitched_logs, expected_counts, stitched_dir)
+    assert_logs_cover_fifos(
+        {k: v for k, v in sizing_logs.items() if k in expected_counts}, expected_counts, sizing_dir
     )
-    assert sorted(log["in"] for log in stitched_logs.values()) == sorted(expected_counts.values())
+    for name, log in stitched_logs.items():
+        assert log["in"] == expected_counts[name], "%s: logged in=%d, expected %d" % (
+            log["path"],
+            log["in"],
+            expected_counts[name],
+        )
     for log in stitched_logs.values():
         n_in = log["in"]
         n_lines = len(log["txns"])
@@ -553,16 +565,18 @@ def build_fork_join(debug_fifo, fifo_log_verbose, fifo_log_flush):
     logged_inputs = [
         [t[0] for t in log["txns"] if t[1] in (0, None)] for log in stitched_logs.values()
     ]
-    assert expected_words in logged_inputs, (
-        "no FIFO log carries the verification input; logged first words were %s"
-        % [w[:4] for w in logged_inputs]
-    )
+    assert (
+        expected_words in logged_inputs
+    ), "no FIFO log carries the verification input; logged first words were %s" % [
+        w[:4] for w in logged_inputs
+    ]
     forked_words = [int(x + CONSTS["cA"]) for x in inp.flatten()]
     assert (
         logged_inputs.count(forked_words) >= 2
     ), "the fork should feed the same inp+cA stream to both of its consumers"
 
     return measure_cost(output_dir, log_root, sim_timer)
+
 
 def build_finnloop(debug_fifo, fifo_log_verbose, fifo_log_flush):
     """The same checks on an MLO build, where the graph contains a FINNLoop.
@@ -642,31 +656,47 @@ def build_finnloop(debug_fifo, fifo_log_verbose, fifo_log_flush):
     stitched_logs, _ = read_phase_logs(stitched_dir, fifo_log_verbose)
     for logs in (sizing_logs, stitched_logs):
         for name, log in logs.items():
-            assert name.startswith(loop_name + "_"), (
-                "%s is in the %s snapshot but is not tagged with that loop context"
-                % (log["path"], loop_name)
+            assert name.startswith(
+                loop_name + "_"
+            ), "%s is in the %s snapshot but is not tagged with that loop context" % (
+                log["path"],
+                loop_name,
             )
             check_log_structure(log, fifo_log_verbose)
-
-    main_dir = log_root + "/stitched_ip_rtlsim/main"
-    if os.path.isdir(main_dir):
-        for fname in sorted(os.listdir(main_dir)):
-            path = os.path.join(main_dir, fname)
-            if fname.endswith(".log") and os.path.getsize(path) > 0:
-                check_log_structure(parse_fifo_log(path, fifo_log_verbose), fifo_log_verbose)
 
     all_counts = final_model.analysis(partial(fifo_transaction_counts, apply_to_subgraphs=True))
     expected_counts = {k: v for k, v in all_counts.items() if k.startswith(loop_name + "_")}
     assert len(expected_counts) >= 6, "expected at least one FIFO per edge of the loop body"
-    assert min(expected_counts.values()) >= LOOP_ITERATIONS * LOOP_CH, (
-        "the body's transaction counts do not look scaled by the %d loop iterations: %s"
-        % (LOOP_ITERATIONS, expected_counts)
+
+    # Ensure Top-level FIFOs are also logging.
+    main_counts = {k: v for k, v in all_counts.items() if not k.startswith(loop_name + "_")}
+    assert len(main_counts) > 0, "expected top-level FIFOs around the FINNLoop"
+    main_dir = log_root + "/stitched_ip_rtlsim/main"
+    main_logs, _ = read_phase_logs(main_dir, fifo_log_verbose)
+    assert_logs_cover_fifos(main_logs, main_counts, main_dir)
+    for name, log in main_logs.items():
+        check_log_structure(log, fifo_log_verbose)
+        assert log["in"] == main_counts[name], "%s: logged in=%d, expected %d" % (
+            log["path"],
+            log["in"],
+            main_counts[name],
+        )
+    assert (
+        min(expected_counts.values()) >= LOOP_ITERATIONS * LOOP_CH
+    ), "the body's transaction counts do not look scaled by the %d loop iterations: %s" % (
+        LOOP_ITERATIONS,
+        expected_counts,
     )
-    assert len(stitched_logs) == len(expected_counts), (
-        "%d FIFOs in the loop body but %d non-empty logs"
-        % (len(expected_counts), len(stitched_logs))
+    assert_logs_cover_fifos(stitched_logs, expected_counts, stitched_dir)
+    assert_logs_cover_fifos(
+        {k: v for k, v in sizing_logs.items() if k in expected_counts}, expected_counts, sizing_dir
     )
-    assert sorted(log["in"] for log in stitched_logs.values()) == sorted(expected_counts.values())
+    for name, log in stitched_logs.items():
+        assert log["in"] == expected_counts[name], "%s: logged in=%d, expected %d" % (
+            log["path"],
+            log["in"],
+            expected_counts[name],
+        )
     for log in stitched_logs.values():
         n_in = log["in"]
         n_lines = len(log["txns"])
@@ -709,7 +739,6 @@ def build_finnloop(debug_fifo, fifo_log_verbose, fifo_log_flush):
     return measure_cost(output_dir, log_root, sim_timer)
 
 
-
 # Test configurations
 ## Log flush strides
 FLUSH_DEFAULT = build_cfg.DataflowBuildConfig.fifo_log_flush
@@ -718,15 +747,14 @@ FLUSH_RARE = 1000
 
 ## Argument variants for pytest
 LOG_VARIANT_ARGS = "debug_fifo, fifo_log_verbose, fifo_log_flush"
-LOG_VARIANTS = (
-    [(False, False, FLUSH_DEFAULT)] +
-    [(True, verbose, flush)
-     for verbose in (False, True)
-     for flush in sorted({FLUSH_EVERY_LINE, FLUSH_RARE, FLUSH_DEFAULT})
-     ]
-)
+LOG_VARIANTS = [(False, False, FLUSH_DEFAULT)] + [
+    (True, verbose, flush)
+    for verbose in (False, True)
+    for flush in sorted({FLUSH_EVERY_LINE, FLUSH_RARE, FLUSH_DEFAULT})
+]
 
 LOG_VARIANT_IDS = [log_variant_id(v) for v in LOG_VARIANTS]
+
 
 @pytest.mark.slow
 @pytest.mark.vivado
@@ -763,9 +791,9 @@ def test_fifo_log_format_matches_rtl():
             "%s no longer contains %r; update the log format expectations in "
             "tests/fpgadataflow/test_fifo_log_verbose.py" % (sv_path, expected)
         )
-    assert (
-        '"# [%m @%0t] Cycles: %0d; MaxFill: %0d; Transactions: in=%0d out=%0d\\n"' in sv
-    ), "%s changed the gauge summary line format" % sv_path
+    assert '"# [%m @%0t] Cycles: %0d; MaxFill: %0d; Transactions: in=%0d out=%0d\\n"' in sv, (
+        "%s changed the gauge summary line format" % sv_path
+    )
 
     verbose = parse_fifo_log_from_text(
         "\n".join(
@@ -811,6 +839,7 @@ def parse_fifo_log_from_text(text, verbose, tmp_name=None):
 
 BENCH_FLUSHES = 4
 BENCH_TXNS = 65536 * BENCH_FLUSHES
+
 
 def scale_workload():
     """Redefine global variables to introduce more data for measurement."""

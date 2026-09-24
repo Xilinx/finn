@@ -135,6 +135,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import (
     InsertAndSetFIFODepths,
     RemoveShallowFIFOs,
+    reset_implementation,
     xsi_fifosim,
 )
 from finn.transformation.fpgadataflow.set_folding import SetFolding
@@ -177,7 +178,27 @@ def _fifo_debug_live_dir(cfg):
     return cfg.output_dir + "/debug/fifo_logs/_live"
 
 
-def snapshot_fifo_logs(cfg, phase_name, loop_context=None):
+def _attach_fifo_debug_logs(model, cfg, prefix=""):
+    """Give every StreamingFIFO_rtl node in `model` a fifo_gauge log path."""
+    if not cfg.debug_fifo:
+        return model
+    live_dir = os.path.abspath(_fifo_debug_live_dir(cfg))
+    os.makedirs(live_dir, exist_ok=True)
+    for node in model.get_nodes_by_op_type("StreamingFIFO_rtl"):
+        node_inst = getCustomOp(node)
+        log_path = os.path.join(live_dir, prefix + node.name + ".log")
+        if node_inst.get_nodeattr("debug_log_path") == log_path:
+            continue
+        node_inst.set_nodeattr("debug_log_path", log_path)
+        node_inst.set_nodeattr("fifo_log_verbose", int(cfg.fifo_log_verbose))
+        node_inst.set_nodeattr("fifo_log_flush", int(cfg.fifo_log_flush))
+        # DATA_LOGFILE is baked into the generated RTL, so any already-generated
+        # IP for this node has to be regenerated with the new path
+        reset_implementation(node_inst)
+    return model
+
+
+def snapshot_fifo_logs(cfg, phase_name, loop_context=None, exclude_prefixes=()):
     if not cfg.debug_fifo:
         return
     live_dir = _fifo_debug_live_dir(cfg)
@@ -192,7 +213,14 @@ def snapshot_fifo_logs(cfg, phase_name, loop_context=None):
             continue
         if prefix is not None and not fn.startswith(prefix):
             continue
+        # don't let one scope's snapshot pick up another scope's logs
+        if any(fn.startswith(p) for p in exclude_prefixes):
+            continue
         src = os.path.join(live_dir, fn)
+        # already-snapshotted logs are truncated to zero bytes; skip those
+        # instead of emitting a phantom empty log in this scope
+        if os.path.getsize(src) == 0:
+            continue
         dst = os.path.join(dest_dir, fn)
         shutil.copy2(src, dst)
         open(src, "w").close()
@@ -1076,6 +1104,9 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     # problems when trying to reuse the final config.
     model = model.transform(RemoveShallowFIFOs())
 
+    # Force every surviving top-level FIFO has a gauge log path.
+    model = _attach_fifo_debug_logs(model, cfg)
+
     # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again
     # this will only run for the new nodes (e.g. FIFOs and DWCs)
     model = model.transform(PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()))
@@ -1165,10 +1196,15 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
                 "stitched_ip_rtlsim",
                 need_parent=True,
             )
-            if is_mlo(model):
-                for loop_node in verify_model.get_nodes_by_op_type("FINNLoop"):
-                    snapshot_fifo_logs(cfg, "stitched_ip_rtlsim", loop_context=loop_node.name)
-            snapshot_fifo_logs(cfg, "stitched_ip_rtlsim")
+            loop_names = [n.name for n in verify_model.get_nodes_by_op_type("FINNLoop")]
+            for loop_name in loop_names:
+                snapshot_fifo_logs(cfg, "stitched_ip_rtlsim", loop_context=loop_name)
+
+            snapshot_fifo_logs(
+                cfg,
+                "stitched_ip_rtlsim",
+                exclude_prefixes=tuple(n + "_" for n in loop_names),
+            )
     return model
 
 
