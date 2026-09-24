@@ -32,6 +32,7 @@ import warnings
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import Characteristic_Node
 
 
 class FMPadding_Pixel(HWCustomOp):
@@ -71,6 +72,54 @@ class FMPadding_Pixel(HWCustomOp):
         batch_size = self.get_nodeattr("numInputVectors")
         exp_cycles = (channels / simd) * batch_size * odim_h * odim_w
         return int(exp_cycles)
+
+    def get_tree_model(self):
+        """Writes the padded raster every cycle, reads only on the real pixels.
+
+        The layer inserts ``Stride - 1`` zero rows and columns between the
+        pixels it is given, so it emits one word of the padded image per cycle
+        and pulls an input word only on the cycles that carry a real pixel --
+        those whose row and column are both multiples of the stride. The period
+        is the padded frame, which is what ``get_exp_cycles`` returns.
+
+        The schedule separates, so it is written as the raster loop nest it
+        comes from: a pixel is ``SIMD``-folded words, a row is pixels with
+        inserted columns between them, and a frame is rows with inserted rows
+        between them. The last pixel of a row and the last row of a frame carry
+        no trailing gap, which is why each level ends with a bare repetition.
+
+        Both assume the HLS pipeline reaches II=1. Whether it does is a
+        synthesis outcome rather than a property of the node, so a design whose
+        pipeline schedules slower runs proportionally longer than this.
+        """
+        idim_h, idim_w = self.get_nodeattr("ImgDim")
+        stride_h, stride_w = self.get_nodeattr("Stride")
+        odim_h, odim_w = self.get_padded_odim()
+        simd = self.get_nodeattr("SIMD")
+        ch = self.get_nodeattr("NumChannels")
+        batch = self.get_nodeattr("numInputVectors")
+        fold = ch // simd
+        if min(odim_h, odim_w, fold, batch, stride_h, stride_w) < 1:
+            return None
+        if idim_h < 1 or idim_w < 1:
+            return None
+        real_px = Characteristic_Node("real pixel", [(fold, [1, 1])], True)
+        gap_px = Characteristic_Node("inserted columns", [((stride_w - 1) * fold, [0, 1])], True)
+        px_then_gap = Characteristic_Node(
+            "pixel + inserted columns", [(1, real_px), (1, gap_px)], False
+        )
+        # the last pixel of a row is not followed by inserted columns
+        real_row = Characteristic_Node(
+            "row carrying pixels", [(idim_w - 1, px_then_gap), (1, real_px)], False
+        )
+        pad_row = Characteristic_Node("inserted row", [(odim_w * fold, [0, 1])], True)
+        row_then_gap = Characteristic_Node(
+            "row + inserted rows", [(1, real_row), (stride_h - 1, pad_row)], False
+        )
+        frame = Characteristic_Node(
+            "padded frame", [(idim_h - 1, row_then_gap), (1, real_row)], False
+        )
+        return Characteristic_Node("FMPadding_Pixel FM", [(batch, frame)], False)
 
     def get_normal_input_shape(self, ind=0):
         idim_h, idim_w = self.get_nodeattr("ImgDim")

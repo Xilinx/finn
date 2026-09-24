@@ -35,6 +35,7 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.test import tree_model_test
 
 FPGA_PART = "xc7z020clg400-1"
 CLK_NS = 10
@@ -158,3 +159,157 @@ def test_fpgadataflow_crop(config, idt, impl_style, exec_mode):
         exp_cycles = model.analysis(exp_cycles_per_layer)[node.name]
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
         assert exp_cycles != 0
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        ([1, 8, 16], 1, [0, 1, 2, 3], 1, "INT8"),
+        ([1, 16, 48], 1, [4, 5, 6], 8, "INT8"),
+        ([1, 16, 48, 16], 2, list(range(8, 40)), 16, "INT8"),
+        ([1, 10, 20, 32], 1, [1, 2, 3], 8, "INT8"),
+        ([32, 48], 0, [15], 16, "INT8"),
+        ([1, 16, 48], 1, [4, 5, 6], 1, "FLOAT32"),
+    ],
+)
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_crop(config):
+    ishape, axis, indices, simd, idt = config
+    # the part and clock the schedule was validated at, and the HLS backend it
+    # models: SpecializeLayers otherwise prefers Crop_rtl
+    part = "xczu7ev-ffvc1156-2-e"
+    target_clk_ns = 5
+
+    model = make_crop_modelwrapper(ishape, axis, indices, DataType[idt])
+    model = model.transform(InferCrop())
+    getCustomOp(model.graph.node[0]).set_nodeattr("preferred_impl_style", "hls")
+    model = model.transform(SpecializeLayers(part))
+    getCustomOp(model.graph.node[0]).set_nodeattr("SIMD", simd)
+    model = model.transform(GiveUniqueNodeNames())
+
+    node_details = ("Crop", config)
+
+    # The schedule is exact: the raster is read one word per cycle whatever the
+    # crop keeps, and the write row is the same raster masked and delayed by the
+    # pipeline. Neither row can drift, so the budgets are floors for a synthesis
+    # that places the pipeline a cycle or two differently, not room for the
+    # model to be wrong.
+    max_allowed_volume_frac = 0.0
+    volume_const = 3
+    max_allowed_length_frac = 0.0
+    length_const = 3
+
+    assert tree_model_test(
+        model,
+        node_details,
+        part,
+        target_clk_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    ), "characterized TAV does not match RTLsim'd one!"
+
+
+# (ishape, axis, indices, simd, idt, (CropWest, CropEast) laid over a height crop
+# or None). The first six are the HLS test's; the rest are where the RTL core's
+# counters degenerate or its selection is at its narrowest.
+CROP_RTL_TREE_MODEL_CONFIGS = [
+    pytest.param(([1, 8, 16], 1, [0, 1, 2, 3], 1, "INT8", None), id="h1-west-simd1"),
+    pytest.param(([1, 16, 48], 1, [4, 5, 6], 8, "INT8", None), id="h1-mid-simd8"),
+    pytest.param(([1, 16, 48, 16], 2, list(range(8, 40)), 16, "INT8", None), id="4d-mid-simd16"),
+    pytest.param(([1, 10, 20, 32], 1, [1, 2, 3], 8, "INT8", None), id="4d-height-simd8"),
+    pytest.param(([32, 48], 0, [15], 16, "INT8", None), id="2d-one-column"),
+    pytest.param(([1, 16, 48], 1, [4, 5, 6], 1, "FLOAT32", None), id="h1-FLOAT32"),
+    pytest.param(([4, 1, 8], 0, [1, 2], 2, "INT8", None), id="w1-height"),
+    pytest.param(([1, 8, 16], 1, [7], 16, "INT8", None), id="cf1-last-fold"),
+    pytest.param(([1, 8, 4], 1, [3], 4, "INT8", None), id="single-fold"),
+    pytest.param(([2, 4, 4, 4], 2, [1, 2], 2, "INT8", None), id="batch2"),
+    pytest.param(([6, 7, 8], 0, [1, 2, 3], 8, "UINT4", (2, 1)), id="every-side-cf1"),
+    pytest.param(([5, 6, 8], 0, [2], 8, "INT8", (3, 2)), id="every-side-single-fold"),
+]
+
+
+def make_crop_rtl_tree_model(config, part):
+    """The single-node Crop_rtl model for ``config``, specialized and folded."""
+    ishape, axis, indices, simd, idt, lateral = config
+    model = make_crop_modelwrapper(ishape, axis, indices, DataType[idt])
+    model = model.transform(InferCrop())
+    crop = getCustomOp(model.graph.node[0])
+    if lateral is not None:
+        # Gather crops one axis only, so the lateral crop goes on by hand
+        west, east = lateral
+        crop.set_nodeattr("CropWest", west)
+        crop.set_nodeattr("CropEast", east)
+        model.set_tensor_shape("outp", list(crop.get_normal_output_shape()))
+    crop.set_nodeattr("preferred_impl_style", "rtl")
+    model = model.transform(SpecializeLayers(part))
+    assert model.graph.node[0].op_type == "Crop_rtl"
+    getCustomOp(model.graph.node[0]).set_nodeattr("SIMD", simd)
+    return model.transform(GiveUniqueNodeNames())
+
+
+@pytest.mark.parametrize("config", CROP_RTL_TREE_MODEL_CONFIGS)
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_crop_rtl(config):
+    part = "xczu7ev-ffvc1156-2-e"
+    target_clk_ns = 5
+    model = make_crop_rtl_tree_model(config, part)
+    node_details = ("Crop_rtl", config)
+
+    # The schedule is exact, cycle for cycle: the reads are a solid raster and
+    # every kept fold is written a fixed two cycles into rtlsim's window after
+    # its read, whatever the geometry, and every delta measured is zero. The
+    # floor of one is for the reference, not the model: rtlsim's window is cut
+    # at cycles_rtlsim // 5, which lands on the frame only while the
+    # simulator's reset and drain overhead (two or three cycles here) stays
+    # under five cycles.
+    max_allowed_volume_frac = 0.0
+    volume_const = 1
+    max_allowed_length_frac = 0.0
+    length_const = 1
+
+    assert tree_model_test(
+        model,
+        node_details,
+        part,
+        target_clk_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    ), "characterized TAV does not match RTLsim'd one!"
+
+
+@pytest.mark.fpgadataflow
+def test_crop_rtl_tree_model_token_counts():
+    """One period of the Crop_rtl schedule moves exactly one frame.
+
+    Needs no reference: a period that reads other than the input folds, or
+    writes other than the kept ones, leaves the sizer's steady-state occupancy
+    drifting by the difference on every frame.
+    """
+    part = "xczu7ev-ffvc1156-2-e"
+    for param in CROP_RTL_TREE_MODEL_CONFIGS:
+        config = param.values[0]
+        model = make_crop_rtl_tree_model(config, part)
+        crop = getCustomOp(model.graph.node[0])
+        tree = crop.get_tree_model()
+        assert tree is not None, config
+        cum = tree.cumulative(periods=1)
+        n_in = int(np.prod(crop.get_folded_input_shape()[:-1]))
+        n_out = int(np.prod(crop.get_folded_output_shape()[:-1]))
+        assert cum.shape[0] == crop.get_exp_cycles(), f"{config}: period {cum.shape[0]}"
+        assert cum[-1, 0] == n_in, f"{config}: reads {cum[-1, 0]} != {n_in}"
+        assert cum[-1, 1] == n_out, f"{config}: writes {cum[-1, 1]} != {n_out}"
+
+    # the backend-agnostic node is no circuit and so has no schedule
+    model = make_crop_modelwrapper([1, 8, 16], 1, [0, 1, 2, 3], DataType["INT8"])
+    model = model.transform(InferCrop())
+    assert getCustomOp(model.graph.node[0]).get_tree_model() is None

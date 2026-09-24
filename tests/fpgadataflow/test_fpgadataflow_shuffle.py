@@ -47,6 +47,7 @@ from finn.transformation.fpgadataflow.transpose_decomposition import (
 from finn.util.basic import get_watchdog_timeout_cycles, make_build_dir, robust_rmtree
 from finn.util.config import extract_model_config_consolidate_shuffles
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from finn.util.test import tree_model_test_up_to_rotation
 
 test_fpga_part: str = "xcvc1902-vsva2197-2MP-e-S"
 test_synth_clk_period_ns: int = 10
@@ -924,3 +925,130 @@ def test_inner_shuffle_rtl_bursty(throttle, monkeypatch):
         "InnerShuffle_rtl output does not match reference transpose (throttle=%s): "
         "a read overtook its write on the ping-pong page" % (throttle,)
     )
+
+
+@pytest.mark.parametrize(
+    "tav_param",
+    [
+        {  # a 2D transpose: one InnerShuffle
+            "in_shape": (2, 2, 12, 8),
+            "transpose_in_shape": None,
+            "transpose_out_shape": None,
+            "perm": (0, 1, 3, 2),
+        },
+        {  # an outer permutation: one OuterShuffle
+            "in_shape": (1, 128, 384),
+            "transpose_in_shape": (1, 128, 12, 32),
+            "transpose_out_shape": None,
+            "perm": (0, 2, 1, 3),
+        },
+        {  # a plain 2D transpose, where the whole frame is one page
+            "in_shape": (128, 384),
+            "transpose_in_shape": None,
+            "transpose_out_shape": None,
+            "perm": (1, 0),
+        },
+        {  # an OuterShuffle whose buffer is exactly one frame
+            "in_shape": (8, 32, 16),
+            "transpose_in_shape": None,
+            "transpose_out_shape": None,
+            "perm": (1, 0, 2),
+        },
+        {  # an OuterShuffle small enough that one turn of each phase carries
+            # the whole surplus
+            "in_shape": (1, 4, 8, 4),
+            "transpose_in_shape": None,
+            "transpose_out_shape": None,
+            "perm": (0, 2, 1, 3),
+        },
+    ],
+)
+@pytest.mark.parametrize("simd", [2, 4])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_shuffle_tree_model(tav_param, simd, monkeypatch):
+    """The shuffle tree models against their rtlsim token access vectors.
+
+    Compared up to a shared rotation: neither schedule models the phase the
+    recorded window opens at, only the transactions and their spacing.
+    """
+    monkeypatch.setenv("LIVENESS_THRESHOLD", "10000000")
+    model = construct_onnx_model(
+        input_shape=tav_param["in_shape"],
+        transpose_perm=tav_param["perm"],
+        reshape1_shape=tav_param["transpose_in_shape"],
+        reshape2_shape=tav_param["transpose_out_shape"],
+        dt=DataType["INT8"],
+    )
+    model = model.transform(InferShuffle(_filter=lambda *_: True))
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(SetShuffleSIMD(simd))
+    model = model.transform(ShuffleDecomposition())
+    model = model.transform(InferInnerOuterShuffles())
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+
+    if len(model.graph.node) != 1:
+        pytest.skip("tree model test characterizes a single node")
+
+    node_details = ("Shuffle", model.graph.node[0].op_type, tuple(tav_param["in_shape"]), simd)
+    # The token counts are what FIFO sizing integrates, so the volume budget is
+    # tight. The length one is not: rtlsim's period carries a share of the
+    # one-time page fill, which is a whole frame when the frame is a single page.
+    max_allowed_volume_frac = 0.01
+    volume_const = 4
+    max_allowed_length_frac = 0.10
+    length_const = 16
+
+    assert tree_model_test_up_to_rotation(
+        model,
+        node_details,
+        test_fpga_part,
+        test_synth_clk_period_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    ), "shuffle characterized TAV does not match RTLsim'd one!"
+
+
+@pytest.mark.parametrize(
+    "declining_param",
+    [
+        {"in_shape": (2, 6, 4, 4), "perm": (0, 2, 1, 3)},
+        {"in_shape": (8, 16, 12, 32), "perm": (0, 2, 1, 3)},
+    ],
+)
+@pytest.mark.fpgadataflow
+def test_outer_shuffle_tree_model_declines_small_buffer(declining_param):
+    """A reorder buffer under one frame is a regime the schedule does not cover.
+
+    There the writer waits on the free pointer of its own frame rather than the
+    previous one, several times over, so a period stops being one wait of each
+    kind. ``get_tree_model`` must decline and let the node fall back to rtlsim
+    instead of handing out the three-phase shape. No Vivado: this only asks what
+    the tree model returns.
+    """
+    model = construct_onnx_model(
+        input_shape=declining_param["in_shape"],
+        transpose_perm=declining_param["perm"],
+        reshape1_shape=None,
+        reshape2_shape=None,
+        dt=DataType["INT8"],
+    )
+    model = model.transform(InferShuffle(_filter=lambda *_: True))
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(SetShuffleSIMD(2))
+    model = model.transform(ShuffleDecomposition())
+    model = model.transform(InferInnerOuterShuffles())
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+
+    outer = [n for n in model.graph.node if n.op_type.startswith("OuterShuffle")]
+    assert len(outer) == 1, "expected exactly one OuterShuffle to characterize"
+    inst = getCustomOp(outer[0])
+    extents, coeffs, num_words = inst.loop_nest()
+    assert inst.buffer_depth(extents, coeffs, num_words) < num_words
+    assert inst.get_tree_model() is None

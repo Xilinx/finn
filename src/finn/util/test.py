@@ -29,28 +29,45 @@
 
 import pytest
 
+import copy
 import importlib_resources as importlib
 import numpy as np
 import onnx
 import onnx.numpy_helper as nph
 import os
+import qonnx.custom_op.registry as registry
+
+# import time
 import torchvision.transforms.functional as torchvision_util
 import warnings
 from brevitas_examples import bnn_pynq, imagenet_classification
 from pkgutil import get_data
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.general import GiveUniqueNodeNames
 
+from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.alveo_build import VitisLink, VitisOptStrategy
+from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
+from finn.transformation.fpgadataflow.derive_characteristic import (
+    DeriveTokenAccessVectors,
+)
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
+from finn.transformation.fpgadataflow.prepare_ip import _codegen_single_node
+from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
+    ReplaceVerilogRelPaths,
+)
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import (
+    decompress_string_to_numpy,
     make_build_dir,
     pynq_part_map,
     robust_rmtree,
     vitis_default_platform,
     vitis_part_map,
 )
+from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 # map of (wbits,abits) -> model
 example_map = {
@@ -200,3 +217,478 @@ def resize_smaller_side(target_pixels, img):
 def crop_center(size, img):
     """Crop central size*size window out of a PIL image."""
     return torchvision_util.center_crop(img, size)
+
+
+def tav_tolerance(frac, scale, const):
+    """``const + frac * scale`` -- the two terms a TAV error actually has.
+
+    The proportional term is the one that belongs in a budget: a period
+    reproduced to within four cycles is excellent on a 100k-cycle frame and
+    useless on a 40-cycle one, and a flat cycle count says the same thing about
+    both.
+
+    The constant term is not a fudge, it is the fixed part of the error:
+    pipeline wind-up, an adder tree's depth, the cycle rtlsim's
+    ``cycles_rtlsim // periods_to_simulate`` rounds away. Those cost the same
+    few cycles whatever the frame length, which is why they add rather than
+    compete -- a long frame carries the same fixed wind-up as a short one *and*
+    a proportional error on top, and ``max`` of the two would silently drop
+    whichever term happened to be smaller.
+    """
+    return float(const) + float(frac) * float(scale)
+
+
+def compare_two_chr_funcs(
+    a,
+    b,
+    max_allowed_volume_frac,
+    max_allowed_length_frac,
+    volume_const=0,
+    length_const=0,
+):
+    """Compare an analytical TAV ``a`` against the rtlsim ground truth ``b``.
+
+    ``max_allowed_volume_frac`` is a fraction of the tokens the reference moves
+    in the window, and ``max_allowed_length_frac`` a fraction of the reference's
+    length; ``*_const`` are the fixed cycle/token counts that add to the
+    proportional term. See ``tav_tolerance``.
+
+    The leeway this grants may produce larger FIFOs. Output delays due to long
+    pipelines generally do not affect FIFO sizes, so a larger relaxation on the
+    output side is expected.
+    """
+    a = np.asarray(a)
+    b = np.asarray(b)
+    lower_len = min(len(a), len(b))
+
+    len_allowed = tav_tolerance(max_allowed_length_frac, len(b), length_const)
+    if len(a) != len(b):
+        len_dif = abs(len(a) - len(b))
+        print(
+            "TAV length delta: %d (%.2f%% of %d, allowed %.0f)"
+            % (len_dif, 100.0 * len_dif / max(1, len(b)), len(b), len_allowed)
+        )
+        if len_dif > len_allowed:
+            return False
+
+    # scale the volume budget by the tokens actually moved, not by the cycle
+    # count: a peak cumulative delta is a token count and the two differ by the
+    # folding factor
+    total_tokens = int(b[lower_len - 1]) if lower_len else 0
+    vol_allowed = tav_tolerance(max_allowed_volume_frac, total_tokens, volume_const)
+    peak_volume_delta = np.max(np.abs(a[:lower_len] - b[:lower_len])) if lower_len else 0
+    print(
+        "TAV peak volume delta: %d (%.2f%% of %d tokens, allowed %.0f)"
+        % (
+            peak_volume_delta,
+            100.0 * peak_volume_delta / max(1, total_tokens),
+            total_tokens,
+            vol_allowed,
+        )
+    )
+    if peak_volume_delta > vol_allowed:
+        return False
+    return True
+
+
+def get_characteristic_fnc(model, node0, part, target_clk_ns, strategy, caching=False):
+    """
+    This helper performs FINN node characterization using either rtlsim
+    or characteristic functions. If chacteristic function strategy is
+    requested, but the node does not support it, a fallback to rtlsim
+    is performed. The primary purpose of this helper is for testing purposes
+    to evaluate characteristic function final dump equivalence between rtlsim
+    and characteristic functions.
+    The CACHING flag controls storing the .onnx model in the build dir to reuse,
+    which is useful for vastly speeding up debugging of characterization trees"""
+
+    model_cache = None
+    if caching:
+        # search for prepared model
+        build_dir = os.environ["FINN_BUILD_DIR"]
+        for x in os.listdir(build_dir):
+            if x.startswith(str(node0)):
+                model_cache = f"{build_dir}/{x}/model_{strategy}.onnx"
+                if os.path.exists(model_cache):
+                    model = ModelWrapper(model_cache)
+                else:
+                    model_cache = None
+
+    if model_cache is None:
+        model = model.transform(SpecializeLayers(part))
+        model = model.transform(GiveUniqueNodeNames())
+
+        node = model.graph.node[0]
+        inst = registry.getCustomOp(node)
+        if (is_hls_node(node) or is_rtl_node(node)) and (
+            inst.get_tree_model() is None or strategy == "rtlsim"
+        ):
+            _codegen_single_node(node, model, part, target_clk_ns)
+
+            op_type = node.op_type
+            if is_hls_node(node):
+                try:
+                    # lookup op_type in registry of CustomOps
+
+                    # ensure that code is generated
+                    assert (
+                        inst.get_nodeattr("code_gen_dir_ipgen") != ""
+                    ), """Node
+                    attribute "code_gen_dir_ipgen" is empty. Please run
+                    transformation PrepareIP first."""
+                    if os.path.isdir(inst.get_nodeattr("ipgen_path")) or inst.get_nodeattr(
+                        "code_gen_dir_ipgen"
+                    ) not in inst.get_nodeattr("ipgen_path"):
+                        # call the compilation function for this node
+                        inst.ipgen_singlenode_code()
+                    else:
+                        warnings.warn("Using pre-existing IP for %s" % node.name)
+                    # ensure that executable path is now set
+                    assert (
+                        inst.get_nodeattr("ipgen_path") != ""
+                    ), """Transformation
+                    HLSSynthIP was not successful. Node attribute "ipgen_path"
+                    is empty."""
+                except KeyError:
+                    # exception if op_type is not supported
+                    raise Exception("Custom op_type %s is currently not supported." % op_type)
+
+        model = model.transform(ReplaceVerilogRelPaths())
+
+        node = model.graph.node[0]
+        inst = registry.getCustomOp(node)
+        if (is_hls_node(node) or is_rtl_node(node)) and (
+            inst.get_tree_model() is None or strategy == "rtlsim"
+        ):
+            try:
+                inst.prepare_rtlsim()
+                # ensure that executable path is now set
+                assert (
+                    inst.get_nodeattr("rtlsim_so") != ""
+                ), "Failed to prepare RTLSim, no rtlsim_so attribute found."
+            except KeyError:
+                # exception if op_type is not supported
+                raise Exception("Custom op_type %s is currently not supported." % op_type)
+
+        model = model.transform(AnnotateCycles())
+
+        period = int(model.analysis(dataflow_performance)["max_cycles"] + 12)
+
+        model = model.transform(
+            DeriveTokenAccessVectors(
+                model,
+                period,
+                strategy,
+                part,
+                target_clk_ns,
+            )
+        )
+        if caching:
+            tmp_caching_output_dir = make_build_dir(str(node0))
+            model.save(tmp_caching_output_dir + f"/model_{strategy}.onnx")
+
+    return getCustomOp(model.graph.node[0])
+
+
+def debug_chr_funcs(chr_in, chr_out, rtlsim_in, rtlsim_out, printout_limit=100):
+    """This helper prints out characteristic functions for a clean comparison
+    between the rtlsim-based and characteristic-function-based flows to find bugs
+    """
+
+    DEBUG_RAW_FUNCS = True
+    DEBUG_CONCAT_FUNCS = True
+
+    if DEBUG_RAW_FUNCS or DEBUG_CONCAT_FUNCS:
+
+        def concat_list(a):
+            b = []
+            current = a[0]
+            b.append(1)
+            for i in a[1:]:
+                if i == current:
+                    b[-1] += 1
+                else:
+                    b.append(1)
+                    current = i
+            return b
+
+        chr_in_concat = concat_list(chr_in[0])
+        chr_out_concat = concat_list(chr_out[0])
+        rtlsim_in_concat = concat_list(rtlsim_in[0])
+        rtlsim_out_concat = concat_list(rtlsim_out[0])
+
+        np.set_printoptions(threshold=np.inf)
+
+        # input port
+        if DEBUG_RAW_FUNCS:
+            print(f"\nchr IN:    {chr_in[0][:printout_limit]}, {len(chr_in[0])}")
+            print(f"rtlsim IN: {rtlsim_in[0][:printout_limit]}, {len(rtlsim_in[0])}")
+
+        if DEBUG_CONCAT_FUNCS:
+            print(f"chr IN CONCAT:    {chr_in_concat[:printout_limit]}, {len(chr_in_concat)}")
+            print(f"rtlsim IN CONCAT: {rtlsim_in_concat[:printout_limit]}, {len(rtlsim_in_concat)}")
+
+        # output port
+        if DEBUG_RAW_FUNCS:
+            print(f"\nchr OUT:    {chr_out[0][:printout_limit]}, {len(chr_out[0])}")
+            print(f"rtlsim OUT: {rtlsim_out[0][:printout_limit]}, {len(rtlsim_out[0])}")
+
+        if DEBUG_CONCAT_FUNCS:
+            print(f"chr OUT CONCAT:    {chr_out_concat[:printout_limit]}, {len(chr_out_concat)}")
+            print(
+                f"rtlsim OUT CONCAT: {rtlsim_out_concat[:printout_limit]}, {len(rtlsim_out_concat)}"
+            )
+    else:
+        return True
+
+
+def tree_model_test(
+    model,
+    node_details,
+    part,
+    target_clk_ns,
+    max_allowed_volume_frac,
+    max_allowed_length_frac,
+    volume_const=0,
+    length_const=0,
+    CACHING=False,
+    DEBUGGING=False,
+):
+    """Characterize ``model``'s single node both ways and compare the two TAVs.
+
+    The tolerances are fractions -- of the tokens moved and of the frame length
+    respectively -- with an absolute floor for the fixed part of the error. See
+    ``compare_two_chr_funcs``.
+    """
+    # caching means to run RTLSIM only once and store the model
+    # so we can reuse the token access vector whenever we
+    # update the tree model and want to test correctness
+    # CACHING = True
+
+    # should the token access vectors and
+    # concatenated token access vectors be printed out?
+    # useful for debugging
+    # DEBUGING = False
+
+    # ground truth model to rtlsim
+    model_rtl = copy.deepcopy(model)
+
+    # t0 = time.time()
+    node_analytical = get_characteristic_fnc(
+        model,
+        (*node_details, "tree_model"),
+        part,
+        target_clk_ns,
+        "tree_model",
+        False,
+    )
+
+    node_rtlsim = get_characteristic_fnc(
+        model_rtl,
+        (*node_details, "rtlsim"),
+        part,
+        target_clk_ns,
+        "rtlsim",
+        CACHING,
+    )
+
+    chr_in = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_in"))
+    chr_out = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_out"))
+
+    rtlsim_in = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_in"))
+    rtlsim_out = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_out"))
+
+    if DEBUGGING:
+        debug_chr_funcs(chr_in, chr_out, rtlsim_in, rtlsim_out)
+        res = compare_nodes(node_analytical, node_rtlsim)
+        print(node_details, res)
+    # test input port
+    input_check = compare_two_chr_funcs(
+        chr_in[0],
+        rtlsim_in[0],
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    )
+
+    # test output port
+    output_check = compare_two_chr_funcs(
+        chr_out[0],
+        rtlsim_out[0],
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    )
+
+    return input_check and output_check
+
+
+def compare_chr_funcs_up_to_rotation(
+    chr_in,
+    chr_out,
+    rtlsim_in,
+    rtlsim_out,
+    max_allowed_volume_frac,
+    max_allowed_length_frac,
+    volume_const=0,
+    length_const=0,
+):
+    """Compare a tree model against rtlsim allowing one *shared* phase offset.
+
+    Weaker than ``compare_two_chr_funcs`` in exactly one way and no other: the
+    tree model may place the frame anywhere within the period, as long as it
+    places the input and the output row at the *same* offset. That is the right
+    assertion for a node whose steady-state schedule is known exactly but whose
+    wind-up is not, and it is not a licence to be sloppy -- a model that got the
+    read-to-write relationship wrong, or the period, or the token count, still
+    fails, and those are what FIFO sizing integrates. Only the absolute
+    placement of the frame inside rtlsim's two-period window is forgiven, and
+    that placement is an artefact of where the window was cut.
+
+    Tolerances are fractions with an absolute floor, as in
+    ``compare_two_chr_funcs``. The length excess is one-sided here -- rtlsim's
+    period carries a share of the wind-up, so a model that reproduces the steady
+    state exactly is *short* by that share and never long -- and running long is
+    rejected outright, being a real error rather than a wind-up artefact.
+
+    Returns ``(ok, rotation, in_delta, out_delta)``.
+    """
+    a_in, b_in = np.asarray(chr_in), np.asarray(rtlsim_in)
+    a_out, b_out = np.asarray(chr_out), np.asarray(rtlsim_out)
+
+    len_dif = len(b_in) - len(a_in)
+    len_allowed = tav_tolerance(max_allowed_length_frac, len(b_in), length_const)
+    if len_dif < 0 or len_dif > len_allowed:
+        print(
+            "TAV length delta: %d (%.2f%% of %d, allowed %.0f)"
+            % (len_dif, 100.0 * len_dif / max(1, len(b_in)), len(b_in), len_allowed)
+        )
+        return False, 0, None, None
+
+    # one period of per-cycle deltas, which is what a rotation acts on
+    def one_period(cum):
+        n = len(cum) // 2
+        d = np.diff(np.concatenate(([0], np.asarray(cum, dtype=np.int64))))
+        return d[:n]
+
+    d_in, d_out = one_period(a_in), one_period(a_out)
+    r_in, r_out = one_period(b_in), one_period(b_out)
+
+    # Deliberately no equal-token-count assertion between the two. rtlsim's
+    # period is cycles_rtlsim // periods_to_simulate and rounds *up* off the
+    # wind-up, so on a short period its window holds a little more than one
+    # frame -- 41 reads against the node's 36 on SF=2, TH=9 -- and demanding
+    # equality would fail the model for the reference's rounding. That the
+    # model itself moves exactly one folded frame per period is an absolute
+    # property with no reference in it, and is asserted on its own.
+    n = min(len(d_in), len(r_in))
+    ref_in = np.cumsum(r_in[:n])
+    ref_out = np.cumsum(r_out[:n])
+    best = None
+    for rot in range(len(d_in)):
+        v = int(np.max(np.abs(np.cumsum(np.roll(d_in, rot)[:n]) - ref_in)))
+        if best is None or v < best[0]:
+            best = (v, rot)
+    in_delta, rot = best
+    out_delta = int(np.max(np.abs(np.cumsum(np.roll(d_out, rot)[:n]) - ref_out)))
+    vol_allowed = tav_tolerance(
+        max_allowed_volume_frac, max(int(ref_in[-1]), int(ref_out[-1])) if n else 0, volume_const
+    )
+    print(
+        "TAV rotation: %d, peak volume delta in/out: %d/%d (allowed %.0f)"
+        % (rot, in_delta, out_delta, vol_allowed)
+    )
+    ok = in_delta <= vol_allowed and out_delta <= vol_allowed
+    return ok, rot, in_delta, out_delta
+
+
+def tree_model_test_up_to_rotation(
+    model,
+    node_details,
+    part,
+    target_clk_ns,
+    max_allowed_volume_frac,
+    max_allowed_length_frac,
+    volume_const=0,
+    length_const=0,
+    CACHING=False,
+):
+    """``tree_model_test`` with ``compare_chr_funcs_up_to_rotation`` as the check."""
+    model_rtl = copy.deepcopy(model)
+    node_analytical = get_characteristic_fnc(
+        model, (*node_details, "tree_model"), part, target_clk_ns, "tree_model", False
+    )
+    node_rtlsim = get_characteristic_fnc(
+        model_rtl, (*node_details, "rtlsim"), part, target_clk_ns, "rtlsim", CACHING
+    )
+    chr_in = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_in"))
+    chr_out = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_out"))
+    rtlsim_in = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_in"))
+    rtlsim_out = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_out"))
+    ok, _, _, _ = compare_chr_funcs_up_to_rotation(
+        chr_in[0],
+        chr_out[0],
+        rtlsim_in[0],
+        rtlsim_out[0],
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    )
+    return ok
+
+
+def inter_token_gaps(tav):
+    if tav is None or tav.size == 0:
+        return np.array([1]), np.array([0])  # reasonable defaults
+
+    # Find indices where tokens are added (nonzero diff indicates a new token)
+    token_times = np.flatnonzero(np.diff(tav) > 0) + 1  # +1 to align with time index
+
+    if token_times.size < 2:
+        # Not enough token events to compute gaps
+        return np.array([1]), token_times  # Default gap of 1 between tokens (or 0 if no tokens)
+
+    # Compute gaps between token emissions
+    gaps = np.diff(token_times)
+    return gaps, token_times  # ,gaps_min
+
+
+def compare_nodes(
+    model_node,
+    ref_node,
+    start_cycle=0,
+    max_cycle=None,
+):
+    """Largest absolute divergence between a node's tree-model and reference
+    token access vectors, over the cycle window [start_cycle, max_cycle)."""
+    # Extract and decompress the input/output trace arrays
+    tav_ref_in = decompress_string_to_numpy(ref_node.get_nodeattr("io_chrc_in"))[0]
+    tav_ref_out = decompress_string_to_numpy(ref_node.get_nodeattr("io_chrc_out"))[0]
+    tav_model_in = decompress_string_to_numpy(model_node.get_nodeattr("io_chrc_in"))[0]
+    tav_model_out = decompress_string_to_numpy(model_node.get_nodeattr("io_chrc_out"))[0]
+
+    # Determine max length for slicing
+    max_len = max(len(tav_ref_in), len(tav_model_in), len(tav_ref_out), len(tav_model_out))
+    if max_cycle is None or max_cycle > max_len:
+        max_cycle = max_len
+
+    # Slice without padding
+    y_ref_in = tav_ref_in[start_cycle:max_cycle]
+    y_model_in = tav_model_in[start_cycle:max_cycle]
+    y_ref_out = tav_ref_out[start_cycle:max_cycle]
+    y_model_out = tav_model_out[start_cycle:max_cycle]
+
+    # Compute differences over common lengths only
+    def max_diff(a, b):
+        common_len = min(len(a), len(b))
+        if common_len == 0:
+            return float("nan")
+        return np.max(np.abs(a[:common_len] - b[:common_len]))
+
+    return {
+        "max_in_diff": max_diff(y_ref_in, y_model_in),
+        "max_out_diff": max_diff(y_ref_out, y_model_out),
+    }

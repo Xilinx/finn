@@ -33,6 +33,7 @@ from qonnx.core.datatype import DataType
 from qonnx.util.basic import roundup_to_integer_multiple
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import flat_characteristic_leaf
 
 
 class StreamingSplit(HWCustomOp):
@@ -154,3 +155,50 @@ class StreamingSplit(HWCustomOp):
     def get_instream_width_padded(self, ind=0):
         in_width = self.get_instream_width()
         return roundup_to_integer_multiple(in_width, 8)
+
+    def get_tree_model(self):
+        """The schedule of the freerunning HLS splitter: one word every five cycles.
+
+        Neither a passthrough nor II=1. ``csynth.rpt`` for the generated top level
+        reports Latency 4, **Interval 5**, ``Pipelined: no``,
+        ``hls_style: freerunning``; the inner ``StreamingSplit`` in
+        finn-hlslib/split.hpp is ``#pragma HLS pipeline II=1``, so it is the
+        freerunning wrapper around it that admits one word every five cycles.
+
+        Round-robin over the destinations in ``ChannelsPerStream`` order, so
+        destination *i* receives one contiguous burst of ``C[i]`` words per input
+        vector rather than a share of every word:
+
+            input word k        at cycle 1 + 5k
+            output i, word j    at cycle 7 + 5*(offset_i + j)
+
+        with ``offset_i = sum(C[:i])``. Row 0 -- the only row a tree model emits,
+        and the only one the sizer reads -- is ``out0``, so the schedule here is
+        the first destination's.
+
+        The interval of 5 is validated only for four equal streams at SIMD 1,
+        which is every configuration that occurs here. The HLS source makes it a
+        property of the freerunning wrapper rather than of the stream count, but
+        that is an inference and this model does not restrict itself to the
+        validated shape.
+        """
+        simd = self.get_nodeattr("SIMD")
+        chans = list(self.get_nodeattr("ChannelsPerStream"))
+        n_vec = int(np.prod(list(self.get_nodeattr("numInputVectors"))))
+        if simd < 1 or not chans or any(c % simd for c in chans) or n_vec < 1:
+            return None
+        folds = [c // simd for c in chans]
+        total = int(sum(folds))
+        if total < 1:
+            return None
+        ii = 5
+        span = ii * total  # cycles per input vector
+        period = n_vec * span
+        rd = np.zeros(period, dtype=np.int8)
+        wr = np.zeros(period, dtype=np.int8)
+        rd[(1 + ii * np.arange(n_vec * total)) % period] = 1
+        # row 0 is the schedule the FIFO sizer reads, and that is out0
+        starts = span * np.arange(n_vec)
+        first = (7 + ii * np.arange(folds[0]))[None, :] + starts[:, None]
+        wr[first.ravel() % period] = 1
+        return flat_characteristic_leaf(rd, wr, "StreamingSplit_hls schedule")
