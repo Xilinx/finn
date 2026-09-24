@@ -113,6 +113,7 @@ from finn.transformation.fpgadataflow.derive_characteristic import (
     DeriveCharacteristic,
     DeriveFIFOSizes,
 )
+from finn.transformation.fpgadataflow.export_portable_rtl import ExportPortableRTL
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
@@ -1170,6 +1171,48 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
+def step_export_portable_rtl(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Export a self-contained, portable RTL project.
+
+    If STITCHED_IP was not requested, this step will run CreateStitchedIP
+    internally (without synthesis) to generate the wrapper and file lists
+    needed for the portable export.
+
+    The export contains:
+    - All Verilog/SystemVerilog source files with relative paths
+    - All .dat memory initialization files
+    - A filelist.f for simulator tools (Verilator, QuestaSim, ModelSim)
+    - A sources.tcl for Vivado non-IPI projects
+    """
+
+    if DataflowOutputType.PORTABLE_RTL in cfg.generate_outputs:
+        # If stitched IP wasn't created yet, run CreateStitchedIP to generate
+        # the wrapper and file lists (without synthesis)
+        vivado_stitch_proj = model.get_metadata_prop("vivado_stitch_proj")
+        if not vivado_stitch_proj:
+            print("Creating stitched IP for portable RTL export (synthesis disabled)...")
+            model = model.transform(
+                CreateStitchedIP(
+                    cfg._resolve_fpga_part(),
+                    cfg.synth_clk_period_ns,
+                    run_synth=False,
+                    run_pnr=False,
+                    signature=cfg.signature,
+                )
+            )
+
+        export_dir = cfg.output_dir + "/portable_rtl"
+        model = model.transform(ExportPortableRTL(export_dir))
+        print("Portable RTL export written to " + export_dir)
+    else:
+        print(
+            """DataflowOutputType.PORTABLE_RTL not in requested outputs,
+            skipping step_export_portable_rtl."""
+        )
+
+    return model
+
+
 def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Measure performance + latency of stitched-IP model in rtlsim (xsi).
     Depends on the DataflowOutputType.STITCHED_IP output product.
@@ -1526,6 +1569,7 @@ build_dataflow_step_lookup = {
     "step_hw_ipgen": step_hw_ipgen,
     "step_set_fifo_depths": step_set_fifo_depths,
     "step_create_stitched_ip": step_create_stitched_ip,
+    "step_export_portable_rtl": step_export_portable_rtl,
     "step_measure_rtlsim_performance": step_measure_rtlsim_performance,
     "step_make_driver": step_make_driver,
     "step_synthesize_bitfile": step_synthesize_bitfile,
