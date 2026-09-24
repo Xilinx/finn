@@ -7,6 +7,7 @@ import json
 import numpy as np
 import os
 import re
+import time
 from functools import partial
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
@@ -98,7 +99,7 @@ def make_residual_model():
 
     model.set_tensor_datatype("inp", IDT)
     for cname, cval in consts.items():
-        model.set_initializer(cname, np.full(ISHAPE, cval, dtype=np.float32))
+        model.set_initializer(cname, np.full([1], cval, dtype=np.float32))
         model.set_tensor_datatype(cname, DataType["UINT4"])
     model = model.transform(InferShapes())
     model = model.transform(InferDataTypes())
@@ -355,13 +356,42 @@ def assert_no_fifo_logs(log_root):
     assert stray == [], "debug_fifo=False but these logs have content: %s" % stray
 
 
-def measure_cost(output_dir, log_root, sizing_step):
-    """The wall time and log footprint of one finished build."""
+class SimTimer:
+    def __init__(self):
+        self.seconds = 0.0
+        self.runs = 0
+
+    def __enter__(self):
+        import finn.core.rtlsim_exec as rtlsim_exec
+
+        self._mod = rtlsim_exec
+        self._orig = rtlsim_exec.launch_process_helper
+
+        def timed(args, *a, **kw):
+            if args[:2] != ["bash", "run_rtlsim.sh"]:
+                return self._orig(args, *a, **kw)
+            start = time.monotonic()
+            try:
+                return self._orig(args, *a, **kw)
+            finally:
+                self.seconds += time.monotonic() - start
+                self.runs += 1
+
+        rtlsim_exec.launch_process_helper = timed
+        return self
+
+    def __exit__(self, *exc):
+        self._mod.launch_process_helper = self._orig
+        return False
+
+
+def measure_cost(output_dir, log_root, sim_timer):
+    """The simulation wall time and log footprint of one finished build."""
     with open(output_dir + "/time_per_step.json") as f:
         time_per_step = json.load(f)
     return {
-        "fifo_sizing_s": time_per_step[sizing_step],
-        "stitched_ip_s": time_per_step["phase_generate_outputs"],
+        "sim_s": sim_timer.seconds,
+        "sim_runs": sim_timer.runs,
         "build_s": sum(time_per_step.values()),
         "log_bytes": dir_size(log_root) if os.path.isdir(log_root) else 0,
     }
@@ -370,22 +400,25 @@ def measure_cost(output_dir, log_root, sizing_step):
 def _print_comparison(title, table):
     if len(table) < 2:
         return
-    print("\nFIFO logging cost, %s (debug_fifo x fifo_log_verbose x fifo_log_flush):" % title)
+    print("\n" + "=" * 78)
+    print("FIFO logging cost -- %s" % title)
+    print("=" * 78)
     print(
-        "%-9s %-9s %8s %14s %14s %14s %12s"
-        % ("debug", "verbose", "flush", "fifo_sizing[s]", "stitched[s]", "build[s]", "logs[B]")
+        "%-9s %-9s %8s %10s %6s %10s %14s"
+        % ("debug", "verbose", "flush", "sim[s]", "sims", "build[s]", "logs[B]")
     )
-    for key in sorted(table):
+    # the debug_fifo=False baseline first, then the logging variants
+    for key in sorted(table, key=lambda k: (k[0], k[1], k[2])):
         debug_fifo, verbose, flush = key
         c = table[key]
         print(
-            "%-9s %-9s %8d %14.1f %14.1f %14.1f %12d"
+            "%-9s %-9s %8s %10.1f %6d %10.1f %14d"
             % (
                 debug_fifo,
                 verbose if debug_fifo else "-",
-                flush,
-                c["fifo_sizing_s"],
-                c["stitched_ip_s"],
+                flush if debug_fifo else "-",
+                c["sim_s"],
+                c["sim_runs"],
                 c["build_s"],
                 c["log_bytes"],
             )
@@ -419,10 +452,8 @@ def _print_comparison(title, table):
 
 
 def _sim_ratio(a, b):
-    """Ratio of the two simulating phases' wall time between two variants."""
-    return (a["fifo_sizing_s"] + a["stitched_ip_s"]) / max(
-        b["fifo_sizing_s"] + b["stitched_ip_s"], 1e-9
-    )
+    """Ratio of rtlsim wall time between two variants."""
+    return a["sim_s"] / max(b["sim_s"], 1e-9)
 
 
 
@@ -468,7 +499,10 @@ def build_fork_join(debug_fifo, fifo_log_verbose, fifo_log_flush):
         verify_expected_output_npy=output_dir + "/expected_output.npy",
         generate_outputs=[build_cfg.DataflowOutputType.STITCHED_IP],
     )
-    assert build.build_dataflow_cfg(model_file, cfg) == 0, "build failed, see build_dataflow.log"
+    with SimTimer() as sim_timer:
+        assert (
+            build.build_dataflow_cfg(model_file, cfg) == 0
+        ), "build failed, see build_dataflow.log"
 
     verify_dir = output_dir + "/verification_output"
     assert os.path.isfile(
@@ -479,7 +513,7 @@ def build_fork_join(debug_fifo, fifo_log_verbose, fifo_log_flush):
 
     if not debug_fifo:
         assert_no_fifo_logs(log_root)
-        return measure_cost(output_dir, log_root, "phase_optimize_hardware")
+        return measure_cost(output_dir, log_root, sim_timer)
 
     sizing_dir = log_root + "/fifo_sizing/main"
     stitched_dir = log_root + "/stitched_ip_rtlsim/main"
@@ -528,7 +562,7 @@ def build_fork_join(debug_fifo, fifo_log_verbose, fifo_log_flush):
         logged_inputs.count(forked_words) >= 2
     ), "the fork should feed the same inp+cA stream to both of its consumers"
 
-    return measure_cost(output_dir, log_root, "phase_optimize_hardware")
+    return measure_cost(output_dir, log_root, sim_timer)
 
 def build_finnloop(debug_fifo, fifo_log_verbose, fifo_log_flush):
     """The same checks on an MLO build, where the graph contains a FINNLoop.
@@ -579,7 +613,10 @@ def build_finnloop(debug_fifo, fifo_log_verbose, fifo_log_flush):
         verify_expected_output_npy=output_dir + "/expected_output.npy",
         generate_outputs=[build_cfg.DataflowOutputType.STITCHED_IP],
     )
-    assert build.build_dataflow_cfg(model_file, cfg) == 0, "build failed, see build_dataflow.log"
+    with SimTimer() as sim_timer:
+        assert (
+            build.build_dataflow_cfg(model_file, cfg) == 0
+        ), "build failed, see build_dataflow.log"
 
     assert os.path.isfile(output_dir + "/loop-body-template.onnx")
     final_model = ModelWrapper(output_dir + "/intermediate_models/step_create_stitched_ip.onnx")
@@ -596,7 +633,7 @@ def build_finnloop(debug_fifo, fifo_log_verbose, fifo_log_flush):
 
     if not debug_fifo:
         assert_no_fifo_logs(log_root)
-        return measure_cost(output_dir, log_root, "phase_build_hardware")
+        return measure_cost(output_dir, log_root, sim_timer)
 
     sizing_dir = "%s/fifo_sizing/%s" % (log_root, loop_name)
     stitched_dir = "%s/stitched_ip_rtlsim/%s" % (log_root, loop_name)
@@ -669,7 +706,7 @@ def build_finnloop(debug_fifo, fifo_log_verbose, fifo_log_flush):
         logged_inputs.count(forked) >= 2
     ), "the fork inside the loop body should feed the same stream to both consumers"
 
-    return measure_cost(output_dir, log_root, "phase_build_hardware")
+    return measure_cost(output_dir, log_root, sim_timer)
 
 
 
@@ -811,7 +848,10 @@ def main():
 
     scale_workload()
 
-    graphs = [("fork/join graph", build_fork_join, {}), ("FINNLoop graph", build_finnloop, {})]
+    graphs = [
+        ("fork/join graph [non-MLO]", build_fork_join, {}),
+        ("FINNLoop graph [MLO]", build_finnloop, {}),
+    ]
     runs = [(title, func, table, v) for title, func, table in graphs for v in LOG_VARIANTS]
     print(
         "running %d builds (%d variants x %d graphs); build dirs under %s"
@@ -827,8 +867,8 @@ def main():
             row = func(*variant)
             table[variant] = row
             print(
-                "%s: FIFO sizing sim %.1fs, stitched-ip rtlsim %.1fs, %d FIFO log bytes"
-                % (label, row["fifo_sizing_s"], row["stitched_ip_s"], row["log_bytes"]),
+                "%s: %.1fs in rtlsim over %d sims, %d FIFO log bytes"
+                % (label, row["sim_s"], row["sim_runs"], row["log_bytes"]),
                 flush=True,
             )
             outcomes.append((label, "PASS", ""))
