@@ -138,7 +138,7 @@ module mvu #(
 
 	localparam int unsigned  MIN_LANE_WIDTH = WEIGHT_WIDTH + ACTIVATION_WIDTH - 1;
 	// number of lanes: for only 1 lane, NARROW_WEIGHTS makes no difference
-	localparam int unsigned  NUM_LANES = A_WIDTH == WEIGHT_WIDTH? 1 : 1 + (A_WIDTH - !NARROW_WEIGHTS - WEIGHT_WIDTH) / MIN_LANE_WIDTH;
+	localparam int unsigned  NUM_LANES = A_WIDTH <= WEIGHT_WIDTH? 1 : 1 + (A_WIDTH - !NARROW_WEIGHTS - WEIGHT_WIDTH) / MIN_LANE_WIDTH;
 	/**
 	 * Lane Slicing
 	 *	Assumptions:
