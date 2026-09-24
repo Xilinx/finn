@@ -455,9 +455,8 @@ class Requant_rtl(Requant, RTLBackend):
         node_name = self.onnx_node.name
         top_module = self.get_nodeattr("gen_top_module")
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        source_target = "./ip/verilog/rtl_ops/%s" % node_name
 
-        cmd = ["file mkdir %s" % source_target]
+        cmd = []
 
         # Hierarchy with external data in/out pins (params are internal)
         cmd.append("create_bd_cell -type hier %s" % node_name)
@@ -484,7 +483,7 @@ class Requant_rtl(Requant, RTLBackend):
 
         # Compute core
         for f in self.get_rtl_file_list(abspath=True):
-            cmd.append("add_files -copy_to %s -norecurse %s" % (source_target, f))
+            cmd.append("add_files -norecurse %s" % f)
         cmd.append(
             "create_bd_cell -type module -reference %s /%s/%s" % (top_module, node_name, node_name)
         )
@@ -509,7 +508,7 @@ class Requant_rtl(Requant, RTLBackend):
         axi_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/axi/hdl/")
         ms_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/memstream/hdl/")
         for f in [axi_dir + "axilite.sv", ms_dir + "memstream_axi.sv", ms_dir + "memstream.sv"]:
-            cmd.append("add_files -copy_to %s -norecurse %s" % (source_target, f))
+            cmd.append("add_files -norecurse %s" % f)
 
         # Unified param memstreamer feeding the core's s_params_V port.
         # In MLO mode the external set-select pin (in1_V) drives the
@@ -533,7 +532,7 @@ class Requant_rtl(Requant, RTLBackend):
             code_gen_dir,
         )
         wrapper_file = os.path.join(code_gen_dir, wrapper_fname)
-        cmd.append("add_files -copy_to %s -norecurse %s" % (source_target, wrapper_file))
+        cmd.append("add_files -norecurse %s" % wrapper_file)
         strm_mod = wrapper_fname[:-2]
         strm_inst = node_name + suffix + "_wstrm"
         cmd.append(
