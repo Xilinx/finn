@@ -27,6 +27,7 @@ from finn.builder.build_dataflow_steps import (
     step_create_dataflow_partition,
     step_create_stitched_ip,
     step_deployment_package,
+    step_export_portable_rtl,
     step_generate_estimate_reports,
     step_hw_codegen,
     step_hw_ipgen,
@@ -345,6 +346,7 @@ def phase_generate_outputs(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     Internal steps (each step checks generate_outputs):
     - step_create_stitched_ip: Create stitched IP (includes OOC synth if requested)
+    - step_export_portable_rtl: Export portable RTL project (if requested)
     - step_measure_rtlsim_performance: Measure RTL sim performance (if requested)
     - step_synthesize_bitfile: Full bitfile synthesis (if BITFILE requested)
     - step_make_driver: Generate PYNQ or C++ driver (if BITFILE requested)
@@ -361,6 +363,7 @@ def phase_generate_outputs(model: ModelWrapper, cfg: DataflowBuildConfig):
         ModelWrapper with final hardware artifacts generated
     """
     model = _execute_step(step_create_stitched_ip, model, cfg)
+    model = _execute_step(step_export_portable_rtl, model, cfg)
     model = _execute_step(step_measure_rtlsim_performance, model, cfg)
     model = _execute_step(step_synthesize_bitfile, model, cfg)
     model = _execute_step(step_make_driver, model, cfg)

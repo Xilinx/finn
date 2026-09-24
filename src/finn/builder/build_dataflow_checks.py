@@ -3,6 +3,7 @@
 
 """Configuration check system for FINN builds - catches incompatibilities early."""
 
+import importlib
 import json
 import os
 from dataclasses import dataclass, field
@@ -14,6 +15,7 @@ from finn.builder.build_dataflow_config import (
     DataflowBuildConfig,
     DataflowOutputType,
     ShellFlowType,
+    verify_step_prereqs,
 )
 from finn.util.basic import (
     get_vivado_version,
@@ -343,6 +345,46 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                         "or disable verification",
                     )
                 )
+
+        # each verify_steps entry is only ever triggered from inside one specific
+        # step, itself part of one specific phase; if steps/start_step/stop_step
+        # leaves that step out, the entry is silently never verified
+        #
+        # The (phase, step) prerequisite for each VerificationStepType is defined
+        # next to the enum itself, in build_dataflow_config.verify_step_prereqs.
+        try:
+            # imported lazily via importlib (rather than a top-level import) since
+            # build_dataflow imports this module, and a top-level import back
+            # would be circular
+            build_dataflow_mod = importlib.import_module("finn.builder.build_dataflow")
+            resolved_names = {
+                fn.__name__ for fn in build_dataflow_mod.resolve_build_steps(cfg, partial=True)
+            }
+        except (ValueError, AttributeError):
+            # steps/start_step/stop_step can't be resolved; that will fail on its
+            # own once the build actually starts, nothing more to check here
+            resolved_names = None
+
+        if resolved_names is not None:
+            for vstep in cfg._resolve_verification_steps():
+                phase_name, step_name = verify_step_prereqs.get(vstep, (None, None))
+                phase_missing = phase_name and phase_name not in resolved_names
+                step_missing = step_name not in resolved_names
+                if phase_missing and step_missing:
+                    checks.append(
+                        _check(
+                            "verify_step_prereq",
+                            Severity.WARNING,
+                            False,
+                            f"verify_steps includes {vstep.value}, but neither "
+                            f"{phase_name} nor {step_name} is in the resolved "
+                            "build steps (steps/start_step/stop_step). That "
+                            "verification would silently never run",
+                            f"Include {phase_name} (or {step_name}) in steps, "
+                            "adjust start_step/stop_step so it runs, or remove "
+                            "this entry from verify_steps",
+                        )
+                    )
 
     # === Warnings ===
     if cfg.shell_flow_type is not None and not has_bitfile:
