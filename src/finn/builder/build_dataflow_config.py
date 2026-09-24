@@ -65,6 +65,7 @@ class DataflowOutputType(str, Enum):
     PYNQ_DRIVER = "pynq_driver"
     CPP_DRIVER = "cpp_driver"
     DEPLOYMENT_PACKAGE = "deployment_package"
+    PORTABLE_RTL = "portable_rtl"
 
 
 class VitisOptStrategyCfg(str, Enum):
