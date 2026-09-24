@@ -86,6 +86,8 @@ module intermediate_frames #(
 
     int unsigned                    N_OUTSTANDING_DMAS = 128,
 
+    int unsigned                    BURST_LEN = 16,
+
     int unsigned                    QDEPTH = 8,
     int unsigned                    N_DCPL_STGS = 1,
     int unsigned                    DBG = 0,
@@ -326,6 +328,28 @@ if(1) begin : blkCompletion
     assign  done_wr_out = WritesDone[$left(WritesDone)];
 end : blkCompletion
 
+//=== Credit-Based AR Flow Control =====================================
+// A data FIFO between DMA read output and the read-side VPC absorbs AXI
+// read beats at bus rate.  Credit on FIFO drain guarantees the invariant
+//   outstanding + pipeline + FIFO_occupancy <= CREDIT_BEATS
+// so m_axi_rready never deasserts due to downstream backpressure.
+localparam int unsigned  FRAME_BEATS   = DMA_BEATS;
+localparam int unsigned  CREDIT_BEATS  = FRAME_BEATS;
+localparam int unsigned  CREDIT_W      = $clog2(CREDIT_BEATS + 1) + 1;
+
+uwire  dma_rd_buf_tvalid;
+uwire  dma_rd_buf_tready;
+uwire  credit_in = dma_rd_buf_tvalid && dma_rd_buf_tready;
+uwire  rd_dma_hsk = s1_dma_out_tvalid && s1_dma_out_tready;
+logic signed [CREDIT_W-1:0]  RdCredit = 0;
+
+always_ff @(posedge aclk) begin
+    if(!aresetn)  RdCredit <= 0;
+    else          RdCredit <= RdCredit - (rd_dma_hsk? FRAME_BEATS : 0) + credit_in;
+end
+
+uwire  rd_credit_ok = !RdCredit[CREDIT_W-1];
+
 //
 // Read side
 //
@@ -363,7 +387,7 @@ always_comb begin: NSL_RD
 
     case (state_rd_C)
         ST_RD_IDLE:
-            state_rd_N = done_wr_out ? ST_RD_SEND : ST_RD_IDLE;
+            state_rd_N = (done_wr_out && rd_credit_ok) ? ST_RD_SEND : ST_RD_IDLE;
 
         ST_RD_SEND:
             state_rd_N = s1_dma_in_tready ? ST_RD_IDLE : ST_RD_SEND;
@@ -380,7 +404,7 @@ always_comb begin: DP_RD
 
     case (state_rd_C)
         ST_RD_IDLE: begin
-            if(done_wr_out) begin
+            if(done_wr_out && rd_credit_ok) begin
                 rd_start = 1'b1;
             end
         end
@@ -400,13 +424,14 @@ end
 // DMA
 //
 
-logic axis_dma_rd_tvalid, axis_dma_rd_tready;
-logic [DATA_BITS-1:0] axis_dma_rd_tdata;
+uwire dma_rd_raw_tvalid, dma_rd_raw_tready;
+uwire [DATA_BITS-1:0] dma_rd_raw_tdata;
 
 logic axis_dma_wr_tvalid, axis_dma_wr_tready;
 logic [DATA_BITS-1:0] axis_dma_wr_tdata;
 
 cdma_u #(
+    .BURST_LEN(BURST_LEN),
     .ADDR_BITS(ADDR_BITS),
     .LEN_BITS(LEN_BITS),
     .DATA_BITS(DATA_BITS)
@@ -461,9 +486,9 @@ cdma_u #(
     .wr_len  (FM_BYTES),
     .wr_done (done_wr_in),
 
-    .m_axis_ddr_tvalid(axis_dma_rd_tvalid),
-    .m_axis_ddr_tready(axis_dma_rd_tready),
-    .m_axis_ddr_tdata (axis_dma_rd_tdata),
+    .m_axis_ddr_tvalid(dma_rd_raw_tvalid),
+    .m_axis_ddr_tready(dma_rd_raw_tready),
+    .m_axis_ddr_tdata (dma_rd_raw_tdata),
     .m_axis_ddr_tkeep (),
     .m_axis_ddr_tlast (),
 
@@ -472,6 +497,19 @@ cdma_u #(
     .s_axis_ddr_tdata (axis_dma_wr_tdata),
     .s_axis_ddr_tkeep ('1),
     .s_axis_ddr_tlast ('0)
+);
+
+//=== DMA Read Data FIFO ===============================================
+// Absorbs DMA read beats at AXI rate; drains to VPC at body pace.
+// Depth = CREDIT_BEATS (one frame).
+uwire [DATA_BITS-1:0] dma_rd_buf_tdata;
+fifo #(.DEPTH(CREDIT_BEATS), .DATA_WIDTH(DATA_BITS)) inst_dma_rd_fifo (
+    .clk(aclk), .rst(!aresetn),
+    .count(), .maxcount(),
+    .idat(dma_rd_raw_tdata),
+    .ivld(dma_rd_raw_tvalid), .irdy(dma_rd_raw_tready),
+    .odat(dma_rd_buf_tdata),
+    .ovld(dma_rd_buf_tvalid), .ordy(dma_rd_buf_tready)
 );
 
 // Width conversion: body stream <-> DMA bus
@@ -499,8 +537,8 @@ assign  axis_dma_wr_tdata = DATA_BITS'(vpc_wr_odat);
 // VPC read: DMA_PE -> IPE elements (DMA -> body input)
 vpc #(.W(ELEM_BITS), .N(FM_ELEMS), .PI(DMA_PE), .PO(IPE), .PAD_ZEROS(0)) inst_dwc_rd (
     .clk(aclk), .rst(!aresetn),
-    .ivld(axis_dma_rd_tvalid), .irdy(axis_dma_rd_tready),
-    .idat(axis_dma_rd_tdata[DMA_PE*ELEM_BITS-1:0]),
+    .ivld(dma_rd_buf_tvalid), .irdy(dma_rd_buf_tready),
+    .idat(dma_rd_buf_tdata[DMA_PE*ELEM_BITS-1:0]),
     .ovld(m_axis_int_tvalid), .ordy(m_axis_int_tready),
     .odat(m_axis_int_tdata)
 );
