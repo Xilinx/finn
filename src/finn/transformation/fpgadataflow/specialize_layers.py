@@ -194,8 +194,9 @@ def _determine_impl_style(node, fpgapart, model):
                 return "rtl"
             else:
                 warn_str = """There is no RTL variant for %s. The node will automatically be
-                        set to HLS variant. The RTL Requant layers currently only supports
-                        integer inputs and non-narrow quantization.""" % (
+                        set to HLS variant. The RTL Requant layers require non-narrow
+                        quantization and either integer inputs or FLOAT32 inputs on a Versal
+                        device (the float requantf core uses DSPFP32).""" % (
                     node.name,
                 )
                 warnings.warn(warn_str)
@@ -384,14 +385,19 @@ def _softmax_rtl_possible(n, fpgapart):
 
 def _requant_rtl_possible(n, fpgapart):
     # Checks whether RTL-based Requant is supported
-    # RTL Requant requires:
-    # - Integer input (not float)
-    # - Full range (narrow=0)
+    # RTL Requant requires full range (narrow=0) and either:
+    # - Integer input   -> integer requant.sv path, or
+    # - FLOAT32 input    -> requantf.sv path (DSPFP32, Versal only)
     node_inst = getCustomOp(n)
     idt = node_inst.get_input_datatype(0)
     narrow = node_inst.get_nodeattr("narrow")
-    # RTL backend works with integer inputs and full range
-    return idt.is_integer() and narrow == 0
+    if narrow != 0:
+        return False
+    if idt.is_integer():
+        return True  # existing integer requant.sv path
+    if idt == "FLOAT32":
+        return is_versal(fpgapart)  # requantf.sv path (DSPFP32 -> Versal only)
+    return False
 
 
 class SpecializeLayers(Transformation):
