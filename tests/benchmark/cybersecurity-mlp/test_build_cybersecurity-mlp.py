@@ -50,8 +50,8 @@ def configure_build(board, output_dir):
         cfg = build_cfg.DataflowBuildConfig(
             generate_outputs=build_outputs,
             output_dir=output_dir,
-            folding_config_file=f"""{build_flow_folder}cybersecurity-mlp/
-                folding_config/cybersecurity_folding_config_{board}.json""",
+            folding_config_file=f"{build_flow_folder}cybersecurity-mlp/"
+            f"folding_config/cybersecurity_folding_config_{board}.json",
             synth_clk_period_ns=10.0,
             mvau_wwidth_max=80,
             board=board,

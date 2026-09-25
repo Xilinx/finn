@@ -13,7 +13,7 @@ import re
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
-from finn.util.basic import alveo_default_platform, make_build_dir
+from finn.util.basic import vitis_default_platform, make_build_dir
 
 build_fd = os.environ["FINN_ROOT"] + "/tests/benchmark/"
 
@@ -72,7 +72,7 @@ def platform_to_shell(platform):
 def configure_build(board, model, output_dir):
     shell_flow_type = platform_to_shell(board)
     if shell_flow_type == build_cfg.ShellFlowType.VITIS_ALVEO:
-        vitis_platform = alveo_default_platform[board]
+        vitis_platform = vitis_default_platform[board]
     else:
         vitis_platform = None
     f_file = f"{build_fd}bnn-pynq/folding_config/{model}_folding_config"

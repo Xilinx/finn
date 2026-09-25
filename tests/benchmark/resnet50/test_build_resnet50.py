@@ -21,12 +21,12 @@ from custom_steps_resnet50 import (
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
-from finn.util.basic import alveo_default_platform, make_build_dir
+from finn.util.basic import vitis_default_platform, make_build_dir
 
 build_flow_folder = "tests/benchmark/"
 
 # model
-model_name = "resnet50_w1a2"
+model_name = "resnet50_w1a2_exported"
 model_file = build_flow_folder + "models/" + model_name + ".onnx"
 
 # verification parameters
@@ -66,7 +66,7 @@ resnet50_build_steps = [
     "step_set_fifo_depths",
     step_resnet50_slr_floorplan,
     "step_synthesize_bitfile",
-    "step_make_pynq_driver",
+    "step_make_driver",
     "step_deployment_package",
 ]
 
@@ -76,17 +76,17 @@ def configure_build(board, output_dir):
         steps=resnet50_build_steps,
         generate_outputs=build_outputs,
         output_dir=output_dir,
-        folding_config_file=f"""{build_flow_folder}resnet50/
-            folding_config/resnet50_folding_config_{board}.json""",
+        folding_config_file=f"{build_flow_folder}resnet50/"
+        f"folding_config/resnet50_folding_config_{board}.json",
         auto_fifo_depths=False,
         synth_clk_period_ns=4.0,
         board=board,
         shell_flow_type=build_cfg.ShellFlowType.VITIS_ALVEO,
-        vitis_platform=alveo_default_platform[board],
+        vitis_platform=vitis_default_platform[board],
         vitis_opt_strategy=build_cfg.VitisOptStrategyCfg.PERFORMANCE_BEST,
         split_large_fifos=True,
-        specialize_layers_config_file=build_flow_folder
-        + "resnet50/specialize_layers_config/resnet50_specialize_layers_{board}.json",
+        specialize_layers_config_file=f"{build_flow_folder}"
+        f"resnet50/specialize_layers_config/resnet50_specialize_layers_{board}.json",
         verify_steps=verif_steps,
         verify_input_npy=verify_input_npy,
         verify_expected_output_npy=verify_expected_output_npy,
