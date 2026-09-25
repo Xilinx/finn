@@ -116,7 +116,6 @@ def test_move_past_fork_linear(ch, ifmdim):
     model = ModelWrapper(model)
     model = model.transform(InferShapes())
 
-    np.random.seed(0)
     for tensor_name in model.get_all_tensor_names():
         if tensor_name.endswith("_param"):
             pshape = model.get_tensor_shape(tensor_name)

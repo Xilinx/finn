@@ -30,8 +30,11 @@
 import pytest
 
 import numpy as np
+import onnx.helper as oh
+import qonnx.core.data_layout as DataLayout
 import torch
 from brevitas.export import export_qonnx
+from onnx import TensorProto
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -41,6 +44,7 @@ from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.make_input_chanlast import MakeInputChannelsLast
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 from torch import nn
 
@@ -55,6 +59,7 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
+from finn.transformation.streamline.reorder import MakeScaleResizeNHWC
 from finn.util.basic import make_build_dir, robust_rmtree
 
 
@@ -95,6 +100,61 @@ class PyTorchTestModel(nn.Module):
         return x
 
 
+def make_resize_sizes_modelwrapper(ifm_dim, num_ch, sizes, idt):
+    """Build a Resize node using the opset-11+ 4-input signature that specifies
+    the target output shape via a constant ``sizes`` input (with an empty
+    ``scales`` input), in NCHW layout followed by a Transpose to NHWC.
+
+    PyTorch export cannot reliably produce a clean, constant sizes-based Resize,
+    so the graph is constructed by hand to deterministically exercise the
+    ``is_sizes=True`` path of InferUpsample and the sizes handling in
+    MakeScaleResizeNHWC."""
+    idim_h, idim_w = ifm_dim
+    ofm_dim_h, ofm_dim_w = sizes[2], sizes[3]
+    inp = oh.make_tensor_value_info("inp", TensorProto.FLOAT, [1, num_ch, idim_h, idim_w])
+    # scales is present but empty; sizes carries the target output shape
+    scales = oh.make_tensor_value_info("scales", TensorProto.FLOAT, [])
+    # roi is unused, only needed for compliance with the Resize node interface
+    roi = oh.make_tensor_value_info("roi", TensorProto.FLOAT, [4])
+    size_param = oh.make_tensor_value_info("sizes", TensorProto.INT64, [4])
+    outp_up = oh.make_tensor_value_info(
+        "outp_up", TensorProto.FLOAT, [1, num_ch, ofm_dim_h, ofm_dim_w]
+    )
+    outp = oh.make_tensor_value_info("outp", TensorProto.FLOAT, [1, ofm_dim_h, ofm_dim_w, num_ch])
+
+    resize_node = oh.make_node(
+        "Resize",
+        inputs=["inp", "roi", "scales", "sizes"],
+        outputs=["outp_up"],
+        name="Resize1",
+        mode="nearest",
+    )
+    transpose_node = oh.make_node(
+        "Transpose",
+        inputs=["outp_up"],
+        outputs=["outp"],
+        name="Transpose1",
+        perm=_to_chan_last_args,
+    )
+
+    graph = oh.make_graph(
+        nodes=[resize_node, transpose_node],
+        name="resize_sizes_graph",
+        inputs=[inp],
+        outputs=[outp],
+        value_info=[outp_up, roi, scales, size_param],
+    )
+    model = qonnx_make_model(graph, producer_name="resize_sizes_model")
+    model = ModelWrapper(model)
+    model.set_initializer("scales", np.array([], dtype=np.float32))
+    model.set_initializer("sizes", np.array(sizes, dtype=np.int64))
+    model.set_tensor_datatype("inp", idt)
+    model.set_tensor_layout("inp", DataLayout.NCHW)
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataLayouts())
+    return model
+
+
 # param datatype
 @pytest.mark.parametrize("dt", [DataType["INT8"]])
 # spatial dim input feature map
@@ -107,10 +167,13 @@ class PyTorchTestModel(nn.Module):
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 # parallelization level
 @pytest.mark.parametrize("SIMD", [1, 2, 4])
+# ONNX export opset: opset 10 emits a 2-input Resize (X, scales), opset 11+ emits
+# a 3-input Resize (X, roi, scales), exercising both param-input signatures
+@pytest.mark.parametrize("opset_version", [10, 11, 13])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode, SIMD):
+def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode, SIMD, opset_version):
     tmpdir = make_build_dir("upsample_export_")
     atol = 1e-3
     idim0, idim1 = IFMDim
@@ -132,7 +195,7 @@ def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode, SIMD)
     # Get golden PyTorch and ONNX inputs
     golden_torch_float = torch_model(test_in)
     export_path = f"{tmpdir}/Upsample_exported.onnx"
-    export_qonnx(torch_model, torch.randn(input_shape), export_path, opset_version=11)
+    export_qonnx(torch_model, torch.randn(input_shape), export_path, opset_version=opset_version)
     qonnx_cleanup(export_path, out_file=export_path)
     model = ModelWrapper(export_path)
     model = model.transform(ConvertQONNXtoFINN())
@@ -198,4 +261,77 @@ def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode, SIMD)
         assert output_matches, "Cppsim output doesn't match ONNX/PyTorch."
     elif exec_mode == "rtlsim":
         assert output_matches, "Rtlsim output doesn't match ONNX/PyTorch."
+    robust_rmtree(tmpdir)
+
+
+# param datatype
+@pytest.mark.parametrize("dt", [DataType["INT8"]])
+# spatial dim input feature map
+@pytest.mark.parametrize("IFMDim", [[4, 4], [2, 4]])
+# upscaling factor
+@pytest.mark.parametrize("scale", [2])
+# Number of input/output channels
+@pytest.mark.parametrize("NumChannels", [4])
+# execution mode
+@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+# parallelization level
+@pytest.mark.parametrize("SIMD", [1, 2])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_fpgadataflow_upsampler_sizes(dt, IFMDim, scale, NumChannels, exec_mode, SIMD):
+    # Exercises the sizes-based (4-input) Resize path: the target output shape is
+    # given as an explicit sizes input rather than as scales. This is the
+    # is_sizes=True branch of InferUpsample, which PyTorch export cannot produce.
+    tmpdir = make_build_dir("upsample_sizes_")
+    atol = 1e-3
+    idim_h, idim_w = IFMDim
+    input_shape = (1, NumChannels, idim_h, idim_w)
+    # target output sizes in NCHW order; only integer-multiple upsampling is supported
+    sizes = [1, NumChannels, idim_h * scale, idim_w * scale]
+
+    # Build a sizes-based Resize model and a matching integer input
+    model = make_resize_sizes_modelwrapper(IFMDim, NumChannels, sizes, dt)
+    test_in = gen_finn_dt_tensor(dt, input_shape)
+    input_dict = {model.get_first_global_in(): test_in}
+
+    # Golden reference from the untransformed ONNX Resize
+    golden_output_dict = oxe.execute_onnx(model, input_dict, True)
+    golden_result = golden_output_dict[model.get_first_global_out()]
+
+    # Move the Resize into NHWC layout and infer the UpsampleNearestNeighbour HW op
+    model = model.transform(MakeScaleResizeNHWC())
+    model = model.transform(InferDataLayouts())
+    model = model.transform(ForceDataTypeForTensors(dType=dt))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(InferUpsample())
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+
+    # Check that the Resize was converted to a single UpsampleNearestNeighbour node
+    upsample_nodes = model.get_nodes_by_op_type("UpsampleNearestNeighbour")
+    assert len(upsample_nodes) == 1, "Expected exactly one UpsampleNearestNeighbour node."
+    getCustomOp(upsample_nodes[0]).set_nodeattr("SIMD", SIMD)
+
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+
+    # Prep sim
+    if exec_mode == "cppsim":
+        model = model.transform(PrepareCppSim())
+        model = model.transform(CompileCppSim())
+        model = model.transform(SetExecMode("cppsim"))
+    elif exec_mode == "rtlsim":
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(PrepareIP("xc7z020clg400-1", 10))
+        model = model.transform(HLSSynthIP())
+        model = model.transform(SetExecMode("rtlsim"))
+        model = model.transform(PrepareRTLSim())
+    else:
+        raise Exception("Unknown exec_mode")
+
+    # Run sim and compare against the golden ONNX output
+    output_dict = oxe.execute_onnx(model, input_dict, True)
+    test_result = output_dict[model.get_first_global_out()]
+    output_matches = np.isclose(golden_result, test_result, atol=atol).all()
+    assert output_matches, "%s output doesn't match golden ONNX." % exec_mode
     robust_rmtree(tmpdir)

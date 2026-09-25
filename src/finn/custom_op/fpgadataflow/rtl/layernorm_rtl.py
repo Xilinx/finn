@@ -13,10 +13,10 @@
 import math
 import numpy as np
 import os
-import shutil
 
 from finn.custom_op.fpgadataflow.layernorm import LayerNorm
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
+from finn.util.basic import fifo_rtl_files
 
 
 class LayerNorm_rtl(LayerNorm, RTLBackend):
@@ -66,9 +66,6 @@ class LayerNorm_rtl(LayerNorm, RTLBackend):
         ) as f:
             f.write(template)
 
-        sv_files = ["layernorm.sv", "queue.sv", "accuf.sv", "binopf.sv", "rsqrtf.sv"]
-        for sv_file in sv_files:
-            shutil.copy(rtllib_dir + sv_file, code_gen_dir)
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
         self.set_nodeattr("ipgen_path", code_gen_dir)
@@ -82,38 +79,22 @@ class LayerNorm_rtl(LayerNorm, RTLBackend):
             code_gen_dir = ""
             rtllib_dir = ""
 
-        verilog_files = [
+        return [
             rtllib_dir + "layernorm.sv",
-            rtllib_dir + "queue.sv",
             rtllib_dir + "accuf.sv",
             rtllib_dir + "binopf.sv",
             rtllib_dir + "rsqrtf.sv",
             code_gen_dir + self.get_nodeattr("gen_top_module") + ".v",
-        ]
-        return verilog_files
+        ] + fifo_rtl_files(abspath)
 
     def code_generation_ipi(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-
-        sourcefiles = [
-            "layernorm.sv",
-            "queue.sv",
-            "accuf.sv",
-            "binopf.sv",
-            "rsqrtf.sv",
-        ]
-
-        sourcefiles.append(self.get_nodeattr("gen_top_module") + ".v")
-
-        sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
-
         cmd = []
-        for f in sourcefiles:
-            cmd += ["add_files -norecurse %s" % (f)]
-        cmd += [
+        for f in self.get_rtl_file_list(abspath=True):
+            cmd.append("add_files -norecurse %s" % f)
+        cmd.append(
             "create_bd_cell -type module -reference %s %s"
             % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)
-        ]
+        )
         return cmd
 
     def execute_node(self, context, graph):

@@ -64,7 +64,6 @@ def get_brev_model_and_sample_inputs(model_name, wbits, abits):
         brev_model = get_test_model_trained(model_name, wbits, abits)
     elif model_name == "mobilenet":
         in_shape = (1, 3, 224, 224)
-        np.random.seed(42)
         input_tensor = np.random.normal(size=in_shape).astype(dtype=np.float32)
         brev_model = get_test_model_trained(model_name, 4, 4)
     else:
@@ -202,3 +201,21 @@ def test_QONNX_to_FINN_threshold_precision():
         f"Quant={ref.ravel()[0]!r} vs MultiThreshold={conv.ravel()[0]!r} "
         "(threshold derivation precision regression)"
     )
+
+
+@pytest.mark.transform
+def test_QONNX_to_FINN_unsupported_channel_axis():
+    """A per-channel scale whose channel axis is neither axis 1 nor the last axis
+    cannot be represented by MultiThreshold, so conversion must raise rather than
+    silently emit a wrong data layout.
+    """
+    ishape = (1, 2, 3, 2)
+    # channel on axis 2 (a middle spatial axis) -> unsupported by MultiThreshold
+    scale = np.linspace(0.1, 0.5, 3, dtype=np.float32).reshape((1, 1, 3, 1))
+    zeropt = np.array(0.0, dtype=np.float32)
+    bitwidth = np.array(4.0, dtype=np.float32)
+    x = np.zeros(ishape, dtype=np.float32)
+
+    model = _make_single_quant_model(x, scale, zeropt, bitwidth, 1, 0, "ROUND")
+    with pytest.raises(ValueError):
+        model.transform(ConvertQONNXtoFINN())

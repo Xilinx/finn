@@ -82,20 +82,20 @@ logic [ADDR_BITS-1:0] rd_paddr_int;
 logic rd_valid_int, rd_ready_int;
 logic rd_done_int;
 
-Q_srl #(
-    .depth(DCPL_DEPTH),
-    .width(ADDR_BITS+LEN_BITS)
+fifo #(
+    .DEPTH(DCPL_DEPTH),
+    .DATA_WIDTH(ADDR_BITS+LEN_BITS)
 ) inst_q_rd (
-    .clock(aclk),
-    .reset(!aresetn),
+    .clk(aclk),
+    .rst(!aresetn),
     .count(),
     .maxcount(),
-    .i_d({rd_len, rd_paddr}),
-    .i_v(rd_valid),
-    .i_r(rd_ready),
-    .o_d({rd_len_int, rd_paddr_int}),
-    .o_v(rd_valid_int),
-    .o_r(rd_ready_int)
+    .idat({rd_len, rd_paddr}),
+    .ivld(rd_valid),
+    .irdy(rd_ready),
+    .odat({rd_len_int, rd_paddr_int}),
+    .ovld(rd_valid_int),
+    .ordy(rd_ready_int)
 );
 
 always_ff @(posedge aclk) begin

@@ -90,7 +90,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
         n_thres_steps = self.get_nodeattr("numSteps")
         return pe * weight_bits * n_thres_steps
 
-    def bram_estimation(self):
+    def bram_estimation(self, fpgapart):
         """Calculates BRAM cost if resource set to BRAM"""
         style = self.get_nodeattr("ram_style")
         mem_width = self._threshold_mem_width()
@@ -101,7 +101,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
         else:
             return 0
 
-    def uram_estimation(self):
+    def uram_estimation(self, fpgapart):
         """Calculates URAM cost if resource set to URAM"""
         style = self.get_nodeattr("ram_style")
         tmem = self.calc_tmem()
@@ -110,26 +110,26 @@ class Thresholding_hls(Thresholding, HLSBackend):
         else:
             return 0
 
-    def bram_efficiency_estimation(self):
-        bram16_est = self.bram_estimation()
+    def bram_efficiency_estimation(self, fpgapart):
+        bram16_est = self.bram_estimation(fpgapart)
         if bram16_est == 0:
             return 1
         wbits = self._threshold_mem_width() * self.calc_tmem()
         bram16_est_capacity = bram16_est * 18 * 1024
         return wbits / bram16_est_capacity
 
-    def uram_efficiency_estimation(self):
+    def uram_efficiency_estimation(self, fpgapart):
         # TODO: Versal URAM supports flexible bit widths (9/18/36/72) unlike
         # UltraScale+ which only supports 72-bit. This could improve efficiency
         # for narrow data types on Versal devices.
-        uram_est = self.uram_estimation()
+        uram_est = self.uram_estimation(fpgapart)
         if uram_est == 0:
             return 1
         wbits = self._threshold_mem_width() * self.calc_tmem()
         uram_est_capacity = uram_est * 72 * 4096
         return wbits / uram_est_capacity
 
-    def lut_estimation(self):
+    def lut_estimation(self, fpgapart):
         """Calculates LUT cost, taking memory resource type into account"""
         # TODO add in/out FIFO contributions
         style = self.get_nodeattr("ram_style")
@@ -638,8 +638,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
             self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=in1_V")
 
     def code_generation_ipi(self):
-        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
-        cmd = ["file mkdir %s" % source_target]
+        cmd = []
         # add streamer if needed
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "internal_decoupled":
@@ -683,7 +682,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
                 ms_rtllib_dir + "memstream.sv",
             ]
             for f in sourcefiles:
-                cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
+                cmd += ["add_files -norecurse %s" % f]
             strm_inst = node_name + "_wstrm"
             cmd.append(
                 "create_bd_cell -type hier -reference %s /%s/%s"
@@ -778,24 +777,27 @@ class Thresholding_hls(Thresholding, HLSBackend):
             io_dict["inputs"]["in1"] = [0 for i in range(num_w_reps * n_weight_inps)]
         super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
 
-    def minimize_weight_bit_width(self, model):
+    def minimize_weight_bit_width(self, model, datatype_only=False):
         """Minimize threshold datatype, with HLS-specific adjustments.
 
         The HLS implementation uses the threshold datatype for comparisons.
         When the threshold datatype is narrower than the input datatype,
         input values get truncated, which can cause incorrect results.
         To prevent this, ensure threshold datatype is at least as wide as
-        input datatype."""
-        # First, call the base class implementation
-        tdt = super().minimize_weight_bit_width(model)
+        input datatype.
 
-        # Check if we need HLS-specific adjustments
+        Parameters
+        ----------
+        datatype_only : bool
+            If True, skip value-based minimization. See base class.
+        """
+        tdt = super().minimize_weight_bit_width(model, datatype_only=datatype_only)
+
         idt = self.get_input_datatype(0)
         if not idt.is_integer() or not tdt.is_integer():
             return tdt
 
-        # If threshold datatype is smaller than input datatype, widen it
-        # to match input datatype to prevent truncation issues
+        # Widen threshold to match input width to prevent truncation
         if tdt.bitwidth() < idt.bitwidth():
             # Use input datatype to ensure no truncation
             new_tdt = idt

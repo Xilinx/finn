@@ -34,7 +34,7 @@ from qonnx.custom_op.base import CustomOp
 from qonnx.util.basic import get_by_name, roundup_to_integer_multiple
 
 from finn import xsi
-from finn.util.basic import get_liveness_threshold_cycles, is_versal
+from finn.util.basic import get_watchdog_timeout_cycles, is_versal
 
 finnxsi = xsi if xsi.is_available() else None
 
@@ -167,35 +167,35 @@ class HWCustomOp(CustomOp):
         """Returns summarized resource estimation of BRAMs and LUTs
         of the node as a dictionary."""
         ret = dict()
-        ret["BRAM_18K"] = self.bram_estimation()
-        ret["BRAM_efficiency"] = self.bram_efficiency_estimation()
-        ret["LUT"] = self.lut_estimation()
-        ret["URAM"] = self.uram_estimation()
-        ret["URAM_efficiency"] = self.uram_efficiency_estimation()
+        ret["BRAM_18K"] = self.bram_estimation(fpgapart)
+        ret["BRAM_efficiency"] = self.bram_efficiency_estimation(fpgapart)
+        ret["LUT"] = self.lut_estimation(fpgapart)
+        ret["URAM"] = self.uram_estimation(fpgapart)
+        ret["URAM_efficiency"] = self.uram_efficiency_estimation(fpgapart)
         ret["DSP"] = self.dsp_estimation(fpgapart)
         return ret
 
-    def bram_efficiency_estimation(self):
+    def bram_efficiency_estimation(self, fpgapart):
         """Function for BRAM efficiency estimation: actual parameter storage
         needed divided by the allocated BRAM storage (from estimation)"""
         return 1
 
-    def uram_efficiency_estimation(self):
+    def uram_efficiency_estimation(self, fpgapart):
         """Function for URAM efficiency estimation: actual parameter storage
         needed divided by the allocated URAM storage (from estimation)."""
         return 1
 
-    def bram_estimation(self):
+    def bram_estimation(self, fpgapart):
         """Function for BRAM resource estimation, is member function of
         HWCustomOp class but has to be filled by every node"""
         return 0
 
-    def uram_estimation(self):
+    def uram_estimation(self, fpgapart):
         """Function for UltraRAM resource estimation, is member function of
         HWCustomOp class but has to be filled by every node"""
         return 0
 
-    def lut_estimation(self):
+    def lut_estimation(self, fpgapart):
         """Function for LUT resource estimation, is member function of
         HWCustomOp class but has to be filled by every node"""
         return 0
@@ -226,16 +226,16 @@ class HWCustomOp(CustomOp):
     def rtlsim_multi_io(self, sim, io_dict, sname="_V"):
         "Run rtlsim for this node, supports multiple i/o streams."
         num_out_values = self.get_number_output_values()
-        # Use the larger of expected cycles or liveness threshold
+        # LIVENESS_THRESHOLD can only increase the expected cycle count.
         exp_cycles = self.get_exp_cycles()
-        liveness_threshold = get_liveness_threshold_cycles()
-        effective_threshold = max(exp_cycles, liveness_threshold)
+        effective_threshold = get_watchdog_timeout_cycles(exp_cycles)
         total_cycle_count = finnxsi.rtlsim_multi_io(
             sim,
             io_dict,
             num_out_values,
             sname=sname,
             liveness_threshold=effective_threshold,
+            liveness_estimate=exp_cycles,
         )
 
         self.set_nodeattr("cycles_rtlsim", total_cycle_count)
@@ -246,10 +246,15 @@ class HWCustomOp(CustomOp):
         check if the number of inputs is equal to the expected number."""
         pass
 
-    def generate_params(self, model, path):
+    def generate_params(self, model, path, fpgapart=None):
         """Function to generate parameters (i.e. weights and thresholds),
         is member function of HWCustomOp class but has to be filled
-        by every node that needs to generate parameters."""
+        by every node that needs to generate parameters.
+
+        ``fpgapart`` is optional and only consumed by nodes whose parameter
+        layout depends on the target device (e.g. Requant, which resolves the
+        DSP version from it). Overrides that don't need it may keep the shorter
+        ``(model, path)`` signature."""
         pass
 
     def get_number_output_values(self):
@@ -305,37 +310,56 @@ class HWCustomOp(CustomOp):
         out_width = self.get_outstream_width(ind=ind)
         return roundup_to_integer_multiple(out_width, 8)
 
-    def generate_hdl_memstream(self, fpgapart, pumped_memory=0):
+    def generate_hdl_memstream(
+        self,
+        fpgapart,
+        pumped_memory=0,
+        name=None,
+        depth=None,
+        width=None,
+        init_file=None,
+        ram_style=None,
+    ):
         """Helper function to generate verilog code for memstream component.
-        Currently utilized by MVAU, VVAU and HLS Thresholding layer."""
-        ops = ["MVAU_hls", "MVAU_rtl", "VVAU_hls", "VVAU_rtl", "Thresholding_hls"]
+        Currently utilized by MVAU, VVAU, HLS Thresholding and RTL Requant layer.
+
+        By default a single memstream wrapper named after the node is emitted,
+        with depth/width/init_file/ram_style derived from the node. Callers that
+        need more than one memstreamer (e.g. RTL Requant streams scale and bias
+        separately) can pass explicit ``name``, ``depth``, ``width``,
+        ``init_file`` and ``ram_style`` to emit a named streamer without relying
+        on the op-specific defaults."""
+        ops = ["MVAU_hls", "MVAU_rtl", "VVAU_hls", "VVAU_rtl", "Thresholding_hls", "Requant_rtl"]
         if self.onnx_node.op_type in ops or self.onnx_node.op_type.startswith("Elementwise"):
             template_path = (
                 os.environ["FINN_ROOT"] + "/finn-rtllib/memstream/hdl/memstream_wrapper_template.v"
             )
-            mname = self.onnx_node.name
+            mname = name if name is not None else self.onnx_node.name
             sets = 1
             mlo_max_iter = self.get_nodeattr("mlo_max_iter")
             if mlo_max_iter:
                 sets = mlo_max_iter
-            if self.onnx_node.op_type.startswith("Thresholding"):
-                depth = self.calc_tmem()
-            elif self.onnx_node.op_type.startswith("MVAU"):
-                depth = self.calc_wmem() * self.get_nodeattr("TH")
-            else:
-                depth = self.calc_wmem()
-            padded_width = self.get_instream_width_padded(1)
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-
-            ram_style = self.get_nodeattr("ram_style")
-            init_file = code_gen_dir + "/memblock.dat"
+            if depth is None:
+                if self.onnx_node.op_type.startswith("Thresholding"):
+                    depth = self.calc_tmem()
+                elif self.onnx_node.op_type.startswith("MVAU"):
+                    depth = self.calc_wmem() * self.get_nodeattr("TH")
+                else:
+                    depth = self.calc_wmem()
+            if width is None:
+                width = self.get_instream_width_padded(1)
+            if ram_style is None:
+                ram_style = self.get_nodeattr("ram_style")
+            if init_file is None:
+                init_file = code_gen_dir + "/memblock.dat"
             if ram_style == "ultra" and not is_versal(fpgapart):
                 init_file = ""
             code_gen_dict = {
                 "$MODULE_NAME$": [mname],
                 "$SETS$": [str(sets)],
                 "$DEPTH$": [str(depth)],
-                "$WIDTH$": [str(padded_width)],
+                "$WIDTH$": [str(width)],
                 "$INIT_FILE$": [init_file],
                 "$RAM_STYLE$": [ram_style],
                 "$PUMPED_MEMORY$": [str(pumped_memory)],
@@ -398,7 +422,6 @@ class HWCustomOp(CustomOp):
                 "$N_LAYERS$": [str(n_max_layers)],
                 "$TH$": [str(theight)],
                 "$EN_MLO$": [en_mlo],
-                "$DWC_MODULE_NAME$": [mname + "_dwc"],
                 "$ADDRESS_OFFSET$": [str(self.get_nodeattr("address_offset"))],
             }
             # apply code generation to template

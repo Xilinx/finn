@@ -43,6 +43,8 @@ from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import get_by_name
 
+from finn.util.basic import resolve_resize_param_input
+
 
 class MoveAddPastMul(Transformation):
     """Move add operations past multiply operations on linear segments of the graph.
@@ -715,9 +717,13 @@ class MakeScaleResizeNHWC(Transformation):
                 consumer = model.find_consumer(n.output[0])
                 producer = model.find_producer(n.input[0])
                 if n.op_type == "Upsample":
-                    scales_ind = 1
+                    param_ind = 1
+                    param_dtype = "float32"
                 else:
-                    scales_ind = 2
+                    param_ind, is_sizes = resolve_resize_param_input(model, n)
+                    # sizes are int64, scales are float32; preserve the dtype so
+                    # the NCHW->NHWC permutation below doesn't corrupt sizes
+                    param_dtype = "int64" if is_sizes else "float32"
                 if producer is not None and producer.op_type == "Transpose":
                     perms = list(get_by_name(producer.attribute, "perm").ints)
                     if perms == [0, 3, 1, 2]:
@@ -727,12 +733,12 @@ class MakeScaleResizeNHWC(Transformation):
                             model = model.transform(MoveTransposePastFork())
                             # topology modified, "ask" ModelWrapper to apply this transform again
                             return (model, True)
-                        old_value = model.get_initializer(n.input[scales_ind])
+                        old_value = model.get_initializer(n.input[param_ind])
                         new_value = np.array(
                             [old_value[idx] for idx in (0, 2, 3, 1)],
-                            dtype=np.dtype("float32"),
+                            dtype=np.dtype(param_dtype),
                         )
-                        model.set_initializer(n.input[scales_ind], new_value)
+                        model.set_initializer(n.input[param_ind], new_value)
                         start_name = producer.input[0]
                         mid_name = n.input[0]
                         end_name = n.output[0]
@@ -749,12 +755,12 @@ class MakeScaleResizeNHWC(Transformation):
                 elif consumer is not None and consumer.op_type == "Transpose":
                     perms = list(get_by_name(consumer.attribute, "perm").ints)
                     if perms == [0, 2, 3, 1]:
-                        old_value = model.get_initializer(n.input[scales_ind])
+                        old_value = model.get_initializer(n.input[param_ind])
                         new_value = np.array(
                             [old_value[idx] for idx in (0, 2, 3, 1)],
-                            dtype=np.dtype("float32"),
+                            dtype=np.dtype(param_dtype),
                         )
-                        model.set_initializer(n.input[scales_ind], new_value)
+                        model.set_initializer(n.input[param_ind], new_value)
                         start_name = n.input[0]
                         mid_name = consumer.input[0]
                         end_name = consumer.output[0]
@@ -1379,6 +1385,37 @@ class MoveAddPastJoinAdd(MoveIdenticalOpPastJoinOp):
         """
         add_inits = [model.get_initializer(producer.input[1]) for producer in producers]
         new_init = np.sum(add_inits)
+        model.set_initializer(producers[0].input[1], new_init)
+        super().move_node(model, n, producers)
+
+        return True
+
+
+class MoveMulPastJoinMul(MoveIdenticalOpPastJoinOp):
+    """Move constant Mul operations past a join Mul node, folding the two
+    constants into a single one: (x*A) * (y*B) -> (x*y) * (A*B).
+    Unlike MoveMulPastJoinAdd, the two constants need not be equal since they
+    are combined into their product."""
+
+    def __init__(self):
+        super().__init__(["Mul"], ["Mul"])
+
+    def are_producers_identical(self, model, producers):
+        if not super().are_producers_identical(model, producers):
+            return False
+        for producer in producers:
+            if model.get_initializer(producer.input[1]) is None:
+                return False
+        return True
+
+    def move_node(self, model, n, producers):
+        """
+        Fold the producer constants into their product on the surviving
+        producer, then use the base move_node to move it past the join node
+        (and delete the rest).
+        """
+        mul_inits = [model.get_initializer(producer.input[1]) for producer in producers]
+        new_init = np.prod(mul_inits, axis=0)
         model.set_initializer(producers[0].input[1], new_init)
         super().move_node(model, n, producers)
 

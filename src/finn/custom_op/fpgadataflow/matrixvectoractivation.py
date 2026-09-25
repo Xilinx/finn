@@ -41,7 +41,7 @@ from qonnx.util.basic import (
 )
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
-from finn.util.basic import is_versal
+from finn.util.basic import fifo_rtl_files, is_versal
 from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation:
@@ -367,7 +367,7 @@ class MVAU(HWCustomOp):
             pe = self.get_nodeattr("PE")
             return mh // pe
 
-    def uram_estimation(self):
+    def uram_estimation(self, fpgapart):
         P = self.get_nodeattr("PE")
         Q = self.get_nodeattr("SIMD")
         wdt = self.get_input_datatype(1)
@@ -389,7 +389,7 @@ class MVAU(HWCustomOp):
         depth_multiplier = math.ceil(omega / 4096)
         return width_multiplier * depth_multiplier
 
-    def bram_estimation(self):
+    def bram_estimation(self, fpgapart):
         """Calculates resource estimation for BRAM based on:
         - FINN-R: An End-to-End Deep-Learning Framework for Fast
         Exploration of Quantized Neural Networks
@@ -431,19 +431,19 @@ class MVAU(HWCustomOp):
         else:
             return (math.ceil(omega / 512)) * (math.ceil(mem_width / 36))
 
-    def bram_efficiency_estimation(self):
+    def bram_efficiency_estimation(self, fpgapart):
         wdt = self.get_input_datatype(1)
         W = wdt.bitwidth()
         D_in = self.get_nodeattr("MW")
         D_out = self.get_nodeattr("MH")
-        bram16_est = self.bram_estimation()
+        bram16_est = self.bram_estimation(fpgapart)
         if bram16_est == 0:
             return 1
         wbits = W * D_in * D_out
         bram16_est_capacity = bram16_est * 36 * 512
         return wbits / bram16_est_capacity
 
-    def uram_efficiency_estimation(self):
+    def uram_efficiency_estimation(self, fpgapart):
         """Function for URAM efficiency estimation: actual parameter storage
         needed divided by the allocated URAM storage (from estimation)."""
         # TODO: Versal URAM supports flexible bit widths (9/18/36/72) unlike
@@ -453,7 +453,7 @@ class MVAU(HWCustomOp):
         W = wdt.bitwidth()
         D_in = self.get_nodeattr("MW")
         D_out = self.get_nodeattr("MH")
-        uram_est = self.uram_estimation()
+        uram_est = self.uram_estimation(fpgapart)
         if uram_est == 0:
             return 1
         wbits = W * D_in * D_out
@@ -501,9 +501,15 @@ class MVAU(HWCustomOp):
         exp_cycles = (mh / pe) * (mw / simd) * np.prod(num_inp_vec) * th / mmv
         return int(exp_cycles)
 
-    def minimize_accumulator_width(self, model):
+    def minimize_accumulator_width(self, model, datatype_only=False):
         """Minimize the accumulator bit width according to the weight values,
-        input data types, and size of dot product"""
+        input data types, and size of dot product.
+
+        Parameters
+        ----------
+        datatype_only : bool
+            If True, use worst-case datatype bounds instead of actual weight values.
+        """
         weights = model.get_initializer(self.onnx_node.input[1])
         # since in the calculation the values of the weight matrix are used,
         # for the bipolar case they need to be converted to bipolar
@@ -512,10 +518,11 @@ class MVAU(HWCustomOp):
 
         idt = self.get_input_datatype(0)
 
-        # if runtime-writeable weights, mem_mode=external, or weights are absent (MLO),
-        # then we need to use the worst-case values from the datatypes
+        # if datatype_only, runtime-writeable weights, mem_mode=external, or
+        # weights are absent (MLO), then we use worst-case values from datatypes
         if (
-            self.get_nodeattr("runtime_writeable_weights")
+            datatype_only
+            or self.get_nodeattr("runtime_writeable_weights")
             or self.get_nodeattr("mem_mode") in ["external", "external_mem", "dynamic"]
             or weights is None
         ):
@@ -560,8 +567,17 @@ class MVAU(HWCustomOp):
         self.set_nodeattr("accDataType", adt.name)
         return DataType[self.get_nodeattr("accDataType")]
 
-    def minimize_weight_bit_width(self, model):
-        """Minimize the bit width based on the values of the weights."""
+    def minimize_weight_bit_width(self, model, datatype_only=False):
+        """Minimize the bit width based on the values of the weights.
+
+        Parameters
+        ----------
+        datatype_only : bool
+            If True, skip value-based minimization.
+        """
+        if datatype_only:
+            return DataType[self.get_nodeattr("weightDataType")]
+
         if not (
             self.get_nodeattr("runtime_writeable_weights")
             or self.get_nodeattr("mem_mode") in ["external", "external_mem", "dynamic"]
@@ -747,13 +763,18 @@ class MVAU(HWCustomOp):
             elif weight_file_mode == "decoupled_verilog_dat" and (
                 self.get_nodeattr("mlo_max_iter") or self.get_nodeattr("mem_mode") == "external_mem"
             ):
-                # AXI-MM / fetch_weights path (MLO and external_mem): external memory
-                # (DDR, HBM, ...) holds one IWSIMD group per DWC output beat, each
-                # byte-aligned to DS_BITS_BA = roundup(IWSIMD*bitwidth, 8) bits. IWSIMD
-                # is (PE*SIMD)/TH for TH>1, SIMD otherwise.
+                # AXI-MM / fetch_weights path (MLO and external_mem): the external
+                # memory image is DMA-word-aligned to match the wrapper VPC, which
+                # reads DMA_PE = DATA_BITS // WEIGHT_WIDTH whole elements from the low
+                # bits of each DATA_BITS-wide bus word (element 0 at the LSB) and
+                # discards the top DATA_BITS % WEIGHT_WIDTH padding bits. Storing one
+                # bus word per line (DATA_BITS bits) guarantees no element straddles a
+                # bus-word boundary; when WEIGHT_WIDTH divides DATA_BITS this reduces to
+                # tight packing (byte-identical to the previous per-group image).
                 #
-                # The within-group ordering depends on how fetch_weights delivers the
-                # stream to the MVU:
+                # IWSIMD is (PE*SIMD)/TH for TH>1, SIMD otherwise. The element order
+                # within each IWSIMD group and the per-group ordering depend on how
+                # fetch_weights delivers the stream to the MVU:
                 #   - TH>1 (tiled MVAU): the stream passes straight through to the tiled
                 #     MVU, which expects the PE-flipped, TH-sub-tile-undone ordering.
                 #     weight_tensor_pe_flipped is already in IWSIMD-sized chunks
@@ -761,21 +782,36 @@ class MVAU(HWCustomOp):
                 #   - TH=1 (standard MVAU): the stream goes through local_weight_buffer,
                 #     which distributes consecutive SIMD groups across PE lanes 0..PE-1
                 #     (pe-minor) and pairs weight SIMD lane s with activation SIMD lane s.
-                #     That reconstruction needs the natural (unflipped) PE/SIMD order:
-                #     PE-flipping reverses the PE lanes and SIMD-flipping scrambles the
-                #     dot product.
+                #     That reconstruction needs the natural (unflipped) PE/SIMD order.
+                # Within a group the VPC's little-endian (element 0 = LSB) consumption
+                # reverses the IWSIMD elements, so reverse each group here to build the
+                # flat element stream the VPC sees, then pack DMA_PE elements/bus word.
                 th = self.get_nodeattr("TH")
+                data_bits = 256  # DATA_BITS in fetch_weights.sv (AXI bus width)
                 iwsimd = (pe * simd) // th if th > 1 else simd
-                iwsimd_group_bits = roundup_to_integer_multiple(iwsimd * export_wdt.bitwidth(), 8)
+                dma_pe = data_bits // export_wdt.bitwidth()  # whole elements per bus word
                 if th > 1:
                     weight_tensor_iwsimd = weight_tensor_pe_flipped
                 else:
                     weight_tensor_iwsimd = weight_tensor_unflipped.reshape(1, -1, pe * simd).copy()
+                # reverse within each IWSIMD group -> flat VPC little-endian element order
                 weight_tensor_iwsimd_groups = weight_tensor_iwsimd.reshape(1, -1, iwsimd)
-                weight_tensor_iwsimd_groups = pack_innermost_dim_as_hex_string(
-                    weight_tensor_iwsimd_groups, export_wdt, iwsimd_group_bits, prefix=""
+                flat_elems = weight_tensor_iwsimd_groups[:, :, ::-1].reshape(1, -1)
+                # pad the tail up to a whole number of bus words (unused VPC lanes)
+                n_elems = flat_elems.shape[1]
+                n_words = (n_elems + dma_pe - 1) // dma_pe
+                pad_elems = n_words * dma_pe - n_elems
+                if pad_elems:
+                    flat_elems = np.concatenate(
+                        [flat_elems, np.zeros((1, pad_elems), dtype=flat_elems.dtype)], axis=1
+                    )
+                # one bus word per line: DMA_PE elements packed element-0-at-LSB
+                # (reverse_inner=True), top bits zero-padded to DATA_BITS.
+                word_groups = flat_elems.reshape(1, n_words, dma_pe)
+                word_groups = pack_innermost_dim_as_hex_string(
+                    word_groups, export_wdt, data_bits, reverse_inner=True, prefix=""
                 )
-                weight_stream = weight_tensor_iwsimd_groups.flatten().copy()
+                weight_stream = word_groups.flatten().copy()
                 with open(weight_file_name, "w") as f:
                     for val in weight_stream:
                         f.write(val + "\n")
@@ -1013,8 +1049,7 @@ class MVAU(HWCustomOp):
                 )
 
     def code_generation_ipi(self):
-        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
-        cmd = ["file mkdir %s" % source_target]
+        cmd = []
 
         #
         # check if additional components are needed
@@ -1083,7 +1118,7 @@ class MVAU(HWCustomOp):
                         dyn_rtllib_dir + "dynamic_load.sv",
                     ]
                     for f in sourcefiles:
-                        cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
+                        cmd += ["add_files -norecurse %s" % f]
                     strm_inst = node_name + "_wdynld"
                     strm_out_name = "m_axis_0"
 
@@ -1110,7 +1145,6 @@ class MVAU(HWCustomOp):
 
                     # instantiate a fetch weights component and connect it to the IP
                     reg_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/skid/")
-                    que_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/fifo/hdl/")
                     fwg_rtllib_dir = os.path.join(
                         os.environ["FINN_ROOT"], "finn-rtllib/fetch_weights/"
                     )
@@ -1121,13 +1155,15 @@ class MVAU(HWCustomOp):
                         if fname.endswith(file_suffix):
                             strm_tmpl = fname
                     strm_tmpl_name = strm_tmpl[:-2]
+                    dwc_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/dwc/hdl/")
                     sourcefiles = [
                         os.path.join(code_gen_dir, strm_tmpl),
                         reg_rtllib_dir + "skid.sv",
-                        que_rtllib_dir + "Q_srl.v",
                         fwg_rtllib_dir + "fetch_weights.sv",
                         fwg_rtllib_dir + "local_weight_buffer.sv",
-                    ]
+                        dwc_rtllib_dir + "vpc.sv",
+                        dwc_rtllib_dir + "dwc_axi.sv",
+                    ] + fifo_rtl_files()
                     # Create Vivado axis_dwidth_converter IP
                     theight = self.get_nodeattr("TH")
                     wdt = self.get_input_datatype(1)
@@ -1165,7 +1201,7 @@ class MVAU(HWCustomOp):
                         if file.endswith(".sv") or file.endswith(".svh"):
                             sourcefiles.append(os.path.join(dma_rtllib_dir + "cdma_x/", file))
                     for f in sourcefiles:
-                        cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
+                        cmd += ["add_files -norecurse %s" % f]
                     strm_inst = node_name + "_fetch_weights"
                     strm_out_name = "out0_V"
                     # update intf dict to remove weights input and replace with index/tap input
@@ -1192,7 +1228,7 @@ class MVAU(HWCustomOp):
                         ms_rtllib_dir + "memstream.sv",
                     ]
                     for f in sourcefiles:
-                        cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
+                        cmd += ["add_files -norecurse %s" % f]
                     strm_inst = node_name + "_wstrm"
                     strm_out_name = "m_axis_0"
 
@@ -1307,18 +1343,15 @@ class MVAU(HWCustomOp):
 
     def get_weight_mem_bytes(self):
         """Return (size, offs) in bytes for one layer's weight matrix.
-        size is the tight per-layer packing (byte-aligned per IWSIMD group);
-        offs rounds it up to the DATA_BITS wide AXI bus (DATA_BITS in fetch_weights.sv),
-        matching LAYER_OFFS, the spacing between layers in the DDR image."""
+        The DDR image is DMA-word-aligned: each DATA_BITS-wide bus word holds
+        DMA_PE = DATA_BITS // WEIGHT_WIDTH whole elements (top bits zero-padded),
+        so the per-layer size is ceil(MH*MW / DMA_PE) bus words. That is already
+        bus-aligned, so offs == size == LAYER_OFFS in fetch_weights.sv."""
         data_bits = 256  # DATA_BITS in fetch_weights.sv
-        th = self.get_nodeattr("TH")
-        iwsimd = (
-            (self.get_nodeattr("PE") * self.get_nodeattr("SIMD")) // th
-            if th > 1
-            else self.get_nodeattr("SIMD")
-        )
         weight_width = self.get_input_datatype(1).bitwidth()
-        bytes_chunk = roundup_to_integer_multiple(iwsimd * weight_width, 8) // 8
-        size = (self.get_nodeattr("MH") * self.get_nodeattr("MW") // iwsimd) * bytes_chunk
-        offs = roundup_to_integer_multiple(size, data_bits // 8)  # round up to the AXI bus width
+        dma_pe = data_bits // weight_width  # whole elements per bus word
+        n_elems = self.get_nodeattr("MH") * self.get_nodeattr("MW")
+        n_words = roundup_to_integer_multiple(n_elems, dma_pe) // dma_pe
+        size = n_words * (data_bits // 8)
+        offs = size  # already AXI bus-width aligned
         return size, offs

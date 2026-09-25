@@ -32,6 +32,7 @@ import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.general.maxpoolnhwc import compute_pool_output_dim
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_shapes import InferShapes
@@ -42,6 +43,9 @@ import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.minimize_accumulator_width import (
+    MinimizeAccumulatorWidth,
+)
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
@@ -49,7 +53,9 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
-def make_single_maxpool_modelwrapper(k, stride, pad, ifm_ch, ifm_dim, ofm_dim, idt, use_1d=False):
+def make_single_maxpool_modelwrapper(
+    k, stride, pad, ifm_ch, ifm_dim, ofm_dim, idt, use_1d=False, ceil_mode=0
+):
     odt = idt
     if use_1d:
         ishape = [1, ifm_ch, 1, ifm_dim]
@@ -72,6 +78,7 @@ def make_single_maxpool_modelwrapper(k, stride, pad, ifm_ch, ifm_dim, ofm_dim, i
         kernel_shape=kshape,
         pads=pads,
         strides=strides,
+        ceil_mode=ceil_mode,
     )
     graph = helper.make_graph(nodes=[mp_node], name="mp_graph", inputs=[inp], outputs=[outp])
 
@@ -143,7 +150,6 @@ def test_convert_to_hw_pool(idt, odt, pool_config, ifm_ch, pe, op_type, exec_mod
     if pad != 0 and idt.signed():
         pytest.skip("No support for pal_val != 0. Skipping")
 
-    np.random.seed(0)
     ofm_dim = int(((ifm_dim + 2 * pad - k) / stride) + 1)
 
     ishape = (1, ifm_ch, ifm_dim, ifm_dim)
@@ -197,6 +203,15 @@ def test_convert_to_hw_pool(idt, odt, pool_config, ifm_ch, pe, op_type, exec_mod
             inst = getCustomOp(n)
             inst.set_nodeattr("PE", pe)
 
+    # MinimizeAccumulatorWidth - for QuantAvgPool this should reduce AccumBits
+    if op_type == "QuantAvgPool2d":
+        pool_node = [n for n in new_model.graph.node if n.op_type.startswith("Pool")][0]
+        pool_inst = getCustomOp(pool_node)
+        initial_accum = pool_inst.get_nodeattr("AccumBits")
+        new_model = new_model.transform(MinimizeAccumulatorWidth())
+        new_accum = pool_inst.get_nodeattr("AccumBits")
+        assert new_accum <= initial_accum
+
     if stride <= k:
         if pad == 0:
             assert len(new_model.graph.node) == 4
@@ -242,3 +257,100 @@ def test_convert_to_hw_pool(idt, odt, pool_config, ifm_ch, pe, op_type, exec_mod
         exp_cycles_dict = new_model.analysis(exp_cycles_per_layer)
         exp_cycles = exp_cycles_dict[node.name]
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
+
+
+# ceil_mode=1 MaxPool geometries.  The sliding-window generator only produces a
+# floor-count grid, so InferPool absorbs any ceil extension (where the drop-rule
+# output exceeds the floor output) into extra trailing padding, letting Im2Col's
+# floor formula reproduce the declared drop-rule output size.  All three cases
+# below must build and match the onnxruntime reference:
+#   (k, stride, pad, ifm_dim):   drop  floor   how it builds
+#     (2, 2, 0, 8):                4     4      ceil_mode is a no-op
+#     (2, 2, 1, 9):                5     5      FMPadding 9->11, floor=5
+#     (2, 2, 0, 7):                4     3      pad-to-ceil 7->8 (bottom/right +1)
+@pytest.mark.parametrize(
+    "ceil_config",
+    [
+        (2, 2, 0, 8),
+        (2, 2, 1, 9),
+        (2, 2, 0, 7),
+    ],
+)
+@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_convert_to_hw_maxpool_ceil_mode(ceil_config, exec_mode):
+    k, stride, pad, ifm_dim = ceil_config
+    idt = DataType["UINT4"]
+    ifm_ch = 4
+    pe = 2
+
+    ofm_dim = compute_pool_output_dim(ifm_dim, k, stride, pad, ceil_mode=1)
+    model = make_single_maxpool_modelwrapper(
+        k, stride, pad, ifm_ch, ifm_dim, ofm_dim, idt, ceil_mode=1
+    )
+
+    x = gen_finn_dt_tensor(idt, (1, ifm_ch, ifm_dim, ifm_dim))
+    input_dict = prepare_inputs(x)
+    y_expected = oxe.execute_onnx(model, input_dict)["outp"]
+
+    new_model = model.transform(to_hw.InferPool())
+    new_model = new_model.transform(GiveUniqueNodeNames())
+    new_model = new_model.transform(to_hw.InferConvInpGen())
+    if pad != 0:
+        inst = getCustomOp(new_model.get_nodes_by_op_type("FMPadding")[0])
+        inst.set_nodeattr("preferred_impl_style", "hls")
+    new_model = new_model.transform(SpecializeLayers("xc7z020clg400-1"))
+
+    for n in new_model.graph.node:
+        if n.op_type.startswith("ConvolutionInputGenerator"):
+            getCustomOp(n).set_nodeattr("SIMD", pe)
+        elif n.op_type.startswith("Pool"):
+            getCustomOp(n).set_nodeattr("PE", pe)
+
+    if exec_mode == "cppsim":
+        new_model = new_model.transform(SetExecMode("cppsim"))
+        new_model = new_model.transform(PrepareCppSim())
+        new_model = new_model.transform(CompileCppSim())
+    elif exec_mode == "rtlsim":
+        new_model = new_model.transform(SetExecMode("rtlsim"))
+        new_model = new_model.transform(GiveUniqueNodeNames())
+        new_model = new_model.transform(PrepareIP("xc7z020clg400-1", 5))
+        new_model = new_model.transform(HLSSynthIP())
+        new_model = new_model.transform(PrepareRTLSim())
+    else:
+        raise Exception("Unknown exec_mode")
+
+    y_produced = oxe.execute_onnx(new_model, input_dict)["outp"]
+    assert (y_produced == y_expected).all()
+
+
+@pytest.mark.fpgadataflow
+def test_pool_maxpool_infer_datatype_follows_input():
+    """MaxPool's InputDataType/OutputDataType should track the producer's actual
+    output datatype instead of staying stale (see issue #1694), since a stale
+    InputDataType makes the HLS backend generate an interface width that no
+    longer matches the AXI stream actually feeding it."""
+    idt = DataType["UINT8"]
+    model = make_single_maxpool_modelwrapper(
+        k=2, stride=2, pad=0, ifm_ch=4, ifm_dim=4, ofm_dim=2, idt=idt
+    )
+    model = model.transform(to_hw.InferPool())
+    pool_node = model.get_nodes_by_op_type("Pool")[0]
+    inst = getCustomOp(pool_node)
+    assert inst.get_input_datatype() == idt
+    assert inst.get_output_datatype() == idt
+
+    # simulate the producer's output datatype narrowing after conversion, as
+    # e.g. MinimizeAccumulatorWidth would do on an upstream node
+    narrower_idt = DataType["UINT4"]
+    model.set_tensor_datatype(pool_node.input[0], narrower_idt)
+    inst.infer_node_datatype(model)
+
+    assert inst.get_input_datatype() == narrower_idt
+    assert inst.get_output_datatype() == narrower_idt
+    assert model.get_tensor_datatype(pool_node.output[0]) == narrower_idt
+    pe = inst.get_nodeattr("PE")
+    assert inst.get_instream_width() == narrower_idt.bitwidth() * pe
+    assert inst.get_outstream_width() == narrower_idt.bitwidth() * pe

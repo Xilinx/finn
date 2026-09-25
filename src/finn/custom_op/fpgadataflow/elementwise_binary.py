@@ -306,7 +306,8 @@ class ElementwiseBinaryOperation(HWCustomOp):
 
     # Minimizes the width of the accumulator data type, 'accumulator width' here
     # due to convention, it is actually the output data type
-    def minimize_accumulator_width(self, model: ModelWrapper):
+    def minimize_accumulator_width(self, model: ModelWrapper, datatype_only=False):
+        """Minimize the output data type width."""
         # If any of the inputs is not an integer, the bit-width cannot be
         # minimized
         if not all([self.lhs_dtype.is_integer(), self.rhs_dtype.is_integer()]):
@@ -338,7 +339,11 @@ class ElementwiseBinaryOperation(HWCustomOp):
 
     # Minimizes the width of the weight data type, 'weight' here due to
     # convention, it actually applies to any constant initializer input
-    def minimize_weight_bit_width(self, model: ModelWrapper):
+    def minimize_weight_bit_width(self, model: ModelWrapper, datatype_only=False):
+        """Minimize the constant input data type width."""
+        if datatype_only:
+            return
+
         # Check for an initializer providing the left hand side input
         lhs = model.get_initializer(self.onnx_node.input[0])
         # If the left hand side input is provided as initializer, minimize the
@@ -467,7 +472,7 @@ class ElementwiseBinaryOperation(HWCustomOp):
         else:
             return math.ceil(depth / 512) * math.ceil(width / 36)
 
-    def bram_estimation(self):
+    def bram_estimation(self, fpgapart):
         ram_style = self.get_nodeattr("ram_style")
         if ram_style not in ["auto", "block"]:
             return 0
@@ -478,7 +483,7 @@ class ElementwiseBinaryOperation(HWCustomOp):
             )
         )
 
-    def uram_estimation(self):
+    def uram_estimation(self, fpgapart):
         ram_style = self.get_nodeattr("ram_style")
         if ram_style != "ultra":
             return 0
@@ -489,26 +494,26 @@ class ElementwiseBinaryOperation(HWCustomOp):
             )
         )
 
-    def bram_efficiency_estimation(self):
-        bram18_est = self.bram_estimation()
+    def bram_efficiency_estimation(self, fpgapart):
+        bram18_est = self.bram_estimation(fpgapart)
         if bram18_est == 0:
             return 1
         used_bits = sum(width * depth for width, depth in self._parameter_memory_specs())
         bram18_est_capacity = bram18_est * 36 * 512
         return used_bits / bram18_est_capacity
 
-    def uram_efficiency_estimation(self):
+    def uram_efficiency_estimation(self, fpgapart):
         # TODO: Versal URAM supports flexible bit widths (9/18/36/72) unlike
         # UltraScale+ which only supports 72-bit. This could improve efficiency
         # for narrow data types on Versal devices.
-        uram_est = self.uram_estimation()
+        uram_est = self.uram_estimation(fpgapart)
         if uram_est == 0:
             return 1
         used_bits = sum(width * depth for width, depth in self._parameter_memory_specs())
         uram_est_capacity = uram_est * 72 * 4096
         return used_bits / uram_est_capacity
 
-    def lut_estimation(self):
+    def lut_estimation(self, fpgapart):
         ram_style = self.get_nodeattr("ram_style")
         if ram_style != "distributed":
             return 0
@@ -923,7 +928,11 @@ class ElementwiseMax(ElementwiseBinaryOperation):
         return None
 
     # Override minimize_weight_bit_width to prevent type incompatibility
-    def minimize_weight_bit_width(self, model: ModelWrapper):
+    def minimize_weight_bit_width(self, model: ModelWrapper, datatype_only=False):
+        """Minimize the constant input data type width."""
+        if datatype_only:
+            return
+
         # For comparison operations like max/min, both operands must have
         # compatible types. Don't minimize if one side is float and the
         # minimized constant would become integer.

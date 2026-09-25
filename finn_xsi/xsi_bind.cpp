@@ -49,6 +49,7 @@ PYBIND11_MODULE(xsi, m) {
 			return  d;
 		}))
 		.def("trace_all", &Design::trace_all)
+		.def("close",     &Design::close)
 		.def("run",       &Design::run)
 		.def("restart",   &Design::restart)
 		.def("get_status",     &Design::get_status)
@@ -74,7 +75,8 @@ PYBIND11_MODULE(xsi, m) {
 		.def("as_bool",     &Port::as_bool)
 		.def("as_unsigned", &Port::as_unsigned)
 		.def("as_binstr",   &Port::as_binstr)
-		.def("as_hexstr",   &Port::as_hexstr)
+		.def("as_hexstr",          &Port::as_hexstr)
+		.def("as_hexstr_2state",   &Port::as_hexstr_2state)
 		.def("clear",       &Port::clear)
 		.def("set",         &Port::set)
 		.def("set_binstr",  &Port::set_binstr)

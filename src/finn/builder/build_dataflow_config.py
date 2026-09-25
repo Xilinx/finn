@@ -65,6 +65,7 @@ class DataflowOutputType(str, Enum):
     PYNQ_DRIVER = "pynq_driver"
     CPP_DRIVER = "cpp_driver"
     DEPLOYMENT_PACKAGE = "deployment_package"
+    PORTABLE_RTL = "portable_rtl"
 
 
 class VitisOptStrategyCfg(str, Enum):
@@ -76,15 +77,6 @@ class VitisOptStrategyCfg(str, Enum):
     PERFORMANCE_BEST = "performance_best"
     SIZE = "size"
     BUILD_SPEED = "quick"
-
-
-class LargeFIFOMemStyle(str, Enum):
-    """Type of memory resource to use for large FIFOs."""
-
-    AUTO = "auto"
-    BRAM = "block"
-    LUTRAM = "distributed"
-    URAM = "ultra"
 
 
 class VerificationStepType(str, Enum):
@@ -102,6 +94,26 @@ class VerificationStepType(str, Enum):
     NODE_BY_NODE_RTLSIM = "node_by_node_rtlsim"
     #: verify after step_create_stitched_ip, using stitched-ip Verilog
     STITCHED_IP_RTLSIM = "stitched_ip_rtlsim"
+
+
+#: Maps each VerificationStepType to the (phase, step) it depends on.
+#: run_all_config_checks uses this to flag a verify_steps entry whose
+#: owning step won't run given steps/start_step/stop_step.
+#: A new VerificationStepType member must add its own entry here too.
+verify_step_prereqs = {
+    VerificationStepType.QONNX_TO_FINN_PYTHON: ("phase_prepare_model", "step_qonnx_to_finn"),
+    VerificationStepType.TIDY_UP_PYTHON: ("phase_prepare_model", "step_tidy_up"),
+    VerificationStepType.STREAMLINED_PYTHON: ("phase_optimize_model", "step_streamline"),
+    VerificationStepType.FOLDED_HLS_CPPSIM: (
+        "phase_optimize_hardware",
+        "step_minimize_bit_width",
+    ),
+    VerificationStepType.NODE_BY_NODE_RTLSIM: ("phase_build_hardware", "step_hw_ipgen"),
+    VerificationStepType.STITCHED_IP_RTLSIM: (
+        "phase_generate_outputs",
+        "step_create_stitched_ip",
+    ),
+}
 
 
 #: List of steps that will be run as part of the standard dataflow build, in the
@@ -246,7 +258,7 @@ class DataflowBuildConfig:
 
     #: Target board, only needed for generating full bitfiles where the FINN
     #: design is integrated into a shell.
-    #: e.g. "Pynq-Z1" or "U250"
+    #: e.g. "AUP-ZU3_8GB" or "U55C"
     board: Optional[str] = None
 
     #: Target shell flow, only needed for generating full bitfiles where the FINN
@@ -264,17 +276,9 @@ class DataflowBuildConfig:
     #: for each FIFO.
     auto_fifo_depths: Optional[bool] = True
 
-    #: Whether FIFO nodes with depth larger than 32768 will be split.
-    #: Allow to configure very large FIFOs in the folding_config_file.
-    split_large_fifos: Optional[bool] = False
-
     #: When `auto_fifo_depths = True`, select which method will be used for
     #: setting the FIFO sizes.
     auto_fifo_strategy: Optional[AutoFIFOSizingMethod] = AutoFIFOSizingMethod.LARGEFIFO_RTLSIM
-
-    #: Memory resource type for large FIFOs
-    #: Only relevant when `auto_fifo_depths = True`
-    large_fifo_mem_style: Optional[LargeFIFOMemStyle] = LargeFIFOMemStyle.AUTO
 
     #: Enable input throttling for simulation-based FIFO sizing
     #: Only relevant if auto_fifo_strategy = LARGEFIFO_RTLSIM
@@ -369,14 +373,10 @@ class DataflowBuildConfig:
     #: run can measure latency and pipeline-fill throughput only.
     rtlsim_batch_size: Optional[int] = 2
 
-    #: If set to True, FIFOs with impl_style=vivado will be kept during
-    #: rtlsim, otherwise they will be replaced by RTL implementations.
-    rtlsim_use_vivado_comps: Optional[bool] = True
-
     #: Use behavioral simulation for RTLSim verification steps.
     #: When True, passes -define FINN_SIMULATION to xelab, enabling faster
     #: behavioral models for DSP-heavy modules (MVU, LayerNorm, Elementwise)
-    #: and fifo_gauge (with debug capabilities) instead of Q_srl.
+    #: and fifo_gauge (with debug capabilities) instead of the synthesizable fifo.sv.
     #: Does not affect FIFO sizing which always uses behavioral simulation.
     verify_rtlsim_behavioral: Optional[bool] = False
 

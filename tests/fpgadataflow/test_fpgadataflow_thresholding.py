@@ -152,6 +152,15 @@ def make_single_multithresholding_modelwrapper(
 
     node_inp_list = ["inp", "thresh"]
 
+    # The generated tensors are always channels-last, but qonnx's MultiThreshold
+    # reference now locates the channel axis from the data_layout annotation
+    # (data_layout.index("C")). A fixed "NHWC" only matches rank-4 inputs and
+    # misplaces the channel axis for other ranks, so label the layout to match
+    # the actual tensor rank with C on the last axis.
+    rank = len(num_input_vecs) + 1
+    channels_last_layout = {2: "NC", 3: "NWC", 4: "NHWC", 5: "NDHWC"}
+    data_layout = channels_last_layout.get(rank, "N" + "S" * (rank - 2) + "C")
+
     Multithresholding_node = helper.make_node(
         "MultiThreshold",
         node_inp_list,
@@ -160,7 +169,7 @@ def make_single_multithresholding_modelwrapper(
         out_dtype=output_data_type.name,
         out_bias=float(activation_bias),
         out_scale=1.0,
-        data_layout="NHWC",
+        data_layout=data_layout,
     )
 
     graph = helper.make_graph(
@@ -611,3 +620,49 @@ def test_rtl_thresholding_unsorted_assertion():
     build_dir = make_build_dir("test_unsorted_thresh_")
     with pytest.raises(AssertionError, match="sorted in ascending order"):
         inst.generate_params(model, build_dir)
+
+
+# 2D (NC), 3D (NWC), 4D (NHWC), plus a higher rank for rank-agnostic behavior.
+@pytest.mark.parametrize(
+    "num_input_vecs",
+    [
+        pytest.param([1], id="nc"),
+        pytest.param([1, 4], id="nwc"),
+        pytest.param([1, 2, 2], id="nhwc"),
+        pytest.param([1, 2, 2, 2], id="rank5"),
+    ],
+)
+@pytest.mark.parametrize("num_input_channels", [6, 16])
+@pytest.mark.fpgadataflow
+def test_fpgadataflow_thresholding_data_layout(num_input_vecs, num_input_channels):
+    """Check that the HW Thresholding execute_node thresholds the channels-last
+    axis regardless of tensor rank, matching the MultiThreshold reference."""
+    input_data_type = DataType["INT8"]
+    threshold_data_type = DataType["INT8"]
+    activation = DataType["INT4"]
+    num_steps = activation.get_num_possible_values() - 1
+
+    thresholds = generate_edge_threshold_values(threshold_data_type, num_input_channels, num_steps)
+    thresholds = sort_thresholds_increasing(thresholds)
+
+    model = make_single_multithresholding_modelwrapper(
+        thresholds,
+        input_data_type,
+        threshold_data_type,
+        activation,
+        activation.min(),
+        num_input_vecs,
+        num_input_channels,
+    )
+
+    x = generate_edge_input_tensor(input_data_type, tuple(num_input_vecs + [num_input_channels]))
+    input_dict = {model.get_first_global_in(): x}
+    # Golden reference from the MultiThreshold node before conversion
+    y_expected = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
+
+    # Converting to the HW Thresholding node and re-running exercises the
+    # execute_node layout handling under test
+    model = model.transform(InferThresholdingLayer())
+    y_produced = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
+
+    assert (y_produced.astype(np.float32) == y_expected.astype(np.float32)).all()

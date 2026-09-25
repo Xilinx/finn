@@ -3,6 +3,7 @@
 
 """Configuration check system for FINN builds - catches incompatibilities early."""
 
+import importlib
 import json
 import os
 from dataclasses import dataclass, field
@@ -14,8 +15,15 @@ from finn.builder.build_dataflow_config import (
     DataflowBuildConfig,
     DataflowOutputType,
     ShellFlowType,
+    verify_step_prereqs,
 )
-from finn.util.basic import get_vivado_version, part_map, pynq_part_map, vitis_part_map
+from finn.util.basic import (
+    get_vivado_version,
+    part_map,
+    pynq_part_map,
+    retired_pynq_boards,
+    vitis_part_map,
+)
 
 
 class Severity(Enum):
@@ -130,6 +138,36 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
             )
         )
 
+    if cfg.board in retired_pynq_boards:
+        checks.append(
+            _check(
+                "zynq7000_retired",
+                Severity.ERROR,
+                False,
+                f"Board '{cfg.board}' (Zynq-7000) was retired from official FINN "
+                "support with the move to Vivado 2024.2.",
+                "The build flow is unchanged and Vivado 2024.2 still supports the "
+                "xc7z020 part, so you can re-enable this board by removing it from "
+                "retired_pynq_boards in finn.util.basic. The AUP-ZU3_8GB "
+                "(Zynq UltraScale+) board is the recommended supported replacement.",
+            )
+        )
+
+    if cfg.shell_flow_type == ShellFlowType.VITIS_ALVEO and cfg.board is not None:
+        checks.append(
+            _check(
+                "alveo_board_supported",
+                Severity.ERROR,
+                cfg.board in alveo_boards,
+                f"Alveo board '{cfg.board}' is not a supported Alveo target. Support for "
+                "some boards (e.g. U280) was dropped with the move to Vitis 2024.2",
+                f"Valid Alveo boards: {', '.join(sorted(alveo_boards))}. To keep using a "
+                "dropped board (e.g. U280) you can build with Vitis 2022.2 and re-add its "
+                "part/platform entries to vitis_part_map/vitis_default_platform (and the "
+                "matching Platform class in util/platforms.py).",
+            )
+        )
+
     if has_bitfile:
         is_v80 = cfg.board == "V80" or (cfg.fpga_part and cfg.fpga_part.startswith("xcv80"))
         is_slash = cfg.shell_flow_type == ShellFlowType.SLASH_ALVEO
@@ -212,7 +250,7 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                 "BITFILE generation with VIVADO_ZYNQ requires 'board' to be set. "
                 "ZynqBuild needs the board name and will fail in step_synthesize_bitfile "
                 "if missing",
-                "Set board to a valid Zynq board name (e.g., 'Pynq-Z1', 'ZCU104')",
+                "Set board to a valid Zynq board name (e.g., 'AUP-ZU3_8GB', 'ZCU104')",
             )
         )
 
@@ -229,6 +267,25 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                     "Set board (e.g., 'U250') or vitis_platform explicitly",
                 )
             )
+
+    needs_folding = cfg.generate_outputs and any(
+        o != DataflowOutputType.ESTIMATE_REPORTS for o in cfg.generate_outputs
+    )
+    if needs_folding and cfg.target_fps is None and cfg.folding_config_file is None:
+        checks.append(
+            _check(
+                "folding_missing",
+                Severity.ERROR,
+                False,
+                "Neither target_fps nor folding_config_file is set. Nodes stay at "
+                "their creation-time PE=1/SIMD=1, the most folded and slowest "
+                "implementation, and the build will silently run to completion "
+                "with it instead of failing fast",
+                "Set target_fps for automatic folding, or provide folding_config_file "
+                "for manual PE/SIMD settings, so a slow build isn't mistaken for "
+                "a deliberate choice",
+            )
+        )
 
     # === Environment Variables ===
     if has_bitfile and cfg.shell_flow_type == ShellFlowType.VITIS_ALVEO:
@@ -288,6 +345,46 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                         "or disable verification",
                     )
                 )
+
+        # each verify_steps entry is only ever triggered from inside one specific
+        # step, itself part of one specific phase; if steps/start_step/stop_step
+        # leaves that step out, the entry is silently never verified
+        #
+        # The (phase, step) prerequisite for each VerificationStepType is defined
+        # next to the enum itself, in build_dataflow_config.verify_step_prereqs.
+        try:
+            # imported lazily via importlib (rather than a top-level import) since
+            # build_dataflow imports this module, and a top-level import back
+            # would be circular
+            build_dataflow_mod = importlib.import_module("finn.builder.build_dataflow")
+            resolved_names = {
+                fn.__name__ for fn in build_dataflow_mod.resolve_build_steps(cfg, partial=True)
+            }
+        except (ValueError, AttributeError):
+            # steps/start_step/stop_step can't be resolved; that will fail on its
+            # own once the build actually starts, nothing more to check here
+            resolved_names = None
+
+        if resolved_names is not None:
+            for vstep in cfg._resolve_verification_steps():
+                phase_name, step_name = verify_step_prereqs.get(vstep, (None, None))
+                phase_missing = phase_name and phase_name not in resolved_names
+                step_missing = step_name not in resolved_names
+                if phase_missing and step_missing:
+                    checks.append(
+                        _check(
+                            "verify_step_prereq",
+                            Severity.WARNING,
+                            False,
+                            f"verify_steps includes {vstep.value}, but neither "
+                            f"{phase_name} nor {step_name} is in the resolved "
+                            "build steps (steps/start_step/stop_step). That "
+                            "verification would silently never run",
+                            f"Include {phase_name} (or {step_name}) in steps, "
+                            "adjust start_step/stop_step so it runs, or remove "
+                            "this entry from verify_steps",
+                        )
+                    )
 
     # === Warnings ===
     if cfg.shell_flow_type is not None and not has_bitfile:
