@@ -281,6 +281,134 @@ def test_requant_rtl(abits, ishape, per_channel, part, pe, sim_style, mem_mode, 
 
 
 # =============================================================================
+# RTL Backend Test - FLOAT32 input (requantf DSPFP32 core, Versal only)
+# =============================================================================
+
+
+@pytest.mark.parametrize("abits", [8, 16])
+@pytest.mark.parametrize("ishape", [(1, 16), (1, 32, 1, 1)])
+@pytest.mark.parametrize("per_channel", [False, True])
+@pytest.mark.parametrize("pe", [1, 16])
+@pytest.mark.parametrize("sim_style", ["cppsim", "node_by_node", "stitched_ip"])
+@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
+@pytest.mark.parametrize("signed_out", [False, True])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_requant_rtl_float(abits, ishape, per_channel, pe, sim_style, mem_mode, signed_out):
+    """Test Requant RTL backend with FLOAT32 input (requantf core).
+
+    A float-input Requant specializes to Requant_rtl on a Versal part and
+    generates the requantf DSPFP32 core (embedded or decoupled param stream),
+    computing clip(round(x*scale+bias)). The requantf core uses DSPFP32, so a
+    Versal part is pinned; a non-Versal float Requant would fall back to
+    Requant_hls (covered by test_requant_hls).
+    """
+    # requantf needs DSPFP32 -> Versal only
+    part = "xcvc1902-vsva2197-2MP-e-S"
+    num_channels = ishape[1]
+    max_val = 1.0
+    input_dtype = "FLOAT32"
+
+    # Skip if PE doesn't divide evenly into num_channels
+    if num_channels % pe != 0:
+        pytest.skip(f"PE={pe} does not divide num_channels={num_channels}")
+
+    # Use QuantIdentity (signed) or QuantReLU (unsigned) based on signed_out parameter
+    if signed_out:
+        model = create_signed_requant_model(abits, max_val, ishape, per_channel)
+    else:
+        model = create_requant_model(abits, max_val, ishape, per_channel)
+
+    # Set input datatype to FLOAT32 (float2int requantization)
+    model.set_tensor_datatype(model.graph.input[0].name, DataType[input_dtype])
+    model = model.transform(InferDataTypes())
+
+    # Get golden output before conversion
+    inp = gen_finn_dt_tensor(DataType[input_dtype], ishape)
+    input_dict = {model.graph.input[0].name: inp}
+    y_golden = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
+
+    # Absorb Add into MultiThreshold before InferRequantLayer
+    # This is needed for signed outputs where the Add contains the signed offset
+    model = model.transform(AbsorbScalarBiasIntoMultiThreshold())
+
+    # Apply InferRequantLayer
+    model = model.transform(InferRequantLayer())
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+
+    # Verify MultiThreshold was converted to Requant
+    assert len(model.get_nodes_by_op_type("MultiThreshold")) == 0
+    assert len(model.get_nodes_by_op_type("Requant")) == 1
+
+    # Verify functional correctness before specialization
+    quant_step = max_val / (2**abits - 1)
+    y_requant = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
+    assert np.allclose(y_golden, y_requant, atol=quant_step)
+
+    # Specialize layers for the Versal part
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(GiveUniqueNodeNames())
+
+    # Verify the RTL (requantf) backend was selected, not HLS
+    requant_rtl_nodes = model.get_nodes_by_op_type("Requant_rtl")
+    assert len(requant_rtl_nodes) == 1, "Expected Requant_rtl for FLOAT32 input on Versal"
+    assert (
+        len(model.get_nodes_by_op_type("Requant_hls")) == 0
+    ), "FLOAT32 Requant on Versal must not fall back to HLS"
+    getCustomOp(requant_rtl_nodes[0]).set_nodeattr("PE", pe)
+    getCustomOp(requant_rtl_nodes[0]).set_nodeattr("mem_mode", mem_mode)
+
+    # Prepare and run simulation
+    #  - cppsim / node_by_node feed the packed scale/bias words directly into the
+    #    core, exercising the datapath + FP32 param packing.
+    #  - stitched_ip instantiates the memstream and free-runs it from the
+    #    generated .dat file (decoupled), exercising the memstreamer.
+    if sim_style == "cppsim":
+        model = model.transform(SetExecMode("cppsim"))
+        model = model.transform(PrepareCppSim())
+        model = model.transform(CompileCppSim())
+    elif sim_style == "node_by_node":
+        model = model.transform(SetExecMode("rtlsim"))
+        model = model.transform(PrepareIP(part, target_clk_ns))
+        model = model.transform(HLSSynthIP())
+        model = model.transform(PrepareRTLSim())
+    elif sim_style == "stitched_ip":
+        # Convert any remaining Mul nodes to HW for stitched IP
+        model = model.transform(to_hw.InferElementwiseBinaryOperation())
+        # 4D inputs carry a layout Transpose (NCHW<->NHWC) with no HW op yet;
+        # convert it to a HW Shuffle and decompose so the graph is fpgadataflow.
+        if len(model.get_nodes_by_op_type("Transpose")) > 0:
+            model = model.transform(to_hw.InferShuffle(_filter=lambda *_: True))
+            model = model.transform(SpecializeLayers(part))
+            model = model.transform(ShuffleDecomposition())
+            model = model.transform(InferInnerOuterShuffles())
+        model = model.transform(SpecializeLayers(part))
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(InsertAndSetFIFODepths(part, target_clk_ns))
+        model = model.transform(PrepareIP(part, target_clk_ns))
+        model = model.transform(HLSSynthIP())
+        model = model.transform(CreateStitchedIP(part, target_clk_ns))
+        model.set_metadata_prop("exec_mode", "rtlsim")
+
+    y_sim = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
+    assert np.allclose(
+        y_golden, y_sim, atol=quant_step
+    ), f"{sim_style} mismatch: max diff = {np.max(np.abs(y_golden - y_sim))}"
+
+    # Verify cycle estimation (node-by-node rtlsim only)
+    if sim_style == "node_by_node":
+        node = model.get_nodes_by_op_type("Requant_rtl")[0]
+        inst = getCustomOp(node)
+        cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
+        exp_cycles_dict = model.analysis(exp_cycles_per_layer)
+        exp_cycles = exp_cycles_dict[node.name]
+        assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
+        assert exp_cycles != 0
+
+
+# =============================================================================
 # HLS Backend Test - tests float input and forced HLS for integer input
 # =============================================================================
 

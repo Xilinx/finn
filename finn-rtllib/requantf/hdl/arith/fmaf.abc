@@ -1,0 +1,8 @@
+#############################################################################
+# Copyright Advanced Micro Devices, Inc.
+# SPDX-License-Identifier: MIT
+#############################################################################
+
+read_sv  fmaf.sv
+setup_tb  fmaf_tb
+setup_top fmaf_top
