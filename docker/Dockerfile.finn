@@ -27,10 +27,10 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-FROM ubuntu:jammy-20230126
+FROM ubuntu:noble-20240605
 LABEL maintainer="Jakoba Petri-Koenig <jakoba.petri-koenig@amd.com>, Thomas Preusser <thomas.preusser@amd.com>"
 
-ARG XRT_DEB_VERSION="xrt_202420.2.18.179_22.04-amd64-xrt"
+ARG XRT_DEB_VERSION="xrt_202420.2.18.179_24.04-amd64-xrt"
 ARG SKIP_XRT
 ARG LOCAL_XRT
 ARG SLASHKIT_DEB_PACKAGE
@@ -66,7 +66,7 @@ RUN apt-get update && \
     unzip \
     zip \
     locales \
-    lsb-core \
+    lsb-release \
     python3 \
     python-is-python3 \
     python3-pip \
@@ -77,8 +77,8 @@ RUN apt-get update && \
     libboost-dev \
     libjansson-dev \
     libgetdata-dev \
-    libtinfo5 \
-    g++-10 \
+    libncurses6 \
+    g++-13 \
     cmake \
     tcsh
 # tcsh: required by LSF esub scripts (they ship with a /bin/csh shebang).
@@ -103,51 +103,59 @@ RUN if [ -z "$SKIP_XRT" ];then \
 
 # versioned Python package requirements for FINN compiler
 # these are given in requirements.txt
-RUN pip install -r /tmp/requirements.txt
+# The apt-provided typing_extensions has no pip RECORD and cannot be
+# uninstalled by pip; install a pip-managed copy first so the requirements
+# install can upgrade it for onnx/onnxruntime instead of failing on it.
+RUN pip install --break-system-packages --ignore-installed typing_extensions
+RUN pip install --break-system-packages -r /tmp/requirements.txt
 RUN rm /tmp/requirements.txt
 
 # install PyTorch
-RUN pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --extra-index-url https://download.pytorch.org/whl/cu126
+RUN pip install --break-system-packages torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --extra-index-url https://download.pytorch.org/whl/cu126
 
 # extra Python package dependencies (for testing and interaction)
-RUN pip install pygments==2.14.0
-RUN pip install ipykernel==6.21.2
-RUN pip install jupyter==1.0.0 --ignore-installed
+RUN pip install --break-system-packages pygments==2.17.2
+RUN pip install --break-system-packages ipykernel==6.29.0
+RUN pip install --break-system-packages jupyter==1.0.0
 # anyio >= 4.13.0 for jupyter incompatible with pytest 6.2.5 (missing _pytest.scope module, added in pytest 7.0.0)
-RUN pip install 'anyio<4.13'
-RUN pip install markupsafe==2.0.1
-RUN pip install matplotlib==3.7.0  --ignore-installed
-RUN pip install pytest-dependency==0.5.1
-RUN pip install pytest-xdist[setproctitle]==3.2.0
-RUN pip install pytest-parallel==0.1.1
+RUN pip install --break-system-packages 'anyio<4.13'
+RUN pip install --break-system-packages markupsafe==2.1.5
+RUN pip install --break-system-packages matplotlib==3.8.2
+RUN pip install --break-system-packages pytest-dependency==0.5.1
+RUN pip install --break-system-packages pytest-xdist[setproctitle]==3.2.0
+RUN pip install --break-system-packages pytest-parallel==0.1.1
 # Beyond version 8.5.0, subsequent Netron calls in a Jupyter notebook cause "Address already in use" errors
-RUN pip install netron
-RUN pip install pandas==1.5.3
-RUN pip install scikit-learn==1.2.1
-RUN pip install tqdm==4.64.1
-RUN pip install -e git+https://github.com/fbcotter/dataset_loading.git@0.0.4#egg=dataset_loading
+RUN pip install --break-system-packages netron
+RUN pip install --break-system-packages pandas==2.1.4
+RUN pip install --break-system-packages scikit-learn==1.4.0
+RUN pip install --break-system-packages tqdm==4.64.1
+RUN pip install --break-system-packages git+https://github.com/fbcotter/dataset_loading.git@0.0.4#egg=dataset_loading
 # these versions of pytest and associated plugins allow for stable collection of
 # test reports and code coverage reports in HTML
-RUN pip install pytest==6.2.5
-RUN pip install pytest-metadata==1.7.0
-RUN pip install pytest-html==3.0.0
-RUN pip install pytest-html-merger==0.0.8
-RUN pip install pytest-cov==4.1.0
-RUN pip install pyyaml==6.0.1
+RUN pip install --break-system-packages pytest==7.4.4
+# pytest-html 4.x is required on Python 3.12: 3.0.0 imports the removed
+# py.xml (from the unmaintained py library) and fails to load as a pytest
+# plugin. 4.x uses jinja2 templates instead; it needs pytest-metadata>=2,
+# and pytest-html-merger 0.1.0 for the 4.x report format.
+RUN pip install --break-system-packages pytest-metadata==3.1.1
+RUN pip install --break-system-packages pytest-html==4.1.1
+RUN pip install --break-system-packages pytest-html-merger==0.1.0
+RUN pip install --break-system-packages pytest-cov==4.1.0
+RUN pip install --break-system-packages pyyaml==6.0.1
 
 # extra dependencies from other FINN deps
 # installed in Docker image to make entrypoint script go faster
 # finn-experimental
-RUN pip install deap==1.3.1
-RUN pip install mip==1.13.0
-RUN pip install networkx==2.8
+RUN pip install --break-system-packages deap==1.4.1
+RUN pip install --break-system-packages mip==1.13.0
+RUN pip install --break-system-packages networkx==2.8
 # brevitas
-RUN pip install future-annotations==1.0.0
-RUN pip install dependencies==2.0.1
-RUN pip install tokenize-rt==4.2.1
+RUN pip install --break-system-packages future-annotations==1.0.0
+RUN pip install --break-system-packages dependencies==2.0.1
+RUN pip install --break-system-packages tokenize-rt==4.2.1
 
 # assure that we have the right setuptools version
-RUN pip install setuptools==68.2.2
+RUN pip install --break-system-packages setuptools==68.2.2
 
 # extra environment variables for FINN compiler
 ENV VIVADO_IP_CACHE "/tmp/vivado_ip_cache"
