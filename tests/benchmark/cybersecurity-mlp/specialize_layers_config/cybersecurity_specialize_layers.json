@@ -1,0 +1,19 @@
+{
+  "Defaults": {},
+  "MVAU_0": {
+    "preferred_impl_style": "hls",
+    "mem_mode": "internal_embedded"
+  },
+  "MVAU_1": {
+    "preferred_impl_style": "hls",
+    "mem_mode": "internal_embedded"
+  },
+  "MVAU_2": {
+    "preferred_impl_style": "hls",
+    "mem_mode": "internal_embedded"
+  },
+  "MVAU_3": {
+    "preferred_impl_style": "hls",
+    "mem_mode": "internal_embedded"
+  }
+}

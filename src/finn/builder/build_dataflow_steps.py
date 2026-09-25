@@ -477,10 +477,13 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
         "pooling layers",
     )
     model = apply_if_relevant(model, ["Im2Col"], to_hw.InferConvInpGen(), "conv input generator")
-    # If ConvInpGen derived, run remove cnv to fc flatten transform
-    model = apply_if_relevant(
-        model, ["ConvolutionInputGenerator"], RemoveCNVtoFCFlatten(), "Flatten"
-    )
+    # Remove a flatten-into-FC pattern (standalone flatten between two dataflow
+    # nodes, or a [0,3,1,2] transpose+flatten absorbed into the following MVAU).
+    # The transform is fully self-gating and a no-op unless the exact pattern is
+    # present. Runs before InferShuffle so
+    # genuinely-absorbable transposes are eliminated rather than turned into
+    # (resource-costing) shuffle layers.
+    model = apply_if_relevant(model, ["Flatten", "Reshape"], RemoveCNVtoFCFlatten(), "Flatten")
 
     # Streaming operations
     model = apply_if_relevant(

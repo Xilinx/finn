@@ -371,12 +371,15 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                 phase_missing = phase_name and phase_name not in resolved_names
                 step_missing = step_name not in resolved_names
                 if phase_missing and step_missing:
+                    # verify_steps entries may be VerificationStepType enum members
+                    # or plain strings; normalize to the string form for the message
+                    vstep_name = getattr(vstep, "value", vstep)
                     checks.append(
                         _check(
                             "verify_step_prereq",
                             Severity.WARNING,
                             False,
-                            f"verify_steps includes {vstep.value}, but neither "
+                            f"verify_steps includes {vstep_name}, but neither "
                             f"{phase_name} nor {step_name} is in the resolved "
                             "build steps (steps/start_step/stop_step). That "
                             "verification would silently never run",
