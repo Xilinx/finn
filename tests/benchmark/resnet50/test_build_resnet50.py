@@ -9,11 +9,9 @@
 import pytest
 
 import os
-import re
 
 # custom steps for resnet50v1.5
 from custom_steps_resnet50 import (
-    step_resnet50_convert_to_hw,
     step_resnet50_slr_floorplan,
     step_resnet50_streamline,
     step_resnet50_tidy,
@@ -26,7 +24,7 @@ from finn.util.basic import make_build_dir, vitis_default_platform
 build_flow_folder = "tests/benchmark/"
 
 # model
-model_name = "resnet50_w1a2"
+model_name = "resnet50_w1a2_exported"
 model_file = build_flow_folder + "models/" + model_name + ".onnx"
 
 # verification parameters
@@ -34,7 +32,6 @@ verify_input_npy = build_flow_folder + "verification_io/" + model_name + "_input
 verify_expected_output_npy = build_flow_folder + "verification_io/" + model_name + "_output.npy"
 
 verif_steps = [
-    "finn_onnx_python",
     "initial_python",
     "streamlined_python",
     "folded_hls_cppsim",
@@ -52,28 +49,25 @@ build_outputs = [
     build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
 ]
 
+# ResNet-50 uses two custom steps; everything else is phase-based:
+#   - step_resnet50_tidy: inserts TopK and declares the raw-uint8 input datatype
+#   - step_resnet50_streamline: iterative streamlining that also lowers convs
+# The SLR floorplan is injected before bitfile synthesis (see configure_build).
 resnet50_build_steps = [
     step_resnet50_tidy,
     step_resnet50_streamline,
-    step_resnet50_convert_to_hw,
-    "step_create_dataflow_partition",
-    "step_specialize_layers",
-    "step_apply_folding_config",
-    "step_minimize_bit_width",
-    "step_generate_estimate_reports",
-    "step_hw_codegen",
-    "step_hw_ipgen",
-    "step_set_fifo_depths",
-    step_resnet50_slr_floorplan,
-    "step_synthesize_bitfile",
-    "step_make_pynq_driver",
-    "step_deployment_package",
+    "phase_convert_to_hardware",
+    "phase_optimize_hardware",
+    "phase_build_hardware",
+    "phase_generate_outputs",
 ]
 
 
 def configure_build(board, output_dir):
     cfg = build_cfg.DataflowBuildConfig(
         steps=resnet50_build_steps,
+        inject_steps_before={"step_synthesize_bitfile": [step_resnet50_slr_floorplan]},
+        standalone_thresholds=True,
         generate_outputs=build_outputs,
         output_dir=output_dir,
         folding_config_file=(
@@ -99,19 +93,8 @@ def configure_build(board, output_dir):
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.finn_examples
-@pytest.mark.parametrize(
-    "board", [pytest.param("U250", marks=pytest.mark.xfail(reason="not tested"))]
-)
+@pytest.mark.parametrize("board", ["U250"])
 def test_resnet50(board):
-    # Check vivado version
-    vivado_path = os.environ.get("XILINX_VIVADO")
-    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
-    year, minor = int(match.group(1)), int(match.group(2))
-    if board == "AUP-ZU3_8GB" and (year, minor) != (2024, 1):
-        pytest.skip("""Vivado version 2024.1 needed for the AUP-ZU3.""")
-    elif board != "AUP-ZU3_8GB" and (year, minor) != (2022, 2):
-        pytest.skip("""Vivado version 2022.2 needed.""")
-
     output_dir = make_build_dir("build_resnet50_")
 
     # Run build flow

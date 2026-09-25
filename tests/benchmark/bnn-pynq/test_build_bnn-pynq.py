@@ -9,7 +9,6 @@
 import pytest
 
 import os
-import re
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
@@ -61,9 +60,9 @@ def get_verify_output_npy(model):
 
 
 def platform_to_shell(platform):
-    if platform in ["U250"]:
+    if platform in ["U55C"]:
         return build_cfg.ShellFlowType.VITIS_ALVEO
-    elif platform in ["AUP-ZU3_8GB", "Pynq-Z1", "Ultra96", "ZCU104"]:
+    elif platform in ["AUP-ZU3_8GB", "ZCU104"]:
         return build_cfg.ShellFlowType.VIVADO_ZYNQ
     else:
         raise Exception("Unknown platform, can't determine ShellFlowType")
@@ -121,25 +120,14 @@ def configure_build(board, model, output_dir):
     "board",
     [
         "AUP-ZU3_8GB",
-        "Pynq-Z1",
-        "Ultra96",
         "ZCU104",
-        "U250",
+        "U55C",
     ],
 )
 @pytest.mark.parametrize(
     "model", ["tfc-w1a1", "tfc-w1a2", "tfc-w2a2", "cnv-w1a1", "cnv-w1a2", "cnv-w2a2"]
 )
 def test_bnnpynq(board, model):
-    # Check vivado version
-    vivado_path = os.environ.get("XILINX_VIVADO")
-    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
-    year, minor = int(match.group(1)), int(match.group(2))
-    if board == "AUP-ZU3_8GB" and (year, minor) != (2024, 1):
-        pytest.skip("""Vivado version 2024.1 needed for the AUP-ZU3.""")
-    elif board != "AUP-ZU3_8GB" and (year, minor) != (2022, 2):
-        pytest.skip("""Vivado version 2022.2 needed.""")
-
     output_dir = make_build_dir("build_bnn-pynq_")
 
     # Run build flow

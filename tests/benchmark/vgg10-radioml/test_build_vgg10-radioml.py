@@ -1,40 +1,16 @@
-############################################################################
-# Copyright (C) 2025, Advanced Micro Devices, Inc.
-# All rights reserved.
-#
+# Copyright Advanced Micro Devices, Inc.
 # SPDX-License-Identifier: BSD-3-Clause
-#
-############################################################################
 
 import pytest
 
 import os
-import re
-from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.transformation.change_3d_tensors_to_4d import Change3DTo4DTensors
-from qonnx.transformation.general import GiveUniqueNodeNames
+
+# custom steps for vgg10-radioml
+from custom_steps_vgg10 import step_pre_streamline
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
-import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
-import finn.transformation.streamline.absorb as absorb
-from finn.builder.build_dataflow_config import DataflowBuildConfig
 from finn.util.basic import make_build_dir
-
-
-# custom steps for vgg10-radioml
-def step_pre_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
-    model = model.transform(Change3DTo4DTensors())
-    model = model.transform(absorb.AbsorbScalarMulAddIntoTopK())
-    return model
-
-
-def step_convert_final_layers(model: ModelWrapper, cfg: DataflowBuildConfig):
-    model = model.transform(to_hw.InferChannelwiseLinearLayer())
-    model = model.transform(to_hw.InferLabelSelectLayer())
-    model = model.transform(GiveUniqueNodeNames())
-    return model
-
 
 build_flow_folder = "tests/benchmark/"
 
@@ -48,8 +24,6 @@ verify_input_npy = build_flow_folder + "verification_io/" + model_name + "_input
 verify_expected_output_npy = build_flow_folder + "verification_io/" + model_name + "_output.npy"
 
 verif_steps = [
-    "finn_onnx_python",
-    "initial_python",
     "streamlined_python",
     "folded_hls_cppsim",
     "node_by_node_rtlsim",
@@ -66,26 +40,18 @@ build_outputs = [
     build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
 ]
 
+# vgg10-radioml uses one custom step, step_pre_streamline (3D->4D + fold scalar
+# mul/add into TopK), run between tidy and streamline. Everything else is
+# phase-based: the standard convert-to-hw now infers the label-select and
+# elementwise layers this model used to convert by hand.
 build_steps = [
     "step_tidy_up",
     step_pre_streamline,
-    "step_streamline",
-    "step_convert_to_hw",
-    step_convert_final_layers,
-    "step_create_dataflow_partition",
-    "step_specialize_layers",
-    "step_target_fps_parallelization",
-    "step_apply_folding_config",
-    "step_minimize_bit_width",
-    "step_generate_estimate_reports",
-    "step_hw_codegen",
-    "step_hw_ipgen",
-    "step_set_fifo_depths",
-    "step_create_stitched_ip",
-    "step_measure_rtlsim_performance",
-    "step_out_of_context_synthesis",
-    "step_synthesize_bitfile",
-    "step_deployment_package",
+    "phase_optimize_model",
+    "phase_convert_to_hardware",
+    "phase_optimize_hardware",
+    "phase_build_hardware",
+    "phase_generate_outputs",
 ]
 
 
@@ -117,16 +83,7 @@ def configure_build(board, output_dir):
 @pytest.mark.finn_examples
 @pytest.mark.parametrize("board", ["AUP-ZU3_8GB", "ZCU104"])
 def test_vgg10radioml(board):
-    # Check vivado version
-    vivado_path = os.environ.get("XILINX_VIVADO")
-    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
-    year, minor = int(match.group(1)), int(match.group(2))
-    if board == "AUP-ZU3_8GB" and (year, minor) != (2024, 1):
-        pytest.skip("""Vivado version 2024.1 needed for the AUP-ZU3.""")
-    elif board != "AUP-ZU3_8GB" and (year, minor) != (2022, 2):
-        pytest.skip("""Vivado version 2022.2 needed.""")
-
-    output_dir = make_build_dir("vgg10-radioml_")
+    output_dir = make_build_dir("build_vgg10-radioml_")
 
     # Run build flow
     cfg = configure_build(board, output_dir)

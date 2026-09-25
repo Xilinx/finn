@@ -1,19 +1,12 @@
-############################################################################
-# Copyright (C) 2025, Advanced Micro Devices, Inc.
-# All rights reserved.
-#
+# Copyright Advanced Micro Devices, Inc.
 # SPDX-License-Identifier: BSD-3-Clause
-#
-############################################################################
 
 import pytest
 
 import os
-import re
 
 # custom steps for mobilenetv1
-from custom_steps import (
-    step_mobilenet_lower_convs,
+from custom_steps_mobilenet import (
     step_mobilenet_slr_floorplan,
     step_mobilenet_streamline,
 )
@@ -58,52 +51,33 @@ build_outputs = [
 ]
 
 
-# select build steps
-def select_build_steps(platform):
-    # Common steps for all platforms
-    steps = [
-        step_mobilenet_streamline,
-        step_mobilenet_lower_convs,
-        "step_convert_to_hw",
-        "step_create_dataflow_partition",
-        "step_specialize_layers",
-        "step_target_fps_parallelization",
-        "step_apply_folding_config",
-        "step_minimize_bit_width",
-        "step_transpose_decomposition",
-        "step_generate_estimate_reports",
-        "step_hw_codegen",
-        "step_hw_ipgen",
-        "step_set_fifo_depths",
-        "step_create_stitched_ip",
-        "step_measure_rtlsim_performance",
-        "step_out_of_context_synthesis",
-        "step_synthesize_bitfile",
-        "step_make_driver",
-        "step_deployment_package",
-    ]
-
-    # Platform-specific modifications
-    if platform == "U250":
-        # Insert SLR floorplanning before synthesis
-        synth_idx = steps.index("step_synthesize_bitfile")
-        steps.insert(synth_idx, step_mobilenet_slr_floorplan)
-
-    return steps
+# Build steps: the MobileNet-specific streamline (handles depthwise convs via
+# MoveMulPastDWConv, QuantAvgPool datalayout, flatten reordering, then conv
+# lowering) replaces the standard streamline phase. The rest uses the phase-based
+# default flow. The U55C SLR floorplan is injected before bitfile synthesis
+# (see configure_build).
+build_steps = [
+    "phase_prepare_model",
+    step_mobilenet_streamline,
+    "phase_convert_to_hardware",
+    "phase_optimize_hardware",
+    "phase_build_hardware",
+    "phase_generate_outputs",
+]
 
 
 # select target clock frequency
 def select_clk_period(platform):
-    if platform in ["ZCU102", "ZCU104"]:
+    if platform in ["ZCU104"]:
         return 5.4
-    elif platform in ["U250"]:
+    elif platform in ["U55C"]:
         return 3.0
 
 
 def platform_to_shell(platform):
-    if platform in ["U250"]:
+    if platform in ["U55C"]:
         return build_cfg.ShellFlowType.VITIS_ALVEO
-    elif platform in ["ZCU102", "ZCU104"]:
+    elif platform in ["ZCU104"]:
         return build_cfg.ShellFlowType.VIVADO_ZYNQ
     else:
         raise Exception("Unknown platform, can't determine ShellFlowType")
@@ -112,19 +86,22 @@ def platform_to_shell(platform):
 def configure_build(board, output_dir):
     f_file = f"{build_fd}mobilenet_v1/folding_config/mobilenet_folding_config_{board}"
     sl_file = f"{build_fd}mobilenet_v1/specialize_layers_config/mobilenet_specialize_layers_{board}"
-    # ZCU102/ZCU104 use standalone thresholds, U250 does not
-    standalone_th = board in ["ZCU102", "ZCU104"]
+    # U55C (Alveo) applies SLR floorplanning before bitfile synthesis
+    inject_before = {}
+    if board == "U55C":
+        inject_before = {"step_synthesize_bitfile": [step_mobilenet_slr_floorplan]}
     cfg = build_cfg.DataflowBuildConfig(
         generate_outputs=build_outputs,
         output_dir=output_dir,
-        steps=select_build_steps(board),
+        steps=build_steps,
+        inject_steps_before=inject_before,
         folding_config_file=f_file + ".json",
         synth_clk_period_ns=select_clk_period(board),
         board=board,
         shell_flow_type=platform_to_shell(board),
         auto_fifo_depths=False,
         specialize_layers_config_file=sl_file + ".json",
-        standalone_thresholds=standalone_th,
+        standalone_thresholds=True,
         verify_steps=select_verif_steps(board),
         verify_input_npy=verify_input_npy,
         verify_expected_output_npy=verify_expected_output_npy,
@@ -138,21 +115,11 @@ def configure_build(board, output_dir):
 @pytest.mark.parametrize(
     "board",
     [
-        "ZCU102",
         "ZCU104",
-        "U250",
+        "U55C",
     ],
 )
 def test_mobilenetv1(board):
-    # Check vivado version
-    vivado_path = os.environ.get("XILINX_VIVADO")
-    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
-    year, minor = int(match.group(1)), int(match.group(2))
-    if board == "AUP-ZU3_8GB" and (year, minor) != (2024, 1):
-        pytest.skip("""Vivado version 2024.1 needed for the AUP-ZU3.""")
-    elif board != "AUP-ZU3_8GB" and (year, minor) != (2022, 2):
-        pytest.skip("""Vivado version 2022.2 needed.""")
-
     # Create output directory only when test actually runs
     output_dir = make_build_dir("build_mobilenet_v1_")
 

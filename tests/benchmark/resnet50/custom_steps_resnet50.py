@@ -49,7 +49,6 @@ from qonnx.transformation.insert_topk import InsertTopK
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.transformation.remove import RemoveIdentityOps
 
-import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn.builder.build_dataflow_config import (
     DataflowBuildConfig,
     ShellFlowType,
@@ -57,7 +56,6 @@ from finn.builder.build_dataflow_config import (
 )
 from finn.builder.build_dataflow_steps import verify_step
 from finn.transformation.general import ApplyConfig
-from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.streamline.absorb import (
     Absorb1BitMulIntoConv,
     Absorb1BitMulIntoMatMul,
@@ -72,12 +70,9 @@ from finn.transformation.streamline.collapse_repeated import (
     CollapseRepeatedAdd,
     CollapseRepeatedMul,
 )
-
-# just for not linear
 from finn.transformation.streamline.reorder import (
     MoveAddPastConv,
     MoveAddPastMul,
-    MoveLinearPastFork,
     MoveMaxPoolPastMultiThreshold,
     MoveScalarAddPastMatMul,
     MoveScalarLinearPastInvariants,
@@ -89,6 +84,9 @@ from finn.transformation.streamline.sign_to_thres import ConvertSignToThres
 
 
 def step_resnet50_tidy(model: ModelWrapper, cfg: DataflowBuildConfig):
+    # ResNet-50 runs inference directly on raw uint8 image data; declaring the
+    # input datatype here lets it propagate through streamlining and conversion.
+    model.set_tensor_datatype(model.graph.input[0].name, DataType["UINT8"])
     model = model.transform(GiveUniqueParameterTensors())
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
@@ -139,21 +137,9 @@ def step_resnet50_streamline_linear(model: ModelWrapper, cfg: DataflowBuildConfi
     return model
 
 
-def step_resnet50_streamline_nonlinear(model: ModelWrapper, cfg: DataflowBuildConfig):
-    streamline_transformations = [
-        # MoveLinearPastEltwiseAdd(),
-        MoveLinearPastFork(),
-    ]
-    for trn in streamline_transformations:
-        model = model.transform(trn)
-        model = model.transform(GiveUniqueNodeNames())
-    return model
-
-
 def step_resnet50_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
     for iter_id in range(4):
         model = step_resnet50_streamline_linear(model, cfg)
-        # model = step_resnet50_streamline_nonlinear(model, cfg)
 
         # big loop tidy up
         model = model.transform(RemoveUnusedTensors())
@@ -162,43 +148,22 @@ def step_resnet50_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(SortGraph())
 
     model = model.transform(DoubleToSingleFloat())
+
+    # Lower convs to matmuls here: ResNet's streamline otherwise never lowers,
+    # and the standard convert-to-hw phase expects already-lowered convs. Clean
+    # up the transposes/thresholds the lowering leaves behind.
+    model = model.transform(LowerConvsToMatMul())
+    model = model.transform(AbsorbTransposeIntoMultiThreshold())
+    model = model.transform(RoundAndClipThresholds())
+    model = model.transform(AbsorbConsecutiveTransposes())
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferDataLayouts())
+    model = model.transform(SortGraph())
+
     if VerificationStepType.STREAMLINED_PYTHON in cfg._resolve_verification_steps():
         verify_step(model, cfg, "streamlined_python", need_parent=False)
-
-    return model
-
-
-def step_resnet50_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
-    model.set_tensor_datatype(model.graph.input[0].name, DataType["UINT8"])
-    model = model.transform(InferDataLayouts())
-    model = model.transform(DoubleToSingleFloat())
-    model = model.transform(InferDataTypes())
-    model = model.transform(SortGraph())
-
-    to_hw_transformations = [
-        to_hw.InferAddStreamsLayer,
-        LowerConvsToMatMul,
-        to_hw.InferChannelwiseLinearLayer,
-        to_hw.InferPool,
-        AbsorbTransposeIntoMultiThreshold,
-        RoundAndClipThresholds,
-        to_hw.InferQuantizedMatrixVectorActivation,
-        to_hw.InferThresholdingLayer,
-        AbsorbConsecutiveTransposes,
-        to_hw.InferConvInpGen,
-        to_hw.InferDuplicateStreamsLayer,
-        to_hw.InferLabelSelectLayer,
-    ]
-    for trn in to_hw_transformations:
-        model = model.transform(trn())
-        model = model.transform(InferDataLayouts())
-        model = model.transform(GiveUniqueNodeNames())
-        model = model.transform(InferDataTypes())
-
-    model = model.transform(RemoveCNVtoFCFlatten())
-    model = model.transform(GiveReadableTensorNames())
-    model = model.transform(RemoveUnusedTensors())
-    model = model.transform(SortGraph())
 
     return model
 

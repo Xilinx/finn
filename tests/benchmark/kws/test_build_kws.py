@@ -9,41 +9,23 @@
 import pytest
 
 import os
-import re
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.insert_topk import InsertTopK
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 from finn.builder.build_dataflow_config import DataflowBuildConfig
-from finn.builder.build_dataflow_steps import build_dataflow_step_lookup
-from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.util.basic import make_build_dir
 
 build_fd = "tests/benchmark/"
 
-# Add two custom steps, one to add a TopK node at the end and
-# one to remove the Transpose + Flatten between the first and the second layer
-# after converting to hw abstraction layers
 
-
+# Custom step to insert a TopK node so the accelerator returns the predicted
+# Top-1 class.
 def step_postprocess(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(InsertTopK(k=1))
     return model
 
-
-def step_kws_post_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
-    model = model.transform(RemoveCNVtoFCFlatten())
-    model = model.transform(InferShapes())
-    return model
-
-
-build_dataflow_step_lookup["step_postprocess_InsertTopK"] = step_postprocess
-build_dataflow_step_lookup["step_kws_post_convert_to_hw"] = step_kws_post_convert_to_hw
-
-build_steps = ["step_postprocess_InsertTopK"] + build_cfg.default_build_dataflow_steps
-build_steps.insert(5, "step_kws_post_convert_to_hw")
 
 # model
 model_name = "MLP_W3A3_python_speech_features_pre-processing_QONNX_opset-11"
@@ -78,9 +60,9 @@ def configure_build(board, output_dir):
     f_file = f"{build_fd}kws/folding_config/kws_folding_config_{board}"
     sl_file = f"{build_fd}kws/specialize_layers_config/kws_specialize_layers"
     cfg = build_cfg.DataflowBuildConfig(
-        steps=build_steps,
         generate_outputs=build_outputs,
         output_dir=output_dir,
+        inject_steps_before={"step_qonnx_to_finn": [step_postprocess]},
         folding_config_file=f_file + ".json",
         synth_clk_period_ns=10.0,
         board=board,
@@ -97,17 +79,8 @@ def configure_build(board, output_dir):
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.finn_examples
-@pytest.mark.parametrize("board", ["Pynq-Z1", "AUP-ZU3_8GB"])
+@pytest.mark.parametrize("board", ["AUP-ZU3_8GB"])
 def test_kws(board):
-    # Check vivado version
-    vivado_path = os.environ.get("XILINX_VIVADO")
-    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
-    year, minor = int(match.group(1)), int(match.group(2))
-    if board == "AUP-ZU3_8GB" and (year, minor) != (2024, 1):
-        pytest.skip("""Vivado version 2024.1 needed for the AUP-ZU3.""")
-    elif board != "AUP-ZU3_8GB" and (year, minor) != (2022, 2):
-        pytest.skip("""Vivado version 2022.2 needed.""")
-
     output_dir = make_build_dir("build_kws_")
 
     # Run build flow

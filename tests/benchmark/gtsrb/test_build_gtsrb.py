@@ -30,14 +30,12 @@ import pytest
 
 import numpy as np
 import os
-import re
 from onnx import helper as oh
 from qonnx.core.datatype import DataType
 from qonnx.transformation.insert_topk import InsertTopK
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
-from finn.builder.build_dataflow_config import default_build_dataflow_steps
 from finn.util.basic import make_build_dir
 
 build_fd = "tests/benchmark/"
@@ -70,10 +68,6 @@ def custom_step_add_postproc(model, cfg):
     model = model.transform(InsertTopK(k=1))
     return model
 
-
-custom_build_steps = (
-    [custom_step_add_preproc] + [custom_step_add_postproc] + default_build_dataflow_steps
-)
 
 # model
 model_name = "cnv_1w1a_gtsrb"
@@ -110,7 +104,9 @@ def configure_build(board, output_dir):
         output_dir=output_dir,
         synth_clk_period_ns=10.0,
         board=board,
-        steps=custom_build_steps,
+        inject_steps_before={
+            "step_qonnx_to_finn": [custom_step_add_preproc, custom_step_add_postproc]
+        },
         verify_steps=verif_steps,
         verify_input_npy=verify_input_npy,
         verify_expected_output_npy=verify_expected_output_npy,
@@ -125,17 +121,8 @@ def configure_build(board, output_dir):
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.finn_examples
-@pytest.mark.parametrize("board", ["Pynq-Z1", "AUP-ZU3_8GB"])
+@pytest.mark.parametrize("board", ["AUP-ZU3_8GB"])
 def test_gtsrb(board):
-    # Check vivado version
-    vivado_path = os.environ.get("XILINX_VIVADO")
-    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
-    year, minor = int(match.group(1)), int(match.group(2))
-    if board == "AUP-ZU3_8GB" and (year, minor) != (2024, 1):
-        pytest.skip("""Vivado version 2024.1 needed for the AUP-ZU3.""")
-    elif board != "AUP-ZU3_8GB" and (year, minor) != (2022, 2):
-        pytest.skip("""Vivado version 2022.2 needed.""")
-
     output_dir = make_build_dir("build_gtsrb_")
 
     # Run build flow

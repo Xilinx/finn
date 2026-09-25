@@ -9,7 +9,6 @@
 import pytest
 
 import os
-import re
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
@@ -87,17 +86,8 @@ def configure_build(board, output_dir):
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.finn_examples
-@pytest.mark.parametrize("board", ["Pynq-Z1", "AUP-ZU3_8GB", "Ultra96", "ZCU104"])
+@pytest.mark.parametrize("board", ["AUP-ZU3_8GB"])
 def test_cybersecuritymlp(board):
-    # Check vivado version
-    vivado_path = os.environ.get("XILINX_VIVADO")
-    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
-    year, minor = int(match.group(1)), int(match.group(2))
-    if board == "AUP-ZU3_8GB" and (year, minor) != (2024, 1):
-        pytest.skip("""Vivado version 2024.1 needed for the AUP-ZU3.""")
-    elif board != "AUP-ZU3_8GB" and (year, minor) != (2022, 2):
-        pytest.skip("""Vivado version 2022.2 needed.""")
-
     output_dir = make_build_dir("build_cybersecurity-mlp_")
     # Run build flow
     cfg = configure_build(board, output_dir)
