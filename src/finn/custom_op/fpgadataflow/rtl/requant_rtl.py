@@ -534,12 +534,6 @@ class Requant_rtl(Requant, RTLBackend):
         odt = self.get_output_datatype()
 
         if self.get_input_datatype(0) == "FLOAT32":
-            # MLO worst-case param sizing is fixed-point specific; the float
-            # decoupled path targets standalone/stitched non-loop use for now.
-            assert self.get_nodeattr("mlo_max_iter") == 0, (
-                "%s: float (requantf) decoupled path does not support MLO "
-                "(mlo_max_iter>0) yet." % self.onnx_node.name
-            )
             rtllib_dir = os.environ["FINN_ROOT"] + "/finn-rtllib/requantf/hdl/nonlin/"
             template_name = "requantf_wrapper_decoupled_template.v"
             subst = {
