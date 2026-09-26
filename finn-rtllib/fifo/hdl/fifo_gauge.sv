@@ -33,8 +33,12 @@
  *****************************************************************************/
 
 module fifo_gauge #(
-	int unsigned  WIDTH,
-	parameter  DATA_LOGFILE = ""
+	int unsigned WIDTH,
+
+	// Logging controls
+	parameter    DATA_LOGFILE = "",
+	int unsigned LOG_VERBOSE = 0, // 0: (data_in), 1: (data, direction, cycle)
+	int unsigned LOG_FLUSH = 65536
 )(
 	input	logic  clk,
 	input	logic  rst,
@@ -59,6 +63,9 @@ module fifo_gauge #(
 	longint unsigned  OTxnCnt = 0;
 	int  LogFd = (DATA_LOGFILE != "")? $fopen(DATA_LOGFILE, "w") : 0;
 
+	// Logging: Clock cycle counter
+	longint unsigned  Cycle = 0;
+
 	// The internal Queue serving as data buffer and an output register
 	logic [WIDTH-1:0]  Q[$] = {};
 	int unsigned  Count    = 0;
@@ -67,9 +74,33 @@ module fifo_gauge #(
 	logic  OVld = 0;
 	logic [WIDTH-1:0]  ODat = 'x;
 
+	// Logging: LOG_FLUSH Counter
+	int unsigned  Unflushed = 0;
+	task automatic note_line();
+		Unflushed++;
+		if(LOG_FLUSH && (Unflushed >= LOG_FLUSH)) begin
+			$fflush(LogFd);
+			Unflushed = 0;
+		end
+	endtask : note_line
+
+	// Logging: Print statement
+	initial begin
+		if(LogFd) begin
+			// Verbose format: data, dir (0=in, 1=out), cycle
+			if(LOG_VERBOSE)  $fwrite(LogFd, "# data dir cycle\n");
+			else             $fwrite(LogFd, "# data\n");
+		end
+	end
+
+	// Logging: Final print statement
 	final begin
 		if(LogFd) begin
-			$fwrite(LogFd, "[%m @%0t] MaxFill: %0d; Transactions: in=%0d out=%0d\n", $time, MaxCount, ITxnCnt, OTxnCnt);
+			$fwrite(
+				LogFd,
+				"# [%m @%0t] Cycles: %0d; MaxFill: %0d; Transactions: in=%0d out=%0d\n",
+				$time, Cycle, MaxCount, ITxnCnt, OTxnCnt
+			);
 			$fclose(LogFd);
 		end
 	end
@@ -82,20 +113,30 @@ module fifo_gauge #(
 			OVld <= 0;
 			ODat <= 'x;
 
+			Cycle   <= 0;
 			ITxnCnt <= 0;
 			OTxnCnt <= 0;
 		end
 		else begin
 			automatic int unsigned  count = Count;
+			Cycle <= Cycle + 1;
 
 			// Always take input and track Transactions
 			if(ivld) begin
 				Q.push_back(idat);
-				if(LogFd)  $fwrite(LogFd, "%0x\n", idat);
+				if(LogFd) begin
+					if(LOG_VERBOSE)  $fwrite(LogFd, "%0x 0 %0d\n", idat, Cycle);
+					else             $fwrite(LogFd, "%0x\n", idat);
+					note_line();
+				end
 				ITxnCnt <= ITxnCnt + 1;
 				count++;
 			end
 			if(OVld && ordy) begin
+				if(LogFd && LOG_VERBOSE) begin
+					$fwrite(LogFd, "%0x 1 %0d\n", ODat, Cycle);
+					note_line();
+				end
 				OTxnCnt <= OTxnCnt + 1;
 				count--;
 			end
