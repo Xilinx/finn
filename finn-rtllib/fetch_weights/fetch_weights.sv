@@ -65,6 +65,9 @@ module fetch_weights #(
 
 	int unsigned  N_LAYERS,
 
+	int unsigned  BURST_LEN = 16,
+	int unsigned  BURST_OUTSTANDING = 64,
+
 	int unsigned  QDEPTH = 8,
 	int unsigned  EN_OREG = 1,
 	int unsigned  N_DCPL_STGS = 1,
@@ -193,11 +196,34 @@ module fetch_weights #(
 		assign	l_offsets[i] = i * LAYER_OFFS;
 	end : genOffs
 
-	//=== Index Handling & DMA Control ======================================
+	//=== DMA Descriptor Interface =========================================
 	logic  dma_tvalid;
 	logic  dma_tready;
 	logic [ADDR_BITS-1:0]  dma_addr;
 	logic [ LEN_BITS-1:0]  dma_len;
+
+	uwire  dma_hsk = dma_tvalid && dma_tready;
+
+	//=== Credit-Based AR Flow Control =====================================
+	// A data FIFO between DMA output and the external DWC absorbs AXI read
+	// beats at bus rate.  Credit on FIFO drain guarantees the invariant
+	//   outstanding + pipeline + FIFO_occupancy <= CREDIT_BEATS
+	// so m_axi_rready never deasserts.
+	// TH==1: FIFO depth = LAYER_BEATS  (one layer),  headroom = 0.
+	// TH>1:  FIFO depth = FIFO_BEATS   (multi-layer), headroom > 0.
+	localparam int unsigned  LAYER_BEATS      = WORD_BEATS;
+	localparam int unsigned  FIFO_BEATS       = BURST_OUTSTANDING * BURST_LEN;
+	localparam int unsigned  CREDIT_BEATS     = (TH == 1)? LAYER_BEATS : FIFO_BEATS;
+	localparam int unsigned  CREDIT_HEADROOM  = CREDIT_BEATS - LAYER_BEATS;
+	localparam int unsigned  CREDIT_W         = $clog2(CREDIT_BEATS + 1) + 1;
+
+	uwire  credit_in = axis_dma_tvalid && axis_dma_tready;
+	logic signed [CREDIT_W-1:0]  Credit = CREDIT_HEADROOM;
+	always_ff @(posedge aclk) begin
+		if(~aresetn)  Credit <= CREDIT_HEADROOM;
+		else          Credit <= Credit - (dma_hsk? LAYER_BEATS : 0) + credit_in;
+	end
+	uwire  credit_ok = !Credit[CREDIT_W-1];
 
 	if(TH > 1) begin : genTiled
 
@@ -209,8 +235,12 @@ module fetch_weights #(
 		state_e  State = ST_IDLE;
 		state_e  state_n;
 
-		logic [REPS_BITS-1:0]  CntDma = '0;
-		logic [REPS_BITS-1:0]  cnt_dma_n;
+		// Signed down-counter: preloaded to N_REPS-3, decremented on each
+		// DMA handshake.  Terminal sequence: ..., 0, -1, -2.
+		// -2 (MSB=1, LSB=0) marks the last rep; -1 (MSB=1, LSB=1) the
+		// penultimate.  Both identified from two register bits only.
+		logic signed [REPS_BITS:0]  CntDma = '0;
+		logic signed [REPS_BITS:0]  cnt_dma_n;
 
 		logic [IDX_BITS-1:0]  Idx = '0;
 		logic [IDX_BITS-1:0]  idx_n;
@@ -235,6 +265,7 @@ module fetch_weights #(
 		assign dma_len = WORD_BEATS * (DATA_BITS/8);
 
 		//--- Sequential ----------------------------------------------------
+		uwire  dma_fire = dma_tready && credit_ok;
 		always_ff @(posedge aclk) begin
 			if(~aresetn) begin
 				State  <= ST_IDLE;
@@ -249,6 +280,8 @@ module fetch_weights #(
 		end
 
 		//--- Next State ----------------------------------------------------
+		// CntDma == -2: MSB set, LSB clear — last rep.
+		uwire  last_rep = CntDma[REPS_BITS] & ~CntDma[0];
 		always_comb begin
 			state_n = State;
 
@@ -257,7 +290,7 @@ module fetch_weights #(
 				state_n = q_idx_vld? ST_DMA : ST_IDLE;
 
 			ST_DMA:
-				state_n = ((CntDma == N_REPS-1) && dma_tready)? ST_IDLE : ST_DMA;
+				state_n = (last_rep && dma_fire)? ST_IDLE : ST_DMA;
 			endcase
 		end
 
@@ -271,16 +304,16 @@ module fetch_weights #(
 
 			case(State)
 			ST_IDLE: begin
-				q_idx_rdy  = 1;
-				cnt_dma_n  = 0;
+				q_idx_rdy = 1;
+				cnt_dma_n = N_REPS - 3;
 				if(q_idx_vld)
 					idx_n  = q_idx_dat;
 			end
 
 			ST_DMA: begin
-				dma_tvalid = 1;
-				if(dma_tready)
-					cnt_dma_n = CntDma + 1;
+				dma_tvalid = credit_ok;
+				if(dma_fire)
+					cnt_dma_n = CntDma - 1;
 			end
 			endcase
 		end
@@ -289,13 +322,17 @@ module fetch_weights #(
 	else begin : genDirect
 
 		uwire [IDX_BITS-1:0]  q_idx_dat;
+		uwire  q_idx_vld;
+		uwire  q_idx_rdy = dma_tready && credit_ok;
 
 		fifo #(.DEPTH(QDEPTH), .DATA_WIDTH(IDX_BITS)) inst_idx_queue (
 			.clk(aclk), .rst(!aresetn),
 			.count(), .maxcount(),
 			.idat(s_idx_tdata), .ivld(s_idx_tvalid), .irdy(s_idx_tready),
-			.odat(q_idx_dat), .ovld(dma_tvalid), .ordy(dma_tready)
+			.odat(q_idx_dat), .ovld(q_idx_vld), .ordy(q_idx_rdy)
 		);
+
+		assign	dma_tvalid = q_idx_vld && credit_ok;
 
 		assign	dma_addr = base_address + ADDRESS_OFFSET + l_offsets[q_idx_dat];
 		// Same DMA-word-aligned fetch as the tiled path (see above): ceil(MH*MW/DMA_PE)
@@ -319,10 +356,14 @@ module fetch_weights #(
 	assign	m_axi_ddr_wlast   = 0;
 	assign	m_axi_ddr_wstrb   = '0;
 	assign	m_axi_ddr_wvalid  = 0;
-	assign	m_axi_ddr_bready  = 0;
+	assign	m_axi_ddr_bready  = 1;
 
 	//=== DMA Engine ========================================================
+	uwire [DATA_BITS-1:0]  dma_raw_tdata;
+	uwire  dma_raw_tvalid;
+	uwire  dma_raw_tready;
 	cdma_u_rd #(
+		.BURST_LEN(BURST_LEN),
 		.DATA_BITS(DATA_BITS),
 		.ADDR_BITS(ADDR_BITS),
 		.LEN_BITS(LEN_BITS)
@@ -350,11 +391,23 @@ module fetch_weights #(
 		.m_axi_ddr_rid(m_axi_ddr_rid),
 		.m_axi_ddr_rresp(m_axi_ddr_rresp),
 
-		.m_axis_ddr_tvalid(axis_dma_tvalid),
-		.m_axis_ddr_tready(axis_dma_tready),
-		.m_axis_ddr_tdata(axis_dma_tdata),
+		.m_axis_ddr_tvalid(dma_raw_tvalid),
+		.m_axis_ddr_tready(dma_raw_tready),
+		.m_axis_ddr_tdata(dma_raw_tdata),
 		.m_axis_ddr_tkeep(),
 		.m_axis_ddr_tlast()
+	);
+
+	//=== DMA Data FIFO ====================================================
+	// Absorbs DMA beats at AXI rate; drains to external DWC at VPC pace.
+	// Depth = CREDIT_BEATS: one layer (TH==1) or multi-layer (TH>1).
+	fifo #(.DEPTH(CREDIT_BEATS), .DATA_WIDTH(DATA_BITS)) inst_dma_fifo (
+		.clk(aclk), .rst(!aresetn),
+		.count(), .maxcount(),
+		.idat(dma_raw_tdata),
+		.ivld(dma_raw_tvalid), .irdy(dma_raw_tready),
+		.odat(axis_dma_tdata),
+		.ovld(axis_dma_tvalid), .ordy(axis_dma_tready)
 	);
 
 	//=== Local Weight Buffer ===============================================
