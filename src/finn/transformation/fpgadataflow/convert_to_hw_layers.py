@@ -645,6 +645,19 @@ class InferRequantLayer(Transformation):
                     )
                     continue
 
+                # For signed outputs, out_bias must be set (non-zero) to account for
+                # the signed offset (e.g., -128 for INT8). If out_bias == 0 for signed
+                # output, the offset likely exists as a separate Add node downstream.
+                # Run AbsorbScalarBiasIntoMultiThreshold to fold it into out_bias.
+                if odt.signed() and out_bias == 0:
+                    warnings.warn(
+                        f"{node.name}: Signed output with out_bias=0. "
+                        f"The signed offset (e.g., -128 for INT8) may exist as a separate "
+                        f"Add node. Run AbsorbScalarBiasIntoMultiThreshold before "
+                        f"InferRequantLayer to absorb it into out_bias."
+                    )
+                    continue
+
                 # Compute requant scale and bias per channel
                 # For uniform thresholds: output = floor((input - T0) / step) + 1
                 # which is equivalent to: round(input * (1/step) + (0.5 - T0/step))
@@ -1229,9 +1242,12 @@ class InferPool(Transformation):
                     continue
 
                 # extract pool parameters
+                ceil_mode = 0
                 if node.op_type == "MaxPool":
                     kh, kw = list(get_by_name(node.attribute, "kernel_shape").ints)
                     sh, sw = list(get_by_name(node.attribute, "strides").ints)
+                    ceil_mode_attr = get_by_name(node.attribute, "ceil_mode")
+                    ceil_mode = ceil_mode_attr.i if ceil_mode_attr is not None else 0
                     dlayout = "NCHW"
                 elif node.op_type == "QuantAvgPool2d":
                     inst = getCustomOp(node)
@@ -1244,6 +1260,7 @@ class InferPool(Transformation):
                     inst = getCustomOp(node)
                     kh, kw = inst.get_nodeattr("kernel_shape")
                     sh, sw = inst.get_nodeattr("strides")
+                    ceil_mode = inst.get_nodeattr("ceil_mode")
                     dlayout = "NHWC"
                 try:
                     pad = list(get_by_name(node.attribute, "pads").ints)
@@ -1267,6 +1284,19 @@ class InferPool(Transformation):
                     _, ofm_h, ofm_w, ofm_ch = oshape
                 else:
                     raise Exception("Unknown dlayout: " + str(dlayout))
+
+                # ceil_mode=1 may require a trailing pooling window whose footprint
+                # extends past the input's trailing edge. The sliding-window generator
+                # only produces a floor-count grid, so absorb the ceil extension into
+                # extra trailing padding (bottom/right) such that the Im2Col floor
+                # formula reproduces the declared output size. For MaxPool this is
+                # exact: the pad value is the datatype min (matching the off-edge
+                # elements onnxruntime ignores in the max), and the drop rule
+                # guarantees every kept window still contains a real element.
+                # pad = [H_begin, W_begin, H_end, W_end]
+                if ceil_mode and node.op_type in ["MaxPool", "MaxPoolNHWC"]:
+                    pad[2] += max(0, (ofm_h - 1) * sh + kh - ifm_h - (pad[0] + pad[2]))
+                    pad[3] += max(0, (ofm_w - 1) * sw + kw - ifm_w - (pad[1] + pad[3]))
 
                 # if data layout NCHW, we need transpose nodes surrounding
                 # the hw layer

@@ -446,6 +446,20 @@ def get_dsp_block(fpgapart):
         return "DSP48E2"
 
 
+def get_dsp_datapath_limits(dsp_block):
+    """Return the maximum (activation, weight, accumulator) operand widths in bits
+    that fit the datapath of the given DSP block. These correspond to the DSP B, A
+    and P ports respectively. Widths exceeding these limits would be silently
+    truncated (or fail synthesis) if mapped onto the DSP-based RTL MVU."""
+    if dsp_block == "DSP58":
+        max_act_width, max_weight_width, max_acc_width = 24, 27, 58
+    elif dsp_block == "DSP48E2":
+        max_act_width, max_weight_width, max_acc_width = 18, 27, 48
+    else:  # DSP48E1
+        max_act_width, max_weight_width, max_acc_width = 18, 25, 48
+    return max_act_width, max_weight_width, max_acc_width
+
+
 def get_driver_shapes(model: ModelWrapper) -> Dict:
     idt = []
     idma_names = []

@@ -109,10 +109,10 @@ def make_loop_modelwrapper(
     T2 = np.sort(
         generate_random_threshold_values(dtype, 1, dtype.get_num_possible_values() - 1), axis=1
     )
-    T3_dtype = dtype
-    T3 = np.sort(
-        generate_random_threshold_values(T3_dtype, 1, dtype.get_num_possible_values() - 1), axis=1
-    )
+    # Requant scale/bias (per-tensor, magnitudes in safe range)
+    # Scale must be >= ~0.125 (exponent >= -3) for INT8 output due to fixed-point constraints
+    requant_scale = np.random.uniform(0.5, 2.0, [1]).astype(np.float32)
+    requant_bias = np.random.uniform(-4.0, 4.0, [1]).astype(np.float32)
     # RTL elementwise requires matching bitwidths for int/int path
     actual_eltw_param_dtype = (
         add_out_dtype.name
@@ -129,9 +129,14 @@ def make_loop_modelwrapper(
     output_shapes = {f"mm{name_suffix}": [1, 3, 3, mh], f"ofm{name_suffix}": (1, 3, 3, mh)}
 
     tensor_infos = {k: create_tensor_info(k, v) for k, v in tensor_shapes.items()}
+    # Both paths use a final Requant_rtl: 3 thresholds + scale/bias
     thresholds = [
         create_threshold(f"thresh{i}{name_suffix}", (1, dtype.get_num_possible_values() - 1))
-        for i in range(4)
+        for i in range(3)
+    ]
+    requant_inputs = [
+        helper.make_tensor_value_info(f"scale{name_suffix}", TensorProto.FLOAT, [1]),
+        helper.make_tensor_value_info(f"bias{name_suffix}", TensorProto.FLOAT, [1]),
     ]
 
     nodes = [
@@ -312,20 +317,21 @@ def make_loop_modelwrapper(
     else:
         thresholding_input_tensor = f"ofm_ew{name_suffix}"
 
+    # Final layer is Requant_rtl for both paths. On the float path the input is
+    # FLOAT32 (requantf.sv / Versal); on the int path it is INT32.
     nodes.append(
         create_node(
-            "Thresholding_rtl",
-            [thresholding_input_tensor, f"thresh3{name_suffix}"],
+            "Requant_rtl",
+            [thresholding_input_tensor, f"scale{name_suffix}", f"bias{name_suffix}"],
             [f"ofm_final{name_suffix}"],
-            f"Thresholding_rtl4{name_suffix}",
+            f"Requant_rtl_0{name_suffix}",
             {
                 "NumChannels": mh,
                 "PE": helper_pe,
-                "numSteps": dtype.get_num_possible_values() - 1,
                 "inputDataType": thresholding_input_dtype.name,
-                "weightDataType": thresholding_input_dtype.name,
                 "outputDataType": dtype.name,
-                "ActVal": int(dtype.min()),
+                "narrow": 0,
+                "numInputVectors": [1, 3, 3],
             },
         ),
     )
@@ -360,7 +366,7 @@ def make_loop_modelwrapper(
     loop_body = helper.make_graph(
         nodes=nodes,
         name=f"matmul_graph{name_suffix}",
-        inputs=[tensor_infos[f"ifm{name_suffix}"]] + thresholds,
+        inputs=[tensor_infos[f"ifm{name_suffix}"]] + thresholds + requant_inputs,
         outputs=[create_tensor_info(f"ofm_final{name_suffix}", output_shapes[f"ofm{name_suffix}"])],
         value_info=value_info_list,
     )
@@ -375,10 +381,12 @@ def make_loop_modelwrapper(
     loop_body_model.set_initializer(f"thresh0{name_suffix}", T0)
     loop_body_model.set_initializer(f"thresh1{name_suffix}", T1)
     loop_body_model.set_initializer(f"thresh2{name_suffix}", T2)
-    loop_body_model.set_initializer(f"thresh3{name_suffix}", T3)
     loop_body_model.set_initializer(f"mul_param{name_suffix}", EltwParam)
 
-    # Add RTL elementwise parameter when FLOAT32
+    # Final Requant scale/bias (both paths)
+    loop_body_model.set_initializer(f"scale{name_suffix}", requant_scale)
+    loop_body_model.set_initializer(f"bias{name_suffix}", requant_bias)
+    # Float path also has an extra RTL elementwise mul before the Requant
     if is_float:
         EltwParamRtl = gen_finn_dt_tensor(DataType["FLOAT32"], rhs_shape)
         loop_body_model.set_initializer(f"mul_param_rtl{name_suffix}", EltwParamRtl)
@@ -401,12 +409,13 @@ def make_loop_modelwrapper(
     for w in (f"weights0{name_suffix}", f"weights1{name_suffix}", f"weights2{name_suffix}"):
         loop_body_model.set_tensor_datatype(w, wdtype)
 
-    loop_body_model.set_tensor_datatype(f"thresh3{name_suffix}", T3_dtype)
     loop_body_model.set_tensor_datatype(
         f"mul_param{name_suffix}", DataType[actual_eltw_param_dtype]
     )
 
-    # Set RTL elementwise parameter datatype when FLOAT32
+    # Final Requant scale/bias datatypes (both paths)
+    loop_body_model.set_tensor_datatype(f"scale{name_suffix}", DataType["FLOAT32"])
+    loop_body_model.set_tensor_datatype(f"bias{name_suffix}", DataType["FLOAT32"])
     if is_float:
         loop_body_model.set_tensor_datatype(f"mul_param_rtl{name_suffix}", DataType["FLOAT32"])
 
@@ -781,6 +790,10 @@ def test_finnloop_end2end_mlo(
         verify_expected_output_npy=tmp_output_dir + "/expected_output.npy",
         verify_save_full_context=True,  # Enable per-iteration context saving
         debug_fifo=run_fifo_debug,  # snapshot per-FIFO sizing logs (tagged per loop body)
+        # MLO pins folding via mvau_pe/mvau_simd on the nodes at creation time, so the
+        # folding_missing check (which assumes creation-time PE=1/SIMD=1) is a false
+        # positive here; target_fps would instead override the deliberate folding.
+        mute_config_assertions=True,
         generate_outputs=[
             build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
             build_cfg.DataflowOutputType.STITCHED_IP,
@@ -893,7 +906,14 @@ def test_finnloop_end2end_mlo(
 
 @pytest.mark.parametrize(
     "dim, simd, pe, bitwidth, weight_bitwidth",
-    [(16, 1, 1, 8, 8), (8, 8, 4, 3, 3)],
+    [
+        # Coverage matrix over {folding} x {256-divisibility of the element widths}.
+        (16, 1, 1, 8, 8),  # unfolded, divisor (8|256): baseline PASS
+        (8, 8, 4, 4, 4),  # folded, divisor (4|256, DMA_PE=64): guards word-aligned image
+        #   stays byte-identical for divisors at the real folding
+        (8, 8, 4, 3, 3),  # folded, non-divisor (3 wasted bits/word): exercises the
+        #   DMA-word-aligned fix on both the activation and weight paths
+    ],
 )
 # iteration count, number of models chained together
 @pytest.mark.parametrize("iteration", [3])
@@ -1019,6 +1039,10 @@ def test_finnloop_end2end_mlo_ddr(
         verify_input_npy=tmp_output_dir + "/input.npy",
         verify_expected_output_npy=tmp_output_dir + "/expected_output.npy",
         verify_save_full_context=True,  # Enable per-iteration context saving
+        # MLO pins folding via mvau_pe/mvau_simd on the nodes at creation time, so the
+        # folding_missing check (which assumes creation-time PE=1/SIMD=1) is a false
+        # positive here; target_fps would instead override the deliberate folding.
+        mute_config_assertions=True,
         generate_outputs=[
             build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
             build_cfg.DataflowOutputType.STITCHED_IP,

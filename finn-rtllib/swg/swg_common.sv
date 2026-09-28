@@ -66,11 +66,11 @@ import swg::*; #(
     state_e  State = INNERMOST_STATE;
     state_e  state_next;
 
-    logic signed [$clog2(LOOP_H_ITERATIONS   +2)+1-1:0]  Counter_loop_h    = LOOP_H_ITERATIONS;
-    logic signed [$clog2(LOOP_W_ITERATIONS   +2)+1-1:0]  Counter_loop_w    = LOOP_W_ITERATIONS;
-    logic signed [$clog2(LOOP_KH_ITERATIONS  +2)+1-1:0]  Counter_loop_kh   = LOOP_KH_ITERATIONS;
-    logic signed [$clog2(LOOP_KW_ITERATIONS  +2)+1-1:0]  Counter_loop_kw   = LOOP_KW_ITERATIONS;
-    logic signed [$clog2(LOOP_SIMD_ITERATIONS+2)+1-1:0]  Counter_loop_simd = LOOP_SIMD_ITERATIONS;
+    logic signed [$clog2(LOOP_H_ITERATIONS   +1):0]  Counter_loop_h    = LOOP_H_ITERATIONS;    // -1, 0, ..., LOOP_H_ITERATIONS
+    logic signed [$clog2(LOOP_W_ITERATIONS   +1):0]  Counter_loop_w    = LOOP_W_ITERATIONS;    // -1, 0, ..., LOOP_W_ITERATIONS
+    logic signed [$clog2(LOOP_KH_ITERATIONS  +1):0]  Counter_loop_kh   = LOOP_KH_ITERATIONS;   // -1, 0, ..., LOOP_KH_ITERATIONS
+    logic signed [$clog2(LOOP_KW_ITERATIONS  +1):0]  Counter_loop_kw   = LOOP_KW_ITERATIONS;   // -1, 0, ..., LOOP_KW_ITERATIONS
+    logic signed [$clog2(LOOP_SIMD_ITERATIONS+1):0]  Counter_loop_simd = LOOP_SIMD_ITERATIONS;  // -1, 0, ..., LOOP_SIMD_ITERATIONS
 
     // combinational logic for addr_incr generation
     always_comb begin : blkHead
@@ -220,7 +220,7 @@ logic [WIDTH-1:0] Out_reg;
 assign shift_out = Out_reg;
 
 logic [$clog2(DEPTH)-1:0] Addr_w = 0;
-logic [$clog2(DEPTH)-1:0] Addr_r = 0;
+logic [$clog2(DEPTH)-1:0] Addr_r = 1;
 
 (*ram_style=RAM_STYLE*) logic [WIDTH-1:0] Ram [DEPTH-1:0];
 
@@ -232,16 +232,8 @@ always_ff @(posedge clk) begin
         if (shift_enable) begin
             Ram[Addr_w] <= shift_in;
             Out_reg <= Ram[Addr_r];
-
-            if (Addr_w == DEPTH-1)
-                Addr_w <= 0;
-            else
-                Addr_w <= Addr_w + 1;
-
-            if (Addr_r == DEPTH-1)
-                Addr_r <= 0;
-            else
-                Addr_r <= Addr_r + 1;
+            Addr_w <= Addr_w + ((Addr_w == DEPTH-1)? 1-DEPTH : 1);
+            Addr_r <= Addr_r + ((Addr_r == DEPTH-1)? 1-DEPTH : 1);
         end
     end
 end

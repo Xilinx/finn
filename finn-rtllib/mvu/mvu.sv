@@ -96,23 +96,49 @@ module mvu #(
 	localparam int unsigned  P_WIDTH = VERSION == DSP58? 58 : 48;	// Width of P datapath
 
 	initial begin
+		if(!(VERSION inside { DSP48E1, DSP48E2, DSP58 })) begin
+			$error("%m: VERSION=%0d is not a supported DSP version (1=DSP48E1, 2=DSP48E2, 3=DSP58).", VERSION);
+			$finish;
+		end
+		if(PE < 1) begin
+			$error("%m: PE=%0d must be at least 1.", PE);
+			$finish;
+		end
+		if(SIMD < 1) begin
+			$error("%m: SIMD=%0d must be at least 1.", SIMD);
+			$finish;
+		end
 		if(WEIGHT_WIDTH < 2) begin
-			$error("%m: Requested WEIGHT_WIDTH=%0d below the minimum width of 2 bits.", WEIGHT_WIDTH);
+			$error("%m: WEIGHT_WIDTH=%0d is below the minimum of 2 bits.", WEIGHT_WIDTH);
 			$finish;
 		end
 		if(ACTIVATION_WIDTH < 2) begin
-			$error("%m: Requested ACTIVATION_WIDTH=%0d below the minimum width of 2 bits.", WEIGHT_WIDTH);
+			$error("%m: ACTIVATION_WIDTH=%0d is below the minimum of 2 bits.", ACTIVATION_WIDTH);
 			$finish;
 		end
 		if(WEIGHT_WIDTH > A_WIDTH) begin
-			$error("%m: Requested ACTIVATION_WIDTH=%0d beyond the size of the A datapath of %0d bits.", ACTIVATION_WIDTH, A_WIDTH);
+			$error("%m: WEIGHT_WIDTH=%0d exceeds the A datapath width of %0d bits.", WEIGHT_WIDTH, A_WIDTH);
+			$finish;
+		end
+		if(ACTIVATION_WIDTH - SIGNED_ACTIVATIONS >= B_WIDTH) begin
+			$error("%m: ACTIVATION_WIDTH=%0d (%s) does not fit the B datapath of %0d bits (max %0d).",
+				ACTIVATION_WIDTH, SIGNED_ACTIVATIONS ? "signed" : "unsigned",
+				B_WIDTH, B_WIDTH - 1 + SIGNED_ACTIVATIONS);
+			$finish;
+		end
+		if(ACCU_WIDTH < WEIGHT_WIDTH + ACTIVATION_WIDTH - SIGNED_ACTIVATIONS) begin
+			$error("%m: ACCU_WIDTH=%0d is too narrow for a %0d-bit product (%s activations need WEIGHT_WIDTH + ACTIVATION_WIDTH%s = %0d).",
+				ACCU_WIDTH, WEIGHT_WIDTH + ACTIVATION_WIDTH - SIGNED_ACTIVATIONS,
+				SIGNED_ACTIVATIONS ? "signed" : "unsigned",
+				SIGNED_ACTIVATIONS ? " - 1"   : "",
+				WEIGHT_WIDTH + ACTIVATION_WIDTH - SIGNED_ACTIVATIONS);
 			$finish;
 		end
 	end
 
 	localparam int unsigned  MIN_LANE_WIDTH = WEIGHT_WIDTH + ACTIVATION_WIDTH - 1;
 	// number of lanes: for only 1 lane, NARROW_WEIGHTS makes no difference
-	localparam int unsigned  NUM_LANES = A_WIDTH == WEIGHT_WIDTH? 1 : 1 + (A_WIDTH - !NARROW_WEIGHTS - WEIGHT_WIDTH) / MIN_LANE_WIDTH;
+	localparam int unsigned  NUM_LANES = A_WIDTH <= WEIGHT_WIDTH? 1 : 1 + (A_WIDTH - !NARROW_WEIGHTS - WEIGHT_WIDTH) / MIN_LANE_WIDTH;
 	/**
 	 * Lane Slicing
 	 *	Assumptions:

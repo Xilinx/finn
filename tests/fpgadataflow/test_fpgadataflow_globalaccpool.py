@@ -41,6 +41,9 @@ import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.minimize_accumulator_width import (
+    MinimizeAccumulatorWidth,
+)
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
@@ -111,6 +114,15 @@ def test_fpgadataflow_globalaccpool(idt, ch, fold, imdim, exec_mode, impl_style)
     y = oxe.execute_onnx(model, input_dict)["outp"]
 
     assert (y == expected_y).all(), "HW layer verification failed"
+
+    # MinimizeAccumulatorWidth - should set output datatype based on accumulation range
+    model = model.transform(MinimizeAccumulatorWidth())
+    odt = model.get_tensor_datatype("outp")
+    npixels = imdim * imdim
+    if idt.signed():
+        assert odt.min() <= npixels * idt.min()
+    else:
+        assert odt.max() >= npixels * idt.max()
 
     model = model.transform(SpecializeLayers("xc7z020clg400-1"))
 

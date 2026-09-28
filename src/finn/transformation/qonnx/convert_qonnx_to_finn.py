@@ -29,6 +29,7 @@
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.extract_conv_bias import ExtractBiasFromConv
 from qonnx.transformation.gemm_to_matmul import GemmToMatMul
+from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.quant_constant_folding import FoldTransposeIntoQuantInit
 from qonnx.transformation.remove import RemoveIdentityOps
@@ -81,6 +82,12 @@ class ConvertQONNXtoFINN(Transformation):
         model = model.transform(InferDataTypes())
         # Fold weights
         model = model.transform(FoldQuantWeights())
+        # Annotate tensor layouts so the activation handler can set the
+        # MultiThreshold data_layout from its input tensor. Required since
+        # qonnx no longer defaults MultiThreshold.data_layout to "NCHW";
+        # without an explicit layout, InferDataLayouts yields UNKNOWN and
+        # downstream transpose absorption/streamlining breaks (e.g. cnv).
+        model = model.transform(InferDataLayouts())
         # Convert activations
         model = model.transform(
             ConvertQuantActToMultiThreshold(
@@ -89,6 +96,9 @@ class ConvertQONNXtoFINN(Transformation):
         )
         # Recompute datatypes
         model = model.transform(InferDataTypes())
+        # Re-run layout inference now that MultiThreshold nodes carry an
+        # explicit data_layout, propagating layouts to the new tensors.
+        model = model.transform(InferDataLayouts())
         # Convert AvgPool -> Mul -> Trunc structure to QuantAvgPool2d
         model = model.transform(AvgPoolAndTruncToQuantAvgPool())
         # Remove empty padding if it exists

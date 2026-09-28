@@ -33,7 +33,7 @@
 module demux #(
     int unsigned                        N_LAYERS,
     int unsigned                        IDX_BITS,
-    int unsigned                        FM_SIZE,
+    int unsigned                        FM_ELEMS,
 
     int unsigned                        ELEM_BITS,
     int unsigned                        OLEN_BITS,
@@ -65,10 +65,29 @@ module demux #(
     output logic [OLEN_BITS-1:0]         m_axis_se_tdata
 );
 
-localparam int unsigned EBYTES = (ELEM_BITS + 7)/8;
-localparam int unsigned OELEM  = OLEN_BITS / ELEM_BITS;
-localparam int unsigned FM_BEATS = FM_SIZE / (OELEM*EBYTES);
-localparam int unsigned FM_BEATS_BITS = (FM_BEATS == 1) ? 1 : $clog2(FM_BEATS);
+localparam int unsigned  PE       = OLEN_BITS / ELEM_BITS;
+localparam int unsigned  FM_BEATS = FM_ELEMS / PE;
+
+initial begin
+    if(ELEM_BITS == 0 || OLEN_BITS == 0 || FM_ELEMS == 0) begin
+        $error("%m: ELEM_BITS, OLEN_BITS, and FM_ELEMS must all be non-zero.");
+        $finish;
+    end
+    if(OLEN_BITS % ELEM_BITS != 0) begin
+        $error("%m: OLEN_BITS (%0d) not a multiple of ELEM_BITS (%0d).",
+            OLEN_BITS, ELEM_BITS);
+        $finish;
+    end
+    if(FM_ELEMS % PE != 0) begin
+        $error("%m: FM_ELEMS (%0d) not a multiple of PE (%0d).",
+            FM_ELEMS, PE);
+        $finish;
+    end
+    if(N_LAYERS < 1) begin
+        $error("%m: N_LAYERS must be >= 1.");
+        $finish;
+    end
+end
 
 //
 // Demux Ctrl
@@ -176,7 +195,7 @@ assign m_idx_tdata = idx_C;
 typedef enum logic[1:0] {ST_DATA_IDLE, ST_DATA_MUX_SE, ST_DATA_MUX_IF} state_data_t;
 state_data_t state_data_C = ST_DATA_IDLE, state_data_N;
 
-logic [FM_BEATS_BITS-1:0] cnt_data_C = '0, cnt_data_N;
+logic [(FM_BEATS > 1 ? $clog2(FM_BEATS) : 1)-1:0] cnt_data_C = '0, cnt_data_N;
 
 logic s_axis_int_tvalid, s_axis_int_tready;
 logic [OLEN_BITS-1:0] s_axis_int_tdata;
@@ -231,7 +250,6 @@ always_comb begin : DP_DATA
         ST_DATA_MUX_SE: begin
             m_axis_se_tvalid = s_axis_int_tvalid;
             s_axis_int_tready = m_axis_se_tready;
-            m_axis_se_tdata = s_axis_int_tdata;
 
             if(s_axis_int_tvalid & s_axis_int_tready) begin
                 cnt_data_N = cnt_data_C + 1;
@@ -241,7 +259,6 @@ always_comb begin : DP_DATA
         ST_DATA_MUX_IF: begin
             m_axis_if_tvalid = s_axis_int_tvalid;
             s_axis_int_tready = m_axis_if_tready;
-            m_axis_if_tdata = s_axis_int_tdata;
 
             if(s_axis_int_tvalid & s_axis_int_tready) begin
                 cnt_data_N = cnt_data_C + 1;

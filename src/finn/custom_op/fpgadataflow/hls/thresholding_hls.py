@@ -638,8 +638,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
             self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=in1_V")
 
     def code_generation_ipi(self):
-        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
-        cmd = ["file mkdir %s" % source_target]
+        cmd = []
         # add streamer if needed
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "internal_decoupled":
@@ -683,7 +682,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
                 ms_rtllib_dir + "memstream.sv",
             ]
             for f in sourcefiles:
-                cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
+                cmd += ["add_files -norecurse %s" % f]
             strm_inst = node_name + "_wstrm"
             cmd.append(
                 "create_bd_cell -type hier -reference %s /%s/%s"
@@ -778,24 +777,27 @@ class Thresholding_hls(Thresholding, HLSBackend):
             io_dict["inputs"]["in1"] = [0 for i in range(num_w_reps * n_weight_inps)]
         super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
 
-    def minimize_weight_bit_width(self, model):
+    def minimize_weight_bit_width(self, model, datatype_only=False):
         """Minimize threshold datatype, with HLS-specific adjustments.
 
         The HLS implementation uses the threshold datatype for comparisons.
         When the threshold datatype is narrower than the input datatype,
         input values get truncated, which can cause incorrect results.
         To prevent this, ensure threshold datatype is at least as wide as
-        input datatype."""
-        # First, call the base class implementation
-        tdt = super().minimize_weight_bit_width(model)
+        input datatype.
 
-        # Check if we need HLS-specific adjustments
+        Parameters
+        ----------
+        datatype_only : bool
+            If True, skip value-based minimization. See base class.
+        """
+        tdt = super().minimize_weight_bit_width(model, datatype_only=datatype_only)
+
         idt = self.get_input_datatype(0)
         if not idt.is_integer() or not tdt.is_integer():
             return tdt
 
-        # If threshold datatype is smaller than input datatype, widen it
-        # to match input datatype to prevent truncation issues
+        # Widen threshold to match input width to prevent truncation
         if tdt.bitwidth() < idt.bitwidth():
             # Use input datatype to ensure no truncation
             new_tdt = idt

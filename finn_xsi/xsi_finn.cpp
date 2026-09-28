@@ -260,6 +260,27 @@ std::string Port::as_hexstr() const {
 	return  res;
 }
 
+std::string Port::as_hexstr_2state() const {
+	unsigned  l = (width()+3)/4;
+	std::string  res(l, '0');
+	s_xsi_vlog_logicval const *si = buf();
+	std::string::iterator      di = res.end();
+
+	while(l > 0) {
+		uint32_t  a = si->aVal;
+		si++;
+
+		unsigned  m = std::min(8u, l);
+		l -= m;
+		do {
+			*--di = HEX[a & 0xF];
+			a >>= 4;
+		}
+		while(--m > 0);
+	}
+	return  res;
+}
+
 Port& Port::clear() {
 	unsigned             const  n = (width()+31) / 32;
 	s_xsi_vlog_logicval *const  p = buf();

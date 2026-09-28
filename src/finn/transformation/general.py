@@ -16,7 +16,7 @@ import json
 import warnings
 
 # Protobuf onnx graph node type
-from onnx import AttributeProto, NodeProto, mapping  # noqa
+from onnx import AttributeProto
 from qonnx.custom_op.registry import getCustomOp, is_custom_op
 from qonnx.transformation.base import Transformation
 

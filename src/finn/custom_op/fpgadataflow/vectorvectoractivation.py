@@ -392,9 +392,15 @@ class VVAU(HWCustomOp):
         exp_cycles = ((ch * k_h * k_w) / pe / simd) * batch_size * (dim_h * dim_w) / mmv
         return int(exp_cycles)
 
-    def minimize_accumulator_width(self, model):
+    def minimize_accumulator_width(self, model, datatype_only=False):
         """Minimize the accumulator bit width according to the weight values,
-        input data types, and size of dot product"""
+        input data types, and size of dot product.
+
+        Parameters
+        ----------
+        datatype_only : bool
+            If True, use worst-case datatype bounds instead of actual weight values.
+        """
         weights = model.get_initializer(self.onnx_node.input[1])
         k_h, k_w = self.get_nodeattr("Kernel")
         fm = self.get_nodeattr("Channels")
@@ -407,10 +413,11 @@ class VVAU(HWCustomOp):
 
         idt = self.get_input_datatype(0)
 
-        # if runtime-writeable weights or mem_mode=external, then the values of the weights can
-        # change and we need to use the worst-case values from the datatypes
+        # if datatype_only, runtime-writeable weights, or mem_mode=external,
+        # then we use worst-case values from the datatypes
         if (
-            self.get_nodeattr("runtime_writeable_weights")
+            datatype_only
+            or self.get_nodeattr("runtime_writeable_weights")
             or self.get_nodeattr("mem_mode") == "external"
         ):
             wdt = self.get_input_datatype(1)
@@ -453,8 +460,17 @@ class VVAU(HWCustomOp):
 
         return DataType[self.get_nodeattr("accDataType")]
 
-    def minimize_weight_bit_width(self, model):
-        """Minimize the bit width based on the values of the weights."""
+    def minimize_weight_bit_width(self, model, datatype_only=False):
+        """Minimize the bit width based on the values of the weights.
+
+        Parameters
+        ----------
+        datatype_only : bool
+            If True, skip value-based minimization.
+        """
+        if datatype_only:
+            return DataType[self.get_nodeattr("weightDataType")]
+
         if not (
             self.get_nodeattr("runtime_writeable_weights")
             or self.get_nodeattr("mem_mode") == "external"
@@ -791,8 +807,7 @@ class VVAU(HWCustomOp):
         return intf_names
 
     def code_generation_ipi(self):
-        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
-        cmd = ["file mkdir %s" % source_target]
+        cmd = []
         # add streamer if needed
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "internal_decoupled":
@@ -834,7 +849,7 @@ class VVAU(HWCustomOp):
                 ms_rtllib_dir + "memstream.sv",
             ]
             for f in sourcefiles:
-                cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
+                cmd += ["add_files -norecurse %s" % f]
             strm_inst = node_name + "_wstrm"
             cmd.append(
                 "create_bd_cell -type hier -reference %s /%s/%s"
