@@ -190,17 +190,29 @@ class InferThresholdingLayer(Transformation):
                 if not (tdt_int or tdt_fp or tdt_fxp):
                     continue
 
-                # Use one effective layout on both sides of MultiThreshold. The
-                # operation is elementwise and cannot change layout, but its
-                # default output annotation is NCHW even when a preceding
-                # transpose leaves the input layout non-canonical. Treating the
-                # two annotations independently would insert only an output
-                # transpose and silently reorder values. Per-tensor thresholds
-                # are channel-invariant, so they can use the existing layout;
-                # per-channel thresholds must follow the operator's declared
-                # data_layout.
+                # MultiThreshold is elementwise, so it cannot reorder data: its
+                # input and output layouts must agree. The output annotation
+                # defaults to NCHW and often goes stale or unset (InferDataLayouts
+                # does not propagate through MultiThreshold), so the input layout
+                # is the reliable per-node signal and drives the decision. An
+                # unset output carries no information and is ignored, but a fully
+                # annotated NCHW<->NHWC disagreement is a real error rather than a
+                # stale default.
                 thl_in_layout = model.get_tensor_layout(thl_input)
-                shared_thresholds = thl_thres_shape[0] == 1
+                thl_out_layout = model.get_tensor_layout(thl_output)
+                if (thl_in_layout == DataLayout.NCHW and thl_out_layout == DataLayout.NHWC) or (
+                    thl_in_layout == DataLayout.NHWC and thl_out_layout == DataLayout.NCHW
+                ):
+                    raise Exception(
+                        f"{node.name}: MultiThreshold input ({thl_in_layout}) and output "
+                        f"({thl_out_layout}) layouts disagree; the operation is elementwise "
+                        "and must preserve the data layout."
+                    )
+                # Shared (per-tensor) thresholds are channel-invariant and follow
+                # the input layout; per-channel thresholds follow the declared
+                # data_layout. prod(shape[:-1]) == 1 also handles leading
+                # singleton dims.
+                shared_thresholds = np.prod(thl_thres_shape[:-1]) == 1
                 if shared_thresholds:
                     convert_nchw = thl_in_layout == DataLayout.NCHW
                 else:
