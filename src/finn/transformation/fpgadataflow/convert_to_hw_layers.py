@@ -190,10 +190,38 @@ class InferThresholdingLayer(Transformation):
                 if not (tdt_int or tdt_fp or tdt_fxp):
                     continue
 
-                # check layout of inputs/outputs, and convert if needed
-                # check layout and convert if necessary
+                # MultiThreshold is elementwise, so it cannot reorder data: its
+                # input and output layouts must agree. The output annotation
+                # defaults to NCHW and often goes stale or unset (InferDataLayouts
+                # does not propagate through MultiThreshold), so the input layout
+                # is the reliable per-node signal and drives the decision. An
+                # unset output carries no information and is ignored, but a fully
+                # annotated NCHW<->NHWC disagreement is a real error rather than a
+                # stale default.
                 thl_in_layout = model.get_tensor_layout(thl_input)
-                if thl_in_layout == DataLayout.NCHW:
+                thl_out_layout = model.get_tensor_layout(thl_output)
+                if (thl_in_layout == DataLayout.NCHW and thl_out_layout == DataLayout.NHWC) or (
+                    thl_in_layout == DataLayout.NHWC and thl_out_layout == DataLayout.NCHW
+                ):
+                    raise Exception(
+                        f"{node.name}: MultiThreshold input ({thl_in_layout}) and output "
+                        f"({thl_out_layout}) layouts disagree; the operation is elementwise "
+                        "and must preserve the data layout."
+                    )
+                # Shared (per-tensor) thresholds are channel-invariant and follow
+                # the input layout. Per-channel thresholds follow the declared
+                # data_layout when it is set; when it is unset the input tensor
+                # layout is the reliable fallback, so a channels-first input is
+                # still converted. prod(shape[:-1]) == 1 also handles leading
+                # singleton dims.
+                shared_thresholds = np.prod(thl_thres_shape[:-1]) == 1
+                multithreshold_layout = getCustomOp(node).get_nodeattr("data_layout")
+                if not shared_thresholds and multithreshold_layout in ("NCHW", "NHWC"):
+                    convert_nchw = multithreshold_layout == "NCHW"
+                else:
+                    convert_nchw = thl_in_layout == DataLayout.NCHW
+
+                if convert_nchw:
                     thl_input = nchw_to_nhwc(thl_input, model, node_ind)
                     node_ind += 1
                     thl_in_shape = model.get_tensor_shape(thl_input)
@@ -201,8 +229,7 @@ class InferThresholdingLayer(Transformation):
                 # keep track of where we need to insert the HW Op
                 # it has to be ahead of the output transform
                 insert_point = node_ind
-                thl_output_layout = model.get_tensor_layout(thl_output)
-                if thl_output_layout == DataLayout.NCHW:
+                if convert_nchw:
                     thl_output = nchw_to_nhwc(thl_output, model, node_ind, reverse=True)
                     node_ind += 1
 
