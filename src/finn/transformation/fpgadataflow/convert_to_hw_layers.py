@@ -209,15 +209,17 @@ class InferThresholdingLayer(Transformation):
                         "and must preserve the data layout."
                     )
                 # Shared (per-tensor) thresholds are channel-invariant and follow
-                # the input layout; per-channel thresholds follow the declared
-                # data_layout. prod(shape[:-1]) == 1 also handles leading
+                # the input layout. Per-channel thresholds follow the declared
+                # data_layout when it is set; when it is unset the input tensor
+                # layout is the reliable fallback, so a channels-first input is
+                # still converted. prod(shape[:-1]) == 1 also handles leading
                 # singleton dims.
                 shared_thresholds = np.prod(thl_thres_shape[:-1]) == 1
-                if shared_thresholds:
-                    convert_nchw = thl_in_layout == DataLayout.NCHW
-                else:
-                    multithreshold_layout = getCustomOp(node).get_nodeattr("data_layout")
+                multithreshold_layout = getCustomOp(node).get_nodeattr("data_layout")
+                if not shared_thresholds and multithreshold_layout in ("NCHW", "NHWC"):
                     convert_nchw = multithreshold_layout == "NCHW"
+                else:
+                    convert_nchw = thl_in_layout == DataLayout.NCHW
 
                 if convert_nchw:
                     thl_input = nchw_to_nhwc(thl_input, model, node_ind)
