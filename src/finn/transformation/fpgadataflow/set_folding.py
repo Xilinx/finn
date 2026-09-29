@@ -214,6 +214,32 @@ class SetFolding(Transformation):
                 if swu_node.op_type.startswith("ConvolutionInputGenerator"):
                     swu_node_inst = getCustomOp(swu_node)
                     swu_node_inst.set_nodeattr("SIMD", pe)
+                    # The depthwise SWU replays its buffered window once per channel
+                    # fold, so it can be slower than the VVAU/Pool it feeds (e.g. a
+                    # global pooling window over the whole feature map). Keep raising
+                    # the shared parallelism until the SWU meets the target as well.
+                    if swu_node_inst.get_exp_cycles() >= self.target_cycles_per_frame:
+                        for val in divisors(max_pe):
+                            if val <= pe:
+                                continue
+                            pe = val
+                            node_inst.set_nodeattr("PE", pe)
+                            swu_node_inst.set_nodeattr("SIMD", pe)
+                            if swu_node_inst.get_exp_cycles() < self.target_cycles_per_frame:
+                                break
+                        else:
+                            warnings.warn(
+                                "Node %s did not meet the target cycles. SIMD was finalized "
+                                "to %d (bound to PE of %s). Estimated: %d (cyc/frame), "
+                                "Target: %d (cyc/frame)."
+                                % (
+                                    swu_node.name,
+                                    pe,
+                                    node.name,
+                                    swu_node_inst.get_exp_cycles(),
+                                    self.target_cycles_per_frame,
+                                )
+                            )
                     # enable parallel_window mode of RTL SWG if needed
                     if swu_node.op_type == "ConvolutionInputGenerator_rtl":
                         if op_type.startswith("VVAU") and node_inst.get_nodeattr("SIMD") > 1:
