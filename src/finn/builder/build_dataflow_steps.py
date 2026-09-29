@@ -1349,7 +1349,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
             model = model.transform(
                 VitisLink(
                     cfg._resolve_vitis_platform(),
-                    cfg.synth_clk_period_ns(),
+                    cfg.synth_clk_period_ns,
                     strategy=cfg._resolve_vitis_opt_strategy(),
                     enable_debug=cfg.enable_hw_debug,
                 )
