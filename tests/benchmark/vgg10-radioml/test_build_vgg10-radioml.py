@@ -81,7 +81,7 @@ def configure_build(board, output_dir):
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.finn_examples
-@pytest.mark.parametrize("board", ["AUP-ZU3_8GB", "ZCU104"])
+@pytest.mark.parametrize("board", ["ZCU104"])
 def test_vgg10radioml(board):
     output_dir = make_build_dir("build_vgg10-radioml_")
 

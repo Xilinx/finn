@@ -73,7 +73,7 @@ def configure_build(board, output_dir):
         folding_config_file=(
             f"{build_flow_folder}resnet50/folding_config/" f"resnet50_folding_config_{board}.json"
         ),
-        auto_fifo_depths=False,
+        auto_fifo_depths=True,
         synth_clk_period_ns=4.0,
         board=board,
         shell_flow_type=build_cfg.ShellFlowType.VITIS_ALVEO,

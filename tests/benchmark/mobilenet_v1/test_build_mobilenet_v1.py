@@ -99,7 +99,7 @@ def configure_build(board, output_dir):
         synth_clk_period_ns=select_clk_period(board),
         board=board,
         shell_flow_type=platform_to_shell(board),
-        auto_fifo_depths=False,
+        auto_fifo_depths=True,
         specialize_layers_config_file=sl_file + ".json",
         standalone_thresholds=True,
         verify_steps=select_verif_steps(board),
