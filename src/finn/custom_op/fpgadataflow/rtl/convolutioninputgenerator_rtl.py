@@ -153,12 +153,20 @@ class ConvolutionInputGenerator_rtl(ConvolutionInputGenerator, RTLBackend):
                 ) = self.get_1d_conv_attrs_normalized()
 
                 if depthwise:
-                    exp_cycles = (
-                        +ofm_dim_w * k_w * channel_factor
-                        + channel_factor * (k_w - 1) * (stride_w - 1)
-                        - (k_w - 1)
-                        + 2
+                    # Depthwise windows are emitted channel-fold-major, i.e. the buffered
+                    # window is replayed once per channel fold. Frames therefore cannot
+                    # overlap in the buffer: the last window's remaining
+                    # (channel_factor - 1) replays run after its last input row arrived
+                    # and the next frame is only read once they are done. The output
+                    # side bounds the throughput when windows overlap (k_w > stride_w),
+                    # the input side (plus the per-window refill stall of non-overlapping
+                    # windows) when they do not. Calibrated against XSI for k_w == ifm_w
+                    # (global pooling), k_w > stride_w and k_w == stride_w within 1%.
+                    cycles_out = ofm_dim_w * k_w * channel_factor + (channel_factor - 1) * k_w
+                    cycles_in = ifm_dim_w * channel_factor + channel_factor * (k_w - 1) * (
+                        stride_w - 1
                     )
+                    exp_cycles = max(cycles_out, cycles_in) + 2
                 else:
                     exp_cycles = ofm_dim_w * k_w * channel_factor + 2
             else:
