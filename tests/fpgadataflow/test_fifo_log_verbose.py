@@ -7,7 +7,10 @@ import json
 import numpy as np
 import os
 import re
+import sys
+import tempfile
 import time
+import traceback
 from functools import partial
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
@@ -19,6 +22,7 @@ from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
+import finn.core.rtlsim_exec as rtlsim_exec
 from finn.analysis.fpgadataflow.fifo_transaction_counts import fifo_transaction_counts
 from finn.util.basic import make_build_dir
 
@@ -370,8 +374,6 @@ class SimTimer:
         self.runs = 0
 
     def __enter__(self):
-        import finn.core.rtlsim_exec as rtlsim_exec
-
         self._mod = rtlsim_exec
         self._orig = rtlsim_exec.launch_process_helper
 
@@ -826,8 +828,6 @@ def test_fifo_log_format_matches_rtl():
 
 def parse_fifo_log_from_text(text, verbose, tmp_name=None):
     """parse_fifo_log() on an in-memory log, for the format self-check above."""
-    import tempfile
-
     with tempfile.NamedTemporaryFile("w", suffix=".log", delete=False) as f:
         f.write(text + "\n")
         path = f.name
@@ -873,8 +873,6 @@ def main():
     Unlike a pytest run, one failing variant does not hide the numbers of the
     others: each build runs in isolation and its outcome is collected.
     """
-    import traceback
-
     scale_workload()
 
     graphs = [
@@ -925,6 +923,4 @@ def main():
 
 
 if __name__ == "__main__":
-    import sys
-
     sys.exit(main())
