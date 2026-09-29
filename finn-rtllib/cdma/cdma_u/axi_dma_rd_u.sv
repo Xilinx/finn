@@ -44,7 +44,12 @@ module axi_dma_rd_u #
     // Width of length field
     parameter LEN_WIDTH = 20,
     // ID bits
-    parameter AXI_ID_BITS = 1
+    parameter AXI_ID_BITS = 1,
+    // Credit-based read pacing: gate AR bursts and buffer read data in a FIFO
+    // so that m_axi_rready never deasserts due to downstream backpressure.
+    // Set PACED=0 when the caller guarantees backpressure avoidance externally.
+    bit           PACED = 1,
+    int unsigned  N_OUTSTANDING = 0
 )
 (
     input  logic                       aclk,
@@ -92,6 +97,13 @@ module axi_dma_rd_u #
     input  logic                       m_axi_rvalid,
     output logic                       m_axi_rready
 );
+
+initial begin
+    if (N_OUTSTANDING < 2) begin
+        $error("%m: N_OUTSTANDING (%0d) must be >= 2.", N_OUTSTANDING);
+        $finish;
+    end
+end
 
 localparam AXI_WORD_WIDTH = AXI_STRB_WIDTH;
 localparam AXI_WORD_SIZE = AXI_DATA_WIDTH/AXI_WORD_WIDTH;
@@ -180,12 +192,81 @@ assign m_axi_arprot = 3'b010;
 assign m_axi_arvalid = m_axi_arvalid_reg;
 assign m_axi_rready = m_axi_rready_reg;
 
+// === Credit-based AR pacing (PACED generate) =============================
+// Module-scope bridge signals — assigned inside the generate, referenced
+// by the AR FSM and skid logic outside it.
+uwire  credit_ok;
+uwire  skid_out_tready;
+if(PACED) begin : genPaced
+    localparam int unsigned  RDATA_FIFO_DEPTH = N_OUTSTANDING * AXI_MAX_BURST_LEN;
+
+    // FIFO-backed credit: take full bursts, return individual beats
+    //   no credit for full burst | can issue another burst
+    // -AXI_MAX_BURST_LEN, ..., -1, 0, ..., RDATA_FIFO_DEPTH-AXI_MAX_BURST_LEN
+    localparam int signed  CREDIT_INIT = RDATA_FIFO_DEPTH - AXI_MAX_BURST_LEN;
+    logic signed [$clog2(CREDIT_INIT+1):0]  Credit = CREDIT_INIT;
+
+    uwire  ar_accept  = m_axi_arvalid & m_axi_arready;
+    uwire  credit_in = m_axis_read_data_tvalid & m_axis_read_data_tready;
+    always_ff @(posedge aclk) begin
+        if (~aresetn)  Credit <= CREDIT_INIT;
+        else           Credit <= Credit - (ar_accept? AXI_MAX_BURST_LEN : 0) + credit_in;
+    end
+    assign  credit_ok = !Credit[$left(Credit)];
+
+    // Read-data FIFO: absorbs AXI R beats while downstream stalls.
+    // Every AR burst has its capacity pre-reserved via the credit counter.
+    // Width is narrowed to only carry enabled sideband signals.
+    localparam unsigned  RDATA_FIFO_WIDTH = AXIS_DATA_WIDTH
+                                         + (AXIS_KEEP_ENABLE ? AXIS_KEEP_WIDTH : 0)
+                                         + (AXIS_LAST_ENABLE ? 1 : 0);
+
+    uwire [RDATA_FIFO_WIDTH-1:0]  fifo_in_dat;
+    assign  fifo_in_dat[AXIS_DATA_WIDTH-1:0] = m_axis_read_data_tdata_reg;
+    if(AXIS_KEEP_ENABLE)  assign  fifo_in_dat[AXIS_DATA_WIDTH +: AXIS_KEEP_WIDTH] = m_axis_read_data_tkeep_reg;
+    if(AXIS_LAST_ENABLE)  assign  fifo_in_dat[RDATA_FIFO_WIDTH-1] = m_axis_read_data_tlast_reg;
+
+    uwire [RDATA_FIFO_WIDTH-1:0]  fifo_out_dat;
+    fifo #(
+        .DEPTH(RDATA_FIFO_DEPTH),
+        .DATA_WIDTH(RDATA_FIFO_WIDTH)
+    ) inst_rdata_fifo (
+        .clk(aclk), .rst(!aresetn),
+        .count(), .maxcount(),
+        .idat(fifo_in_dat), .ivld(m_axis_read_data_tvalid_reg), .irdy(skid_out_tready),
+        .odat(fifo_out_dat), .ovld(m_axis_read_data_tvalid), .ordy(m_axis_read_data_tready)
+    );
+    assign  m_axis_read_data_tdata = fifo_out_dat[AXIS_DATA_WIDTH-1:0];
+    assign  m_axis_read_data_tkeep = AXIS_KEEP_ENABLE? fifo_out_dat[AXIS_DATA_WIDTH +: AXIS_KEEP_WIDTH] : {AXIS_KEEP_WIDTH{1'b1}};
+    assign  m_axis_read_data_tlast = AXIS_LAST_ENABLE? fifo_out_dat[RDATA_FIFO_WIDTH-1] : 1'b1;
+
+    // Check that rready is never backpressured under PACED mode
+    always_ff @(posedge aclk) begin
+        assert(!aresetn || !m_axi_rvalid || m_axi_rready) else begin
+            $error("%m: rready backpressure under PACED — credit invariant violated.");
+            $stop;
+        end
+    end
+
+end : genPaced
+else begin : genBypass
+
+    assign  credit_ok = 1;
+    assign  skid_out_tready = m_axis_read_data_tready;
+
+    assign  m_axis_read_data_tdata  = m_axis_read_data_tdata_reg;
+    assign  m_axis_read_data_tkeep  = AXIS_KEEP_ENABLE ? m_axis_read_data_tkeep_reg : {AXIS_KEEP_WIDTH{1'b1}};
+    assign  m_axis_read_data_tvalid = m_axis_read_data_tvalid_reg;
+    assign  m_axis_read_data_tlast  = AXIS_LAST_ENABLE ? m_axis_read_data_tlast_reg : 1'b1;
+
+end
+
 uwire [AXI_ADDR_WIDTH-1:0] addr_plus_max_burst = addr_reg + AXI_MAX_BURST_SIZE;
 uwire [AXI_ADDR_WIDTH-1:0] addr_plus_count = addr_reg + op_word_count_reg;
 
-// Outstanding queue
+// Outstanding descriptor queue
 fifo #(
-    .DEPTH(8),
+    .DEPTH(N_OUTSTANDING),
     .DATA_WIDTH($bits(cdma_rd_cmd_t))
 ) inst_q_rd (
     .clk(aclk),
@@ -242,7 +323,9 @@ always_comb begin
 
         AXI_STATE_START: begin
             // start state - initiate new AXI transfer
-            if (!m_axi_arvalid) begin
+            // Per-burst reservation: only launch when credit_ok (PACED=1) or
+            // unconditionally (PACED=0, credit_ok is constant 1'b1).
+            if (!m_axi_arvalid && credit_ok) begin
                 if (op_word_count_reg <= AXI_MAX_BURST_SIZE - (addr_reg & OFFSET_MASK) || AXI_MAX_BURST_SIZE >= 4096) begin
                     // packet smaller than max burst size
                     if (addr_reg[12] != addr_plus_count[12]) begin
@@ -448,13 +531,8 @@ logic store_axis_int_to_output;
 logic store_axis_int_to_temp;
 logic store_axis_temp_to_output;
 
-assign m_axis_read_data_tdata  = m_axis_read_data_tdata_reg;
-assign m_axis_read_data_tkeep  = AXIS_KEEP_ENABLE ? m_axis_read_data_tkeep_reg : {AXIS_KEEP_WIDTH{1'b1}};
-assign m_axis_read_data_tvalid = m_axis_read_data_tvalid_reg;
-assign m_axis_read_data_tlast  = AXIS_LAST_ENABLE ? m_axis_read_data_tlast_reg : 1'b1;
-
 // enable ready input next cycle if output is ready or the temp reg will not be filled on the next cycle (output reg empty or no input)
-assign m_axis_read_data_tready_int_early = m_axis_read_data_tready || (!temp_m_axis_read_data_tvalid_reg && (!m_axis_read_data_tvalid_reg || !m_axis_read_data_tvalid_int));
+assign m_axis_read_data_tready_int_early = skid_out_tready || (!temp_m_axis_read_data_tvalid_reg && (!m_axis_read_data_tvalid_reg || !m_axis_read_data_tvalid_int));
 
 always_comb begin
     // transfer sink ready state to source
@@ -467,7 +545,7 @@ always_comb begin
 
     if (m_axis_read_data_tready_int_reg) begin
         // input is ready
-        if (m_axis_read_data_tready || !m_axis_read_data_tvalid_reg) begin
+        if (skid_out_tready || !m_axis_read_data_tvalid_reg) begin
             // output is ready or currently not valid, transfer data to output
             m_axis_read_data_tvalid_next = m_axis_read_data_tvalid_int;
             store_axis_int_to_output = 1'b1;
@@ -476,7 +554,7 @@ always_comb begin
             temp_m_axis_read_data_tvalid_next = m_axis_read_data_tvalid_int;
             store_axis_int_to_temp = 1'b1;
         end
-    end else if (m_axis_read_data_tready) begin
+    end else if (skid_out_tready) begin
         // input is not ready, but output is ready
         m_axis_read_data_tvalid_next = temp_m_axis_read_data_tvalid_reg;
         temp_m_axis_read_data_tvalid_next = 1'b0;
@@ -512,12 +590,5 @@ always_ff @(posedge aclk) begin
         temp_m_axis_read_data_tlast_reg <= m_axis_read_data_tlast_int;
     end
 end
-
-/////////////////////////////////////////////////////////////////////////////
-// DEBUG
-/////////////////////////////////////////////////////////////////////////////
-`ifdef DBG_CDMA_RD_U
-
-`endif
 
 endmodule
