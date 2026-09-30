@@ -638,7 +638,19 @@ class MakeMaxPoolNHWC(Transformation):
             if n.op_type == "MaxPool":
                 consumer = model.find_consumer(n.output[0])
                 producer = model.find_producer(n.input[0])
-                if consumer is not None and consumer.op_type == "Transpose":
+                # Case A (consumer path) rewires a single consumer transpose above
+                # the pool. If the pool output is a fork, find_consumer only returns
+                # the first consumer, so Case A would strand the pool on one branch
+                # and leave the other branch reading the un-pooled tensor. Skip it in
+                # that case and let the producer path (Case B) handle it: Case B only
+                # rewires the producer transpose + pool and keeps both fork consumers
+                # intact, after which MoveTransposePastFork duplicates the transpose
+                # onto both branches so they cancel symmetrically.
+                if (
+                    consumer is not None
+                    and consumer.op_type == "Transpose"
+                    and not model.is_fork_node(n)
+                ):
                     perms = list(get_by_name(consumer.attribute, "perm").ints)
                     if perms == [0, 2, 3, 1]:
                         ceil_mode = get_by_name(n.attribute, "ceil_mode")
@@ -1407,7 +1419,7 @@ class MoveTransposePastJoinAdd(MoveIdenticalOpPastJoinOp):
         first_perm = get_by_name(producers[0].attribute, "perm").ints
         for producer in producers:
             if first_perm != get_by_name(producer.attribute, "perm").ints:
-                False
+                return False
         return True
 
 
@@ -1493,7 +1505,7 @@ class MoveTransposePastJoinConcat(MoveIdenticalOpPastJoinOp):
         first_perm = get_by_name(producers[0].attribute, "perm").ints
         for producer in producers:
             if first_perm != get_by_name(producer.attribute, "perm").ints:
-                False
+                return False
         return True
 
     def move_node(self, model, n, producers):

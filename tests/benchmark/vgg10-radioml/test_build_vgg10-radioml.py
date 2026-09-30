@@ -3,9 +3,8 @@
 
 import pytest
 
-import os
-
 # custom steps for vgg10-radioml
+from benchmark_helpers import check_build_outputs, get_verify_steps
 from custom_steps_vgg10 import step_pre_streamline
 
 import finn.builder.build_dataflow as build
@@ -57,6 +56,8 @@ build_steps = [
 
 def configure_build(board, output_dir):
     cfg = build_cfg.DataflowBuildConfig(
+        # non-interactive run: surface the real error instead of dropping into pdb
+        enable_build_pdb_debug=False,
         generate_outputs=build_outputs,
         output_dir=output_dir,
         steps=build_steps,
@@ -71,7 +72,7 @@ def configure_build(board, output_dir):
             f"{build_flow_folder}vgg10-radioml/"
             f"specialize_layers_config/vgg10radioml_specialize_layers.json"
         ),
-        verify_steps=verif_steps,
+        verify_steps=get_verify_steps(verif_steps),
         verify_input_npy=verify_input_npy,
         verify_expected_output_npy=verify_expected_output_npy,
     )
@@ -89,25 +90,23 @@ def test_vgg10radioml(board):
     cfg = configure_build(board, output_dir)
     build.build_dataflow_cfg(model_file, cfg)
 
-    # Check if the ezxpected output products are there
-    assert os.path.isfile(output_dir + "/time_per_step.json")
-    assert os.path.isfile(output_dir + "/final_hw_config.json")
-    assert os.path.isfile(output_dir + "/template_specialize_layers_config.json")
-    assert os.path.isfile(output_dir + "/stitched_ip/ip/component.xml")
-    assert os.path.isfile(output_dir + "/driver/driver.py")
-    assert os.path.isfile(output_dir + "/report/estimate_layer_cycles.json")
-    assert os.path.isfile(output_dir + "/report/estimate_layer_resources.json")
-    assert os.path.isfile(output_dir + "/report/estimate_network_performance.json")
-    assert os.path.isfile(output_dir + "/report/rtlsim_performance.json")
-    assert os.path.isfile(output_dir + "/bitfile/finn-accel.bit")
-    assert os.path.isfile(output_dir + "/bitfile/finn-accel.hwh")
-    assert os.path.isfile(output_dir + "/report/post_synth_resources.xml")
-    assert os.path.isfile(output_dir + "/report/post_route_timing.rpt")
-    assert os.path.isfile(output_dir + "/report/post_synth_resources.json")
-    # Verification outputs
-    verify_out_dir = output_dir + "/verification_output"
-    assert os.path.isfile(verify_out_dir + "/verify_initial_python_0_SUCCESS.npy")
-    assert os.path.isfile(verify_out_dir + "/verify_streamlined_python_0_SUCCESS.npy")
-    assert os.path.isfile(verify_out_dir + "/verify_folded_hls_cppsim_0_SUCCESS.npy")
-    assert os.path.isfile(verify_out_dir + "/verify_node_by_node_rtlsim_0_SUCCESS.npy")
-    assert os.path.isfile(verify_out_dir + "/verify_stitched_ip_rtlsim_0_SUCCESS.npy")
+    # Check that all expected output products (and the per-step verification
+    # markers) are present, reporting every missing artifact at once instead of
+    # aborting on the first one.
+    build_output_files = [
+        "time_per_step.json",
+        "final_hw_config.json",
+        "template_specialize_layers_config.json",
+        "stitched_ip/ip/component.xml",
+        "driver/driver.py",
+        "report/estimate_layer_cycles.json",
+        "report/estimate_layer_resources.json",
+        "report/estimate_network_performance.json",
+        "report/rtlsim_performance.json",
+        "bitfile/finn-accel.bit",
+        "bitfile/finn-accel.hwh",
+        "report/post_synth_resources.xml",
+        "report/post_route_timing.rpt",
+        "report/post_synth_resources.json",
+    ]
+    check_build_outputs(output_dir, build_output_files)

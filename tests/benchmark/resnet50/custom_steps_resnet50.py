@@ -71,13 +71,20 @@ from finn.transformation.streamline.collapse_repeated import (
     CollapseRepeatedMul,
 )
 from finn.transformation.streamline.reorder import (
+    MakeMaxPoolNHWC,
     MoveAddPastConv,
+    MoveAddPastJoinAdd,
     MoveAddPastMul,
+    MoveLinearPastFork,
     MoveMaxPoolPastMultiThreshold,
+    MoveMulPastJoinAdd,
     MoveScalarAddPastMatMul,
     MoveScalarLinearPastInvariants,
     MoveScalarMulPastConv,
     MoveScalarMulPastMatMul,
+    MoveTransposePastEltwise,
+    MoveTransposePastFork,
+    MoveTransposePastJoinAdd,
 )
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.transformation.streamline.sign_to_thres import ConvertSignToThres
@@ -137,9 +144,26 @@ def step_resnet50_streamline_linear(model: ModelWrapper, cfg: DataflowBuildConfi
     return model
 
 
+def step_resnet50_streamline_nonlinear(model: ModelWrapper, cfg: DataflowBuildConfig):
+    # Push linear scaling ops past the residual forks/join-Adds so they can be
+    # absorbed into the MultiThresholds (else branch MatMuls stay float and block
+    # MVAU inference). MoveMulPastJoinAdd + MoveAddPastJoinAdd replace the
+    # deprecated MoveLinearPastEltwiseAdd.
+    streamline_transformations = [
+        MoveMulPastJoinAdd(),
+        MoveAddPastJoinAdd(),
+        MoveLinearPastFork(),
+    ]
+    for trn in streamline_transformations:
+        model = model.transform(trn)
+        model = model.transform(GiveUniqueNodeNames())
+    return model
+
+
 def step_resnet50_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
     for iter_id in range(4):
         model = step_resnet50_streamline_linear(model, cfg)
+        model = step_resnet50_streamline_nonlinear(model, cfg)
 
         # big loop tidy up
         model = model.transform(RemoveUnusedTensors())
@@ -149,17 +173,23 @@ def step_resnet50_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     model = model.transform(DoubleToSingleFloat())
 
-    # Lower convs to matmuls here: ResNet's streamline otherwise never lowers,
-    # and the standard convert-to-hw phase expects already-lowered convs. Clean
-    # up the transposes/thresholds the lowering leaves behind.
+    # Lower convolutions and fully detangle the NCHW<->NHWC transposes here, in
+    # streamline
     model = model.transform(LowerConvsToMatMul())
-    model = model.transform(AbsorbTransposeIntoMultiThreshold())
-    model = model.transform(RoundAndClipThresholds())
-    model = model.transform(AbsorbConsecutiveTransposes())
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(GiveReadableTensorNames())
-    model = model.transform(InferDataTypes())
     model = model.transform(InferDataLayouts())
+    for _ in range(4):
+        model = model.transform(MakeMaxPoolNHWC())
+        model = model.transform(MoveTransposePastJoinAdd())
+        model = model.transform(MoveTransposePastFork())
+        model = model.transform(MoveTransposePastEltwise())
+        model = model.transform(AbsorbConsecutiveTransposes())
+        model = model.transform(AbsorbTransposeIntoMultiThreshold())
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(InferDataLayouts())
+        model = model.transform(InferDataTypes())
+
+    model = model.transform(RemoveUnusedTensors())
+    model = model.transform(GiveReadableTensorNames())
     model = model.transform(SortGraph())
 
     if VerificationStepType.STREAMLINED_PYTHON in cfg._resolve_verification_steps():

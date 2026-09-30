@@ -29,7 +29,11 @@
 import pytest
 
 import numpy as np
-import os
+from benchmark_helpers import (
+    bitfile_output_files,
+    check_build_outputs,
+    get_verify_steps,
+)
 from onnx import helper as oh
 from qonnx.core.datatype import DataType
 from qonnx.transformation.insert_topk import InsertTopK
@@ -101,13 +105,15 @@ def configure_build(board, output_dir):
     f_file = f"{build_fd}gtsrb/folding_config/gtsrb_folding_config_{board}"
     sl_file = f"{build_fd}gtsrb/specialize_layers_config/gtsrb_specialize_layers"
     cfg = build_cfg.DataflowBuildConfig(
+        # non-interactive run: surface the real error instead of dropping into pdb
+        enable_build_pdb_debug=False,
         output_dir=output_dir,
         synth_clk_period_ns=10.0,
         board=board,
         inject_steps_before={
             "step_qonnx_to_finn": [custom_step_add_preproc, custom_step_add_postproc]
         },
-        verify_steps=verif_steps,
+        verify_steps=get_verify_steps(verif_steps),
         verify_input_npy=verify_input_npy,
         verify_expected_output_npy=verify_expected_output_npy,
         folding_config_file=f_file + ".json",
@@ -129,25 +135,18 @@ def test_gtsrb(board):
     cfg = configure_build(board, output_dir)
     build.build_dataflow_cfg(model_file, cfg)
 
-    # Check if the ezxpected output products are there
-    assert os.path.isfile(output_dir + "/time_per_step.json")
-    assert os.path.isfile(output_dir + "/final_hw_config.json")
-    assert os.path.isfile(output_dir + "/template_specialize_layers_config.json")
-    assert os.path.isfile(output_dir + "/stitched_ip/ip/component.xml")
-    assert os.path.isfile(output_dir + "/driver/driver.py")
-    assert os.path.isfile(output_dir + "/report/estimate_layer_cycles.json")
-    assert os.path.isfile(output_dir + "/report/estimate_layer_resources.json")
-    assert os.path.isfile(output_dir + "/report/estimate_network_performance.json")
-    assert os.path.isfile(output_dir + "/report/rtlsim_performance.json")
-    assert os.path.isfile(output_dir + "/bitfile/finn-accel.bit")
-    assert os.path.isfile(output_dir + "/bitfile/finn-accel.hwh")
-    assert os.path.isfile(output_dir + "/report/post_synth_resources.xml")
-    assert os.path.isfile(output_dir + "/report/post_route_timing.rpt")
-    assert os.path.isfile(output_dir + "/report/post_synth_resources.json")
-    # Verification outputs
-    verify_out_dir = output_dir + "/verification_output"
-    assert os.path.isfile(verify_out_dir + "/verify_initial_python_0_SUCCESS.npy")
-    assert os.path.isfile(verify_out_dir + "/verify_streamlined_python_0_SUCCESS.npy")
-    assert os.path.isfile(verify_out_dir + "/verify_folded_hls_cppsim_0_SUCCESS.npy")
-    assert os.path.isfile(verify_out_dir + "/verify_node_by_node_rtlsim_0_SUCCESS.npy")
-    assert os.path.isfile(verify_out_dir + "/verify_stitched_ip_rtlsim_0_SUCCESS.npy")
+    # Check that all expected output products are present, reporting every
+    # missing artifact at once instead of aborting on the first one. This model
+    # builds on AUP-ZU3_8GB via the Vivado/Zynq flow (.bit/.hwh).
+    build_output_files = [
+        "time_per_step.json",
+        "final_hw_config.json",
+        "template_specialize_layers_config.json",
+        "stitched_ip/ip/component.xml",
+        "driver/driver.py",
+        "report/estimate_layer_cycles.json",
+        "report/estimate_layer_resources.json",
+        "report/estimate_network_performance.json",
+        "report/rtlsim_performance.json",
+    ] + bitfile_output_files(build_cfg.ShellFlowType.VIVADO_ZYNQ)
+    check_build_outputs(output_dir, build_output_files)

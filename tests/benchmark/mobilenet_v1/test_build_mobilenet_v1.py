@@ -3,9 +3,12 @@
 
 import pytest
 
-import os
-
 # custom steps for mobilenetv1
+from benchmark_helpers import (
+    bitfile_output_files,
+    check_build_outputs,
+    get_verify_steps,
+)
 from custom_steps_mobilenet import (
     step_mobilenet_slr_floorplan,
     step_mobilenet_streamline,
@@ -91,6 +94,8 @@ def configure_build(board, output_dir):
     if board == "U55C":
         inject_before = {"step_synthesize_bitfile": [step_mobilenet_slr_floorplan]}
     cfg = build_cfg.DataflowBuildConfig(
+        # non-interactive run: surface the real error instead of dropping into pdb
+        enable_build_pdb_debug=False,
         generate_outputs=build_outputs,
         output_dir=output_dir,
         steps=build_steps,
@@ -102,7 +107,7 @@ def configure_build(board, output_dir):
         auto_fifo_depths=True,
         specialize_layers_config_file=sl_file + ".json",
         standalone_thresholds=True,
-        verify_steps=select_verif_steps(board),
+        verify_steps=get_verify_steps(select_verif_steps(board)),
         verify_input_npy=verify_input_npy,
         verify_expected_output_npy=verify_expected_output_npy,
     )
@@ -127,26 +132,19 @@ def test_mobilenetv1(board):
     cfg = configure_build(board, output_dir)
     build.build_dataflow_cfg(model_file, cfg)
 
-    # Check if the ezxpected output products are there
-    assert os.path.isfile(output_dir + "/time_per_step.json")
-    assert os.path.isfile(output_dir + "/final_hw_config.json")
-    assert os.path.isfile(output_dir + "/template_specialize_layers_config.json")
-    assert os.path.isfile(output_dir + "/stitched_ip/ip/component.xml")
-    assert os.path.isfile(output_dir + "/driver/driver.py")
-    assert os.path.isfile(output_dir + "/report/estimate_layer_cycles.json")
-    assert os.path.isfile(output_dir + "/report/estimate_layer_resources.json")
-    assert os.path.isfile(output_dir + "/report/estimate_network_performance.json")
-    assert os.path.isfile(output_dir + "/report/rtlsim_performance.json")
-    assert os.path.isfile(output_dir + "/bitfile/finn-accel.bit")
-    assert os.path.isfile(output_dir + "/bitfile/finn-accel.hwh")
-    assert os.path.isfile(output_dir + "/report/post_synth_resources.xml")
-    assert os.path.isfile(output_dir + "/report/post_route_timing.rpt")
-    assert os.path.isfile(output_dir + "/report/post_synth_resources.json")
-    # Verification outputs
-    verify_out_dir = output_dir + "/verification_output"
-    assert os.path.isfile(verify_out_dir + "/verify_streamlined_python_0_SUCCESS.npy")
-    assert os.path.isfile(verify_out_dir + "/verify_folded_hls_cppsim_0_SUCCESS.npy")
-    assert os.path.isfile(verify_out_dir + "/verify_node_by_node_rtlsim_0_SUCCESS.npy")
-    # ZCU104 skips stitched_ip_rtlsim due to URAM initialization issues
-    if board != "ZCU104":
-        assert os.path.isfile(verify_out_dir + "/verify_stitched_ip_rtlsim_0_SUCCESS.npy")
+    # Check that all expected output products (and the per-step verification
+    # markers) are present, reporting every missing artifact at once instead of
+    # aborting on the first one. The bitfile artifacts depend on the shell flow
+    # (ZCU104 -> .bit/.hwh via Vivado/Zynq, U55C -> .xclbin via Vitis/Alveo).
+    build_output_files = [
+        "time_per_step.json",
+        "final_hw_config.json",
+        "template_specialize_layers_config.json",
+        "stitched_ip/ip/component.xml",
+        "driver/driver.py",
+        "report/estimate_layer_cycles.json",
+        "report/estimate_layer_resources.json",
+        "report/estimate_network_performance.json",
+        "report/rtlsim_performance.json",
+    ] + bitfile_output_files(platform_to_shell(board))
+    check_build_outputs(output_dir, build_output_files)
