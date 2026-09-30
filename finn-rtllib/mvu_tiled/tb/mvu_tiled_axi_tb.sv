@@ -9,14 +9,14 @@
  *
  *  Data flow under test:
  *    activations  -> input_gen (replays MH/PE times)
- *    weights      -> weights_buff_tile (collects NW=TH words, replays TH times)
+ *    weights      -> weights_buff_tile (collects NW<=TH words, replays TH times)
  *    compute      -> cu_mvau_tiled (DSP58 INT8, 3 MACs/DSP)
  *    accumulate   -> acc_stage (pipelined add_multi tree + circular FIFO)
  *    reorder      -> input_gen (transpose tiled -> sequential NF order)
  *
  *  Weight feed order:
  *    For each neuron fold (h), for each SIMD fold (w):
- *      send TH chunks of WSIMD weights (PE*SIMD total per tile).
+ *      send NW chunks of WSIMD weights (PE*SIMD total per tile, NW<=TH).
  *
  *  Activation feed order:
  *    For each TH tile (y), for each SIMD fold (x):
@@ -29,6 +29,14 @@
  *****************************************************************************/
 
 module mvu_tiled_axi_tb;
+
+	// Smallest divisor d of N such that N/d <= K.
+	function automatic int unsigned least_divisor_at_most(int unsigned N, int unsigned K);
+		automatic int unsigned tgt = (N + K - 1) / K;
+		for (int unsigned d = tgt; d <= N; d++)
+			if (N % d == 0) return d;
+		return N;
+	endfunction
 
 	// Test Configurations
 	localparam int unsigned  ROUNDS = 7;
@@ -49,7 +57,7 @@ module mvu_tiled_axi_tb;
 	// Constraints enforced by mvu_tiled_axi:
 	//  - MW % SIMD == 0
 	//  - MH % PE == 0
-	//  - (PE * SIMD) % TH == 0
+	//  - WSIMD must divide PE*SIMD; NW = PE*SIMD/WSIMD must be <= TH
 	//  - WEIGHT_WIDTH <= 8
 	//  - ACTIVATION_WIDTH <= 8 (9 for signed -- uses full 9-bit A port)
 	//  - TH >= 2 (TH=1 uses the non-tiled path)
@@ -64,8 +72,11 @@ module mvu_tiled_axi_tb;
 	//  6: SIMD=6 (CHAINLEN=2), TH=2 -- multi-DSP chain with tiling
 	//  7: Unsigned activations, small bitwidths -- corner case for sign extension
 	//  8: TH=6 (high tiling), PE=2, SIMD=3 -- stress accumulator depth
-	localparam int unsigned  TEST_COUNT = 9;
-	//       mh  mw  pe simd th  ww  aw  accw  sa  nw
+	//  9: TH=3 does NOT divide PE*SIMD=16 -> WSIMD=8, NW=2, slack=1
+	// 10: TH=2 does NOT divide PE*SIMD=9  -> WSIMD=9, NW=1, slack=1
+	// 11: TH=5 does NOT divide PE*SIMD=36 -> WSIMD=9, NW=4, slack=1
+	localparam int unsigned  TEST_COUNT = 12;
+	//       mh  mw  pe simd th  ww  aw  accw  sa  nrw
 	localparam cfg_t  TESTS[TEST_COUNT] = '{
 		'{ 12, 12,  6,  3,  2,  8,  8, 24, 1, 1 },
 		'{ 12, 12,  6,  3,  3,  4,  4, 16, 1, 0 },
@@ -75,7 +86,10 @@ module mvu_tiled_axi_tb;
 		'{ 24, 18,  6,  6,  3,  4,  4, 18, 1, 0 },
 		'{ 16, 12,  4,  6,  2,  8,  8, 24, 0, 1 },
 		'{  8, 12,  4,  3,  2,  2,  2, 12, 0, 1 },
-		'{  6,  9,  2,  3,  6,  4,  4, 16, 1, 0 }
+		'{  6,  9,  2,  3,  6,  4,  4, 16, 1, 0 },
+		'{ 12, 12,  4,  4,  3,  8,  8, 24, 1, 0 },  // NW<TH: WSIMD=8, NW=2
+		'{  9,  9,  3,  3,  2,  4,  4, 16, 1, 1 },  // NW<TH: WSIMD=9, NW=1
+		'{ 12, 12,  6,  6,  5,  4,  8, 20, 0, 0 }   // NW<TH: WSIMD=9, NW=4
 	};
 
 	//=== Global Control ====================================================
@@ -112,7 +126,8 @@ module mvu_tiled_axi_tb;
 		// Derived
 		localparam int unsigned  SF   = MW / SIMD;   // SIMD folds
 		localparam int unsigned  NF   = MH / PE;     // neuron folds
-		localparam int unsigned  WSIMD = (PE * SIMD) / TH;
+		localparam int unsigned  WSIMD = least_divisor_at_most(PE * SIMD, TH);
+		localparam int unsigned  NW   = (PE * SIMD) / WSIMD;  // sub-tiles per weight tile
 
 		typedef logic signed [WEIGHT_WIDTH    -1:0]  weight_t;
 		typedef logic        [ACTIVATION_WIDTH-1:0]  activation_t;
@@ -142,7 +157,7 @@ module mvu_tiled_axi_tb;
 			.WEIGHT_WIDTH(WEIGHT_WIDTH),
 			.ACTIVATION_WIDTH(ACTIVATION_WIDTH),
 			.ACCU_WIDTH(ACCU_WIDTH),
-			.MW(MW), .MH(MH), .TH(TH),
+			.MW(MW), .MH(MH), .TH(TH), .WSIMD(WSIMD),
 			.SIGNED_ACTIVATIONS(CFG.signed_activations),
 			.NARROW_WEIGHTS(CFG.narrow_weights),
 			.PUMPED_COMPUTE(0),
@@ -243,7 +258,7 @@ module mvu_tiled_axi_tb;
 
 					//-- Weight feed --
 					// One weight matrix, chunked: for each NF, for each SF,
-					// send TH chunks of WSIMD weights.
+					// send NW chunks of WSIMD weights (NW <= TH).
 					begin : blkWgtFeed
 						for(int unsigned  h = 0; h < MH; h += PE) begin
 							for(int unsigned  w = 0; w < MW; w += SIMD) begin
@@ -255,8 +270,8 @@ module mvu_tiled_axi_tb;
 									end
 								end
 
-								// Slice into TH chunks of WSIMD weights
-								for(int unsigned  chunk = 0; chunk < TH; chunk++) begin
+								// Slice into NW chunks of WSIMD weights (NW <= TH)
+								for(int unsigned  chunk = 0; chunk < NW; chunk++) begin
 									automatic logic [WEIGHT_STREAM_WIDTH_BA-1:0]  wword = '0;
 									for(int unsigned  k = 0; k < WSIMD; k++) begin
 										automatic int unsigned  flat_idx = chunk * WSIMD + k;

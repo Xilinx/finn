@@ -760,16 +760,18 @@ def test_mvau_fifocharacterize_rtlsim(
 
 @pytest.mark.parametrize("mh", [18])
 @pytest.mark.parametrize("mw", [32])
-# (PE, SIMD, TH, mem_mode) as a jointly-valid tuple satisfying MH % PE == 0,
-# MW % SIMD == 0 and (PE * SIMD) % TH == 0. TH=1 selects the standard MVAU;
-# TH>1 selects the tiled MVAU (Versal DSP58 only, filtered below).
+# (PE, SIMD, TH, mem_mode) as a jointly-valid tuple satisfying MH % PE == 0
+# and MW % SIMD == 0. WSIMD is the smallest divisor of PE*SIMD >= ceil(PE*SIMD/TH).
+# TH=1 selects the standard MVAU; TH>1 selects the tiled MVAU (Versal DSP58
+# only, filtered below). TH need not divide PE*SIMD.
 #
 # TH must divide the number of input vectors (ofm_shape 3x3 -> 9), so the tiled
 # configs use TH in {3, 9}. The tiled set spreads across the integration-level
 # axes (the DSP-chain corner cases themselves are covered by the RTL testbench):
-#   - WSIMD = PE*SIMD/TH:   the =1 edge (1 weight/cycle) up to 192
+#   - WSIMD:                 the =1 edge (1 weight/cycle) up to 192
 #   - CHAINLEN = (SIMD+2)/3: 1, 2, 3, 6, 11
 #   - TH:                    3 and 9 (high tiling)
+#   - NW < TH (slack):       non-dividing TH cases (NW=2 < TH=3, etc.)
 #   - mem_mode:              external_mem and internal_decoupled (tiling is
 #                            decoupled from the weight memory mode)
 @pytest.mark.parametrize(
@@ -791,6 +793,9 @@ def test_mvau_fifocharacterize_rtlsim(
         (9, 8, 9, "external_mem"),  # TH=9 high tiling, CHAINLEN=3
         (9, 16, 3, "external_mem"),  # CHAINLEN=6
         (18, 32, 3, "internal_decoupled"),  # max fold, CHAINLEN=11, decoupled
+        # NW < TH (non-dividing): WSIMD chosen as smallest divisor of PE*SIMD >= ceil(PE*SIMD/TH)
+        (2, 4, 3, "internal_decoupled"),  # PE*SIMD=8, TH=3: WSIMD=4, NW=2, slack=1
+        (6, 16, 9, "external_mem"),  # PE*SIMD=96, TH=9: WSIMD=12, NW=8, slack=1
         # external_mem + TH=1: standard MVAU fed by fetch_weights from external memory
         # (PE>1 catches PE-lane swaps, SIMD=1 covers the sub-word byte-packing edge).
         (9, 16, 1, "external_mem"),
@@ -831,7 +836,6 @@ def test_fpgadataflow_rtl_mvau(
         pytest.skip("External memory has no on-chip weight memory to clock-pump")
 
     # Tiled MVAU (TH>1) requires DSP58 (Versal) and is not combined with clock pumping.
-    # The (PE * SIMD) % TH == 0 constraint is guaranteed by the parameter tuples above.
     if th > 1:
         if part != "xcvc1902-vsva2197-2MP-e-S":
             pytest.skip("Tiled MVAU (TH>1) is only supported on Versal (DSP58)")

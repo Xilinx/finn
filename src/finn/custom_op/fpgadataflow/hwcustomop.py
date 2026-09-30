@@ -34,7 +34,7 @@ from qonnx.custom_op.base import CustomOp
 from qonnx.util.basic import get_by_name, roundup_to_integer_multiple
 
 from finn import xsi
-from finn.util.basic import get_watchdog_timeout_cycles, is_versal
+from finn.util.basic import least_divisor_at_most, get_watchdog_timeout_cycles, is_versal
 
 finnxsi = xsi if xsi.is_available() else None
 
@@ -421,6 +421,7 @@ class HWCustomOp(CustomOp):
                 "$WEIGHT_WIDTH$": [str(wdt.bitwidth())],
                 "$N_LAYERS$": [str(n_max_layers)],
                 "$TH$": [str(theight)],
+                "$WSIMD$": [str(least_divisor_at_most(pe * simd, theight) if theight > 1 else simd)],
                 "$EN_MLO$": [en_mlo],
                 "$ADDRESS_OFFSET$": [str(self.get_nodeattr("address_offset"))],
             }

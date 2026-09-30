@@ -41,7 +41,7 @@ from qonnx.util.basic import (
 )
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
-from finn.util.basic import fifo_rtl_files, is_versal
+from finn.util.basic import least_divisor_at_most, fifo_rtl_files, is_versal
 from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation:
@@ -271,7 +271,7 @@ class MVAU(HWCustomOp):
                 case "dynamic":
                     width = pe * wp
                 case "external" | "external_mem" | "internal_decoupled":
-                    width = ((pe * simd) * wp) // theight
+                    width = least_divisor_at_most(pe * simd, theight) * wp
                 case _:
                     width = 0
         elif ind == 2:
@@ -313,7 +313,7 @@ class MVAU(HWCustomOp):
                 case "dynamic":
                     folded_input_shape = tuple(vecs[:2] + [mw] + [nf, pe])
                 case "external" | "external_mem" | "internal_decoupled":
-                    folded_input_shape = (n_vecs, sf * nf, (simd * pe) // theight)
+                    folded_input_shape = (n_vecs, sf * nf, least_divisor_at_most(simd * pe, theight))
                 case _:
                     raise Exception("Undefined input shape for requested input")
         else:
@@ -748,13 +748,14 @@ class MVAU(HWCustomOp):
             weight_tensor_pe_flipped = weight_tensor_pe_flipped.copy()
             # tiling
             th = self.get_nodeattr("TH")
-            tinner = (pe * simd) // th
+            tinner = least_divisor_at_most(pe * simd, th)
+            nw = (pe * simd) // tinner  # number of WSIMD-sized sub-tiles per PE*SIMD block
             weight_tensor_simd_flipped = weight_tensor_simd_flipped.reshape(1, -1, tinner)
             # The .dat weights are PE-flipped (np.flip axis=-2), which reverses the
-            # PE dimension - the same dimension that TH tiles into sub-tiles. This
-            # reverses the order of the TH sub-tiles within each PE group. Undo that
-            # by flipping the TH tile order back (no-op for th=1).
-            weight_tensor_pe_flipped = weight_tensor_pe_flipped.reshape(1, -1, th, tinner)
+            # PE dimension - the same dimension that tiles into sub-tiles. This
+            # reverses the order of the NW sub-tiles within each PE group. Undo that
+            # by flipping the sub-tile order back (no-op when NW=1).
+            weight_tensor_pe_flipped = weight_tensor_pe_flipped.reshape(1, -1, nw, tinner)
             weight_tensor_pe_flipped = np.flip(weight_tensor_pe_flipped, axis=-2)
             weight_tensor_pe_flipped = weight_tensor_pe_flipped.reshape(1, -1, tinner)
             if weight_file_mode == "decoupled_npy":
@@ -772,13 +773,13 @@ class MVAU(HWCustomOp):
                 # bus-word boundary; when WEIGHT_WIDTH divides DATA_BITS this reduces to
                 # tight packing (byte-identical to the previous per-group image).
                 #
-                # IWSIMD is (PE*SIMD)/TH for TH>1, SIMD otherwise. The element order
-                # within each IWSIMD group and the per-group ordering depend on how
-                # fetch_weights delivers the stream to the MVU:
+                # IWSIMD is least_divisor_at_most(PE*SIMD, TH) for TH>1, SIMD otherwise.
+                # The element order within each IWSIMD group and the per-group
+                # ordering depend on how fetch_weights delivers the stream to the MVU:
                 #   - TH>1 (tiled MVAU): the stream passes straight through to the tiled
-                #     MVU, which expects the PE-flipped, TH-sub-tile-undone ordering.
+                #     MVU, which expects the PE-flipped, sub-tile-undone ordering.
                 #     weight_tensor_pe_flipped is already in IWSIMD-sized chunks
-                #     (tinner == (PE*SIMD)/TH == IWSIMD).
+                #     (tinner == WSIMD == IWSIMD).
                 #   - TH=1 (standard MVAU): the stream goes through local_weight_buffer,
                 #     which distributes consecutive SIMD groups across PE lanes 0..PE-1
                 #     (pe-minor) and pairs weight SIMD lane s with activation SIMD lane s.
@@ -788,7 +789,7 @@ class MVAU(HWCustomOp):
                 # flat element stream the VPC sees, then pack DMA_PE elements/bus word.
                 th = self.get_nodeattr("TH")
                 data_bits = 256  # DATA_BITS in fetch_weights.sv (AXI bus width)
-                iwsimd = (pe * simd) // th if th > 1 else simd
+                iwsimd = least_divisor_at_most(pe * simd, th) if th > 1 else simd
                 dma_pe = data_bits // export_wdt.bitwidth()  # whole elements per bus word
                 if th > 1:
                     weight_tensor_iwsimd = weight_tensor_pe_flipped
@@ -1168,7 +1169,9 @@ class MVAU(HWCustomOp):
                     theight = self.get_nodeattr("TH")
                     wdt = self.get_input_datatype(1)
                     if theight > 1:
-                        iwsimd = (self.get_nodeattr("PE") * self.get_nodeattr("SIMD")) // theight
+                        iwsimd = least_divisor_at_most(
+                            self.get_nodeattr("PE") * self.get_nodeattr("SIMD"), theight
+                        )
                     else:
                         iwsimd = self.get_nodeattr("SIMD")
                     ds_bits_ba = ((iwsimd * wdt.bitwidth() + 7) // 8) * 8

@@ -437,6 +437,18 @@ def is_versal(fpgapart):
     ]
 
 
+def least_divisor_at_most(n, max_quotient):
+    """Smallest divisor d of n such that n/d <= max_quotient.
+
+    Equivalently, the smallest d that divides n and is >= ceil(n/max_quotient).
+    Always terminates: n divides itself, giving quotient 1."""
+    target = (n + max_quotient - 1) // max_quotient
+    for d in range(target, n + 1):
+        if n % d == 0:
+            return d
+    return n  # n always divides itself
+
+
 def get_dsp_block(fpgapart):
     if is_versal(fpgapart):
         return "DSP58"
