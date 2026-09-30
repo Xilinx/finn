@@ -54,16 +54,20 @@ module vpc #(
 		return (b == 0)? a : gcd(b, a % b);
 	endfunction
 	localparam int unsigned  GCD = gcd(PI, PO);
-	localparam int unsigned  W0  = GCD * W;			// normalized element width
-	localparam int unsigned  PI0 = PI / GCD;		// normalized input parallelism
-	localparam int unsigned  PO0 = PO / GCD;		// normalized output parallelism
-	localparam int unsigned  N0  = 1 + (N-1)/GCD;	// normalized vector length
+	localparam int unsigned  W0  = GCD * W; 	// normalized element width
+	localparam int unsigned  PI0 = PI / GCD;	// normalized input parallelism
+	localparam int unsigned  PO0 = PO / GCD;	// normalized output parallelism
+	localparam int unsigned  NN  = 1 + (N-1)/GCD;	// normalized vector length
+
+	// Reduce assumed vector length when plain, padding-free multiple of both PI0 and PO0
+	localparam int unsigned  LCM0 = PI0 * PO0;
+	localparam int unsigned  N0   = (NN % LCM0 == 0)? LCM0 : NN;
 
 	//=======================================================================
 	// Derived Parameters
 	localparam int unsigned  TRNI = 1 + (N0-1)/PI0;	// input transactions per vector
 	localparam int unsigned  TRNO = 1 + (N0-1)/PO0;	// output transactions per vector
-	localparam int unsigned  OLAST = N - (TRNO-1)*PO;	// valid output lanes on last beat (1..PO)
+	localparam int unsigned  OLAST = (N0 < NN)? PO : N - (TRNO-1)*PO;	// valid output lanes on last beat (1..PO)
 
 	uwire  itrn = ivld && irdy;
 	uwire  otrn = ovld && ordy;
