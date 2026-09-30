@@ -31,7 +31,11 @@ import os
 
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.util.basic import least_divisor_at_most, get_dsp_block, get_dsp_datapath_limits
+from finn.util.basic import (
+    get_dsp_block,
+    get_dsp_datapath_limits,
+    least_divisor_at_most,
+)
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation_rtl:
