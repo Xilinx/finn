@@ -23,6 +23,8 @@ that serve as both examples and testcases.
 These networks are built end-to-end as part of the `FINN integration tests <https://github.com/Xilinx/finn/blob/main/tests/end2end/test_end2end_bnn_pynq.py>`_ ,
 and the key performance indicators (FPGA resource, frames per second...) are
 automatically posted to the dashboard below.
-To implement a new network, you can use the `integration test code <https://github.com/Xilinx/finn/blob/main/tests/end2end/test_end2end_bnn_pynq.py>`_
-as a starting point, as well as the `relevant Jupyter notebooks
-<https://github.com/Xilinx/finn/tree/main/notebooks/end2end_example/bnn-pynq>`_.
+To implement a new network, start from a builder configuration as shown in the
+`cybersecurity notebooks <https://github.com/Xilinx/finn/tree/main/notebooks/end2end_example/cybersecurity>`_
+and the `advanced builder settings tutorial <https://github.com/Xilinx/finn/blob/main/notebooks/advanced/4_advanced_builder_settings.ipynb>`_.
+The `BNN-PYNQ notebooks <https://github.com/Xilinx/finn/tree/main/notebooks/end2end_example/bnn-pynq>`_
+explain how these networks pass through the individual builder steps.

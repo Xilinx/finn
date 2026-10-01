@@ -89,4 +89,4 @@ stitched IP kernels are first prepared by `PrepareForLinking` and then linked us
 Deployment
 ==========
 
-The bitfile and the driver file(s) can be copied to the PYNQ board and be executed there. For more information see the description in the `end2end_example <https://github.com/Xilinx/finn/tree/main/notebooks/end2end_example>`_ Jupyter notebooks.
+The bitfile and the driver file(s) can be copied to the PYNQ board and be executed there. For more information see the deployment section of the `third cybersecurity notebook <https://github.com/Xilinx/finn/blob/main/notebooks/end2end_example/cybersecurity/3-build-accelerator-with-finn.ipynb>`_.
