@@ -31,7 +31,11 @@ import os
 
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.util.basic import get_dsp_block, get_dsp_datapath_limits
+from finn.util.basic import (
+    get_dsp_block,
+    get_dsp_datapath_limits,
+    least_divisor_at_most,
+)
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation_rtl:
@@ -359,12 +363,6 @@ class MVAU_rtl(MVAU, RTLBackend):
         theight = self.get_nodeattr("TH")
         if theight > 1:
             pe = self.get_nodeattr("PE")
-            tile = pe * simd
-            if tile % theight != 0:
-                raise Exception(
-                    "%s: TH=%d does not divide the tile PE*SIMD=%d. The tiled MVU "
-                    "requires (PE*SIMD) %% TH == 0." % (self.onnx_node.name, theight, tile)
-                )
 
             # The tiled wrapper conservatively caps both activation and weight widths at 8 bits.
             act_width = self.get_input_datatype(0).bitwidth()
@@ -435,9 +433,12 @@ class MVAU_rtl(MVAU, RTLBackend):
         code_gen_dict["$PUMPED_COMPUTE$"] = [str(pumped_compute)]
         code_gen_dict["$MW$"] = [str(self.get_nodeattr("MW"))]
         code_gen_dict["$MH$"] = [str(self.get_nodeattr("MH"))]
-        code_gen_dict["$PE$"] = [str(self.get_nodeattr("PE"))]
+        pe = self.get_nodeattr("PE")
+        code_gen_dict["$PE$"] = [str(pe)]
         code_gen_dict["$SIMD$"] = [str(simd)]
-        code_gen_dict["$TH$"] = [str(self.get_nodeattr("TH"))]
+        theight_val = self.get_nodeattr("TH")
+        code_gen_dict["$TH$"] = [str(theight_val)]
+        code_gen_dict["$WSIMD$"] = [str(least_divisor_at_most(pe * simd, theight_val))]
         code_gen_dict["$ACTIVATION_WIDTH$"] = [str(self.get_input_datatype(0).bitwidth())]
         code_gen_dict["$WEIGHT_WIDTH$"] = [str(self.get_input_datatype(1).bitwidth())]
         code_gen_dict["$ACCU_WIDTH$"] = [str(self.get_output_datatype().bitwidth())]
