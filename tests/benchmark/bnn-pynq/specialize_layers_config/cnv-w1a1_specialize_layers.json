@@ -1,0 +1,60 @@
+{
+  "Defaults": {},
+  "Thresholding_0": {
+    "preferred_impl_style": "rtl"
+  },
+  "ConvolutionInputGenerator_0": {
+    "preferred_impl_style": "rtl"
+  },
+  "MVAU_0": {
+    "preferred_impl_style": "hls"
+  },
+  "ConvolutionInputGenerator_1": {
+    "preferred_impl_style": "rtl"
+  },
+  "MVAU_1": {
+    "preferred_impl_style": "hls"
+  },
+  "StreamingMaxPool_0": {
+    "preferred_impl_style": "hls"
+  },
+  "ConvolutionInputGenerator_2": {
+    "preferred_impl_style": "rtl"
+  },
+  "MVAU_2": {
+    "preferred_impl_style": "hls"
+  },
+  "ConvolutionInputGenerator_3": {
+    "preferred_impl_style": "rtl"
+  },
+  "MVAU_3": {
+    "preferred_impl_style": "hls"
+  },
+  "StreamingMaxPool_1": {
+    "preferred_impl_style": "hls"
+  },
+  "ConvolutionInputGenerator_4": {
+    "preferred_impl_style": "rtl"
+  },
+  "MVAU_4": {
+    "preferred_impl_style": "hls"
+  },
+  "ConvolutionInputGenerator_5": {
+    "preferred_impl_style": "rtl"
+  },
+  "MVAU_5": {
+    "preferred_impl_style": "hls"
+  },
+  "MVAU_6": {
+    "preferred_impl_style": "hls"
+  },
+  "MVAU_7": {
+    "preferred_impl_style": "hls"
+  },
+  "MVAU_8": {
+    "preferred_impl_style": "hls"
+  },
+  "LabelSelect_0": {
+    "preferred_impl_style": "hls"
+  }
+}
