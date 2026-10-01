@@ -284,22 +284,23 @@ class CppBuilder:
             f.write("#!/bin/bash \n")
             f.write(bash_compile + "\n")
         bash_command = ["bash", self.compile_script]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
+        launch_process_helper(bash_command, check=True)
 
 
-def launch_process_helper(args, proc_env=None, cwd=None, check=False):
+def launch_process_helper(args, proc_env=None, cwd=None, check=True):
     """Launch a process and capture its output for logging with Python loggers.
 
     Returns ``(cmd_out, cmd_err)`` as UTF-8 strings, with undecodable bytes in
     tool output replaced rather than raised. Both streams are also written
     through to ``sys.stdout``/``sys.stderr``.
 
-    When ``check`` is True and the process exits non-zero, raises
-    ``subprocess.CalledProcessError`` with ``output`` and ``stderr`` set to the
-    captured strings. The write-through happens before the raise, so the tool
-    log is still visible on failure. That is why the return code is checked by
-    hand rather than relying on ``subprocess.run(check=True)``.
+    ``check`` defaults to True: when the process exits non-zero, raises
+    ``subprocess.CalledProcessError`` with ``output`` and ``stderr`` set to
+    the captured strings. The write-through happens before the raise, so the
+    tool log is still visible on failure. That is why the return code is
+    checked by hand rather than relying on ``subprocess.run(check=True)``.
+    Pass ``check=False`` explicitly for call sites that intentionally
+    tolerate a non-zero exit.
     """
     if proc_env is None:
         proc_env = os.environ.copy()
