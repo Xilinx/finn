@@ -204,6 +204,10 @@ class TLastMarker_hls(HWCustomOp, HLSBackend):
             )
 
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
+        if dyn_iters == 0 and self.get_nodeattr("NumIters") == 1:
+            # a single beat per call: the pipelined loop is flattened away and the
+            # unpipelined top then takes two cycles per beat; pipeline the top itself
+            self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS pipeline II=1 style=flp")
 
     def get_number_output_values(self):
         return self.get_nodeattr("NumIters")
