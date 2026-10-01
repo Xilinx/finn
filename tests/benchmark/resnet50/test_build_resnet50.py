@@ -9,20 +9,12 @@
 import pytest
 
 # custom steps for resnet50v1.5
-from benchmark_helpers import (
-    bitfile_output_files,
-    check_build_outputs,
-    get_verify_steps,
-)
-from custom_steps_resnet50 import (
-    step_resnet50_slr_floorplan,
-    step_resnet50_streamline,
-    step_resnet50_tidy,
-)
+from benchmark_helpers import check_build_outputs, get_verify_steps
+from custom_steps_resnet50 import step_resnet50_streamline, step_resnet50_tidy
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
-from finn.util.basic import make_build_dir, vitis_default_platform
+from finn.util.basic import make_build_dir
 
 build_flow_folder = "tests/benchmark/"
 
@@ -43,19 +35,20 @@ verif_steps = [
 ]
 
 # build output products
+# TEMP(stitched-ip-only): the V80/SLASH synth needs the slashkit .deb + Vivado
+# 2025.1, so for now we stop at stitched IP (+ rtlsim performance). The output
+# products gate which steps actually execute, so leaving BITFILE/PYNQ_DRIVER/
+# DEPLOYMENT_PACKAGE out skips synth/driver/deployment. Re-add them once the
+# SLASH toolchain is in place.
 build_outputs = [
     build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
     build_cfg.DataflowOutputType.STITCHED_IP,
-    build_cfg.DataflowOutputType.PYNQ_DRIVER,
-    build_cfg.DataflowOutputType.BITFILE,
-    build_cfg.DataflowOutputType.DEPLOYMENT_PACKAGE,
     build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
 ]
 
 # ResNet-50 uses custom tidy/streamline steps; the rest is phase-based. The
 # custom streamline step lowers convolutions and fully detangles the residual
 # fork/join transposes.
-# The SLR floorplan is injected before bitfile synthesis.
 resnet50_build_steps = [
     step_resnet50_tidy,
     step_resnet50_streamline,
@@ -71,7 +64,6 @@ def configure_build(board, output_dir):
         # non-interactive run: surface the real error instead of dropping into pdb
         enable_build_pdb_debug=False,
         steps=resnet50_build_steps,
-        inject_steps_before={"step_synthesize_bitfile": [step_resnet50_slr_floorplan]},
         standalone_thresholds=True,
         generate_outputs=build_outputs,
         output_dir=output_dir,
@@ -81,9 +73,11 @@ def configure_build(board, output_dir):
         auto_fifo_depths=True,
         synth_clk_period_ns=4.0,
         board=board,
-        shell_flow_type=build_cfg.ShellFlowType.VITIS_ALVEO,
-        vitis_platform=vitis_default_platform[board],
-        vitis_opt_strategy=build_cfg.VitisOptStrategyCfg.PERFORMANCE_BEST,
+        # TEMP(stitched-ip-only): V80 (Versal) uses the SLASH shell for bitfile
+        # generation, but SLASH requires Vivado 2025.1. Since this run stops at
+        # stitched IP (no BITFILE), shell_flow_type is only consulted during synth,
+        # so it is left unset to avoid the Vivado-version check. Restore
+        # shell_flow_type=build_cfg.ShellFlowType.SLASH_ALVEO when synthesizing.
         specialize_layers_config_file=(
             f"{build_flow_folder}resnet50/specialize_layers_config/"
             f"resnet50_specialize_layers_{board}.json"
@@ -98,7 +92,7 @@ def configure_build(board, output_dir):
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.finn_examples
-@pytest.mark.parametrize("board", ["U250"])
+@pytest.mark.parametrize("board", ["V80"])
 def test_resnet50(board):
     output_dir = make_build_dir("build_resnet50_")
 
@@ -108,17 +102,18 @@ def test_resnet50(board):
 
     # Check that all expected output products (and the per-step verification
     # markers) are present, reporting every missing artifact at once instead of
-    # aborting on the first one. ResNet-50 targets U250 via the Vitis/Alveo flow,
-    # which emits a .xclbin (no .bit/.hwh/timing report).
+    # aborting on the first one.
+    # TEMP(stitched-ip-only): bitfile/driver/deployment artifacts are omitted
+    # while the V80/SLASH synth toolchain is unavailable; re-add
+    # bitfile_output_files(SLASH_ALVEO) and driver/driver.py once enabled.
     build_output_files = [
         "time_per_step.json",
         "final_hw_config.json",
         "template_specialize_layers_config.json",
         "stitched_ip/ip/component.xml",
-        "driver/driver.py",
         "report/estimate_layer_cycles.json",
         "report/estimate_layer_resources.json",
         "report/estimate_network_performance.json",
         "report/rtlsim_performance.json",
-    ] + bitfile_output_files(build_cfg.ShellFlowType.VITIS_ALVEO)
+    ]
     check_build_outputs(output_dir, build_output_files)

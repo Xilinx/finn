@@ -49,13 +49,8 @@ from qonnx.transformation.insert_topk import InsertTopK
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.transformation.remove import RemoveIdentityOps
 
-from finn.builder.build_dataflow_config import (
-    DataflowBuildConfig,
-    ShellFlowType,
-    VerificationStepType,
-)
+from finn.builder.build_dataflow_config import DataflowBuildConfig, VerificationStepType
 from finn.builder.build_dataflow_steps import verify_step
-from finn.transformation.general import ApplyConfig
 from finn.transformation.streamline.absorb import (
     Absorb1BitMulIntoConv,
     Absorb1BitMulIntoMatMul,
@@ -195,48 +190,4 @@ def step_resnet50_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
     if VerificationStepType.STREAMLINED_PYTHON in cfg._resolve_verification_steps():
         verify_step(model, cfg, "streamlined_python", need_parent=False)
 
-    return model
-
-
-def step_resnet50_slr_floorplan(model: ModelWrapper, cfg: DataflowBuildConfig):
-    if cfg.shell_flow_type == ShellFlowType.VITIS_ALVEO:
-        # previously, we would always ran the finn experimental partitioner on ResNet-50
-        # this is now changed and a fixed floorplan is applied
-        model = model.transform(GiveUniqueNodeNames())
-        model = model.transform(ApplyConfig("floorplan_resnet50.json"))
-        print("Fixed SLR floorplanning applied")
-
-        # if you would like to try out the experimental partitioner
-        # please uncomment the lines (that are not marked as comment) below.
-
-        # import numpy as np
-        # from finnexperimental.analysis.partitioning import partition
-
-        # comment: apply partitioning of the model, restricting the first and last layer to SLR0
-        # default_slr = 0
-        # abs_anchors = [(0, [default_slr]), (-1, [default_slr])]
-
-        # comment: increase resource limits to make partitioning feasible, except for SLR0
-        # comment: which also has DDR subsystem
-        # limits = np.array(
-        #    [
-        #        [0.75, 0.5, 0.7, 0.6, 0.6],
-        #        [1, 0.7, 0.9, 0.8, 0.8],
-        #        [1, 0.7, 0.9, 0.8, 0.8],
-        #        [1, 0.7, 0.9, 0.8, 0.8],
-        #    ]
-        # )
-        # floorplan = partition(
-        #    model,
-        #    cfg.synth_clk_period_ns,
-        #    cfg.board,
-        #    abs_anchors=abs_anchors,
-        #    multivariant=False,
-        #    linear_cuts=True,
-        #    limits=limits,
-        # )[0]
-
-        # comment: apply floorplan to model
-        # model = model.transform(ApplyConfig(floorplan))
-        # print("SLR floorplanning applied from partitioner")
     return model

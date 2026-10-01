@@ -761,7 +761,7 @@
     "depth_trigger_uram": 38000,
     "depth_trigger_bram": 38000
   },
-  "ChannelwiseOp_hls_0": {
+  "ElementwiseMul_hls_0": {
     "PE": 2,
     "ram_style": "distributed"
   },
@@ -938,7 +938,7 @@
     "depth_trigger_uram": 38000,
     "depth_trigger_bram": 38000
   },
-  "ChannelwiseOp_hls_1": {
+  "ElementwiseAdd_hls_16": {
     "PE": 2,
     "ram_style": "distributed"
   },
@@ -957,7 +957,7 @@
     "resType": "dsp",
     "runtime_writeable_weights": 0
   },
-  "ChannelwiseOp_hls_2": {
+  "ElementwiseAdd_hls_17": {
     "PE": 1,
     "ram_style": "distributed"
   },

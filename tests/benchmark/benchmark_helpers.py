@@ -26,8 +26,9 @@ def bitfile_output_files(shell_flow_type):
     """Bitfile + synthesis-report artifacts produced by ``step_synthesize_bitfile``.
 
     The artifacts differ by shell flow: the Vivado/Zynq flow emits a ``.bit``
-    plus a ``.hwh`` hand-off and a post-route timing report, whereas the
-    Vitis/Alveo flow emits a ``.xclbin`` and no ``.hwh``/timing report.
+    plus a ``.hwh`` hand-off and a post-route timing report, the Vitis/Alveo
+    flow emits a ``.xclbin`` and no ``.hwh``/timing report, and the SLASH flow
+    (V80) emits a ``.vbin`` plus a ``slash_report.xml``.
     """
     common = [
         "report/post_synth_resources.xml",
@@ -43,6 +44,14 @@ def bitfile_output_files(shell_flow_type):
         return [
             "bitfile/finn-accel.xclbin",
         ] + common
+    elif shell_flow_type == build_cfg.ShellFlowType.SLASH_ALVEO:
+        # The SLASH link writes the report straight into bitfile/ and only emits
+        # the JSON resource report (no post_synth_resources.xml).
+        return [
+            "bitfile/finn-accel.vbin",
+            "bitfile/slash_report.xml",
+            "report/post_synth_resources.json",
+        ]
     else:
         raise ValueError("Unsupported shell flow type: %s" % shell_flow_type)
 

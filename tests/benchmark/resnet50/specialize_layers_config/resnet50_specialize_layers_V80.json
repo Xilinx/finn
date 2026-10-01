@@ -411,7 +411,7 @@
     "Thresholding_34": {
       "preferred_impl_style": "rtl"
     },
-    "ChannelwiseOp_0": {
+    "ElementwiseMul_0": {
       "preferred_impl_style": "hls"
     },
     "Thresholding_35": {
@@ -507,7 +507,7 @@
     "Thresholding_42": {
       "preferred_impl_style": "rtl"
     },
-    "ChannelwiseOp_1": {
+    "ElementwiseAdd_16": {
       "preferred_impl_style": "hls"
     },
     "ConvolutionInputGenerator_18": {
@@ -519,7 +519,7 @@
     "MVAU_53": {
       "preferred_impl_style": "rtl"
     },
-    "ChannelwiseOp_2": {
+    "ElementwiseAdd_17": {
       "preferred_impl_style": "hls"
     },
     "LabelSelect_0": {
