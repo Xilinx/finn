@@ -190,10 +190,38 @@ class InferThresholdingLayer(Transformation):
                 if not (tdt_int or tdt_fp or tdt_fxp):
                     continue
 
-                # check layout of inputs/outputs, and convert if needed
-                # check layout and convert if necessary
+                # MultiThreshold is elementwise, so it cannot reorder data: its
+                # input and output layouts must agree. The output annotation
+                # defaults to NCHW and often goes stale or unset (InferDataLayouts
+                # does not propagate through MultiThreshold), so the input layout
+                # is the reliable per-node signal and drives the decision. An
+                # unset output carries no information and is ignored, but a fully
+                # annotated NCHW<->NHWC disagreement is a real error rather than a
+                # stale default.
                 thl_in_layout = model.get_tensor_layout(thl_input)
-                if thl_in_layout == DataLayout.NCHW:
+                thl_out_layout = model.get_tensor_layout(thl_output)
+                if (thl_in_layout == DataLayout.NCHW and thl_out_layout == DataLayout.NHWC) or (
+                    thl_in_layout == DataLayout.NHWC and thl_out_layout == DataLayout.NCHW
+                ):
+                    raise Exception(
+                        f"{node.name}: MultiThreshold input ({thl_in_layout}) and output "
+                        f"({thl_out_layout}) layouts disagree; the operation is elementwise "
+                        "and must preserve the data layout."
+                    )
+                # Shared (per-tensor) thresholds are channel-invariant and follow
+                # the input layout. Per-channel thresholds follow the declared
+                # data_layout when it is set; when it is unset the input tensor
+                # layout is the reliable fallback, so a channels-first input is
+                # still converted. prod(shape[:-1]) == 1 also handles leading
+                # singleton dims.
+                shared_thresholds = np.prod(thl_thres_shape[:-1]) == 1
+                multithreshold_layout = getCustomOp(node).get_nodeattr("data_layout")
+                if not shared_thresholds and multithreshold_layout in ("NCHW", "NHWC"):
+                    convert_nchw = multithreshold_layout == "NCHW"
+                else:
+                    convert_nchw = thl_in_layout == DataLayout.NCHW
+
+                if convert_nchw:
                     thl_input = nchw_to_nhwc(thl_input, model, node_ind)
                     node_ind += 1
                     thl_in_shape = model.get_tensor_shape(thl_input)
@@ -201,8 +229,7 @@ class InferThresholdingLayer(Transformation):
                 # keep track of where we need to insert the HW Op
                 # it has to be ahead of the output transform
                 insert_point = node_ind
-                thl_output_layout = model.get_tensor_layout(thl_output)
-                if thl_output_layout == DataLayout.NCHW:
+                if convert_nchw:
                     thl_output = nchw_to_nhwc(thl_output, model, node_ind, reverse=True)
                     node_ind += 1
 
@@ -1217,9 +1244,12 @@ class InferPool(Transformation):
                     continue
 
                 # extract pool parameters
+                ceil_mode = 0
                 if node.op_type == "MaxPool":
                     kh, kw = list(get_by_name(node.attribute, "kernel_shape").ints)
                     sh, sw = list(get_by_name(node.attribute, "strides").ints)
+                    ceil_mode_attr = get_by_name(node.attribute, "ceil_mode")
+                    ceil_mode = ceil_mode_attr.i if ceil_mode_attr is not None else 0
                     dlayout = "NCHW"
                 elif node.op_type == "QuantAvgPool2d":
                     inst = getCustomOp(node)
@@ -1232,6 +1262,7 @@ class InferPool(Transformation):
                     inst = getCustomOp(node)
                     kh, kw = inst.get_nodeattr("kernel_shape")
                     sh, sw = inst.get_nodeattr("strides")
+                    ceil_mode = inst.get_nodeattr("ceil_mode")
                     dlayout = "NHWC"
                 try:
                     pad = list(get_by_name(node.attribute, "pads").ints)
@@ -1255,6 +1286,19 @@ class InferPool(Transformation):
                     _, ofm_h, ofm_w, ofm_ch = oshape
                 else:
                     raise Exception("Unknown dlayout: " + str(dlayout))
+
+                # ceil_mode=1 may require a trailing pooling window whose footprint
+                # extends past the input's trailing edge. The sliding-window generator
+                # only produces a floor-count grid, so absorb the ceil extension into
+                # extra trailing padding (bottom/right) such that the Im2Col floor
+                # formula reproduces the declared output size. For MaxPool this is
+                # exact: the pad value is the datatype min (matching the off-edge
+                # elements onnxruntime ignores in the max), and the drop rule
+                # guarantees every kept window still contains a real element.
+                # pad = [H_begin, W_begin, H_end, W_end]
+                if ceil_mode and node.op_type in ["MaxPool", "MaxPoolNHWC"]:
+                    pad[2] += max(0, (ofm_h - 1) * sh + kh - ifm_h - (pad[0] + pad[2]))
+                    pad[3] += max(0, (ofm_w - 1) * sw + kw - ifm_w - (pad[1] + pad[3]))
 
                 # if data layout NCHW, we need transpose nodes surrounding
                 # the hw layer

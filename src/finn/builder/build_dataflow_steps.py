@@ -113,6 +113,7 @@ from finn.transformation.fpgadataflow.derive_characteristic import (
     DeriveCharacteristic,
     DeriveFIFOSizes,
 )
+from finn.transformation.fpgadataflow.export_portable_rtl import ExportPortableRTL
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
@@ -147,7 +148,10 @@ from finn.transformation.fpgadataflow.transpose_decomposition import (
 )
 from finn.transformation.general import ApplyConfig
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
-from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
+from finn.transformation.qonnx.convert_qonnx_to_finn import (
+    QONNX_QUANT_OP_TYPES,
+    ConvertQONNXtoFINN,
+)
 from finn.transformation.qonnx.quant_act_to_multithreshold import (
     default_filter_function_generator,
 )
@@ -342,14 +346,15 @@ def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
 
 def step_qonnx_to_finn(model: ModelWrapper, cfg: DataflowBuildConfig):
     """
-    This step will only execute if QONNX nodes are found.
-    These include the following op_types: "Quant" , "Trunc" and "BinaryQuant".
+    This step will only execute if QONNX quantization nodes are found, i.e. nodes
+    with one of the op_types in QONNX_QUANT_OP_TYPES ("IntQuant", "Quant",
+    "BipolarQuant", "FloatQuant" and "Trunc").
     If such nodes are found the step will run the tidy-up step from QONNX
     and then convert the QONNX model to the FINN-ONNX dialect.
     """
-    # Check if any QONNX nodes exist, i.e. BinaryQuant, Quant or Trunc
+    # Check if any QONNX quantization nodes exist
     q_count = 0
-    for op_type in ["BinaryQuant", "Quant", "Trunc"]:
+    for op_type in QONNX_QUANT_OP_TYPES:
         q_count += len(model.get_nodes_by_op_type(op_type))
     if q_count == 0:
         return model
@@ -1208,6 +1213,48 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
+def step_export_portable_rtl(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Export a self-contained, portable RTL project.
+
+    If STITCHED_IP was not requested, this step will run CreateStitchedIP
+    internally (without synthesis) to generate the wrapper and file lists
+    needed for the portable export.
+
+    The export contains:
+    - All Verilog/SystemVerilog source files with relative paths
+    - All .dat memory initialization files
+    - A filelist.f for simulator tools (Verilator, QuestaSim, ModelSim)
+    - A sources.tcl for Vivado non-IPI projects
+    """
+
+    if DataflowOutputType.PORTABLE_RTL in cfg.generate_outputs:
+        # If stitched IP wasn't created yet, run CreateStitchedIP to generate
+        # the wrapper and file lists (without synthesis)
+        vivado_stitch_proj = model.get_metadata_prop("vivado_stitch_proj")
+        if not vivado_stitch_proj:
+            print("Creating stitched IP for portable RTL export (synthesis disabled)...")
+            model = model.transform(
+                CreateStitchedIP(
+                    cfg._resolve_fpga_part(),
+                    cfg.synth_clk_period_ns,
+                    run_synth=False,
+                    run_pnr=False,
+                    signature=cfg.signature,
+                )
+            )
+
+        export_dir = cfg.output_dir + "/portable_rtl"
+        model = model.transform(ExportPortableRTL(export_dir))
+        print("Portable RTL export written to " + export_dir)
+    else:
+        print(
+            """DataflowOutputType.PORTABLE_RTL not in requested outputs,
+            skipping step_export_portable_rtl."""
+        )
+
+    return model
+
+
 def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Measure performance + latency of stitched-IP model in rtlsim (xsi).
     Depends on the DataflowOutputType.STITCHED_IP output product.
@@ -1344,7 +1391,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
             model = model.transform(
                 VitisLink(
                     cfg._resolve_vitis_platform(),
-                    cfg.synth_clk_period_ns(),
+                    cfg.synth_clk_period_ns,
                     strategy=cfg._resolve_vitis_opt_strategy(),
                     enable_debug=cfg.enable_hw_debug,
                 )
@@ -1566,6 +1613,7 @@ build_dataflow_step_lookup = {
     "step_hw_ipgen": step_hw_ipgen,
     "step_set_fifo_depths": step_set_fifo_depths,
     "step_create_stitched_ip": step_create_stitched_ip,
+    "step_export_portable_rtl": step_export_portable_rtl,
     "step_measure_rtlsim_performance": step_measure_rtlsim_performance,
     "step_make_driver": step_make_driver,
     "step_synthesize_bitfile": step_synthesize_bitfile,
