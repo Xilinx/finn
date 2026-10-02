@@ -167,6 +167,65 @@ module rsqrtf_dspfp32 #(
 
 endmodule : rsqrtf_dspfp32
 
+// One additional Newton-Raphson refinement:
+//   r = y * (1.5 - 0.5*x*y*y)
+// The three FP32 FMA stages accept a new (x, y) pair every cycle.
+module rsqrtf_refine #(
+	bit  FORCE_BEHAVIORAL = 0
+)(
+	input  logic         clk,
+	input  logic         rst,
+
+	input  logic [31:0]  x,
+	input  logic [31:0]  y,
+	input  logic         yvld,
+
+	output logic [31:0]  r,
+	output logic         rvld
+);
+
+	localparam int unsigned  LATENCY = 12;
+	logic  Vld[LATENCY] = '{ default: 0 };
+	logic [31:0]  Y[8] = '{ default: 'x };
+	always_ff @(posedge clk) begin
+		if(rst) begin
+			Vld <= '{ default: 0 };
+			Y <= '{ default: 'x };
+		end
+		else begin
+			Vld <= { yvld, Vld[0:LATENCY-2] };
+			Y <= { y, Y[0:6] };
+		end
+	end
+	assign	rvld = Vld[LATENCY-1];
+
+	uwire [31:0]  x2 = { x[31], x[30:23]-1, x[22:0] };
+	uwire [31:0]  c = $shortrealtobits(1.5);
+	uwire [31:0]  p[2];
+
+	rsqrtf_dspfp32 #(.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) DSP0 (
+		.clk, .rst,
+		.ena('1), .bsel('1), .csel('0),
+		.a(y), .b(x2), .c('x), .d('x),
+		.rvld('0), .r(p[0])
+	);
+
+	rsqrtf_dspfp32 #(.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) DSP1 (
+		.clk, .rst,
+		.ena('1), .bsel('0), .csel('1),
+		.a(Y[3]), .b('x), .c, .d(p[0]),
+		.rvld('0), .r(p[1])
+	);
+
+	rsqrtf_dspfp32 #(.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) DSP2 (
+		.clk, .rst,
+		.ena('1), .bsel('0), .csel('0),
+		.a(Y[7]), .b('x), .c('x), .d(p[1]),
+		.rvld, .r
+	);
+
+endmodule : rsqrtf_refine
+
 module rsqrtf #(
 	int unsigned  SUSTAINABLE_INTERVAL,  // Average II sustained over 12 Cycles
 	// Guarantee readiness at II, do not expose delays of arbitrating between iterations:
