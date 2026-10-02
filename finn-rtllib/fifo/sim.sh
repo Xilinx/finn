@@ -9,14 +9,16 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-rm -f fifo_trace.log fifo_ref.log
+rm -f fifo_trace.log fifo_trace_data.log fifo_ref.log
 
 xvlog -sv hdl/fifo_gauge.sv hdl/fifo_gauge_tb.sv
 xelab fifo_gauge_tb -debug off -s sim
 xsim sim -runall
 
 echo "---"
-if diff -q fifo_ref.log <(grep -v '^\[' fifo_trace.log); then
+# Drop the header/summary comments ('#') and any simulator notes ('[...]')
+grep -v '^[#[]' fifo_trace.log > fifo_trace_data.log
+if diff -q fifo_ref.log fifo_trace_data.log; then
 	echo "PASS: trace matches reference ($(wc -l < fifo_ref.log) lines)"
 else
 	echo "FAIL: trace mismatch"
