@@ -224,6 +224,16 @@ class InsertAndSetFIFODepths(Transformation):
         smaller where appropriate
     :parameter fifosim_input_throttle: use input throttling based on dataflow analysis
         while doing simulation-based FIFO sizing
+    :parameter fpgapart: The FPGA to specialize & synthesize the FIFO sizing objects for.
+    :parameter cfg_n_inferences: How many inferences to use to determine FIFO sizes.
+    :parameter debug_log_dir: Path for FIFO logs for the FIFO sizing sim. None means off.
+    :parameter debug_log_prefix: The prefix to use for FIFO log filenames on the
+        filesystem.
+    :parameter fifo_log_verbose: Whether to enrich FIFO log output.
+        False (default): <data_in>. True: <data> <direction> <cycle>
+    :parameter fifo_log_flush_cycles: How many simulated cycles to wait before
+        flushing the logs to disk. 0 disables periodic flushing.
+        Higher = better performance.
 
     Assumed input graph properties:
 
@@ -260,6 +270,8 @@ class InsertAndSetFIFODepths(Transformation):
         cfg_n_inferences=2,
         debug_log_dir=None,
         debug_log_prefix="",
+        fifo_log_verbose=False,
+        fifo_log_flush_cycles=10000,
     ):
         super().__init__()
         self.fpgapart = fpgapart
@@ -272,6 +284,8 @@ class InsertAndSetFIFODepths(Transformation):
         self.ind_map = {}
         self.debug_log_dir = debug_log_dir
         self.debug_log_prefix = debug_log_prefix
+        self.fifo_log_verbose = fifo_log_verbose
+        self.fifo_log_flush_cycles = fifo_log_flush_cycles
 
     def apply(self, model):
         model = model.transform(GiveUniqueNodeNames())
@@ -427,7 +441,10 @@ class InsertAndSetFIFODepths(Transformation):
                 log_path = os.path.abspath(
                     os.path.join(self.debug_log_dir, self.debug_log_prefix + node.name + ".log")
                 )
-                getCustomOp(node).set_nodeattr("debug_log_path", log_path)
+                node_inst = getCustomOp(node)
+                node_inst.set_nodeattr("debug_log_path", log_path)
+                node_inst.set_nodeattr("fifo_log_verbose", int(self.fifo_log_verbose))
+                node_inst.set_nodeattr("fifo_log_flush_cycles", int(self.fifo_log_flush_cycles))
 
         # insert FIFOs and do all transformations for RTLsim
         model = model.transform(AnnotateCycles())
