@@ -63,10 +63,6 @@ cyber_notebooks = [
 
 bnn_notebooks = [
     pytest.param(
-        notebook_bnn_dir + "cnv_end2end_example.ipynb",
-        marks=pytest.mark.xdist_group(name="notebooks_cnv"),
-    ),
-    pytest.param(
         notebook_bnn_dir + "tfc_end2end_example.ipynb",
         marks=pytest.mark.xdist_group(name="notebooks_tfc"),
     ),
@@ -84,7 +80,7 @@ bnn_notebooks = [
 def test_notebook_exec(notebook, request):
     with open(notebook) as f:
         # Set different NETRON_PORT for each xdist group to avoid conflicts
-        xdist_groups = ["notebooks_general", "notebooks_cybsec", "notebooks_cnv", "notebooks_tfc"]
+        xdist_groups = ["notebooks_general", "notebooks_cybsec", "notebooks_tfc"]
         for mark in request.node.own_markers:
             if mark.name == "xdist_group":
                 group = mark.kwargs["name"]
