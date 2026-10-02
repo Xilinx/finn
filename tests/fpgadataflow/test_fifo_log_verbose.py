@@ -24,7 +24,7 @@ import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 import finn.core.rtlsim_exec as rtlsim_exec
 from finn.analysis.fpgadataflow.fifo_transaction_counts import fifo_transaction_counts
-from finn.util.basic import make_build_dir
+from finn.util.basic import make_build_dir, get_vivado_version
 
 # Log specification
 LOG_SPEC = {
@@ -442,12 +442,12 @@ def _print_comparison(title, table):
             )
     for verbose in sorted({k[1] for k in table if k[0]}):
         slow, fast = (
-            table.get((True, verbose, FLUSH_EVERY_LINE)),
+            table.get((True, verbose, FLUSH_EVERY_CYCLE)),
             table.get((True, verbose, FLUSH_DEFAULT)),
         )
         if slow and fast:
             print(
-                "verbose=%s: flush-every-line/flush-default sim time x%.2f"
+                "verbose=%s: flush-every-cycle/flush-default sim time x%.2f"
                 % (verbose, _sim_ratio(slow, fast))
             )
     off = table.get((False, False, FLUSH_DEFAULT))
@@ -466,13 +466,13 @@ def _sim_ratio(a, b):
     return a["sim_s"] / max(b["sim_s"], 1e-9)
 
 
-def build_fork_join(debug_fifo, fifo_log_verbose, fifo_log_flush):
+def build_fork_join(debug_fifo, fifo_log_verbose, fifo_log_flush_cycles):
     """Build the fork/join graph with debug_fifo and check the resulting logs.
 
     Returns the build's cost row; see measure_cost().
     """
     output_dir = make_build_dir(
-        "test_fifo_log_%s_" % log_variant_id((debug_fifo, fifo_log_verbose, fifo_log_flush))
+        "test_fifo_log_%s_" % log_variant_id((debug_fifo, fifo_log_verbose, fifo_log_flush_cycles))
     )
     model = make_residual_model()
     model_file = output_dir + "/model.onnx"
@@ -502,7 +502,7 @@ def build_fork_join(debug_fifo, fifo_log_verbose, fifo_log_flush):
         fifosim_n_inferences=FIFOSIM_N_INFERENCES,
         debug_fifo=debug_fifo,
         fifo_log_verbose=fifo_log_verbose,
-        fifo_log_flush=fifo_log_flush,
+        fifo_log_flush_cycles=fifo_log_flush_cycles,
         verify_steps=[build_cfg.VerificationStepType.STITCHED_IP_RTLSIM],
         verify_input_npy=output_dir + "/input.npy",
         verify_expected_output_npy=output_dir + "/expected_output.npy",
@@ -580,19 +580,17 @@ def build_fork_join(debug_fifo, fifo_log_verbose, fifo_log_flush):
     return measure_cost(output_dir, log_root, sim_timer)
 
 
-def build_finnloop(debug_fifo, fifo_log_verbose, fifo_log_flush):
+def build_finnloop(debug_fifo, fifo_log_verbose, fifo_log_flush_cycles):
     """The same checks on an MLO build, where the graph contains a FINNLoop.
 
     Returns the build's cost row; see measure_cost().
     """
-    vivado_path = os.environ.get("XILINX_VIVADO", "")
-    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
-    assert match is not None, "cannot determine the Vivado version from " + repr(vivado_path)
-    if (int(match.group(1)), int(match.group(2))) < (2024, 2):
+    vivado_version = get_vivado_version()
+    if vivado_version is not None and vivado_version < (2024, 2):
         pytest.skip("At least Vivado version 2024.2 needed for MLO.")
 
     output_dir = make_build_dir(
-        "test_fifo_log_mlo_%s_" % log_variant_id((debug_fifo, fifo_log_verbose, fifo_log_flush))
+        "test_fifo_log_mlo_%s_" % log_variant_id((debug_fifo, fifo_log_verbose, fifo_log_flush_cycles))
     )
     model = make_finnloop_model()
     model_file = output_dir + "/model.onnx"
@@ -622,7 +620,7 @@ def build_finnloop(debug_fifo, fifo_log_verbose, fifo_log_flush):
         auto_fifo_depths=True,
         debug_fifo=debug_fifo,
         fifo_log_verbose=fifo_log_verbose,
-        fifo_log_flush=fifo_log_flush,
+        fifo_log_flush_cycles=fifo_log_flush_cycles,
         mute_config_assertions=True,
         verify_steps=[build_cfg.VerificationStepType.STITCHED_IP_RTLSIM],
         verify_input_npy=output_dir + "/input.npy",
@@ -742,17 +740,17 @@ def build_finnloop(debug_fifo, fifo_log_verbose, fifo_log_flush):
 
 
 # Test configurations
-## Log flush strides
-FLUSH_DEFAULT = build_cfg.DataflowBuildConfig.fifo_log_flush
-FLUSH_EVERY_LINE = 1
+## Log flush intervals, in simulated cycles
+FLUSH_DEFAULT = build_cfg.DataflowBuildConfig.fifo_log_flush_cycles
+FLUSH_EVERY_CYCLE = 1
 FLUSH_RARE = 1000
 
 ## Argument variants for pytest
-LOG_VARIANT_ARGS = "debug_fifo, fifo_log_verbose, fifo_log_flush"
+LOG_VARIANT_ARGS = "debug_fifo, fifo_log_verbose, fifo_log_flush_cycles"
 LOG_VARIANTS = [(False, False, FLUSH_DEFAULT)] + [
     (True, verbose, flush)
     for verbose in (False, True)
-    for flush in sorted({FLUSH_EVERY_LINE, FLUSH_RARE, FLUSH_DEFAULT})
+    for flush in sorted({FLUSH_EVERY_CYCLE, FLUSH_RARE, FLUSH_DEFAULT})
 ]
 
 LOG_VARIANT_IDS = [log_variant_id(v) for v in LOG_VARIANTS]
@@ -762,18 +760,18 @@ LOG_VARIANT_IDS = [log_variant_id(v) for v in LOG_VARIANTS]
 @pytest.mark.vivado
 @pytest.mark.fpgadataflow
 @pytest.mark.parametrize(LOG_VARIANT_ARGS, LOG_VARIANTS, ids=LOG_VARIANT_IDS)
-def test_fifo_log_verbose_build(debug_fifo, fifo_log_verbose, fifo_log_flush):
+def test_fifo_log_verbose_build(debug_fifo, fifo_log_verbose, fifo_log_flush_cycles):
     # the cost row is for the __main__ benchmark driver; a test must return None
-    build_fork_join(debug_fifo, fifo_log_verbose, fifo_log_flush)
+    build_fork_join(debug_fifo, fifo_log_verbose, fifo_log_flush_cycles)
 
 
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.fpgadataflow
 @pytest.mark.parametrize(LOG_VARIANT_ARGS, LOG_VARIANTS, ids=LOG_VARIANT_IDS)
-def test_fifo_log_verbose_finnloop_build(debug_fifo, fifo_log_verbose, fifo_log_flush):
+def test_fifo_log_verbose_finnloop_build(debug_fifo, fifo_log_verbose, fifo_log_flush_cycles):
     # the cost row is for the __main__ benchmark driver; a test must return None
-    build_finnloop(debug_fifo, fifo_log_verbose, fifo_log_flush)
+    build_finnloop(debug_fifo, fifo_log_verbose, fifo_log_flush_cycles)
 
 
 @pytest.mark.fpgadataflow
@@ -837,8 +835,7 @@ def parse_fifo_log_from_text(text, verbose, tmp_name=None):
         os.remove(path)
 
 
-BENCH_FLUSHES = 4
-BENCH_TXNS = 65536 * BENCH_FLUSHES
+BENCH_TXNS = 262144
 
 
 def scale_workload():
@@ -853,16 +850,19 @@ def scale_workload():
     # one frame is already over target, so keep the sizing sim to a single replay
     FIFOSIM_N_INFERENCES = 1
 
+    # One transaction occupies at least one cycle, so a frame spans at least
+    # BENCH_TXNS cycles: that is a lower bound on how often the cycle-based
+    # flush fires, and it is the quantity the flush variants trade against.
     print(
         "benchmark workload: %d channels => %d transactions/FIFO/frame "
-        "(%d lines plain, %d verbose; %d/%d flushes at 65536)"
+        "(%d lines plain, %d verbose; >=%d flushes at %d cycles)"
         % (
             BENCH_TXNS,
             BENCH_TXNS,
             BENCH_TXNS,
             2 * BENCH_TXNS,
-            BENCH_TXNS // 65536,
-            2 * BENCH_TXNS // 65536,
+            BENCH_TXNS // FLUSH_DEFAULT,
+            FLUSH_DEFAULT,
         )
     )
 

@@ -299,8 +299,8 @@ class DataflowBuildConfig:
     #: FIFO log format. True: "<data> <dir> <cycle>"; False: "<data_in>"
     fifo_log_verbose: Optional[bool] = False
 
-    #: FIFO Log flush rate, larger = less simulation slowdown.
-    fifo_log_flush: Optional[int] = 65536
+    #: FIFO Log flush rate (cycles), larger = less simulation slowdown.
+    fifo_log_flush_cycles: Optional[int] = 10000
 
     #: Target clock frequency (in nanoseconds) for Vitis HLS synthesis.
     #: e.g. `hls_clk_period_ns=5.0` will target a 200 MHz clock.

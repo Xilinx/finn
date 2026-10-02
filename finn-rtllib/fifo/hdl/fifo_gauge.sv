@@ -38,7 +38,7 @@ module fifo_gauge #(
 	// Logging controls
 	parameter    DATA_LOGFILE = "",
 	int unsigned LOG_VERBOSE = 0, // 0: (data_in), 1: (data, direction, cycle)
-	int unsigned LOG_FLUSH = 65536
+	int unsigned LOG_FLUSH_CYCLES = 10000 // 0 disables periodic flushing
 )(
 	input	logic  clk,
 	input	logic  rst,
@@ -74,14 +74,11 @@ module fifo_gauge #(
 	logic  OVld = 0;
 	logic [WIDTH-1:0]  ODat = 'x;
 
-	// Logging: LOG_FLUSH Counter
-	int unsigned  Unflushed = 0;
+	// Logging: Flush bookkeeping.
+	int unsigned  Unflushed  = 0; // Unflushed lines.
+	int unsigned  SinceFlush = 0; // Cycles since last flush.
 	task automatic note_line();
 		Unflushed++;
-		if(LOG_FLUSH && (Unflushed >= LOG_FLUSH)) begin
-			$fflush(LogFd);
-			Unflushed = 0;
-		end
 	endtask : note_line
 
 	// Logging: Print statement
@@ -116,6 +113,8 @@ module fifo_gauge #(
 			Cycle   <= 0;
 			ITxnCnt <= 0;
 			OTxnCnt <= 0;
+
+			SinceFlush = 0;
 		end
 		else begin
 			automatic int unsigned  count = Count;
@@ -139,6 +138,18 @@ module fifo_gauge #(
 				end
 				OTxnCnt <= OTxnCnt + 1;
 				count--;
+			end
+
+			// Logging: LOG_FLUSH_CYCLES counter
+			if(LogFd && LOG_FLUSH_CYCLES) begin
+				if(SinceFlush >= LOG_FLUSH_CYCLES-1) begin
+					if(Unflushed) begin
+						$fflush(LogFd);
+						Unflushed = 0;
+					end
+					SinceFlush = 0;
+				end
+				else  SinceFlush++;
 			end
 
 			// Track Count

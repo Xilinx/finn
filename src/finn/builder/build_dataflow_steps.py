@@ -195,7 +195,7 @@ def _attach_fifo_debug_logs(model, cfg, prefix=""):
             continue
         node_inst.set_nodeattr("debug_log_path", log_path)
         node_inst.set_nodeattr("fifo_log_verbose", int(cfg.fifo_log_verbose))
-        node_inst.set_nodeattr("fifo_log_flush", int(cfg.fifo_log_flush))
+        node_inst.set_nodeattr("fifo_log_flush_cycles", int(cfg.fifo_log_flush_cycles))
         # DATA_LOGFILE is baked into the generated RTL, so any already-generated
         # IP for this node has to be regenerated with the new path
         reset_implementation(node_inst)
@@ -1049,7 +1049,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     cfg_n_inferences=cfg.fifosim_n_inferences,
                     debug_log_dir=(_fifo_debug_live_dir(cfg) if cfg.debug_fifo else None),
                     fifo_log_verbose=cfg.fifo_log_verbose,
-                    fifo_log_flush=cfg.fifo_log_flush,
+                    fifo_log_flush_cycles=cfg.fifo_log_flush_cycles,
                 )
             )
             snapshot_fifo_logs(cfg, "fifo_sizing")
@@ -1109,7 +1109,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     # problems when trying to reuse the final config.
     model = model.transform(RemoveShallowFIFOs())
 
-    # Force every surviving top-level FIFO has a gauge log path.
+    # Make sure every surviving top-level FIFO has a gauge log path.
     model = _attach_fifo_debug_logs(model, cfg)
 
     # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again
@@ -1521,7 +1521,7 @@ def step_loop_body_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig
             debug_log_dir=(_fifo_debug_live_dir(cfg) if cfg.debug_fifo else None),
             debug_log_prefix=(loop_context + "_") if loop_context else "",
             fifo_log_verbose=cfg.fifo_log_verbose,
-            fifo_log_flush=cfg.fifo_log_flush,
+            fifo_log_flush_cycles=cfg.fifo_log_flush_cycles,
         )
     )
     # snapshot per-FIFO debug logs for this loop body before the live dir is reused
