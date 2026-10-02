@@ -31,6 +31,7 @@ import pytest
 
 import numpy as np
 import os
+import xml.etree.ElementTree as ET
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -354,3 +355,49 @@ def test_fpgadataflow_ipstitch_zynqbuild_end2end(board):
     bitfile_name = model.get_metadata_prop("bitfile")
     assert bitfile_name is not None
     assert os.path.isfile(bitfile_name)
+
+
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+def test_fpgadataflow_tlastmarker_single_beat_top_pipeline():
+    """A TLastMarker with a static count of one beat per frame (fully unrolled last
+    layer) must pass one beat per clock cycle. Its pipelined loop has a single
+    iteration then, so the top function itself is pipelined."""
+    width = 64
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, width])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, width])
+    node = helper.make_node(
+        "TLastMarker_hls",
+        ["inp"],
+        ["outp"],
+        NumIters=1,
+        StreamWidth=width,
+        ElemWidth=1,
+        DynIters=0,
+        Direction="out",
+        Protocol="internal",
+        domain="finn.custom_op.fpgadataflow.hls",
+        backend="fpgadataflow",
+    )
+    graph = helper.make_graph([node], "tlastmarker", [inp], [outp])
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="tlastmarker"))
+    model = model.transform(GiveUniqueNodeNames())
+    node = model.graph.node[0]
+    inst = getCustomOp(node)
+    pragma = "#pragma HLS pipeline II=1 style=flp"
+    # several beats per frame or a runtime-configurable count keep the pipelined loop
+    for attr, value in [("NumIters", 4), ("DynIters", 1)]:
+        original = inst.get_nodeattr(attr)
+        inst.set_nodeattr(attr, value)
+        inst.pragmas()
+        assert pragma not in inst.code_gen_dict["$PRAGMAS$"]
+        inst.set_nodeattr(attr, original)
+
+    model = model.transform(PrepareIP(test_fpga_part, 10))
+    model = model.transform(HLSSynthIP())
+    code_gen_dir = getCustomOp(model.graph.node[0]).get_nodeattr("code_gen_dir_ipgen")
+    with open(f"{code_gen_dir}/top_{node.name}.cpp") as f:
+        assert pragma in f.read()
+    report = f"{code_gen_dir}/project_{node.name}/sol1/syn/report/{node.name}_csynth.xml"
+    latency = ET.parse(report).getroot().find("PerformanceEstimates/SummaryOfOverallLatency")
+    assert int(latency.find("PipelineInitiationInterval").text) == 1
