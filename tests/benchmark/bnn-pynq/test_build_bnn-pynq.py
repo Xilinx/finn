@@ -199,33 +199,7 @@ _EXTRA_BUILDS = [
     ("U55C", "cnv-w2a2"),
 ]
 
-# Known-failing (board, model) builds, xfailed so the suite stays green and the PR
-# can land while the fully-connected bnn-pynq flows are finished off. Non-strict so
-# a build that starts passing (e.g. once the fit/streamline fix lands) xpasses
-# instead of erroring. Two distinct causes:
-#   * tfc-w1a1 / lfc-w1a1: step_streamline's ConvertBipolarMatMulToXnorPopcount
-#     cannot find the upstream bipolar MultiThreshold for the FC (flatten-then-
-#     MatMul) topology -- needs a streamlining tweak (cnv-w1a1, also bipolar,
-#     builds fine, so this is FC-specific, not a general bipolar break).
-#   * lfc-w1a2: LFC at 2-bit activations over-utilizes the small ZU3EG LUTs; the
-#     folding config is being retuned to fit (ZU3EG also has no URAM).
-_XFAIL_BUILDS = {
-    ("AUP-ZU3_8GB", "tfc-w1a1"): "FC bipolar XNOR streamline unresolved (see PR notes)",
-    ("AUP-ZU3_8GB", "lfc-w1a1"): "FC bipolar XNOR streamline unresolved (see PR notes)",
-    ("AUP-ZU3_8GB", "lfc-w1a2"): "LFC-w1a2 LUT fit on ZU3EG being retuned (see PR notes)",
-}
-
-
-def _bnn_param(board, model):
-    reason = _XFAIL_BUILDS.get((board, model))
-    marks = [pytest.mark.xfail(reason=reason, strict=False)] if reason else []
-    return pytest.param(board, model, marks=marks)
-
-
-BNN_BUILDS = [
-    _bnn_param(board, model)
-    for board, model in ([(BASELINE_BOARD, m) for m in _BASELINE_MODELS] + _EXTRA_BUILDS)
-]
+BNN_BUILDS = [(BASELINE_BOARD, m) for m in _BASELINE_MODELS] + _EXTRA_BUILDS
 
 
 @pytest.mark.slow
