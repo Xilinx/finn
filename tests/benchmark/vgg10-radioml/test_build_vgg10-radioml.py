@@ -4,23 +4,29 @@
 import pytest
 
 # custom steps for vgg10-radioml
-from benchmark_helpers import check_build_outputs, get_verify_steps
+import os
+from benchmark_helpers import (
+    benchmark_root,
+    check_build_outputs,
+    get_verify_steps,
+    verification_io_dir,
+)
 from custom_steps_vgg10 import step_pre_streamline
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 from finn.util.basic import make_build_dir
 
-build_flow_folder = "tests/benchmark/"
+build_flow_folder = benchmark_root()
 
 # model
 model_name = "radioml_w4a4_small_tidy"
-model_file = build_flow_folder + "models/%s.onnx" % model_name
+model_file = os.path.join(build_flow_folder, "models", "%s.onnx" % model_name)
 
 
 # verification parameters
-verify_input_npy = build_flow_folder + "verification_io/" + model_name + "_input.npy"
-verify_expected_output_npy = build_flow_folder + "verification_io/" + model_name + "_output.npy"
+verify_input_npy = os.path.join(verification_io_dir(), model_name + "_input.npy")
+verify_expected_output_npy = os.path.join(verification_io_dir(), model_name + "_output.npy")
 
 verif_steps = [
     "streamlined_python",
@@ -61,16 +67,21 @@ def configure_build(board, output_dir):
         generate_outputs=build_outputs,
         output_dir=output_dir,
         steps=build_steps,
-        folding_config_file=(
-            f"{build_flow_folder}vgg10-radioml/" f"folding_config/vgg10radioml_folding_config.json"
+        folding_config_file=os.path.join(
+            build_flow_folder,
+            "vgg10-radioml",
+            "folding_config",
+            "vgg10radioml_folding_config.json",
         ),
         synth_clk_period_ns=4.0,
         board=board,
         shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
         standalone_thresholds=True,
-        specialize_layers_config_file=(
-            f"{build_flow_folder}vgg10-radioml/"
-            f"specialize_layers_config/vgg10radioml_specialize_layers.json"
+        specialize_layers_config_file=os.path.join(
+            build_flow_folder,
+            "vgg10-radioml",
+            "specialize_layers_config",
+            "vgg10radioml_specialize_layers.json",
         ),
         verify_steps=get_verify_steps(verif_steps),
         verify_input_npy=verify_input_npy,

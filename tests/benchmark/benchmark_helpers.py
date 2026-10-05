@@ -10,6 +10,28 @@ import subprocess
 import finn.builder.build_dataflow_config as build_cfg
 
 
+def benchmark_root():
+    """Absolute path to the ``tests/benchmark`` suite root.
+
+    Anchored on ``FINN_ROOT`` so the suite resolves its models/configs/goldens
+    independently of the process working directory (several tests historically
+    used a bare ``"tests/benchmark/"`` relative path, which only worked when
+    pytest happened to run from the repo root).
+    """
+    return os.path.join(os.environ["FINN_ROOT"], "tests", "benchmark")
+
+
+def verification_io_dir():
+    """Directory holding the verification golden I/O (``.npy``) files.
+
+    The goldens are not committed to git. ``VERIFICATION_IO`` overrides the
+    location (e.g. an external mount provided by CI); otherwise it defaults to
+    the in-repo ``tests/benchmark/verification_io/``.
+    """
+    override = os.environ.get("VERIFICATION_IO", "").strip()
+    return override if override else os.path.join(benchmark_root(), "verification_io")
+
+
 def get_verify_steps(steps, env_var="VERIFICATION_EN", board_enabled=True):
     """Return ``steps`` when verification is enabled, else None.
 

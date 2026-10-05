@@ -80,6 +80,7 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${FINN_XRT_PATH=""}
 : ${FINN_DOCKER_NO_CACHE="0"}
 : ${VERIFICATION_EN="0"}
+: ${VERIFICATION_IO=""}
 
 # print-tag emits the Docker image tag and exits, so the Jenkins publish step
 # has one source of truth for the tag (FINN_DOCKER_TAG). Placed before any
@@ -368,12 +369,18 @@ if [ ! -z "$FINN_XILINX_PATH" ];then
   fi
 fi
 
-# Forward the verification toggle into the container. The in-repo benchmark suite
-# (tests/benchmark) keeps verification OFF by default and reads its verification
-# IO from in-repo files under tests/benchmark/verification_io/, so no external
-# FINN_EXAMPLES_ROOT/VERIFICATION_IO checkout is needed -- setting
-# VERIFICATION_EN=1 is enough to enable the numeric verification steps.
+# Forward the verification toggle into the container. The benchmark suite
+# (tests/benchmark) keeps verification OFF by default; setting VERIFICATION_EN=1
+# enables the numeric verification steps. The golden I/O is deliberately not
+# committed to git: by default the suite reads it from the in-repo
+# tests/benchmark/verification_io/ (already inside the mounted workspace), but
+# VERIFICATION_IO can point at an external directory, which is then mounted into
+# the container at the same path and exported so the tests resolve it.
 DOCKER_EXEC+="-e VERIFICATION_EN=$VERIFICATION_EN "
+if [ -n "$VERIFICATION_IO" ]; then
+  DOCKER_EXEC+="-v $VERIFICATION_IO:$VERIFICATION_IO "
+  DOCKER_EXEC+="-e VERIFICATION_IO=$VERIFICATION_IO "
+fi
 
 
 DOCKER_EXEC+="$FINN_DOCKER_EXTRA "

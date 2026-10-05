@@ -1,32 +1,30 @@
-############################################################################
-# Copyright (C) 2025, Advanced Micro Devices, Inc.
-# All rights reserved.
-#
+# Copyright Advanced Micro Devices, Inc.
 # SPDX-License-Identifier: BSD-3-Clause
-#
-############################################################################
 
 import pytest
 
+import os
 from benchmark_helpers import (
+    benchmark_root,
     bitfile_output_files,
     check_build_outputs,
     get_verify_steps,
+    verification_io_dir,
 )
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 from finn.util.basic import make_build_dir
 
-build_flow_folder = "tests/benchmark/"
+build_flow_folder = benchmark_root()
 
 # model
 model_name = "unsw_nb15-mlp-w2a2"
-model_file = build_flow_folder + "models/" + model_name + ".onnx"
+model_file = os.path.join(build_flow_folder, "models", model_name + ".onnx")
 
 # verification parameters
-verify_input_npy = build_flow_folder + "verification_io/" + model_name + "_input.npy"
-verify_expected_output_npy = build_flow_folder + "verification_io/" + model_name + "_output.npy"
+verify_input_npy = os.path.join(verification_io_dir(), model_name + "_input.npy")
+verify_expected_output_npy = os.path.join(verification_io_dir(), model_name + "_output.npy")
 
 verif_steps = [
     "finn_onnx_python",
@@ -55,17 +53,23 @@ def configure_build(board, output_dir):
             enable_build_pdb_debug=False,
             generate_outputs=build_outputs,
             output_dir=output_dir,
-            folding_config_file=(
-                f"{build_flow_folder}cybersecurity-mlp/"
-                f"folding_config/cybersecurity_folding_config_{board}.json"
+            folding_config_file=os.path.join(
+                build_flow_folder,
+                "cybersecurity-mlp",
+                "folding_config",
+                f"cybersecurity_folding_config_{board}.json",
             ),
             synth_clk_period_ns=10.0,
             mvau_wwidth_max=80,
             board=board,
             shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
             stitched_ip_gen_dcp=True,
-            specialize_layers_config_file=build_flow_folder
-            + "cybersecurity-mlp/specialize_layers_config/cybersecurity_specialize_layers.json",
+            specialize_layers_config_file=os.path.join(
+                build_flow_folder,
+                "cybersecurity-mlp",
+                "specialize_layers_config",
+                "cybersecurity_specialize_layers.json",
+            ),
             verify_steps=get_verify_steps(verif_steps),
             verify_input_npy=verify_input_npy,
             verify_expected_output_npy=verify_expected_output_npy,
@@ -82,8 +86,12 @@ def configure_build(board, output_dir):
             board=board,
             shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
             stitched_ip_gen_dcp=True,
-            specialize_layers_config_file=build_flow_folder
-            + "cybersecurity-mlp/specialize_layers_config/cybersecurity_specialize_layers.json",
+            specialize_layers_config_file=os.path.join(
+                build_flow_folder,
+                "cybersecurity-mlp",
+                "specialize_layers_config",
+                "cybersecurity_specialize_layers.json",
+            ),
             verify_steps=get_verify_steps(verif_steps),
             verify_input_npy=verify_input_npy,
             verify_expected_output_npy=verify_expected_output_npy,

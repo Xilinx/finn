@@ -1,30 +1,31 @@
-############################################################################
-# Copyright (C) 2025, Advanced Micro Devices, Inc.
-# All rights reserved.
-#
+# Copyright Advanced Micro Devices, Inc.
 # SPDX-License-Identifier: BSD-3-Clause
-#
-############################################################################
 
 import pytest
 
 # custom steps for resnet50v1.5
-from benchmark_helpers import check_build_outputs, get_verify_steps
+import os
+from benchmark_helpers import (
+    benchmark_root,
+    check_build_outputs,
+    get_verify_steps,
+    verification_io_dir,
+)
 from custom_steps_resnet50 import step_resnet50_streamline, step_resnet50_tidy
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 from finn.util.basic import make_build_dir
 
-build_flow_folder = "tests/benchmark/"
+build_flow_folder = benchmark_root()
 
 # model
 model_name = "resnet50_w1a2_exported"
-model_file = build_flow_folder + "models/" + model_name + ".onnx"
+model_file = os.path.join(build_flow_folder, "models", model_name + ".onnx")
 
 # verification parameters
-verify_input_npy = build_flow_folder + "verification_io/" + model_name + "_input.npy"
-verify_expected_output_npy = build_flow_folder + "verification_io/" + model_name + "_output.npy"
+verify_input_npy = os.path.join(verification_io_dir(), model_name + "_input.npy")
+verify_expected_output_npy = os.path.join(verification_io_dir(), model_name + "_output.npy")
 
 verif_steps = [
     "initial_python",
@@ -67,8 +68,11 @@ def configure_build(board, output_dir):
         standalone_thresholds=True,
         generate_outputs=build_outputs,
         output_dir=output_dir,
-        folding_config_file=(
-            f"{build_flow_folder}resnet50/folding_config/" f"resnet50_folding_config_{board}.json"
+        folding_config_file=os.path.join(
+            build_flow_folder,
+            "resnet50",
+            "folding_config",
+            f"resnet50_folding_config_{board}.json",
         ),
         auto_fifo_depths=True,
         synth_clk_period_ns=4.0,
@@ -78,9 +82,11 @@ def configure_build(board, output_dir):
         # stitched IP (no BITFILE), shell_flow_type is only consulted during synth,
         # so it is left unset to avoid the Vivado-version check. Restore
         # shell_flow_type=build_cfg.ShellFlowType.SLASH_ALVEO when synthesizing.
-        specialize_layers_config_file=(
-            f"{build_flow_folder}resnet50/specialize_layers_config/"
-            f"resnet50_specialize_layers_{board}.json"
+        specialize_layers_config_file=os.path.join(
+            build_flow_folder,
+            "resnet50",
+            "specialize_layers_config",
+            f"resnet50_specialize_layers_{board}.json",
         ),
         verify_steps=get_verify_steps(verif_steps),
         verify_input_npy=verify_input_npy,

@@ -1,38 +1,16 @@
-# Copyright (C) 2024, Advanced Micro Devices, Inc.
-# All rights reserved.
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are met:
-#
-# * Redistributions of source code must retain the above copyright notice, this
-#   list of conditions and the following disclaimer.
-#
-# * Redistributions in binary form must reproduce the above copyright notice,
-#   this list of conditions and the following disclaimer in the documentation
-#   and/or other materials provided with the distribution.
-#
-# * Neither the name of FINN nor the names of its
-#   contributors may be used to endorse or promote products derived from
-#   this software without specific prior written permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# Copyright Advanced Micro Devices, Inc.
+# SPDX-License-Identifier: BSD-3-Clause
 
 import pytest
 
 import numpy as np
+import os
 from benchmark_helpers import (
+    benchmark_root,
     bitfile_output_files,
     check_build_outputs,
     get_verify_steps,
+    verification_io_dir,
 )
 from onnx import helper as oh
 from qonnx.core.datatype import DataType
@@ -42,7 +20,7 @@ import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 from finn.util.basic import make_build_dir
 
-build_fd = "tests/benchmark/"
+build_fd = benchmark_root()
 
 
 def custom_step_add_preproc(model, cfg):
@@ -75,11 +53,11 @@ def custom_step_add_postproc(model, cfg):
 
 # model
 model_name = "cnv_1w1a_gtsrb"
-model_file = build_fd + "models/" + model_name + ".onnx"
+model_file = os.path.join(build_fd, "models", model_name + ".onnx")
 
 # verification parameters
-verify_input_npy = build_fd + "verification_io/" + model_name + "_input.npy"
-verify_expected_output_npy = build_fd + "verification_io/" + model_name + "_output.npy"
+verify_input_npy = os.path.join(verification_io_dir(), model_name + "_input.npy")
+verify_expected_output_npy = os.path.join(verification_io_dir(), model_name + "_output.npy")
 
 verif_steps = [
     "finn_onnx_python",
@@ -102,8 +80,9 @@ build_outputs = [
 
 
 def configure_build(board, output_dir):
-    f_file = f"{build_fd}gtsrb/folding_config/gtsrb_folding_config_{board}"
-    sl_file = f"{build_fd}gtsrb/specialize_layers_config/gtsrb_specialize_layers"
+    cfg_dir = os.path.join(build_fd, "gtsrb")
+    f_file = f"{cfg_dir}/folding_config/gtsrb_folding_config_{board}"
+    sl_file = f"{cfg_dir}/specialize_layers_config/gtsrb_specialize_layers"
     cfg = build_cfg.DataflowBuildConfig(
         # non-interactive run: surface the real error instead of dropping into pdb
         enable_build_pdb_debug=False,

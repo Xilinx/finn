@@ -1,38 +1,23 @@
 #!/bin/bash
-############################################################################
-# Copyright (C) 2025, Advanced Micro Devices, Inc.
-# All rights reserved.
-#
+# Copyright Advanced Micro Devices, Inc.
 # SPDX-License-Identifier: BSD-3-Clause
-#
-############################################################################
 
-# Download and unpack models
+# Download and unpack the benchmark models into this directory, so the suite
+# resolves them via benchmark_root()/models regardless of the caller's CWD.
+set -eo pipefail
+cd "$(dirname "$0")"
+
+REL="https://github.com/Xilinx/finn-examples/releases/download/v0.0.7a"
 
 # BNN-PYNQ examples (tfc / lfc / cnv) are exported on the fly from the Brevitas
 # pretrained BNN-PYNQ networks
-python "$(dirname "$0")/export_bnn_models.py"
+python export_bnn_models.py
 
-# Cybersecurity example
-wget https://github.com/Xilinx/finn-examples/releases/download/v0.0.7a/onnx-models-cybersecurity.zip
-unzip -j onnx-models-cybersecurity.zip
-
-# German Traffic Sign Recognition Benchmark
-wget https://github.com/Xilinx/finn-examples/releases/download/v0.0.7a/onnx-models-gtsrb.zip
-unzip -j onnx-models-gtsrb.zip
-
-# Keyword spotting
-wget https://github.com/Xilinx/finn-examples/releases/download/v0.0.7a/onnx-models-kws.zip
-unzip -j onnx-models-kws.zip
-
-# Mobilenet-v1
-wget https://github.com/Xilinx/finn-examples/releases/download/v0.0.7a/onnx-models-mobilenetv1.zip
-unzip -j onnx-models-mobilenetv1.zip
-
-# ResNet50
-wget https://github.com/Xilinx/finn-examples/releases/download/v0.0.7a/onnx-models-resnet50.zip
-unzip -j onnx-models-resnet50.zip
-
-# VGG10 - RadioML
-wget https://github.com/Xilinx/finn-examples/releases/download/v0.0.7a/onnx-models-radioml.zip
-unzip -j onnx-models-radioml.zip
+# Remaining examples are pre-exported ONNX published as release zips; -j junks
+# the archive paths so the .onnx files land directly here.
+for name in cybersecurity gtsrb kws mobilenetv1 resnet50 radioml; do
+  zip="onnx-models-${name}.zip"
+  wget -q "${REL}/${zip}"
+  unzip -j -o "${zip}"
+  rm -f "${zip}"
+done

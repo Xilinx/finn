@@ -1,19 +1,16 @@
-############################################################################
-# Copyright (C) 2025, Advanced Micro Devices, Inc.
-# All rights reserved.
-#
+# Copyright Advanced Micro Devices, Inc.
 # SPDX-License-Identifier: BSD-3-Clause
-#
-############################################################################
 
 import pytest
 
 import os
 import torch
 from benchmark_helpers import (
+    benchmark_root,
     bitfile_output_files,
     check_build_outputs,
     get_verify_steps,
+    verification_io_dir,
 )
 from brevitas.export import export_qonnx
 from qonnx.core.datatype import DataType
@@ -30,12 +27,10 @@ from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.util.basic import make_build_dir, vitis_default_platform
 from finn.util.pytorch import ToTensor
 
-build_fd = os.environ["FINN_ROOT"] + "/tests/benchmark/"
-
 
 # model
 def get_model_file(model):
-    return build_fd + "models/" + model + ".onnx"
+    return os.path.join(benchmark_root(), "models", model + ".onnx")
 
 
 # The BNN-PYNQ nets are trained on ToTensor-normalized images (raw uint8 / 255).
@@ -95,19 +90,13 @@ build_outputs = [
 # quantization (both tfc and lfc classify the shared MNIST sample to the same
 # digit), so lfc reuses the tfc MNIST I/O directly -- no lfc-specific golden file.
 def get_verify_input_npy(model):
-    if model.startswith("tfc-") or model.startswith("lfc-"):
-        verify_input_npy = build_fd + "verification_io/tfc_mnist_input.npy"
-    else:
-        verify_input_npy = build_fd + "verification_io/cnv_cifar10_input.npy"
-    return verify_input_npy
+    stem = "tfc_mnist" if model.startswith(("tfc-", "lfc-")) else "cnv_cifar10"
+    return os.path.join(verification_io_dir(), stem + "_input.npy")
 
 
 def get_verify_output_npy(model):
-    if model.startswith("tfc-") or model.startswith("lfc-"):
-        verify_expected_output_npy = build_fd + "verification_io/tfc_mnist_output.npy"
-    else:
-        verify_expected_output_npy = build_fd + "verification_io/cnv_cifar10_output.npy"
-    return verify_expected_output_npy
+    stem = "tfc_mnist" if model.startswith(("tfc-", "lfc-")) else "cnv_cifar10"
+    return os.path.join(verification_io_dir(), stem + "_output.npy")
 
 
 def platform_to_shell(platform):
@@ -125,52 +114,33 @@ def configure_build(board, model, output_dir):
         vitis_platform = vitis_default_platform[board]
     else:
         vitis_platform = None
-    f_file = f"{build_fd}bnn-pynq/folding_config/{model}_folding_config"
-    sl_file = f"{build_fd}bnn-pynq/specialize_layers_config/{model}_specialize_layers"
-    if board in ["AUP-ZU3_8GB"]:
-        f_file = f_file + f"_{board}"
-        sl_file = sl_file + f"_{board}"
-        cfg = build_cfg.DataflowBuildConfig(
-            # non-interactive run: surface the real error instead of dropping into pdb
-            enable_build_pdb_debug=False,
-            generate_outputs=build_outputs,
-            output_dir=output_dir,
-            folding_config_file=f_file + ".json",
-            synth_clk_period_ns=10.0,
-            board=board,
-            shell_flow_type=platform_to_shell(board),
-            vitis_platform=vitis_platform,
-            stitched_ip_gen_dcp=False,
-            specialize_layers_config_file=sl_file + ".json",
-            inject_steps_before={
-                "step_qonnx_to_finn": [custom_step_add_preproc, custom_step_add_postproc]
-            },
-            verify_steps=get_verify_steps(verif_steps, board_enabled=(board == BASELINE_BOARD)),
-            verify_input_npy=get_verify_input_npy(model),
-            verify_expected_output_npy=get_verify_output_npy(model),
-            default_swg_exception=True,
-        )
-    else:
-        cfg = build_cfg.DataflowBuildConfig(
-            # non-interactive run: surface the real error instead of dropping into pdb
-            enable_build_pdb_debug=False,
-            generate_outputs=build_outputs,
-            output_dir=output_dir,
-            folding_config_file=f_file + ".json",
-            synth_clk_period_ns=10.0,
-            board=board,
-            shell_flow_type=platform_to_shell(board),
-            vitis_platform=vitis_platform,
-            stitched_ip_gen_dcp=False,
-            specialize_layers_config_file=sl_file + ".json",
-            inject_steps_before={
-                "step_qonnx_to_finn": [custom_step_add_preproc, custom_step_add_postproc]
-            },
-            verify_steps=get_verify_steps(verif_steps, board_enabled=(board == BASELINE_BOARD)),
-            verify_input_npy=get_verify_input_npy(model),
-            verify_expected_output_npy=get_verify_output_npy(model),
-            default_swg_exception=True,
-        )
+    # The folding/specialize configs are board-agnostic: they are tuned for the
+    # smallest target in the suite (AUP-ZU3_8GB, ZU3EG, no URAM), so they also fit
+    # the larger KV260_SOM and U55C parts. One config file per (model) serves every
+    # board.
+    cfg_dir = os.path.join(benchmark_root(), "bnn-pynq")
+    f_file = f"{cfg_dir}/folding_config/{model}_folding_config"
+    sl_file = f"{cfg_dir}/specialize_layers_config/{model}_specialize_layers"
+    cfg = build_cfg.DataflowBuildConfig(
+        # non-interactive run: surface the real error instead of dropping into pdb
+        enable_build_pdb_debug=False,
+        generate_outputs=build_outputs,
+        output_dir=output_dir,
+        folding_config_file=f_file + ".json",
+        synth_clk_period_ns=10.0,
+        board=board,
+        shell_flow_type=platform_to_shell(board),
+        vitis_platform=vitis_platform,
+        stitched_ip_gen_dcp=False,
+        specialize_layers_config_file=sl_file + ".json",
+        inject_steps_before={
+            "step_qonnx_to_finn": [custom_step_add_preproc, custom_step_add_postproc]
+        },
+        verify_steps=get_verify_steps(verif_steps, board_enabled=(board == BASELINE_BOARD)),
+        verify_input_npy=get_verify_input_npy(model),
+        verify_expected_output_npy=get_verify_output_npy(model),
+        default_swg_exception=True,
+    )
     return cfg
 
 

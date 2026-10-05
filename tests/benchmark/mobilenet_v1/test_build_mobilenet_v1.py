@@ -4,10 +4,13 @@
 import pytest
 
 # custom steps for mobilenetv1
+import os
 from benchmark_helpers import (
+    benchmark_root,
     bitfile_output_files,
     check_build_outputs,
     get_verify_steps,
+    verification_io_dir,
 )
 from custom_steps_mobilenet import (
     step_mobilenet_slr_floorplan,
@@ -18,16 +21,16 @@ import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 from finn.util.basic import make_build_dir
 
-build_fd = "tests/benchmark/"
+build_fd = benchmark_root()
 
 # model
 model_name = "mobilenetv1-w4a4"
-model_file = build_fd + "models/%s_pre_post_tidy_opset-11.onnx" % model_name
+model_file = os.path.join(build_fd, "models", "%s_pre_post_tidy_opset-11.onnx" % model_name)
 
 
 # verification parameters
-verify_input_npy = build_fd + "verification_io/" + model_name + "_input.npy"
-verify_expected_output_npy = build_fd + "verification_io/" + model_name + "_output.npy"
+verify_input_npy = os.path.join(verification_io_dir(), model_name + "_input.npy")
+verify_expected_output_npy = os.path.join(verification_io_dir(), model_name + "_output.npy")
 
 
 def select_verif_steps(platform):
@@ -87,8 +90,9 @@ def platform_to_shell(platform):
 
 
 def configure_build(board, output_dir):
-    f_file = f"{build_fd}mobilenet_v1/folding_config/mobilenet_folding_config_{board}"
-    sl_file = f"{build_fd}mobilenet_v1/specialize_layers_config/mobilenet_specialize_layers_{board}"
+    cfg_dir = os.path.join(build_fd, "mobilenet_v1")
+    f_file = f"{cfg_dir}/folding_config/mobilenet_folding_config_{board}"
+    sl_file = f"{cfg_dir}/specialize_layers_config/mobilenet_specialize_layers_{board}"
     # U55C (Alveo) applies SLR floorplanning before bitfile synthesis
     inject_before = {}
     if board == "U55C":

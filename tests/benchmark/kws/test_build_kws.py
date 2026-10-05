@@ -1,17 +1,15 @@
-############################################################################
-# Copyright (C) 2025, Advanced Micro Devices, Inc.
-# All rights reserved.
-#
+# Copyright Advanced Micro Devices, Inc.
 # SPDX-License-Identifier: BSD-3-Clause
-#
-############################################################################
 
 import pytest
 
+import os
 from benchmark_helpers import (
+    benchmark_root,
     bitfile_output_files,
     check_build_outputs,
     get_verify_steps,
+    verification_io_dir,
 )
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.insert_topk import InsertTopK
@@ -21,7 +19,7 @@ import finn.builder.build_dataflow_config as build_cfg
 from finn.builder.build_dataflow_config import DataflowBuildConfig
 from finn.util.basic import make_build_dir
 
-build_fd = "tests/benchmark/"
+build_fd = benchmark_root()
 
 
 # Custom step to insert a TopK node so the accelerator returns the predicted
@@ -33,11 +31,11 @@ def step_postprocess(model: ModelWrapper, cfg: DataflowBuildConfig):
 
 # model
 model_name = "MLP_W3A3_python_speech_features_pre-processing_QONNX_opset-11"
-model_file = build_fd + "models/" + model_name + ".onnx"
+model_file = os.path.join(build_fd, "models", model_name + ".onnx")
 
 # verification parameters
-verify_input_npy = build_fd + "verification_io/" + model_name + "_input.npy"
-verify_expected_output_npy = build_fd + "verification_io/" + model_name + "_output.npy"
+verify_input_npy = os.path.join(verification_io_dir(), model_name + "_input.npy")
+verify_expected_output_npy = os.path.join(verification_io_dir(), model_name + "_output.npy")
 
 verif_steps = [
     "finn_onnx_python",
@@ -61,8 +59,9 @@ build_outputs = [
 
 # Configure build
 def configure_build(board, output_dir):
-    f_file = f"{build_fd}kws/folding_config/kws_folding_config_{board}"
-    sl_file = f"{build_fd}kws/specialize_layers_config/kws_specialize_layers"
+    cfg_dir = os.path.join(build_fd, "kws")
+    f_file = f"{cfg_dir}/folding_config/kws_folding_config_{board}"
+    sl_file = f"{cfg_dir}/specialize_layers_config/kws_specialize_layers"
     cfg = build_cfg.DataflowBuildConfig(
         # non-interactive run: surface the real error instead of dropping into pdb
         enable_build_pdb_debug=False,
