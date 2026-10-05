@@ -30,6 +30,7 @@
 import pytest
 
 import json
+import numpy as np
 import os
 import re
 import torch
@@ -41,17 +42,22 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.util.basic import qonnx_make_model
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
+from finn.analysis.fpgadataflow.fifo_transaction_counts import fifo_transaction_counts
 from finn.transformation.fpgadataflow.set_fifo_depths import (
     InsertAndSetFIFODepths,
     check_fifo_gauge_overflow,
 )
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import make_build_dir, robust_rmtree
-from finn.util.rtlsim import read_fifo_log_snapshot
+from finn.util.rtlsim import (
+    fifo_log_is_consistent,
+    parse_fifo_log,
+    read_fifo_log_snapshot,
+)
 from finn.util.test import get_trained_network_and_ishape
 
 FPGAPART = "xc7z020clg400-1"
@@ -304,6 +310,97 @@ def gauge_maxfill_per_fifo(log_dir):
     return {name: log["maxfill"] for name, log in read_fifo_log_snapshot(log_dir).items()}
 
 
+# The two log formats fifo_gauge.sv writes, and the direction column of a verbose
+# body line (0 = input, 1 = output)
+
+
+
+def write_fifo_log(tmp_path, name, lines):
+    """Write one gauge log verbatim and return its path."""
+    path = tmp_path / (name + ".log")
+    path.write_text("\n".join(lines) + "\n")
+    return str(path)
+
+
+@pytest.mark.fpgadataflow
+def test_parse_fifo_log(tmp_path):
+    """Covers the gauge log parser on plain, verbose and malformed logs.
+
+    The builds below only ever see well-formed logs, so the failure modes -- a
+    truncated log from a simulation that died, a header the parser does not know,
+    a body that contradicts its own summary -- are checked here on hand-written
+    text instead of on a simulation that would have to be made to misbehave.
+    """
+    format_dict = {
+        plain_header: "# data",
+        verbose_header: "# data dir cycle",
+        dir_in: 0,
+        dir_out: 1,
+        gauge_summary: "# [tb.dut.fifo @100] Cycles: 10; MaxFill: 1; Transactions: in=1 out=1",
+    }
+
+    verbose = parse_fifo_log(
+        write_fifo_log(
+            tmp_path,
+            "verbose",
+            [format_dict["verbose_header"],
+             "ff 0 3",
+             "ff 1 5",
+             format_dict["gauge_summary"]])
+    )
+    assert verbose["verbose"] is True
+    assert verbose["name"] == "tb.dut.fifo"
+    assert verbose["txns"] == [(255, format_dict["dir_in"], 3), (255, format_dict["dir_out"], 5)]
+    assert (verbose["in"], verbose["out"]) == (1, 1)
+    assert (verbose["cycles"], verbose["maxfill"]) == (10, 1)
+    fifo_log_is_consistent(verbose)
+
+    # a plain log records inputs only, so the direction and cycle columns are absent
+    plain = parse_fifo_log(write_fifo_log(tmp_path, "plain", [format_dict["plain_header"], "ff", format_dict["gauge_summary"]]))
+    assert plain["verbose"] is False
+    assert plain["txns"] == [(255, None, None)]
+    fifo_log_is_consistent(plain)
+
+    # a word the simulation logged as undriven parses, but without a value
+    xz = parse_fifo_log(write_fifo_log(tmp_path, "xz", [format_dict["plain_header"], "xx", format_dict["gauge_summary"]]))
+    assert xz["txns"] == [(None, None, None)]
+
+    # a snapshot reads every log in the directory and skips the empty ones, which
+    # is how a FIFO that never saw a transaction shows up
+    (tmp_path / "empty.log").write_text("")
+    snapshot = read_fifo_log_snapshot(str(tmp_path))
+    assert set(snapshot) == {"verbose", "plain", "xz"}
+    assert snapshot["verbose"]["txns"] == verbose["txns"]
+
+    malformed = {
+        # an unrecognized header is a parse error, not a silently mis-parsed log
+        "bad_header": ["# data cycle", "ff 3", format_dict["gauge_summary"]],
+        # the simulation died before the gauge wrote its final block
+        "truncated": [format_dict["verbose_header"], "ff 0 3"],
+        # a verbose body line in a log that declares itself plain
+        "wrong_columns": [format_dict["plain_header"], "ff 0 3", format_dict["gauge_summary"]],
+        # a header with no summary line after it
+        "header_only": [format_dict["plain_header"]],
+    }
+    for name, lines in malformed.items():
+        with pytest.raises(ValueError):
+            parse_fifo_log(write_fifo_log(tmp_path, name, lines))
+
+    # these parse, but their bodies disagree with their own summary counters
+    inconsistent = {
+        # two input lines against in=1
+        "extra_input": [format_dict["plain_header"], "ff", "ee", format_dict["gauge_summary"]],
+        # an output word that is not the input word that preceded it
+        "reordered": [format_dict["verbose_header"], "ff 0 3", "ee 1 5", format_dict["gauge_summary"]],
+        # an output logged before the input it carries
+        "out_before_in": [format_dict["verbose_header"], "ff 0 5", "ff 1 5", format_dict["gauge_summary"]],
+    }
+    for name, lines in inconsistent.items():
+        log = parse_fifo_log(write_fifo_log(tmp_path, name, lines))
+        with pytest.raises(ValueError):
+            fifo_log_is_consistent(log)
+
+
 @pytest.mark.fpgadataflow
 def test_fifo_gauge_overflow_sentinel_matches_rtl():
     """Ties the RTL gauge counter, the wrapper carrier and the Python sentinel together.
@@ -391,3 +488,115 @@ def test_fifosizing_residual_matches_gauge_maxfill():
     assert (
         not mismatches
     ), "FIFO depth does not match the occupancy the gauge measured:\n  " + "\n  ".join(mismatches)
+
+
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.fpgadataflow
+@pytest.mark.parametrize("fifo_log_verbose", [False, True])
+def test_fifo_log_build(fifo_log_verbose):
+    """Checks a debug_fifo build's logs against the graph they were produced from.
+
+    Both log formats are built, since fifo_log_verbose decides what the gauge
+    writes per transaction. fifo_log_flush_cycles is not swept: it only controls
+    how often the gauge flushes its buffer, so the finished log is identical for
+    every value.
+    """
+    output_dir = make_build_dir("test_fifo_log_verbose%s_" % fifo_log_verbose)
+    model = make_residual_modelwrapper()
+    model_file = output_dir + "/model.onnx"
+    model.save(model_file)
+
+    idt = model.get_tensor_datatype("inp")
+    inp = gen_finn_dt_tensor(idt, model.get_tensor_shape("inp"))
+    np.save(output_dir + "/input.npy", inp)
+    # the residual graph forks its input and adds the two branches back together
+    np.save(output_dir + "/expected_output.npy", 2 * inp)
+
+    cfg = build_cfg.DataflowBuildConfig(
+        output_dir=output_dir,
+        synth_clk_period_ns=10.0,
+        fpga_part=FPGAPART,
+        # the model is already built from hw ops, so the import/streamline phases
+        # have nothing to do
+        steps=[
+            "phase_convert_to_hardware",
+            "phase_optimize_hardware",
+            "phase_build_hardware",
+            "phase_generate_outputs",
+        ],
+        auto_fifo_depths=True,
+        auto_fifo_strategy=build_cfg.AutoFIFOSizingMethod.LARGEFIFO_RTLSIM,
+        debug_fifo=True,
+        fifo_log_verbose=fifo_log_verbose,
+        # the folding is pinned by the PE attributes the graph is built with, so
+        # the folding_missing check is a false positive here and target_fps would
+        # override that deliberate folding
+        mute_config_assertions=True,
+        verify_steps=[build_cfg.VerificationStepType.STITCHED_IP_RTLSIM],
+        verify_input_npy=output_dir + "/input.npy",
+        verify_expected_output_npy=output_dir + "/expected_output.npy",
+        generate_outputs=[build_cfg.DataflowOutputType.STITCHED_IP],
+    )
+    assert build.build_dataflow_cfg(model_file, cfg) == 0, "build failed, see build_dataflow.log"
+    assert os.path.isfile(
+        output_dir + "/verification_output/verify_stitched_ip_rtlsim_0_SUCCESS.npy"
+    ), "stitched-ip rtlsim did not reproduce the expected output"
+
+    log_dir = output_dir + "/debug/fifo_logs/stitched_ip_rtlsim/main"
+    logs = read_fifo_log_snapshot(log_dir)
+    assert logs, "debug_fifo was on but no FIFO log in " + log_dir
+
+    # read_fifo_log_snapshot() detects the format per log and skips empty files;
+    # this build asked for one specific format and expects every FIFO to report
+    empty = [
+        f
+        for f in sorted(os.listdir(log_dir))
+        if f.endswith(".log") and os.path.getsize(os.path.join(log_dir, f)) == 0
+    ]
+    assert empty == [], "empty FIFO logs in %s: %s" % (log_dir, empty)
+    wrong_format = {
+        n: log["verbose"] for n, log in logs.items() if log["verbose"] != fifo_log_verbose
+    }
+    assert wrong_format == {}, "built with fifo_log_verbose=%s but these logs say otherwise: %s" % (
+        fifo_log_verbose,
+        wrong_format,
+    )
+
+    final_model = ModelWrapper(output_dir + "/intermediate_models/step_create_stitched_ip.onnx")
+    expected_counts = final_model.analysis(fifo_transaction_counts)
+    assert len(expected_counts) >= 4, "expected at least one FIFO per fork/join branch"
+
+    # exactly one log per FIFO in the final graph -- no gaps, no strays
+    missing = sorted(set(expected_counts) - set(logs))
+    extra = sorted(set(logs) - set(expected_counts))
+    assert not missing, "%s: no log written for FIFO(s) %s" % (log_dir, missing)
+    assert not extra, "%s: log(s) %s do not correspond to a FIFO in this graph" % (log_dir, extra)
+
+    for name, log in logs.items():
+        # the body has to agree with the gauge's own end-of-run counters
+        fifo_log_is_consistent(log)
+        # ...and those counters have to agree with the graph the FIFO sits in
+        assert log["in"] == expected_counts[name], "%s: logged in=%d, expected %d" % (
+            log["path"],
+            log["in"],
+            expected_counts[name],
+        )
+        n_in, n_lines = log["in"], len(log["txns"])
+        if fifo_log_verbose:
+            # a verbose log records both directions, and the sim ran to completion
+            # so everything that went in came back out
+            assert log["out"] == n_in, "%s: %d words in but %d out" % (
+                log["path"],
+                n_in,
+                log["out"],
+            )
+            assert n_lines == 2 * n_in, "%s: %d body lines, expected 2*%d" % (
+                log["path"],
+                n_lines,
+                n_in,
+            )
+        else:
+            assert n_lines == n_in, "%s: %d body lines, expected %d" % (log["path"], n_lines, n_in)
+
+    robust_rmtree(output_dir)
