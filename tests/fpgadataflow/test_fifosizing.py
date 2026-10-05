@@ -310,11 +310,6 @@ def gauge_maxfill_per_fifo(log_dir):
     return {name: log["maxfill"] for name, log in read_fifo_log_snapshot(log_dir).items()}
 
 
-# The two log formats fifo_gauge.sv writes, and the direction column of a verbose
-# body line (0 = input, 1 = output)
-
-
-
 def write_fifo_log(tmp_path, name, lines):
     """Write one gauge log verbatim and return its path."""
     path = tmp_path / (name + ".log")
@@ -324,29 +319,23 @@ def write_fifo_log(tmp_path, name, lines):
 
 @pytest.mark.fpgadataflow
 def test_parse_fifo_log(tmp_path):
-    """Covers the gauge log parser on plain, verbose and malformed logs.
-
-    The builds below only ever see well-formed logs, so the failure modes -- a
-    truncated log from a simulation that died, a header the parser does not know,
-    a body that contradicts its own summary -- are checked here on hand-written
-    text instead of on a simulation that would have to be made to misbehave.
-    """
+    """Covers the gauge log parser on plain, verbose and malformed logs."""
+    # the two log formats fifo_gauge.sv writes, and the direction column of a
+    # verbose body line (0 = input, 1 = output)
     format_dict = {
-        plain_header: "# data",
-        verbose_header: "# data dir cycle",
-        dir_in: 0,
-        dir_out: 1,
-        gauge_summary: "# [tb.dut.fifo @100] Cycles: 10; MaxFill: 1; Transactions: in=1 out=1",
+        "plain_header": "# data",
+        "verbose_header": "# data dir cycle",
+        "dir_in": 0,
+        "dir_out": 1,
+        "gauge_summary": "# [tb.dut.fifo @100] Cycles: 10; MaxFill: 1; Transactions: in=1 out=1",
     }
 
     verbose = parse_fifo_log(
         write_fifo_log(
             tmp_path,
             "verbose",
-            [format_dict["verbose_header"],
-             "ff 0 3",
-             "ff 1 5",
-             format_dict["gauge_summary"]])
+            [format_dict["verbose_header"], "ff 0 3", "ff 1 5", format_dict["gauge_summary"]],
+        )
     )
     assert verbose["verbose"] is True
     assert verbose["name"] == "tb.dut.fifo"
@@ -356,13 +345,25 @@ def test_parse_fifo_log(tmp_path):
     fifo_log_is_consistent(verbose)
 
     # a plain log records inputs only, so the direction and cycle columns are absent
-    plain = parse_fifo_log(write_fifo_log(tmp_path, "plain", [format_dict["plain_header"], "ff", format_dict["gauge_summary"]]))
+    plain = parse_fifo_log(
+        write_fifo_log(
+            tmp_path,
+            "plain",
+            [format_dict["plain_header"], "ff", format_dict["gauge_summary"]],
+        )
+    )
     assert plain["verbose"] is False
     assert plain["txns"] == [(255, None, None)]
     fifo_log_is_consistent(plain)
 
     # a word the simulation logged as undriven parses, but without a value
-    xz = parse_fifo_log(write_fifo_log(tmp_path, "xz", [format_dict["plain_header"], "xx", format_dict["gauge_summary"]]))
+    xz = parse_fifo_log(
+        write_fifo_log(
+            tmp_path,
+            "xz",
+            [format_dict["plain_header"], "xx", format_dict["gauge_summary"]],
+        )
+    )
     assert xz["txns"] == [(None, None, None)]
 
     # a snapshot reads every log in the directory and skips the empty ones, which
@@ -391,9 +392,19 @@ def test_parse_fifo_log(tmp_path):
         # two input lines against in=1
         "extra_input": [format_dict["plain_header"], "ff", "ee", format_dict["gauge_summary"]],
         # an output word that is not the input word that preceded it
-        "reordered": [format_dict["verbose_header"], "ff 0 3", "ee 1 5", format_dict["gauge_summary"]],
+        "reordered": [
+            format_dict["verbose_header"],
+            "ff 0 3",
+            "ee 1 5",
+            format_dict["gauge_summary"],
+        ],
         # an output logged before the input it carries
-        "out_before_in": [format_dict["verbose_header"], "ff 0 5", "ff 1 5", format_dict["gauge_summary"]],
+        "out_before_in": [
+            format_dict["verbose_header"],
+            "ff 0 5",
+            "ff 1 5",
+            format_dict["gauge_summary"],
+        ],
     }
     for name, lines in inconsistent.items():
         log = parse_fifo_log(write_fifo_log(tmp_path, name, lines))
