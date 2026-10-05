@@ -142,7 +142,7 @@ The following outputs will be generated regardless of which particular outputs a
 * ``final_hw_config.json`` will contain the final (after parallelization, FIFO sizing etc) hardware configuration for the build. It is written by the FIFO sizing step, so it is not produced for estimate-only builds (where FIFO sizing is skipped)
 * ``template_specialize_layers_config.json`` is an example json file that can be used to set the specialize layers config
 * ``intermediate_models/`` will contain the ONNX file(s) produced after each build step
-
+* ``debug/fifo_logs`` contain debugging logs of each StreamingFIFO when ``BuildCfg.debug_fifo=True`` (see :ref:`streaming_fifo`)
 
 The other output products are controlled by the `generate_outputs` field in the
 build configuration), and are detailed below.
