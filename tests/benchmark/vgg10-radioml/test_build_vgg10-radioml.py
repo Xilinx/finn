@@ -83,12 +83,13 @@ def configure_build(board, output_dir):
 @pytest.mark.vivado
 @pytest.mark.finn_examples
 @pytest.mark.parametrize("board", ["ZCU104"])
-def test_vgg10radioml(board):
+def test_vgg10radioml(board, bench_recorder):
     output_dir = make_build_dir("build_vgg10-radioml_")
 
     # Run build flow
     cfg = configure_build(board, output_dir)
     build.build_dataflow_cfg(model_file, cfg)
+    bench_recorder(model_name, board, output_dir)
 
     # Check that all expected output products (and the per-step verification
     # markers) are present, reporting every missing artifact at once instead of

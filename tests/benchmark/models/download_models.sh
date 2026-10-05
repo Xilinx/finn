@@ -9,9 +9,9 @@
 
 # Download and unpack models
 
-# BNN PYNQ examples
-wget https://github.com/Xilinx/finn-examples/releases/download/v0.0.1a/onnx-models-bnn-pynq.zip
-unzip onnx-models-bnn-pynq.zip
+# BNN-PYNQ examples (tfc / lfc / cnv) are exported on the fly from the Brevitas
+# pretrained BNN-PYNQ networks
+python "$(dirname "$0")/export_bnn_models.py"
 
 # Cybersecurity example
 wget https://github.com/Xilinx/finn-examples/releases/download/v0.0.7a/onnx-models-cybersecurity.zip

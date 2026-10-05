@@ -1,14 +1,17 @@
 # Copyright Advanced Micro Devices, Inc.
 # SPDX-License-Identifier: BSD-3-Clause
 
+import csv
+import datetime
 import json
 import os
+import subprocess
 
 import finn.builder.build_dataflow_config as build_cfg
 
 
-def get_verify_steps(steps, env_var="VERIFICATION_EN"):
-    """Return ``steps`` when verification is enabled via the environment, else None.
+def get_verify_steps(steps, env_var="VERIFICATION_EN", board_enabled=True):
+    """Return ``steps`` when verification is enabled, else None.
 
     Verification (cppsim/rtlsim numeric checks) is slow, so the benchmark suite
     keeps it OFF by default and only runs it when ``VERIFICATION_EN`` is set to a
@@ -17,9 +20,16 @@ def get_verify_steps(steps, env_var="VERIFICATION_EN"):
     ``DataflowBuildConfig(verify_steps=...)`` disables verification cleanly when
     ``None``. Whether the verification actually passed is assessed later by the
     aggregation harness (Phase 4), not by the per-test output check.
+
+    ``board_enabled`` additionally scopes verification to a single baseline
+    board. Numeric correctness is board/part-independent across the suite's
+    UltraScale+ targets, so re-verifying the same (model, datatype) on a second
+    board is pure redundancy. Multi-board models pass
+    ``board_enabled=(board == BASELINE_BOARD)`` so only the baseline build
+    verifies; single-board models leave it at the default ``True``.
     """
     enabled = os.environ.get(env_var, "0").strip().lower() in ("1", "true", "yes", "on")
-    return list(steps) if enabled else None
+    return list(steps) if (enabled and board_enabled) else None
 
 
 def bitfile_output_files(shell_flow_type):
@@ -98,3 +108,155 @@ def check_build_outputs(output_dir, expected_files, write_report=True):
         len(expected),
         missing,
     )
+
+
+# --- benchmark aggregation -------------------------------------------------
+#
+# Each build leaves a set of report JSONs under ``<output_dir>/report/``. The
+# aggregation harness mines the few metrics worth tracking over time (estimated
+# vs. rtlsim throughput/latency and estimated/post-synth resource usage) and
+# collapses every (model, board) build of a run into one timestamped JSON + a
+# flat CSV, so later runs can be diffed. The functions are kept here (not in the
+# conftest) so they can be imported and exercised standalone against existing
+# build directories.
+
+BENCH_RESULTS_SUBDIR = "benchmark_results"
+
+
+def _load_json(path):
+    """Load a JSON file, returning None if it is missing or unreadable."""
+    try:
+        with open(path) as json_file:
+            return json.load(json_file)
+    except (OSError, ValueError):
+        return None
+
+
+def _git_commit():
+    """Return the FINN git commit hash, or None if it can't be determined."""
+    try:
+        out = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=os.environ.get("FINN_ROOT"),
+            stderr=subprocess.DEVNULL,
+        )
+        return out.decode().strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def collect_build_metrics(model, board, output_dir):
+    """Flatten a single build's report JSONs into one metrics row.
+
+    Missing reports are skipped (not every run produces post-synth resources),
+    so the returned row always carries the (model, board, output_dir) identity
+    plus whatever metrics were present.
+    """
+    report_dir = os.path.join(output_dir, "report")
+    row = {"model": model, "board": board, "output_dir": output_dir}
+
+    est_perf = _load_json(os.path.join(report_dir, "estimate_network_performance.json"))
+    if est_perf:
+        row["est_max_cycles"] = est_perf.get("max_cycles")
+        row["est_critical_path_cycles"] = est_perf.get("critical_path_cycles")
+        row["est_throughput_fps"] = est_perf.get("estimated_throughput_fps")
+        row["est_latency_ns"] = est_perf.get("estimated_latency_ns")
+
+    est_res = _load_json(os.path.join(report_dir, "estimate_layer_resources.json"))
+    if isinstance(est_res, dict) and isinstance(est_res.get("total"), dict):
+        total = est_res["total"]
+        for key in ("LUT", "BRAM_18K", "URAM", "DSP"):
+            row["est_" + key] = total.get(key)
+
+    rtlsim = _load_json(os.path.join(report_dir, "rtlsim_performance.json"))
+    if rtlsim:
+        row["rtlsim_throughput_fps"] = rtlsim.get("throughput[images/s]")
+        row["rtlsim_stable_throughput_fps"] = rtlsim.get("stable_throughput[images/s]")
+        row["rtlsim_fclk_mhz"] = rtlsim.get("fclk[mhz]")
+        row["rtlsim_latency_cycles"] = rtlsim.get("latency_cycles")
+
+    synth = _load_json(os.path.join(report_dir, "post_synth_resources.json"))
+    if isinstance(synth, dict) and isinstance(synth.get("(top)"), dict):
+        top = synth["(top)"]
+        for key in ("LUT", "FF", "SRL", "BRAM_36K", "BRAM_18K", "URAM", "DSP"):
+            if key in top:
+                row["synth_" + key] = top[key]
+
+    return row
+
+
+def aggregate_benchmark_results(entries, out_root=None):
+    """Aggregate per-build report metrics into one timestamped JSON + CSV.
+
+    Args:
+        entries: iterable of ``(model, board, output_dir)`` tuples.
+        out_root: directory to write ``benchmark_results/`` into; defaults to
+            ``FINN_BUILD_DIR`` (falling back to the current directory).
+
+    Returns:
+        ``(json_path, csv_path)``, or ``(None, None)`` when there is nothing to
+        aggregate.
+    """
+    rows = [collect_build_metrics(model, board, output_dir) for model, board, output_dir in entries]
+    if not rows:
+        return None, None
+
+    if out_root is None:
+        out_root = os.environ.get("FINN_BUILD_DIR", ".")
+    results_dir = os.path.join(out_root, BENCH_RESULTS_SUBDIR)
+    os.makedirs(results_dir, exist_ok=True)
+
+    timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    payload = {
+        "timestamp_utc": timestamp,
+        "git_commit": _git_commit(),
+        "num_builds": len(rows),
+        "results": rows,
+    }
+
+    json_path = os.path.join(results_dir, "results_%s.json" % timestamp)
+    with open(json_path, "w") as json_file:
+        json.dump(payload, json_file, indent=2)
+
+    # Flat CSV: identity columns first, then the union of every metric key seen
+    # (sorted) so the header is stable regardless of which reports were present.
+    lead = ["model", "board", "output_dir"]
+    extra = sorted({key for row in rows for key in row} - set(lead))
+    fieldnames = lead + extra
+    csv_path = os.path.join(results_dir, "results_%s.csv" % timestamp)
+    with open(csv_path, "w", newline="") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+
+    return json_path, csv_path
+
+
+def _parse_entry(arg):
+    """Parse one CLI argument into a ``(model, board, output_dir)`` entry.
+
+    Accepts either ``model:board:/path/to/build_dir`` (explicit labels) or a bare
+    ``/path/to/build_dir`` (labelled ``model=<dir basename>``, ``board=unknown``),
+    so existing build dirs can be aggregated without per-build metadata.
+    """
+    parts = arg.split(":", 2)
+    if len(parts) == 3:
+        return parts[0], parts[1], parts[2]
+    output_dir = arg
+    return os.path.basename(os.path.normpath(output_dir)), "unknown", output_dir
+
+
+if __name__ == "__main__":
+    # Standalone aggregation over existing build dirs, e.g.:
+    #   python benchmark_helpers.py /path/build_a /path/build_b
+    #   python benchmark_helpers.py tfc-w1a1:AUP-ZU3_8GB:/path/build_a
+    import sys
+
+    cli_entries = [_parse_entry(a) for a in sys.argv[1:]]
+    if not cli_entries:
+        print("usage: python benchmark_helpers.py [model:board:]BUILD_DIR ...")
+        sys.exit(1)
+    out_json, out_csv = aggregate_benchmark_results(cli_entries)
+    print(out_json)
+    print(out_csv)

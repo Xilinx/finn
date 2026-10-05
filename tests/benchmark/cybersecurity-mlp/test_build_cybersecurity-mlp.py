@@ -95,11 +95,12 @@ def configure_build(board, output_dir):
 @pytest.mark.vivado
 @pytest.mark.finn_examples
 @pytest.mark.parametrize("board", ["AUP-ZU3_8GB"])
-def test_cybersecuritymlp(board):
+def test_cybersecuritymlp(board, bench_recorder):
     output_dir = make_build_dir("build_cybersecurity-mlp_")
     # Run build flow
     cfg = configure_build(board, output_dir)
     build.build_dataflow_cfg(model_file, cfg)
+    bench_recorder(model_name, board, output_dir)
 
     # Check that all expected output products are present, reporting every
     # missing artifact at once instead of aborting on the first one. This model
