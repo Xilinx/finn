@@ -6,7 +6,7 @@
 import importlib
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional, Tuple
@@ -56,6 +56,15 @@ def _check(name, severity, condition, msg_fail, suggestion=None):
     if condition:
         return Check(name, severity, True, "OK")
     return Check(name, severity, False, msg_fail, suggestion)
+
+
+def _cfg_default(field_name):
+    """The declared default of a DataflowBuildConfig field, so checks that compare
+    against "unset" track the dataclass rather than a hard-coded copy of it."""
+    for f in fields(DataflowBuildConfig):
+        if f.name == field_name:
+            return f.default
+    raise AttributeError("DataflowBuildConfig has no field %r" % field_name)
 
 
 def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
@@ -385,6 +394,53 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                             "this entry from verify_steps",
                         )
                     )
+
+    # === FIFO Debug Logging ===
+    # fifo_log_flush_cycles reaches the RTL via int() in _attach_fifo_debug_logs and
+    # InsertAndSetFIFODepths; None or a negative value only fails there, partway into
+    # the build, so catch it here instead. 0 is legal: it disables periodic flushing.
+    if cfg.debug_fifo and not isinstance(cfg.fifo_log_flush_cycles, int):
+        checks.append(
+            _check(
+                "fifo_log_flush_cycles",
+                Severity.ERROR,
+                False,
+                "debug_fifo=True but fifo_log_flush_cycles="
+                f"{cfg.fifo_log_flush_cycles!r} is not an integer",
+                "Set fifo_log_flush_cycles to a non-negative integer number of cycles, "
+                "or 0 to only flush the logs when the simulation ends",
+            )
+        )
+    elif cfg.debug_fifo and cfg.fifo_log_flush_cycles < 0:
+        checks.append(
+            _check(
+                "fifo_log_flush_cycles",
+                Severity.ERROR,
+                False,
+                f"fifo_log_flush_cycles={cfg.fifo_log_flush_cycles} is negative",
+                "Set fifo_log_flush_cycles to a non-negative integer number of cycles, "
+                "or 0 to only flush the logs when the simulation ends",
+            )
+        )
+
+    if not cfg.debug_fifo:
+        fifo_log_opts = [
+            (name, getattr(cfg, name), _cfg_default(name))
+            for name in ["fifo_log_verbose", "fifo_log_flush_cycles"]
+        ]
+        customized = [(n, val) for n, val, default in fifo_log_opts if val != default]
+        if customized:
+            checks.append(
+                _check(
+                    "fifo_log_without_debug",
+                    Severity.WARNING,
+                    False,
+                    ", ".join(f"{n}={v!r}" for n, v in customized)
+                    + " differs from the default but debug_fifo=False, so no FIFO logs "
+                    "are written and the setting has no effect",
+                    "Set debug_fifo=True to enable FIFO logging, or drop these settings",
+                )
+            )
 
     # === Warnings ===
     if cfg.shell_flow_type is not None and not has_bitfile:
