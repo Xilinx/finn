@@ -146,12 +146,13 @@ pipeline {
     // between this list and the Python source is caught by
     // test_jenkinsfile_stage_choices_match_python_source.
     choice(name: 'STAGES',
-           choices: ['sanity', 'full', 'fpgadataflow', 'end2end'],
+           choices: ['sanity', 'full', 'fpgadataflow', 'end2end', 'benchmark'],
            description: 'Which CI rows to run. ' +
                         'sanity (default) = sanity rows only, ~per-PR quick check. ' +
-                        'full = every CI row, ~nightly. ' +
+                        'full = every CI row (excluding benchmark), ~nightly. ' +
                         'fpgadataflow / end2end = just that one family, ' +
-                        'useful for debugging a single slice without STAGE_FILTER.')
+                        'useful for debugging a single slice without STAGE_FILTER. ' +
+                        'benchmark = finn-examples build suite, manual/opt-in only.')
     booleanParam(name: 'local_setup',  defaultValue: false,
                  description: 'Run the non-Docker Vivado setup test on the finn-local-build host. ' +
                               'Slow and orthogonal to STAGES. Leave off unless you are working ' +
