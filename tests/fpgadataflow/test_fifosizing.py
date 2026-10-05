@@ -51,6 +51,7 @@ from finn.transformation.fpgadataflow.set_fifo_depths import (
 )
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import make_build_dir, robust_rmtree
+from finn.util.rtlsim import read_fifo_log_snapshot
 from finn.util.test import get_trained_network_and_ishape
 
 FPGAPART = "xc7z020clg400-1"
@@ -300,12 +301,7 @@ def make_residual_modelwrapper():
 
 def gauge_maxfill_per_fifo(log_dir):
     """Reads the peak MaxCount from each gauge log."""
-    fills = {}
-    for fname in os.listdir(log_dir):
-        match = re.search(r"MaxFill:\s*(\d+)", open(os.path.join(log_dir, fname)).read())
-        if match:
-            fills[os.path.splitext(fname)[0]] = int(match.group(1))
-    return fills
+    return {name: log["maxfill"] for name, log in read_fifo_log_snapshot(log_dir).items()}
 
 
 @pytest.mark.fpgadataflow
