@@ -48,17 +48,28 @@ def parse_fifo_log(path: str) -> Dict[str, Any]:
     so callers do not have to know which one the simulation was configured for.
 
     Args:
-        path: Path to a single ``<fifo name>.log`` file.
+        path: Path to a single ``<node name>_<hash>.log`` file. A name that does
+            not follow that convention still parses, but leaves node/hash as ""
 
     Returns:
         A dict with the log's contents:
 
         * path: Path of log.
         * verbose: False: <data_in>, True: <data>, <direction>, <cycle>.
+        * node: the ONNX node name this log belongs to, from the filename.
+        * hash: the ipgen hash of the RTL build that wrote it, from the filename.
         * name: the SystemVerilog name of the FIFO instance.
         * txns: List of(data:int, direction:Optional[int], cycle:Optional[int])
         * cycles, maxfill, in, out: the gauge's summary (bottom line).
     """
+
+    def node_and_hash(fname: str) -> Tuple[str, str]:
+        """Split a gauge log filename into its ONNX node name and ipgen hash."""
+        node_hash_regex = re.compile(
+            r"^(?P<node>(?:FINNLoop_\d+_)*StreamingFIFO_rtl_\d+)" r"_(?P<hash>[a-z0-9_]{8})\.log$"
+        )
+        m = node_hash_regex.match(fname)
+        return ("", "") if m is None else (m.group("node"), m.group("hash"))
 
     def is_verbose(header_line: str) -> bool:
         """Determine if FIFO logs are in verbose mode based on header."""
@@ -119,13 +130,15 @@ def parse_fifo_log(path: str) -> Dict[str, Any]:
         raise ValueError("%s: expected at least a header and a summary line" % path)
 
     # Parse
+    node, ipgen_hash = node_and_hash(os.path.basename(path))
     verbose = is_verbose(lines[0])
     fifo_name, fifo_values = summary(lines[-1])
     txns = [data(line, verbose, lineno, path) for lineno, line in enumerate(lines[1:-1], start=2)]
 
-    # Turn to dictionary
     return {
         "path": path,
+        "node": node,
+        "hash": ipgen_hash,
         "verbose": verbose,
         "name": fifo_name,
         "txns": txns,
@@ -143,14 +156,20 @@ def read_fifo_log_snapshot(log_dir: str) -> Dict[str, Dict[str, Any]]:
     """
     if not os.path.isdir(log_dir):
         raise ValueError("no FIFO log directory at " + log_dir)
-    logs = {}
+    logs: Dict[str, Dict[str, Any]] = {}
     for fname in sorted(os.listdir(log_dir)):
         if not fname.endswith(".log"):
             continue
         path = os.path.join(log_dir, fname)
         if os.path.getsize(path) == 0:
             continue
-        logs[os.path.splitext(fname)[0]] = parse_fifo_log(path)
+        log = parse_fifo_log(path)
+        key = log["node"] if log["node"] != "" else os.path.splitext(fname)[0]
+        if key in logs:
+            raise ValueError(
+                "%s: %s and %s both report on node %s" % (log_dir, logs[key]["path"], path, key)
+            )
+        logs[key] = log
     return logs
 
 

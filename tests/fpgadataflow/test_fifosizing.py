@@ -52,10 +52,11 @@ from finn.transformation.fpgadataflow.set_fifo_depths import (
     check_fifo_gauge_overflow,
 )
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.basic import make_build_dir, robust_rmtree
+from finn.util.basic import build_dir_hash, make_build_dir, robust_rmtree
 from finn.util.rtlsim import (
     fifo_log_is_consistent,
     parse_fifo_log,
+    parse_fifo_log_name,
     read_fifo_log_snapshot,
 )
 from finn.util.test import get_trained_network_and_ishape
@@ -366,6 +367,10 @@ def test_parse_fifo_log(tmp_path):
     )
     assert xz["txns"] == [(None, None, None)]
 
+    # a name that does not follow the <node name>_<hash>.log convention still
+    # parses, but cannot be tied back to an ONNX node
+    assert (verbose["node"], verbose["hash"]) == (None, None)
+
     # a snapshot reads every log in the directory and skips the empty ones, which
     # is how a FIFO that never saw a transaction shows up
     (tmp_path / "empty.log").write_text("")
@@ -410,6 +415,51 @@ def test_parse_fifo_log(tmp_path):
         log = parse_fifo_log(write_fifo_log(tmp_path, name, lines))
         with pytest.raises(ValueError):
             fifo_log_is_consistent(log)
+
+
+@pytest.mark.fpgadataflow
+def test_parse_fifo_log_name():
+    """Covers the <node name>_<ipgen hash>.log convention the snapshot keys on."""
+    valid = {
+        "StreamingFIFO_rtl_0_i8aq8og0.log": ("StreamingFIFO_rtl_0", "i8aq8og0"),
+        "StreamingFIFO_rtl_12_f9r4_8r_.log": ("StreamingFIFO_rtl_12", "f9r4_8r_"),
+        "FINNLoop_0_StreamingFIFO_rtl_5_otiqrgx7.log": (
+            "FINNLoop_0_StreamingFIFO_rtl_5",
+            "otiqrgx7",
+        ),
+        "FINNLoop_0_StreamingFIFO_rtl_3_3_qvse06.log": (
+            "FINNLoop_0_StreamingFIFO_rtl_3",
+            "3_qvse06",
+        ),
+    }
+    for fname, expected in valid.items():
+        assert parse_fifo_log_name(fname) == expected
+
+    invalid = [
+        "StreamingFIFO_rtl_0.log",  # no hash
+        "StreamingFIFO_rtl_0_short.log",  # hash too short
+        "StreamingFIFO_rtl_0_TOOLONGXX.log",  # hash too long, and wrong alphabet
+        "StreamingFIFO_rtl_0_UPPERCAS.log",  # mkdtemp never emits uppercase
+        "Thresholding_rtl_0_i8aq8og0.log",  # not a FIFO
+        "StreamingFIFO_rtl_0_i8aq8og0.txt",  # not a log
+    ]
+    for fname in invalid:
+        with pytest.raises(ValueError):
+            parse_fifo_log_name(fname)
+
+
+@pytest.mark.fpgadataflow
+def test_build_dir_hash_round_trips():
+    """make_build_dir() is the only producer of these suffixes; build_dir_hash reads them back."""
+    for prefix in ["code_gen_ipgen_StreamingFIFO_rtl_3_", "code_gen_ipgen_FINNLoop_0_"]:
+        build_dir = make_build_dir(prefix=prefix)
+        try:
+            h = build_dir_hash(build_dir)
+            assert len(h) == 8
+            assert os.path.basename(build_dir) == prefix + h
+            assert build_dir_hash(build_dir + "/") == h
+        finally:
+            robust_rmtree(build_dir)
 
 
 @pytest.mark.fpgadataflow
@@ -577,6 +627,14 @@ def test_fifo_log_build(fifo_log_verbose):
     final_model = ModelWrapper(output_dir + "/intermediate_models/step_create_stitched_ip.onnx")
     expected_counts = final_model.analysis(fifo_transaction_counts)
     assert len(expected_counts) >= 4, "expected at least one FIFO per fork/join branch"
+
+    # every log is named <node name>_<ipgen hash>.log, which is what lets the
+    # snapshot be keyed by node name below
+    for name, log in logs.items():
+        assert log["node"] == name, "%s: filename does not name an ONNX node" % log["path"]
+        assert os.path.isdir(
+            os.path.join(os.environ["FINN_BUILD_DIR"], "code_gen_ipgen_%s_%s" % (name, log["hash"]))
+        ), ("%s: no ipgen dir matches the hash in this log's name" % log["path"])
 
     # exactly one log per FIFO in the final graph -- no gaps, no strays
     missing = sorted(set(expected_counts) - set(logs))

@@ -294,12 +294,15 @@ class DataflowBuildConfig:
     #: characterization simulations.
     fifosim_save_waveform: Optional[bool] = False
 
+    #: Enable FIFOs to output log files documenting what they witness.
     debug_fifo: Optional[bool] = False
 
-    #: FIFO log format. True: "<data> <dir> <cycle>"; False: "<data_in>"
+    #: FIFO log format. True: "<data> <dir> <cycle>"; False: "<data_in>".
+    #: Only applicable when debug_fifo=True.
     fifo_log_verbose: Optional[bool] = False
 
     #: FIFO Log flush rate (cycles), larger = less simulation slowdown.
+    #: Only applicable when debug_fifo=True.
     fifo_log_flush_cycles: Optional[int] = 10000
 
     #: Target clock frequency (in nanoseconds) for Vitis HLS synthesis.

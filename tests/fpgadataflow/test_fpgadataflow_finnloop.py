@@ -593,6 +593,11 @@ def _read_fifo_log_dir(log_dir, expect_verbose=True):
         if f.endswith(".log") and os.path.getsize(os.path.join(log_dir, f)) == 0
     ]
     assert empty == [], f"empty FIFO logs in {log_dir}: {empty}"
+    unnamed = sorted(log["path"] for log in logs.values() if log["node"] is None)
+    assert unnamed == [], (
+        f"log(s) {unnamed} do not follow the <node name>_<hash>.log convention, "
+        f"so they cannot be tied back to an ONNX node"
+    )
     wrong_format = {
         n: log["verbose"] for n, log in logs.items() if log["verbose"] != expect_verbose
     }
@@ -605,17 +610,14 @@ def _read_fifo_log_dir(log_dir, expect_verbose=True):
     return logs
 
 
-def _logs_by_instance(logs, scope):
-    """Re-key a snapshot by the FIFO instance name the gauge itself reported."""
-    by_inst = {}
-    for fname, log in logs.items():
-        # e.g. "..._wrapper.finn_design_i.FINNLoop_0.<...>.<node name>.inst.fifo"
+def _assert_filename_matches_instance(logs, scope):
+    """Cross-check the filename's node name against the RTL hierarchy the gauge reported."""
+    for node, log in logs.items():
         inst = log["name"].split(".")[-3]
-        assert inst not in by_inst, (
-            f"{scope}: {fname}.log and {by_inst[inst]['path']} both report on " f"instance {inst}"
+        assert node.endswith(inst), (
+            f"{scope}: {log['path']} is named for node {node} but the gauge "
+            f"reports instance {inst}"
         )
-        by_inst[inst] = log
-    return by_inst
 
 
 def assert_mlo_fifo_logs(build_dir, loop_name):
@@ -642,12 +644,13 @@ def assert_mlo_fifo_logs(build_dir, loop_name):
 
     # The stitched-ip rtlsim runs the whole design once, so every FIFO in the final
     # graph must have reported, in the scope it belongs to and only there.
-    body_by_inst = _logs_by_instance(stitched_body_logs, f"stitched_ip_rtlsim/{loop_name}")
-    _assert_logs_cover_fifos(body_by_inst, body_counts, f"stitched_ip_rtlsim/{loop_name}")
+    body_scope = f"stitched_ip_rtlsim/{loop_name}"
+    _assert_filename_matches_instance(stitched_body_logs, body_scope)
+    _assert_logs_cover_fifos(stitched_body_logs, body_counts, body_scope)
     main_logs = _read_fifo_log_dir(f"{log_root}/stitched_ip_rtlsim/main")
-    main_by_inst = _logs_by_instance(main_logs, "stitched_ip_rtlsim/main")
-    _assert_logs_cover_fifos(main_by_inst, main_counts, "stitched_ip_rtlsim/main")
-    body_in_main = sorted(n for n in main_by_inst if n.startswith(body_prefix))
+    _assert_filename_matches_instance(main_logs, "stitched_ip_rtlsim/main")
+    _assert_logs_cover_fifos(main_logs, main_counts, "stitched_ip_rtlsim/main")
+    body_in_main = sorted(n for n in main_logs if n.startswith(body_prefix))
     assert not body_in_main, (
         f"stitched_ip_rtlsim/main: loop-body log(s) {body_in_main} leaked into the "
         f"top-level snapshot"
@@ -658,13 +661,23 @@ def assert_mlo_fifo_logs(build_dir, loop_name):
         f"up with {len(body_counts)} FIFO(s)"
     )
 
-    for name, log in body_by_inst.items():
+    # each phase rebuilds the FIFO IP, so the same node logs under a different
+    # ipgen hash in each -- the hash identifies the RTL build, not the node
+    shared = set(sizing_logs) & set(stitched_body_logs)
+    assert shared, "expected at least one FIFO to survive sizing into the final graph"
+    for node in sorted(shared):
+        assert sizing_logs[node]["hash"] != stitched_body_logs[node]["hash"], (
+            f"{node}: fifo_sizing and stitched_ip_rtlsim logs share the ipgen hash "
+            f"{sizing_logs[node]['hash']}, so the FIFO IP was not regenerated"
+        )
+
+    for name, log in stitched_body_logs.items():
         assert log["in"] == body_counts[name], "%s: logged in=%d, expected %d" % (
             log["path"],
             log["in"],
             body_counts[name],
         )
-    for name, log in main_by_inst.items():
+    for name, log in main_logs.items():
         assert log["in"] == main_counts[name], "%s: logged in=%d, expected %d" % (
             log["path"],
             log["in"],

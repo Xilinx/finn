@@ -183,17 +183,20 @@ def _fifo_debug_live_dir(cfg):
 
 
 def _attach_fifo_debug_logs(model, cfg, prefix=""):
-    """Give every StreamingFIFO_rtl node in `model` a fifo_gauge log path."""
+    """Give every StreamingFIFO_rtl node in `model` a fifo_gauge log directory."""
     if not cfg.debug_fifo:
         return model
     live_dir = os.path.abspath(_fifo_debug_live_dir(cfg))
     os.makedirs(live_dir, exist_ok=True)
     for node in model.get_nodes_by_op_type("StreamingFIFO_rtl"):
         node_inst = getCustomOp(node)
-        log_path = os.path.join(live_dir, prefix + node.name + ".log")
-        if node_inst.get_nodeattr("debug_log_path") == log_path:
+        if (
+            node_inst.get_nodeattr("debug_log_dir") == live_dir
+            and node_inst.get_nodeattr("debug_log_prefix") == prefix
+        ):
             continue
-        node_inst.set_nodeattr("debug_log_path", log_path)
+        node_inst.set_nodeattr("debug_log_dir", live_dir)
+        node_inst.set_nodeattr("debug_log_prefix", prefix)
         node_inst.set_nodeattr("fifo_log_verbose", int(cfg.fifo_log_verbose))
         node_inst.set_nodeattr("fifo_log_flush_cycles", int(cfg.fifo_log_flush_cycles))
         # DATA_LOGFILE is baked into the generated RTL, so any already-generated

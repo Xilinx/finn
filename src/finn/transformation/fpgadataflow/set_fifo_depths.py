@@ -436,13 +436,12 @@ class InsertAndSetFIFODepths(Transformation):
                 node.set_nodeattr("depth", self.max_depth)
 
         if self.debug_log_dir is not None:
-            os.makedirs(os.path.abspath(self.debug_log_dir), exist_ok=True)
+            log_dir = os.path.abspath(self.debug_log_dir)
+            os.makedirs(log_dir, exist_ok=True)
             for node in model.get_nodes_by_op_type("StreamingFIFO_rtl"):
-                log_path = os.path.abspath(
-                    os.path.join(self.debug_log_dir, self.debug_log_prefix + node.name + ".log")
-                )
                 node_inst = getCustomOp(node)
-                node_inst.set_nodeattr("debug_log_path", log_path)
+                node_inst.set_nodeattr("debug_log_dir", log_dir)
+                node_inst.set_nodeattr("debug_log_prefix", self.debug_log_prefix)
                 node_inst.set_nodeattr("fifo_log_verbose", int(self.fifo_log_verbose))
                 node_inst.set_nodeattr("fifo_log_flush_cycles", int(self.fifo_log_flush_cycles))
 
