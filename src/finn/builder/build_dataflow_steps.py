@@ -148,7 +148,10 @@ from finn.transformation.fpgadataflow.transpose_decomposition import (
 )
 from finn.transformation.general import ApplyConfig
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
-from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
+from finn.transformation.qonnx.convert_qonnx_to_finn import (
+    QONNX_QUANT_OP_TYPES,
+    ConvertQONNXtoFINN,
+)
 from finn.transformation.qonnx.quant_act_to_multithreshold import (
     default_filter_function_generator,
 )
@@ -321,14 +324,15 @@ def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
 
 def step_qonnx_to_finn(model: ModelWrapper, cfg: DataflowBuildConfig):
     """
-    This step will only execute if QONNX nodes are found.
-    These include the following op_types: "Quant" , "Trunc" and "BinaryQuant".
+    This step will only execute if QONNX quantization nodes are found, i.e. nodes
+    with one of the op_types in QONNX_QUANT_OP_TYPES ("IntQuant", "Quant",
+    "BipolarQuant", "FloatQuant" and "Trunc").
     If such nodes are found the step will run the tidy-up step from QONNX
     and then convert the QONNX model to the FINN-ONNX dialect.
     """
-    # Check if any QONNX nodes exist, i.e. BinaryQuant, Quant or Trunc
+    # Check if any QONNX quantization nodes exist
     q_count = 0
-    for op_type in ["BinaryQuant", "Quant", "Trunc"]:
+    for op_type in QONNX_QUANT_OP_TYPES:
         q_count += len(model.get_nodes_by_op_type(op_type))
     if q_count == 0:
         return model

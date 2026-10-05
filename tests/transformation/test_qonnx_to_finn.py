@@ -44,7 +44,10 @@ from qonnx.util.cleanup import cleanup
 from tempfile import TemporaryDirectory
 
 import finn.core.onnx_exec as oxe
-from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
+from finn.transformation.qonnx.convert_qonnx_to_finn import (
+    QONNX_QUANT_OP_TYPES,
+    ConvertQONNXtoFINN,
+)
 from finn.util.test import get_test_model_trained
 
 
@@ -76,7 +79,7 @@ def analysis_testing_for_no_quant_nodes(model):
     # Test that all Quant nodes have been converted to MultiThreshold nodes
     # or folded into tensor initializers.
 
-    for op_type in ["BinaryQuant", "Quant", "Trunc"]:
+    for op_type in QONNX_QUANT_OP_TYPES:
         q_count = len(model.get_nodes_by_op_type(op_type))
         if q_count > 0:
             raise ValueError(f"There should be no {op_type} nodes left in the graph.")
