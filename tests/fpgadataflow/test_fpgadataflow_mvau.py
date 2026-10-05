@@ -1132,9 +1132,9 @@ def test_fpgadataflow_mvau_hls_threshold_width_cppsim():
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_mvau_hls_single_iteration_top_pipeline(mem_mode):
-    """A fully unrolled HLS MVAU with one input vector per call (WMEM=1) must accept
-    one vector per clock cycle. The pipelined loop of the hlslib function then has a
-    single iteration, so the top function itself is pipelined."""
+    """A fully unrolled HLS MVAU (SIMD=MW, PE=MH) must achieve II=1.
+    The function-pipelined hlslib kernel handles this natively —
+    no special top-level pragma workaround needed."""
     mw, mh = 16, 16
     idt = wdt = DataType["INT4"]
     W = gen_finn_dt_tensor(wdt, (mw, mh))
@@ -1147,27 +1147,11 @@ def test_fpgadataflow_mvau_hls_single_iteration_top_pipeline(mem_mode):
     model = model.transform(GiveUniqueNodeNames())
     node = model.graph.node[0]
     assert node.op_type == "MVAU_hls"
-    inst = getCustomOp(node)
-    assert inst.single_iteration_per_call()
-    # with anything left to iterate over, the loop inside the hlslib function is
-    # pipelined and the top stays as it is (function-level pipelining unrolls all loops)
-    for attr, value in [
-        ("SIMD", mw // 2),
-        ("PE", mh // 2),
-        ("numInputVectors", [3, 3]),
-        ("mem_mode", "external"),
-    ]:
-        original = inst.get_nodeattr(attr)
-        inst.set_nodeattr(attr, value)
-        assert not inst.single_iteration_per_call()
-        inst.set_nodeattr(attr, original)
 
     model = model.transform(PrepareIP(part, 10))
     model = model.transform(HLSSynthIP())
     inst = getCustomOp(model.graph.node[0])
     code_gen_dir = inst.get_nodeattr("code_gen_dir_ipgen")
-    with open(f"{code_gen_dir}/top_{node.name}.cpp") as f:
-        assert "#pragma HLS pipeline II=1 style=flp" in f.read()
     report = f"{code_gen_dir}/project_{node.name}/sol1/syn/report/{node.name}_csynth.xml"
     latency = ET.parse(report).getroot().find("PerformanceEstimates/SummaryOfOverallLatency")
     assert int(latency.find("PipelineInitiationInterval").text) == 1
