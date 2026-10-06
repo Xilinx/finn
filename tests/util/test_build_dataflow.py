@@ -157,4 +157,6 @@ def test_end2end_build_dataflow_directory():
     # Every log is named <node name>_<ipgen hash>.log, so it can be tied back to
     # the ONNX node it came from
     for fname in fifo_sizing_logs + stitched_logs:
-        parse_fifo_log_name(fname)
+        assert parse_fifo_log_name(fname) is not None, (
+            "%s does not follow the <node name>_<ipgen hash>.log convention" % fname
+        )

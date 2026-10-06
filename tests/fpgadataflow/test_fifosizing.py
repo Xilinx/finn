@@ -444,8 +444,7 @@ def test_parse_fifo_log_name():
         "StreamingFIFO_rtl_0_i8aq8og0.txt",  # not a log
     ]
     for fname in invalid:
-        with pytest.raises(ValueError):
-            parse_fifo_log_name(fname)
+        assert parse_fifo_log_name(fname) is None
 
 
 @pytest.mark.fpgadataflow
