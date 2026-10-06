@@ -47,56 +47,32 @@ build_outputs = [
 
 
 def configure_build(board, output_dir):
-    if board in ["AUP-ZU3_8GB"]:
-        cfg = build_cfg.DataflowBuildConfig(
-            # non-interactive run: surface the real error instead of dropping into pdb
-            enable_build_pdb_debug=False,
-            generate_outputs=build_outputs,
-            output_dir=output_dir,
-            folding_config_file=os.path.join(
-                build_flow_folder,
-                "cybersecurity-mlp",
-                "folding_config",
-                f"cybersecurity_folding_config_{board}.json",
-            ),
-            synth_clk_period_ns=10.0,
-            mvau_wwidth_max=80,
-            board=board,
-            shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
-            stitched_ip_gen_dcp=True,
-            specialize_layers_config_file=os.path.join(
-                build_flow_folder,
-                "cybersecurity-mlp",
-                "specialize_layers_config",
-                "cybersecurity_specialize_layers.json",
-            ),
-            verify_steps=get_verify_steps(verif_steps),
-            verify_input_npy=verify_input_npy,
-            verify_expected_output_npy=verify_expected_output_npy,
-        )
-    else:
-        cfg = build_cfg.DataflowBuildConfig(
-            # non-interactive run: surface the real error instead of dropping into pdb
-            enable_build_pdb_debug=False,
-            generate_outputs=build_outputs,
-            output_dir=output_dir,
-            target_fps=1000000,
-            synth_clk_period_ns=10.0,
-            mvau_wwidth_max=80,
-            board=board,
-            shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
-            stitched_ip_gen_dcp=True,
-            specialize_layers_config_file=os.path.join(
-                build_flow_folder,
-                "cybersecurity-mlp",
-                "specialize_layers_config",
-                "cybersecurity_specialize_layers.json",
-            ),
-            verify_steps=get_verify_steps(verif_steps),
-            verify_input_npy=verify_input_npy,
-            verify_expected_output_npy=verify_expected_output_npy,
-        )
-    return cfg
+    return build_cfg.DataflowBuildConfig(
+        # non-interactive run: surface the real error instead of dropping into pdb
+        enable_build_pdb_debug=False,
+        generate_outputs=build_outputs,
+        output_dir=output_dir,
+        folding_config_file=os.path.join(
+            build_flow_folder,
+            "cybersecurity-mlp",
+            "folding_config",
+            f"cybersecurity_folding_config_{board}.json",
+        ),
+        synth_clk_period_ns=10.0,
+        mvau_wwidth_max=80,
+        board=board,
+        shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
+        stitched_ip_gen_dcp=True,
+        specialize_layers_config_file=os.path.join(
+            build_flow_folder,
+            "cybersecurity-mlp",
+            "specialize_layers_config",
+            "cybersecurity_specialize_layers.json",
+        ),
+        verify_steps=get_verify_steps(verif_steps),
+        verify_input_npy=verify_input_npy,
+        verify_expected_output_npy=verify_expected_output_npy,
+    )
 
 
 @pytest.mark.slow

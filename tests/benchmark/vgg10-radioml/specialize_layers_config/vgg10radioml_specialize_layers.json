@@ -12,13 +12,16 @@
   "Thresholding_0": {
     "preferred_impl_style": "rtl"
   },
-  "StreamingMaxPool_0": {
+  "ConvolutionInputGenerator_1": {
+    "preferred_impl_style": "rtl"
+  },
+  "Pool_0": {
     "preferred_impl_style": "hls"
   },
   "FMPadding_1": {
     "preferred_impl_style": "rtl"
   },
-  "ConvolutionInputGenerator_1": {
+  "ConvolutionInputGenerator_2": {
     "preferred_impl_style": "rtl"
   },
   "MVAU_1": {
@@ -27,13 +30,16 @@
   "Thresholding_1": {
     "preferred_impl_style": "rtl"
   },
-  "StreamingMaxPool_1": {
+  "ConvolutionInputGenerator_3": {
+    "preferred_impl_style": "rtl"
+  },
+  "Pool_1": {
     "preferred_impl_style": "hls"
   },
   "FMPadding_2": {
     "preferred_impl_style": "rtl"
   },
-  "ConvolutionInputGenerator_2": {
+  "ConvolutionInputGenerator_4": {
     "preferred_impl_style": "rtl"
   },
   "MVAU_2": {
@@ -42,13 +48,16 @@
   "Thresholding_2": {
     "preferred_impl_style": "rtl"
   },
-  "StreamingMaxPool_2": {
+  "ConvolutionInputGenerator_5": {
+    "preferred_impl_style": "rtl"
+  },
+  "Pool_2": {
     "preferred_impl_style": "hls"
   },
   "FMPadding_3": {
     "preferred_impl_style": "rtl"
   },
-  "ConvolutionInputGenerator_3": {
+  "ConvolutionInputGenerator_6": {
     "preferred_impl_style": "rtl"
   },
   "MVAU_3": {
@@ -57,13 +66,16 @@
   "Thresholding_3": {
     "preferred_impl_style": "rtl"
   },
-  "StreamingMaxPool_3": {
+  "ConvolutionInputGenerator_7": {
+    "preferred_impl_style": "rtl"
+  },
+  "Pool_3": {
     "preferred_impl_style": "hls"
   },
   "FMPadding_4": {
     "preferred_impl_style": "rtl"
   },
-  "ConvolutionInputGenerator_4": {
+  "ConvolutionInputGenerator_8": {
     "preferred_impl_style": "rtl"
   },
   "MVAU_4": {
@@ -72,13 +84,16 @@
   "Thresholding_4": {
     "preferred_impl_style": "rtl"
   },
-  "StreamingMaxPool_4": {
+  "ConvolutionInputGenerator_9": {
+    "preferred_impl_style": "rtl"
+  },
+  "Pool_4": {
     "preferred_impl_style": "hls"
   },
   "FMPadding_5": {
     "preferred_impl_style": "rtl"
   },
-  "ConvolutionInputGenerator_5": {
+  "ConvolutionInputGenerator_10": {
     "preferred_impl_style": "rtl"
   },
   "MVAU_5": {
@@ -87,13 +102,16 @@
   "Thresholding_5": {
     "preferred_impl_style": "rtl"
   },
-  "StreamingMaxPool_5": {
+  "ConvolutionInputGenerator_11": {
+    "preferred_impl_style": "rtl"
+  },
+  "Pool_5": {
     "preferred_impl_style": "hls"
   },
   "FMPadding_6": {
     "preferred_impl_style": "rtl"
   },
-  "ConvolutionInputGenerator_6": {
+  "ConvolutionInputGenerator_12": {
     "preferred_impl_style": "rtl"
   },
   "MVAU_6": {
@@ -102,7 +120,10 @@
   "Thresholding_6": {
     "preferred_impl_style": "rtl"
   },
-  "StreamingMaxPool_6": {
+  "ConvolutionInputGenerator_13": {
+    "preferred_impl_style": "rtl"
+  },
+  "Pool_6": {
     "preferred_impl_style": "hls"
   },
   "MVAU_7": {
@@ -120,7 +141,7 @@
   "MVAU_9": {
     "preferred_impl_style": "rtl"
   },
-  "ChannelwiseOp_0": {
+  "ElementwiseAdd_0": {
     "preferred_impl_style": "hls"
   },
   "LabelSelect_0": {

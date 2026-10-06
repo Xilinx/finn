@@ -11,13 +11,8 @@ from qonnx.transformation.remove import RemoveIdentityOps
 
 import finn.transformation.streamline.absorb as absorb
 import finn.transformation.streamline.reorder as reorder
-from finn.builder.build_dataflow_config import (
-    DataflowBuildConfig,
-    ShellFlowType,
-    VerificationStepType,
-)
+from finn.builder.build_dataflow_config import DataflowBuildConfig, VerificationStepType
 from finn.builder.build_dataflow_steps import verify_step
-from finn.transformation.general import ApplyConfig
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.collapse_repeated import CollapseRepeatedMul
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
@@ -62,30 +57,4 @@ def step_mobilenet_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
     if VerificationStepType.STREAMLINED_PYTHON in cfg._resolve_verification_steps():
         verify_step(model, cfg, "streamlined_python", need_parent=False)
 
-    return model
-
-
-def step_mobilenet_slr_floorplan(model: ModelWrapper, cfg: DataflowBuildConfig):
-    if cfg.shell_flow_type == ShellFlowType.VITIS_ALVEO:
-        try:
-            from finnexperimental.analysis.partitioning import (  # noqa: PLC0415
-                partition,
-            )
-
-            # apply partitioning of the model, restricting the first and last layers
-            # to SLR0
-            default_slr = 0
-            abs_anchors = [(0, [default_slr]), (-1, [default_slr])]
-            floorplan = partition(
-                model,
-                cfg.synth_clk_period_ns,
-                cfg.board,
-                abs_anchors=abs_anchors,
-                multivariant=False,
-            )[0]
-            # apply floorplan to model
-            model = model.transform(ApplyConfig(floorplan))
-            print("SLR floorplanning applied")
-        except Exception:
-            print("No SLR floorplanning applied")
     return model

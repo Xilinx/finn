@@ -35,10 +35,7 @@ def get_model_file(model):
 
 # The BNN-PYNQ nets are trained on ToTensor-normalized images (raw uint8 / 255).
 # Merge that division onto the front of the graph so the build runs inference on
-# raw uint8 input, and annotate the global input as UINT8. This mirrors the
-# end2end bnn_pynq preproc merge; crucially it leaves the first bipolar MatMul
-# directly downstream of its input MultiThreshold, which ConvertBipolarMatMulTo-
-# XnorPopcount (in step_streamline) requires.
+# raw uint8 input, and annotate the global input as UINT8.
 def custom_step_add_preproc(model, cfg):
     global_inp_name = model.get_first_global_in()
     ishape = model.get_tensor_shape(global_inp_name)
@@ -57,8 +54,7 @@ def custom_step_add_preproc(model, cfg):
 # The Brevitas BNN-PYNQ exports end at the final MatMul (raw N-class vector);
 # the verification golden and the LabelSelect-keyed folding/specialize configs
 # both expect a top-1 class index. Append a TopK(k=1) so the graph matches --
-# convert_to_hw turns it into the configured LabelSelect node. (The export is
-# opset 13, so this TopK runs cleanly under python verification.)
+# convert_to_hw turns it into the configured LabelSelect node.
 def custom_step_add_postproc(model, cfg):
     model = model.transform(InsertTopK(k=1))
     return model

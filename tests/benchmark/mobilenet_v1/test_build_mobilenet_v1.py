@@ -12,10 +12,7 @@ from benchmark_helpers import (
     get_verify_steps,
     verification_io_dir,
 )
-from custom_steps_mobilenet import (
-    step_mobilenet_slr_floorplan,
-    step_mobilenet_streamline,
-)
+from custom_steps_mobilenet import step_mobilenet_streamline
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
@@ -60,8 +57,7 @@ build_outputs = [
 # Build steps: the MobileNet-specific streamline (handles depthwise convs via
 # MoveMulPastDWConv, QuantAvgPool datalayout, flatten reordering, then conv
 # lowering) replaces the standard streamline phase. The rest uses the phase-based
-# default flow. The U55C SLR floorplan is injected before bitfile synthesis
-# (see configure_build).
+# default flow.
 build_steps = [
     "phase_prepare_model",
     step_mobilenet_streamline,
@@ -93,17 +89,12 @@ def configure_build(board, output_dir):
     cfg_dir = os.path.join(build_fd, "mobilenet_v1")
     f_file = f"{cfg_dir}/folding_config/mobilenet_folding_config_{board}"
     sl_file = f"{cfg_dir}/specialize_layers_config/mobilenet_specialize_layers_{board}"
-    # U55C (Alveo) applies SLR floorplanning before bitfile synthesis
-    inject_before = {}
-    if board == "U55C":
-        inject_before = {"step_synthesize_bitfile": [step_mobilenet_slr_floorplan]}
     cfg = build_cfg.DataflowBuildConfig(
         # non-interactive run: surface the real error instead of dropping into pdb
         enable_build_pdb_debug=False,
         generate_outputs=build_outputs,
         output_dir=output_dir,
         steps=build_steps,
-        inject_steps_before=inject_before,
         folding_config_file=f_file + ".json",
         synth_clk_period_ns=select_clk_period(board),
         board=board,
