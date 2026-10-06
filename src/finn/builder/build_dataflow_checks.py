@@ -18,6 +18,7 @@ from finn.builder.build_dataflow_config import (
     verify_step_prereqs,
 )
 from finn.util.basic import (
+    get_finn_root,
     get_vivado_version,
     part_map,
     pynq_part_map,
@@ -225,6 +226,24 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                 f"Versal board '{cfg.board}' does not yet support bitfile generation. "
                 "System deployment is not available for Versal devices",
                 "Remove BITFILE from generate_outputs, or use a non-Versal board",
+            )
+        )
+
+    if cfg.board == "VCK190":
+        golden_dir = os.path.join(get_finn_root(), "deps", "pynq_golden", "vck190")
+        missing = [
+            f
+            for f in ["golden_noc.ncr", "golden_routed.dcp", "golden_ref.tcl"]
+            if not os.path.isfile(os.path.join(golden_dir, f))
+        ]
+        checks.append(
+            _check(
+                "vck190_golden",
+                Severity.ERROR,
+                not missing,
+                f"VCK190 golden reference files missing from {golden_dir}: {', '.join(missing)}",
+                "Launch the container with FINN_VCK190_GOLDEN=1 ./run-docker.sh to build them "
+                "(needs Vivado, takes a while on first launch)",
             )
         )
 
