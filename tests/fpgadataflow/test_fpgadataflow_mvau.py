@@ -1154,4 +1154,10 @@ def test_fpgadataflow_mvau_hls_single_iteration_top_pipeline(mem_mode):
     code_gen_dir = inst.get_nodeattr("code_gen_dir_ipgen")
     report = f"{code_gen_dir}/project_{node.name}/sol1/syn/report/{node.name}_csynth.xml"
     latency = ET.parse(report).getroot().find("PerformanceEstimates/SummaryOfOverallLatency")
-    assert int(latency.find("PipelineInitiationInterval").text) == 1
+    # With function-pipelined hlslib kernels the top-level report uses
+    # Interval-min instead of PipelineInitiationInterval.
+    pii = latency.find("PipelineInitiationInterval")
+    if pii is not None:
+        assert int(pii.text) == 1
+    else:
+        assert int(latency.find("Interval-min").text) == 1
