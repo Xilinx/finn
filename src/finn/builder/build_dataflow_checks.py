@@ -168,9 +168,18 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
             )
         )
 
+    # Resolve the shell the build will actually use: an unset shell_flow_type is
+    # inferred from the board, so these consistency checks only fire when the
+    # caller explicitly sets a shell that conflicts with the board.
+    resolved_shell = (
+        cfg._resolve_shell_flow_type()
+        if (cfg.shell_flow_type is not None or cfg.board is not None)
+        else None
+    )
+
     if has_bitfile:
         is_v80 = cfg.board == "V80" or (cfg.fpga_part and cfg.fpga_part.startswith("xcv80"))
-        is_slash = cfg.shell_flow_type == ShellFlowType.SLASH_ALVEO
+        is_slash = resolved_shell == ShellFlowType.SLASH_ALVEO
         if is_v80 or is_slash:  # Only check if V80 or SLASH is involved
             checks.append(
                 _check(
@@ -178,40 +187,32 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                     Severity.ERROR,
                     is_v80 == is_slash,  # Pass if both match (both true or both false)
                     "V80 board and SLASH_ALVEO shell flow must be used together. "
-                    f"Got board={cfg.board}, shell_flow_type={cfg.shell_flow_type}",
+                    f"Got board={cfg.board}, shell_flow_type={resolved_shell}",
                     "Use board='V80' with shell_flow_type=SLASH_ALVEO, or use a different "
                     "board with VITIS_ALVEO/VIVADO_ZYNQ",
                 )
             )
 
-    if (
-        has_bitfile
-        and cfg.board in alveo_boards
-        and cfg.shell_flow_type != ShellFlowType.VITIS_ALVEO
-    ):
+    if has_bitfile and cfg.board in alveo_boards and resolved_shell != ShellFlowType.VITIS_ALVEO:
         checks.append(
             _check(
                 "alveo_shell",
                 Severity.ERROR,
                 False,
                 f"Alveo board '{cfg.board}' requires VITIS_ALVEO shell flow, "
-                f"but {cfg.shell_flow_type} was specified",
+                f"but {resolved_shell} was specified",
                 "Set shell_flow_type=ShellFlowType.VITIS_ALVEO for Alveo U* boards",
             )
         )
 
-    if (
-        has_bitfile
-        and cfg.board in pynq_boards
-        and cfg.shell_flow_type != ShellFlowType.VIVADO_ZYNQ
-    ):
+    if has_bitfile and cfg.board in pynq_boards and resolved_shell != ShellFlowType.VIVADO_ZYNQ:
         checks.append(
             _check(
                 "pynq_shell",
                 Severity.ERROR,
                 False,
                 f"Zynq board '{cfg.board}' requires VIVADO_ZYNQ shell flow, "
-                f"but {cfg.shell_flow_type} was specified",
+                f"but {resolved_shell} was specified",
                 "Set shell_flow_type=ShellFlowType.VIVADO_ZYNQ for Zynq/PYNQ boards",
             )
         )

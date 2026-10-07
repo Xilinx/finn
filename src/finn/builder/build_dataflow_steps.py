@@ -1345,7 +1345,8 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
         report_dir = cfg.output_dir + "/report"
         os.makedirs(report_dir, exist_ok=True)
         partition_model_dir = cfg.output_dir + "/intermediate_models/kernel_partitions"
-        if cfg.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
+        shell_flow_type = cfg._resolve_shell_flow_type()
+        if shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
             model = model.transform(
                 ZynqBuild(
                     cfg.board,
@@ -1372,7 +1373,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
             )
             copy(timing_rpt, report_dir + "/post_route_timing.rpt")
 
-        elif cfg.shell_flow_type == ShellFlowType.VITIS_ALVEO:
+        elif shell_flow_type == ShellFlowType.VITIS_ALVEO:
             model = model.transform(
                 PrepareForLinking(
                     cfg._resolve_fpga_part(),
@@ -1399,7 +1400,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
             post_synth_resources = model.analysis(post_synth_res)
             with open(report_dir + "/post_synth_resources.json", "w") as f:
                 json.dump(post_synth_resources, f, indent=2)
-        elif cfg.shell_flow_type == ShellFlowType.SLASH_ALVEO:
+        elif shell_flow_type == ShellFlowType.SLASH_ALVEO:
             model = model.transform(
                 PrepareForLinking(cfg._resolve_fpga_part(), cfg.synth_clk_period_ns, "slash-vrt")
             )
@@ -1411,7 +1412,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                 with open(report_dir + "/post_synth_resources.json", "w") as f:
                     json.dump(post_synth_resources, f, indent=2)
         else:
-            raise Exception("Unrecognized shell_flow_type: " + str(cfg.shell_flow_type))
+            raise Exception("Unrecognized shell_flow_type: " + str(shell_flow_type))
         print("Bitfile written into " + bitfile_dir)
 
     else:
