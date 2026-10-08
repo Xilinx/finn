@@ -1,5 +1,6 @@
 import pytest
 
+import glob
 import numpy as np
 import os
 import re
@@ -905,14 +906,15 @@ def test_finnloop_end2end_mlo(
 
 
 @pytest.mark.parametrize(
-    "dim, simd, pe, bitwidth, weight_bitwidth",
+    "dim, simd, pe, mvau_th, helper_pe, bitwidth, weight_bitwidth",
     [
         # Coverage matrix over {folding} x {256-divisibility of the element widths}.
-        (16, 1, 1, 8, 8),  # unfolded, divisor (8|256): baseline PASS
-        (8, 8, 4, 4, 4),  # folded, divisor (4|256, DMA_PE=64): guards word-aligned image
-        #   stays byte-identical for divisors at the real folding
-        (8, 8, 4, 3, 3),  # folded, non-divisor (3 wasted bits/word): exercises the
+        (16, 1, 1, 1, 2, 8, 8),  # unfolded, divisor (8|256): baseline PASS
+        (8, 8, 4, 1, 2, 4, 4),  # folded, divisor (4|256, DMA_PE=64): guards word-aligned
+        #   image stays byte-identical for divisors at the real folding
+        (8, 8, 4, 1, 2, 3, 3),  # folded, non-divisor (3 wasted bits/word): exercises the
         #   DMA-word-aligned fix on both the activation and weight paths
+        (12, 3, 6, 1, 6, 8, 8),  # folded, helper PE > 2: VCK190 test folding on ZynqMP
     ],
 )
 # iteration count, number of models chained together
@@ -930,6 +932,8 @@ def test_finnloop_end2end_mlo_ddr(
     dim,
     simd,
     pe,
+    mvau_th,
+    helper_pe,
     iteration,
     elemwise_optype,
     rhs_shape,
@@ -960,6 +964,8 @@ def test_finnloop_end2end_mlo_ddr(
         dtype=data_dtype,
         mvau_simd=simd,
         mvau_pe=pe,
+        mvau_th=mvau_th,
+        helper_pe=helper_pe,
         weight_bitwidth=weight_bitwidth,
     )
     nodes_per_body = len(loop_body_models[0].graph.node)
@@ -1101,3 +1107,156 @@ def test_finnloop_end2end_mlo_ddr(
     assert (
         len(iter_indices) == iteration
     ), f"Expected {iteration} iterations in context, found {len(iter_indices)}"
+
+
+@pytest.mark.parametrize(
+    "dim, simd, pe, mvau_th, helper_pe, bitwidth, weight_bitwidth",
+    [
+        (12, 3, 6, 3, 6, 8, 8),
+    ],
+)
+@pytest.mark.parametrize("iteration", [3])
+@pytest.mark.parametrize("elemwise_optype", ["ElementwiseAdd_hls"])
+@pytest.mark.parametrize("rhs_shape", [[1]])
+@pytest.mark.parametrize("tail_node", [True])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_finnloop_end2end_mlo_ddr_vck190(
+    dim,
+    simd,
+    pe,
+    mvau_th,
+    helper_pe,
+    iteration,
+    elemwise_optype,
+    rhs_shape,
+    bitwidth,
+    weight_bitwidth,
+    tail_node,
+    request,
+):
+    # End-to-end MLO+DDR flow on the embedded Versal VCK190 (xcvc1902) using the
+    # VIVADO_VERSAL shell flow.
+    data_dtype = DataType[f"INT{bitwidth}"]
+    eltw_param_dtype = data_dtype.name
+    # output dtype of adding two `data_dtype` values needs one extra bit
+    add_out_dtype = DataType[f"INT{data_dtype.bitwidth() + 1}"]
+
+    vivado_path = os.environ.get("XILINX_VIVADO")
+    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
+    year, minor = int(match.group(1)), int(match.group(2))
+    if (year, minor) != (2025, 2):
+        pytest.skip("""Vivado version 2025.2 required for the VIVADO_VERSAL flow.""")
+    loop_body_models = create_chained_loop_bodies(
+        dim,
+        dim,
+        iteration,
+        elemwise_optype,
+        rhs_shape,
+        eltw_param_dtype,
+        dtype=data_dtype,
+        mvau_simd=simd,
+        mvau_pe=pe,
+        mvau_th=mvau_th,
+        helper_pe=helper_pe,
+        weight_bitwidth=weight_bitwidth,
+    )
+    nodes_per_body = len(loop_body_models[0].graph.node)
+    model = loop_body_models[0]
+    for m in loop_body_models[1:]:
+        model = model.transform(MergeONNXModels(m))
+
+    if tail_node:
+        tail_outp = create_tensor_info("tail_outp", [1, 3, 3, dim])
+        tr_node = create_node(
+            "ElementwiseAdd_hls",
+            [model.graph.output[0].name, "tail_add"],
+            ["tail_outp"],
+            "Add_tail",
+            {
+                "lhs_shape": [1, 3, 3, dim],
+                "rhs_shape": [1],
+                "out_shape": [1, 3, 3, dim],
+                "lhs_dtype": data_dtype.name,
+                "rhs_dtype": data_dtype.name,
+                "out_dtype": add_out_dtype.name,
+            },
+        )
+        model.graph.node.insert(len(model.graph.node), tr_node)
+        model.graph.value_info.append(model.graph.output[0])
+        model.graph.output.pop(0)
+        model.graph.output.append(tail_outp)
+        AddtailParam = gen_finn_dt_tensor(data_dtype, [1])
+        model.set_initializer("tail_add", AddtailParam)
+        model.set_tensor_datatype("tail_add", data_dtype)
+
+    # cleanup
+    model = model.transform(RemoveUnusedTensors())
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+
+    # Generate reference output
+    input_dtype = data_dtype
+    x = gen_finn_dt_tensor(input_dtype, (1, 3, 3, dim))
+    model_ref = model.transform(PrepareCppSim())
+    model_ref = model_ref.transform(CompileCppSim())
+    model_ref = model_ref.transform(SetExecMode("cppsim"))
+    io_dict = {model_ref.graph.input[0].name: x}
+    y_dict = oxe.execute_onnx(model_ref, io_dict)
+    y_ref = y_dict[model_ref.graph.output[0].name]
+
+    test_id = re.sub(r"[^0-9A-Za-z_]+", "_", request.node.name)
+    tmp_output_dir = make_build_dir(f"build_mlo_vck190_{test_id}_")
+
+    np.save(tmp_output_dir + "/input.npy", x)
+    np.save(tmp_output_dir + "/expected_output.npy", y_ref)
+
+    model.save(tmp_output_dir + "/mlo_model.onnx")
+
+    # Use phase-based pipeline. phase_convert_to_hardware already partitions
+    # internally, so step_create_dataflow_partition must not be listed separately.
+    steps = [
+        "phase_convert_to_hardware",  # Phase (includes partition + loop rolling)
+        "phase_optimize_hardware",  # Phase (includes folding, bit-width, reports)
+        "phase_build_hardware",  # Phase (includes codegen, ipgen, FIFOs)
+        "phase_generate_outputs",  # Phase (stitched IP, bitfile synth, driver, deployment)
+    ]
+
+    cfg = build_cfg.DataflowBuildConfig(
+        output_dir=tmp_output_dir,
+        steps=steps,
+        synth_clk_period_ns=10.0,
+        board="VCK190",
+        shell_flow_type=build_cfg.ShellFlowType.VIVADO_VERSAL,
+        rtlsim_batch_size=100,
+        standalone_thresholds=True,
+        mlo=True,
+        fifosim_save_waveform=True,
+        loop_body_hierarchy=[["", "layers.0"]],
+        loop_body_range=(model.graph.node[0], model.graph.node[nodes_per_body - 1]),
+        verify_steps=verif_steps,
+        verify_input_npy=tmp_output_dir + "/input.npy",
+        verify_expected_output_npy=tmp_output_dir + "/expected_output.npy",
+        verify_save_full_context=True,  # Enable per-iteration context saving
+        # MLO pins folding via mvau_pe/mvau_simd on the nodes at creation time, so the
+        # folding_missing check (which assumes creation-time PE=1/SIMD=1) is a false
+        # positive here; target_fps would instead override the deliberate folding.
+        mute_config_assertions=True,
+        generate_outputs=[
+            build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
+            build_cfg.DataflowOutputType.STITCHED_IP,
+            build_cfg.DataflowOutputType.BITFILE,
+            build_cfg.DataflowOutputType.PYNQ_DRIVER,
+            build_cfg.DataflowOutputType.DEPLOYMENT_PACKAGE,
+        ],
+    )
+    build.build_dataflow_cfg(tmp_output_dir + "/mlo_model.onnx", cfg)
+
+    # A verification mismatch (WRONG OUTPUT) does not fail the build: verify_step
+    # only logs "FAIL" and writes verify_<step>_<idx>_FAIL.{npy,npz}. Treat the
+    # presence of any such artifact as a test failure.
+    verify_fails = glob.glob(tmp_output_dir + "/verification_output/*FAIL*")
+    if verify_fails:
+        names = ", ".join(sorted(os.path.basename(p) for p in verify_fails))
+        pytest.fail(f"verification mismatch in build output: {names}")

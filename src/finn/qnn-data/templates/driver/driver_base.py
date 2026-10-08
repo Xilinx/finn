@@ -70,6 +70,7 @@ class FINNExampleOverlay(Overlay):
             Maximum batch size in driver (hardware batchsize is always 1)
         fclk_mhz: float
             Override the clock frequency, only possible for Zynq.
+            TODO: For Versal this currently does not work
         device: pynq.Device
             Which PYNQ device to use, None for default.
         download: bool

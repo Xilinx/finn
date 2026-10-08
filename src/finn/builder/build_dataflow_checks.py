@@ -18,9 +18,11 @@ from finn.builder.build_dataflow_config import (
     verify_step_prereqs,
 )
 from finn.util.basic import (
-    get_finn_root,
+    get_pynq_golden_dir,
     get_vivado_version,
+    is_versal,
     part_map,
+    pynq_golden_files,
     pynq_part_map,
     retired_pynq_boards,
     vitis_part_map,
@@ -201,41 +203,38 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
             )
         )
 
-    if (
-        has_bitfile
-        and cfg.board in pynq_boards
-        and cfg.shell_flow_type != ShellFlowType.VIVADO_ZYNQ
-    ):
+    if has_bitfile and cfg.board in pynq_boards:
+        expected_flow = (
+            ShellFlowType.VIVADO_VERSAL
+            if is_versal(pynq_part_map[cfg.board])
+            else ShellFlowType.VIVADO_ZYNQ
+        )
         checks.append(
             _check(
                 "pynq_shell",
                 Severity.ERROR,
-                False,
-                f"Zynq board '{cfg.board}' requires VIVADO_ZYNQ shell flow, "
+                cfg.shell_flow_type == expected_flow,
+                f"PYNQ board '{cfg.board}' requires {expected_flow.name} shell flow, "
                 f"but {cfg.shell_flow_type} was specified",
-                "Set shell_flow_type=ShellFlowType.VIVADO_ZYNQ for Zynq/PYNQ boards",
+                f"Set shell_flow_type=ShellFlowType.{expected_flow.name} for this board",
             )
         )
 
-    if cfg.board in ("VEK280", "VCK190") and has_bitfile:
+    if cfg.board == "VEK280" and has_bitfile:
         checks.append(
             _check(
                 "versal_deploy",
                 Severity.ERROR,
                 False,
                 f"Versal board '{cfg.board}' does not yet support bitfile generation. "
-                "System deployment is not available for Versal devices",
-                "Remove BITFILE from generate_outputs, or use a non-Versal board",
+                "System deployment is not available for this Versal device",
+                "Remove BITFILE from generate_outputs, or use a different board",
             )
         )
 
-    if cfg.board == "VCK190":
-        golden_dir = os.path.join(get_finn_root(), "deps", "pynq_golden", "vck190")
-        missing = [
-            f
-            for f in ["golden_noc.ncr", "golden_routed.dcp", "golden_ref.tcl"]
-            if not os.path.isfile(os.path.join(golden_dir, f))
-        ]
+    if has_bitfile and cfg.board == "VCK190":
+        golden_dir = get_pynq_golden_dir(cfg.board)
+        missing = [f for f in pynq_golden_files if not os.path.isfile(os.path.join(golden_dir, f))]
         checks.append(
             _check(
                 "vck190_golden",
@@ -260,16 +259,23 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
             )
         )
 
-    if has_bitfile and cfg.shell_flow_type == ShellFlowType.VIVADO_ZYNQ and cfg.board is None:
+    if (
+        has_bitfile
+        and cfg.shell_flow_type in (ShellFlowType.VIVADO_ZYNQ, ShellFlowType.VIVADO_VERSAL)
+        and cfg.board is None
+    ):
+        flow_name = (
+            "VIVADO_VERSAL" if cfg.shell_flow_type == ShellFlowType.VIVADO_VERSAL else "VIVADO_ZYNQ"
+        )
         checks.append(
             _check(
-                "zynq_board",
+                "pynq_board",
                 Severity.ERROR,
                 False,
-                "BITFILE generation with VIVADO_ZYNQ requires 'board' to be set. "
-                "ZynqBuild needs the board name and will fail in step_synthesize_bitfile "
+                f"BITFILE generation with {flow_name} requires 'board' to be set. "
+                "PynqBuild needs the board name and will fail in step_synthesize_bitfile "
                 "if missing",
-                "Set board to a valid Zynq board name (e.g., 'AUP-ZU3_8GB', 'ZCU104')",
+                f"Set board to a valid {flow_name} board name",
             )
         )
 

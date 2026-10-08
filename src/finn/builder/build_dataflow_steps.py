@@ -119,7 +119,7 @@ from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.loop_rolling import LoopExtraction, LoopRolling
 from finn.transformation.fpgadataflow.make_driver import MakeCPPDriver, MakePYNQDriver
-from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
+from finn.transformation.fpgadataflow.make_pynq_proj import PynqBuild
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
 )
@@ -157,7 +157,7 @@ from finn.transformation.qonnx.quant_act_to_multithreshold import (
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import get_rtlsim_trace_depth
+from finn.util.basic import get_rtlsim_trace_depth, is_versal
 from finn.util.config import (
     extract_model_config_consolidate_shuffles,
     extract_model_config_to_json,
@@ -1313,16 +1313,18 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
         report_dir = cfg.output_dir + "/report"
         os.makedirs(report_dir, exist_ok=True)
         partition_model_dir = cfg.output_dir + "/intermediate_models/kernel_partitions"
-        if cfg.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
+        if cfg.shell_flow_type in (ShellFlowType.VIVADO_ZYNQ, ShellFlowType.VIVADO_VERSAL):
+            versal = is_versal(cfg._resolve_fpga_part())
             model = model.transform(
-                ZynqBuild(
+                PynqBuild(
                     cfg.board,
                     cfg.synth_clk_period_ns,
                     cfg.enable_hw_debug,
                     partition_model_dir=partition_model_dir,
                 )
             )
-            copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel.bit")
+            accel_ext = "pdi" if versal else "bit"
+            copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel." + accel_ext)
             copy(model.get_metadata_prop("hw_handoff"), bitfile_dir + "/finn-accel.hwh")
             copy(
                 model.get_metadata_prop("vivado_synth_rpt"),
@@ -1333,12 +1335,10 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
             with open(report_dir + "/post_synth_resources.json", "w") as f:
                 json.dump(post_synth_resources, f, indent=2)
 
-            vivado_pynq_proj_dir = model.get_metadata_prop("vivado_pynq_proj")
-            timing_rpt = (
-                "%s/finn_zynq_link.runs/impl_1/top_wrapper_timing_summary_routed.rpt"
-                % vivado_pynq_proj_dir
+            copy(
+                model.get_metadata_prop("vivado_timing_rpt"),
+                report_dir + "/post_route_timing.rpt",
             )
-            copy(timing_rpt, report_dir + "/post_route_timing.rpt")
 
         elif cfg.shell_flow_type == ShellFlowType.VITIS_ALVEO:
             model = model.transform(
@@ -1378,6 +1378,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                 post_synth_resources = model.analysis(post_synth_res)
                 with open(report_dir + "/post_synth_resources.json", "w") as f:
                     json.dump(post_synth_resources, f, indent=2)
+
         else:
             raise Exception("Unrecognized shell_flow_type: " + str(cfg.shell_flow_type))
         print("Bitfile written into " + bitfile_dir)
