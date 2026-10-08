@@ -6,15 +6,18 @@ import pytest
 # custom steps for vgg10-radioml
 import os
 from benchmark_helpers import (
+    CORE_BUILD_OUTPUT_FILES,
+    benchmark_config_paths,
     benchmark_root,
+    bitfile_output_files,
     check_build_outputs,
     get_verify_steps,
+    make_benchmark_cfg,
     verification_io_dir,
 )
 from custom_steps_vgg10 import step_pre_streamline
 
 import finn.builder.build_dataflow as build
-import finn.builder.build_dataflow_config as build_cfg
 from finn.util.basic import make_build_dir
 
 build_flow_folder = benchmark_root()
@@ -35,16 +38,6 @@ verif_steps = [
     "stitched_ip_rtlsim",
 ]
 
-# build output products
-build_outputs = [
-    build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
-    build_cfg.DataflowOutputType.STITCHED_IP,
-    build_cfg.DataflowOutputType.PYNQ_DRIVER,
-    build_cfg.DataflowOutputType.BITFILE,
-    build_cfg.DataflowOutputType.DEPLOYMENT_PACKAGE,
-    build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
-]
-
 # vgg10-radioml uses one custom step, step_pre_streamline (3D->4D + fold scalar
 # mul/add into TopK), run between tidy and streamline. Everything else is
 # phase-based: the standard convert-to-hw now infers the label-select and
@@ -60,34 +53,24 @@ build_steps = [
 ]
 
 
-def configure_build(board, output_dir):
-    cfg = build_cfg.DataflowBuildConfig(
-        # non-interactive run: surface the real error instead of dropping into pdb
-        enable_build_pdb_debug=False,
-        generate_outputs=build_outputs,
-        output_dir=output_dir,
-        steps=build_steps,
-        folding_config_file=os.path.join(
-            build_flow_folder,
-            "vgg10-radioml",
-            "folding_config",
-            "vgg10radioml_folding_config.json",
-        ),
+def configure_build(board, output_dir, **overrides):
+    folding, specialize = benchmark_config_paths(
+        "vgg10-radioml",
+        "vgg10radioml_folding_config",
+        "vgg10radioml_specialize_layers",
+    )
+    cfg = dict(
+        folding_config_file=folding,
+        specialize_layers_config_file=specialize,
         synth_clk_period_ns=4.0,
-        board=board,
-        shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
+        steps=build_steps,
         standalone_thresholds=True,
-        specialize_layers_config_file=os.path.join(
-            build_flow_folder,
-            "vgg10-radioml",
-            "specialize_layers_config",
-            "vgg10radioml_specialize_layers.json",
-        ),
         verify_steps=get_verify_steps(verif_steps),
         verify_input_npy=verify_input_npy,
         verify_expected_output_npy=verify_expected_output_npy,
     )
-    return cfg
+    cfg.update(overrides)
+    return make_benchmark_cfg(board, output_dir, **cfg)
 
 
 @pytest.mark.slow
@@ -105,20 +88,5 @@ def test_vgg10radioml(board, bench_recorder):
     # Check that all expected output products (and the per-step verification
     # markers) are present, reporting every missing artifact at once instead of
     # aborting on the first one.
-    build_output_files = [
-        "time_per_step.json",
-        "final_hw_config.json",
-        "template_specialize_layers_config.json",
-        "stitched_ip/ip/component.xml",
-        "driver/driver.py",
-        "report/estimate_layer_cycles.json",
-        "report/estimate_layer_resources.json",
-        "report/estimate_network_performance.json",
-        "report/rtlsim_performance.json",
-        "bitfile/finn-accel.bit",
-        "bitfile/finn-accel.hwh",
-        "report/post_synth_resources.xml",
-        "report/post_route_timing.rpt",
-        "report/post_synth_resources.json",
-    ]
+    build_output_files = CORE_BUILD_OUTPUT_FILES + bitfile_output_files(board)
     check_build_outputs(output_dir, build_output_files)

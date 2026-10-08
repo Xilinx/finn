@@ -6,9 +6,11 @@ import pytest
 # custom steps for resnet50v1.5
 import os
 from benchmark_helpers import (
+    benchmark_config_paths,
     benchmark_root,
     check_build_outputs,
     get_verify_steps,
+    make_benchmark_cfg,
     verification_io_dir,
 )
 from custom_steps_resnet50 import step_resnet50_streamline, step_resnet50_tidy
@@ -60,39 +62,32 @@ resnet50_build_steps = [
 ]
 
 
-def configure_build(board, output_dir):
-    cfg = build_cfg.DataflowBuildConfig(
-        # non-interactive run: surface the real error instead of dropping into pdb
-        enable_build_pdb_debug=False,
+def configure_build(board, output_dir, **overrides):
+    folding, specialize = benchmark_config_paths(
+        "resnet50",
+        f"resnet50_folding_config_{board}",
+        f"resnet50_specialize_layers_{board}",
+    )
+    cfg = dict(
         steps=resnet50_build_steps,
         standalone_thresholds=True,
+        # TEMP(stitched-ip-only): stop at stitched IP (+ rtlsim performance) until
+        # the V80/SLASH synth toolchain is available.
         generate_outputs=build_outputs,
-        output_dir=output_dir,
-        folding_config_file=os.path.join(
-            build_flow_folder,
-            "resnet50",
-            "folding_config",
-            f"resnet50_folding_config_{board}.json",
-        ),
+        folding_config_file=folding,
+        specialize_layers_config_file=specialize,
         auto_fifo_depths=True,
         synth_clk_period_ns=4.0,
-        board=board,
-        # TEMP(stitched-ip-only): V80 (Versal) uses the SLASH shell for bitfile
-        # generation, but SLASH requires Vivado 2025.1. Since this run stops at
-        # stitched IP (no BITFILE), shell_flow_type is only consulted during synth,
-        # so it is left unset to avoid the Vivado-version check. Restore
-        # shell_flow_type=build_cfg.ShellFlowType.SLASH_ALVEO when synthesizing.
-        specialize_layers_config_file=os.path.join(
-            build_flow_folder,
-            "resnet50",
-            "specialize_layers_config",
-            f"resnet50_specialize_layers_{board}.json",
-        ),
+        # TEMP(stitched-ip-only): V80 (Versal) uses the SLASH shell, which requires
+        # Vivado 2025.1. The builder resolves V80 -> SLASH_ALVEO only at synth time;
+        # since this run stops at stitched IP (no BITFILE), synth never runs and the
+        # shell is never consulted, so it is left unset here.
         verify_steps=get_verify_steps(verif_steps),
         verify_input_npy=verify_input_npy,
         verify_expected_output_npy=verify_expected_output_npy,
     )
-    return cfg
+    cfg.update(overrides)
+    return make_benchmark_cfg(board, output_dir, **cfg)
 
 
 @pytest.mark.slow

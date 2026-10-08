@@ -6,10 +6,13 @@ import pytest
 import os
 import torch
 from benchmark_helpers import (
+    CORE_BUILD_OUTPUT_FILES,
+    benchmark_config_paths,
     benchmark_root,
     bitfile_output_files,
     check_build_outputs,
     get_verify_steps,
+    make_benchmark_cfg,
     verification_io_dir,
 )
 from brevitas.export import export_qonnx
@@ -22,9 +25,8 @@ from qonnx.transformation.merge_onnx_models import MergeONNXModels
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.builder.build_dataflow as build
-import finn.builder.build_dataflow_config as build_cfg
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
-from finn.util.basic import make_build_dir, vitis_default_platform
+from finn.util.basic import make_build_dir
 from finn.util.pytorch import ToTensor
 
 
@@ -69,16 +71,6 @@ verif_steps = [
     "stitched_ip_rtlsim",
 ]
 
-# build output products
-build_outputs = [
-    build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
-    build_cfg.DataflowOutputType.STITCHED_IP,
-    build_cfg.DataflowOutputType.PYNQ_DRIVER,
-    build_cfg.DataflowOutputType.BITFILE,
-    build_cfg.DataflowOutputType.DEPLOYMENT_PACKAGE,
-    build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
-]
-
 
 # verification parameters
 # tfc and lfc are both MNIST MLPs; cnv is CIFAR-10. The verification I/O is a
@@ -95,40 +87,21 @@ def get_verify_output_npy(model):
     return os.path.join(verification_io_dir(), stem + "_output.npy")
 
 
-def platform_to_shell(platform):
-    if platform in ["U55C"]:
-        return build_cfg.ShellFlowType.VITIS_ALVEO
-    elif platform in ["AUP-ZU3_8GB", "ZCU104", "KV260_SOM"]:
-        return build_cfg.ShellFlowType.VIVADO_ZYNQ
-    else:
-        raise Exception("Unknown platform, can't determine ShellFlowType")
-
-
-def configure_build(board, model, output_dir):
-    shell_flow_type = platform_to_shell(board)
-    if shell_flow_type == build_cfg.ShellFlowType.VITIS_ALVEO:
-        vitis_platform = vitis_default_platform[board]
-    else:
-        vitis_platform = None
+def configure_build(board, model, output_dir, **overrides):
     # The folding/specialize configs are board-agnostic: they are tuned for the
     # smallest target in the suite (AUP-ZU3_8GB, ZU3EG, no URAM), so they also fit
     # the larger KV260_SOM and U55C parts. One config file per (model) serves every
     # board.
-    cfg_dir = os.path.join(benchmark_root(), "bnn-pynq")
-    f_file = f"{cfg_dir}/folding_config/{model}_folding_config"
-    sl_file = f"{cfg_dir}/specialize_layers_config/{model}_specialize_layers"
-    cfg = build_cfg.DataflowBuildConfig(
-        # non-interactive run: surface the real error instead of dropping into pdb
-        enable_build_pdb_debug=False,
-        generate_outputs=build_outputs,
-        output_dir=output_dir,
-        folding_config_file=f_file + ".json",
+    folding, specialize = benchmark_config_paths(
+        "bnn-pynq",
+        f"{model}_folding_config",
+        f"{model}_specialize_layers",
+    )
+    cfg = dict(
+        folding_config_file=folding,
+        specialize_layers_config_file=specialize,
         synth_clk_period_ns=10.0,
-        board=board,
-        shell_flow_type=platform_to_shell(board),
-        vitis_platform=vitis_platform,
         stitched_ip_gen_dcp=False,
-        specialize_layers_config_file=sl_file + ".json",
         inject_steps_before={
             "step_qonnx_to_finn": [custom_step_add_preproc, custom_step_add_postproc]
         },
@@ -137,7 +110,8 @@ def configure_build(board, model, output_dir):
         verify_expected_output_npy=get_verify_output_npy(model),
         default_swg_exception=True,
     )
-    return cfg
+    cfg.update(overrides)
+    return make_benchmark_cfg(board, output_dir, **cfg)
 
 
 # Baseline-board scheme: correctness (streamline/convert/fold + numeric
@@ -184,15 +158,5 @@ def test_bnnpynq(board, model, bench_recorder):
     # Check that all expected output products are present, reporting every
     # missing artifact at once instead of aborting on the first one. The bitfile
     # artifacts depend on the shell flow (Zynq boards -> .bit/.hwh, U55C -> .xclbin).
-    build_output_files = [
-        "time_per_step.json",
-        "final_hw_config.json",
-        "template_specialize_layers_config.json",
-        "stitched_ip/ip/component.xml",
-        "driver/driver.py",
-        "report/estimate_layer_cycles.json",
-        "report/estimate_layer_resources.json",
-        "report/estimate_network_performance.json",
-        "report/rtlsim_performance.json",
-    ] + bitfile_output_files(platform_to_shell(board))
+    build_output_files = CORE_BUILD_OUTPUT_FILES + bitfile_output_files(board)
     check_build_outputs(output_dir, build_output_files)

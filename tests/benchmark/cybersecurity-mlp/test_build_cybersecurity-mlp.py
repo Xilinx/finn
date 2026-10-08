@@ -5,15 +5,17 @@ import pytest
 
 import os
 from benchmark_helpers import (
+    CORE_BUILD_OUTPUT_FILES,
+    benchmark_config_paths,
     benchmark_root,
     bitfile_output_files,
     check_build_outputs,
     get_verify_steps,
+    make_benchmark_cfg,
     verification_io_dir,
 )
 
 import finn.builder.build_dataflow as build
-import finn.builder.build_dataflow_config as build_cfg
 from finn.util.basic import make_build_dir
 
 build_flow_folder = benchmark_root()
@@ -35,44 +37,25 @@ verif_steps = [
     "stitched_ip_rtlsim",
 ]
 
-# build output products
-build_outputs = [
-    build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
-    build_cfg.DataflowOutputType.STITCHED_IP,
-    build_cfg.DataflowOutputType.PYNQ_DRIVER,
-    build_cfg.DataflowOutputType.BITFILE,
-    build_cfg.DataflowOutputType.DEPLOYMENT_PACKAGE,
-    build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
-]
 
-
-def configure_build(board, output_dir):
-    return build_cfg.DataflowBuildConfig(
-        # non-interactive run: surface the real error instead of dropping into pdb
-        enable_build_pdb_debug=False,
-        generate_outputs=build_outputs,
-        output_dir=output_dir,
-        folding_config_file=os.path.join(
-            build_flow_folder,
-            "cybersecurity-mlp",
-            "folding_config",
-            f"cybersecurity_folding_config_{board}.json",
-        ),
+def configure_build(board, output_dir, **overrides):
+    folding, specialize = benchmark_config_paths(
+        "cybersecurity-mlp",
+        f"cybersecurity_folding_config_{board}",
+        "cybersecurity_specialize_layers",
+    )
+    cfg = dict(
+        folding_config_file=folding,
+        specialize_layers_config_file=specialize,
         synth_clk_period_ns=10.0,
         mvau_wwidth_max=80,
-        board=board,
-        shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
         stitched_ip_gen_dcp=True,
-        specialize_layers_config_file=os.path.join(
-            build_flow_folder,
-            "cybersecurity-mlp",
-            "specialize_layers_config",
-            "cybersecurity_specialize_layers.json",
-        ),
         verify_steps=get_verify_steps(verif_steps),
         verify_input_npy=verify_input_npy,
         verify_expected_output_npy=verify_expected_output_npy,
     )
+    cfg.update(overrides)
+    return make_benchmark_cfg(board, output_dir, **cfg)
 
 
 @pytest.mark.slow
@@ -89,15 +72,5 @@ def test_cybersecuritymlp(board, bench_recorder):
     # Check that all expected output products are present, reporting every
     # missing artifact at once instead of aborting on the first one. This model
     # builds on AUP-ZU3_8GB via the Vivado/Zynq flow (.bit/.hwh).
-    build_output_files = [
-        "time_per_step.json",
-        "final_hw_config.json",
-        "template_specialize_layers_config.json",
-        "stitched_ip/ip/component.xml",
-        "driver/driver.py",
-        "report/estimate_layer_cycles.json",
-        "report/estimate_layer_resources.json",
-        "report/estimate_network_performance.json",
-        "report/rtlsim_performance.json",
-    ] + bitfile_output_files(build_cfg.ShellFlowType.VIVADO_ZYNQ)
+    build_output_files = CORE_BUILD_OUTPUT_FILES + bitfile_output_files(board)
     check_build_outputs(output_dir, build_output_files)

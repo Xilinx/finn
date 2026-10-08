@@ -6,16 +6,18 @@ import pytest
 # custom steps for mobilenetv1
 import os
 from benchmark_helpers import (
+    CORE_BUILD_OUTPUT_FILES,
+    benchmark_config_paths,
     benchmark_root,
     bitfile_output_files,
     check_build_outputs,
     get_verify_steps,
+    make_benchmark_cfg,
     verification_io_dir,
 )
 from custom_steps_mobilenet import step_mobilenet_streamline
 
 import finn.builder.build_dataflow as build
-import finn.builder.build_dataflow_config as build_cfg
 from finn.util.basic import make_build_dir
 
 build_fd = benchmark_root()
@@ -43,17 +45,6 @@ def select_verif_steps(platform):
     return steps
 
 
-# build output products
-build_outputs = [
-    build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
-    build_cfg.DataflowOutputType.STITCHED_IP,
-    build_cfg.DataflowOutputType.PYNQ_DRIVER,
-    build_cfg.DataflowOutputType.BITFILE,
-    build_cfg.DataflowOutputType.DEPLOYMENT_PACKAGE,
-    build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
-]
-
-
 # Build steps: the MobileNet-specific streamline (handles depthwise convs via
 # MoveMulPastDWConv, QuantAvgPool datalayout, flatten reordering, then conv
 # lowering) replaces the standard streamline phase. The rest uses the phase-based
@@ -76,37 +67,25 @@ def select_clk_period(platform):
         return 3.0
 
 
-def platform_to_shell(platform):
-    if platform in ["U55C"]:
-        return build_cfg.ShellFlowType.VITIS_ALVEO
-    elif platform in ["ZCU104"]:
-        return build_cfg.ShellFlowType.VIVADO_ZYNQ
-    else:
-        raise Exception("Unknown platform, can't determine ShellFlowType")
-
-
-def configure_build(board, output_dir):
-    cfg_dir = os.path.join(build_fd, "mobilenet_v1")
-    f_file = f"{cfg_dir}/folding_config/mobilenet_folding_config_{board}"
-    sl_file = f"{cfg_dir}/specialize_layers_config/mobilenet_specialize_layers_{board}"
-    cfg = build_cfg.DataflowBuildConfig(
-        # non-interactive run: surface the real error instead of dropping into pdb
-        enable_build_pdb_debug=False,
-        generate_outputs=build_outputs,
-        output_dir=output_dir,
+def configure_build(board, output_dir, **overrides):
+    folding, specialize = benchmark_config_paths(
+        "mobilenet_v1",
+        f"mobilenet_folding_config_{board}",
+        f"mobilenet_specialize_layers_{board}",
+    )
+    cfg = dict(
         steps=build_steps,
-        folding_config_file=f_file + ".json",
+        folding_config_file=folding,
+        specialize_layers_config_file=specialize,
         synth_clk_period_ns=select_clk_period(board),
-        board=board,
-        shell_flow_type=platform_to_shell(board),
         auto_fifo_depths=True,
-        specialize_layers_config_file=sl_file + ".json",
         standalone_thresholds=True,
         verify_steps=get_verify_steps(select_verif_steps(board)),
         verify_input_npy=verify_input_npy,
         verify_expected_output_npy=verify_expected_output_npy,
     )
-    return cfg
+    cfg.update(overrides)
+    return make_benchmark_cfg(board, output_dir, **cfg)
 
 
 @pytest.mark.slow
@@ -132,15 +111,5 @@ def test_mobilenetv1(board, bench_recorder):
     # markers) are present, reporting every missing artifact at once instead of
     # aborting on the first one. The bitfile artifacts depend on the shell flow
     # (ZCU104 -> .bit/.hwh via Vivado/Zynq, U55C -> .xclbin via Vitis/Alveo).
-    build_output_files = [
-        "time_per_step.json",
-        "final_hw_config.json",
-        "template_specialize_layers_config.json",
-        "stitched_ip/ip/component.xml",
-        "driver/driver.py",
-        "report/estimate_layer_cycles.json",
-        "report/estimate_layer_resources.json",
-        "report/estimate_network_performance.json",
-        "report/rtlsim_performance.json",
-    ] + bitfile_output_files(platform_to_shell(board))
+    build_output_files = CORE_BUILD_OUTPUT_FILES + bitfile_output_files(board)
     check_build_outputs(output_dir, build_output_files)

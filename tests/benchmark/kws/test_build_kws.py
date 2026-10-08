@@ -5,17 +5,19 @@ import pytest
 
 import os
 from benchmark_helpers import (
+    CORE_BUILD_OUTPUT_FILES,
+    benchmark_config_paths,
     benchmark_root,
     bitfile_output_files,
     check_build_outputs,
     get_verify_steps,
+    make_benchmark_cfg,
     verification_io_dir,
 )
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.insert_topk import InsertTopK
 
 import finn.builder.build_dataflow as build
-import finn.builder.build_dataflow_config as build_cfg
 from finn.builder.build_dataflow_config import DataflowBuildConfig
 from finn.util.basic import make_build_dir
 
@@ -46,39 +48,26 @@ verif_steps = [
     "stitched_ip_rtlsim",
 ]
 
-# build output products
-build_outputs = [
-    build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
-    build_cfg.DataflowOutputType.STITCHED_IP,
-    build_cfg.DataflowOutputType.PYNQ_DRIVER,
-    build_cfg.DataflowOutputType.BITFILE,
-    build_cfg.DataflowOutputType.DEPLOYMENT_PACKAGE,
-    build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
-]
-
 
 # Configure build
-def configure_build(board, output_dir):
-    cfg_dir = os.path.join(build_fd, "kws")
-    f_file = f"{cfg_dir}/folding_config/kws_folding_config_{board}"
-    sl_file = f"{cfg_dir}/specialize_layers_config/kws_specialize_layers"
-    cfg = build_cfg.DataflowBuildConfig(
-        # non-interactive run: surface the real error instead of dropping into pdb
-        enable_build_pdb_debug=False,
-        generate_outputs=build_outputs,
-        output_dir=output_dir,
-        inject_steps_before={"step_qonnx_to_finn": [step_postprocess]},
-        folding_config_file=f_file + ".json",
+def configure_build(board, output_dir, **overrides):
+    folding, specialize = benchmark_config_paths(
+        "kws",
+        f"kws_folding_config_{board}",
+        "kws_specialize_layers",
+    )
+    cfg = dict(
+        folding_config_file=folding,
+        specialize_layers_config_file=specialize,
         synth_clk_period_ns=10.0,
-        board=board,
-        shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
+        inject_steps_before={"step_qonnx_to_finn": [step_postprocess]},
         stitched_ip_gen_dcp=True,
-        specialize_layers_config_file=sl_file + ".json",
         verify_steps=get_verify_steps(verif_steps),
         verify_input_npy=verify_input_npy,
         verify_expected_output_npy=verify_expected_output_npy,
     )
-    return cfg
+    cfg.update(overrides)
+    return make_benchmark_cfg(board, output_dir, **cfg)
 
 
 @pytest.mark.slow
@@ -96,15 +85,5 @@ def test_kws(board, bench_recorder):
     # Check that all expected output products are present, reporting every
     # missing artifact at once instead of aborting on the first one. This model
     # builds on AUP-ZU3_8GB via the Vivado/Zynq flow (.bit/.hwh).
-    build_output_files = [
-        "time_per_step.json",
-        "final_hw_config.json",
-        "template_specialize_layers_config.json",
-        "stitched_ip/ip/component.xml",
-        "driver/driver.py",
-        "report/estimate_layer_cycles.json",
-        "report/estimate_layer_resources.json",
-        "report/estimate_network_performance.json",
-        "report/rtlsim_performance.json",
-    ] + bitfile_output_files(build_cfg.ShellFlowType.VIVADO_ZYNQ)
+    build_output_files = CORE_BUILD_OUTPUT_FILES + bitfile_output_files(board)
     check_build_outputs(output_dir, build_output_files)

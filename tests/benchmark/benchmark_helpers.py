@@ -8,6 +8,7 @@ import os
 import subprocess
 
 import finn.builder.build_dataflow_config as build_cfg
+from finn.util.basic import pynq_part_map, slash_part_map, vitis_part_map
 
 
 def benchmark_root():
@@ -54,29 +55,29 @@ def get_verify_steps(steps, env_var="VERIFICATION_EN", board_enabled=True):
     return list(steps) if (enabled and board_enabled) else None
 
 
-def bitfile_output_files(shell_flow_type):
+def bitfile_output_files(board):
     """Bitfile + synthesis-report artifacts produced by ``step_synthesize_bitfile``.
 
-    The artifacts differ by shell flow: the Vivado/Zynq flow emits a ``.bit``
-    plus a ``.hwh`` hand-off and a post-route timing report, the Vitis/Alveo
-    flow emits a ``.xclbin`` and no ``.hwh``/timing report, and the SLASH flow
-    (V80) emits a ``.vbin`` plus a ``slash_report.xml``.
+    The artifacts differ by shell flow (resolved from the ``board`` via FINN's
+    part maps): Vivado/Zynq emits a ``.bit`` plus a ``.hwh`` and a post-route
+    timing report, Vitis/Alveo emits a ``.xclbin``, and SLASH (V80) emits a
+    ``.vbin`` plus a ``slash_report.xml``.
     """
     common = [
         "report/post_synth_resources.xml",
         "report/post_synth_resources.json",
     ]
-    if shell_flow_type == build_cfg.ShellFlowType.VIVADO_ZYNQ:
+    if board in pynq_part_map:
         return [
             "bitfile/finn-accel.bit",
             "bitfile/finn-accel.hwh",
             "report/post_route_timing.rpt",
         ] + common
-    elif shell_flow_type == build_cfg.ShellFlowType.VITIS_ALVEO:
+    elif board in vitis_part_map:
         return [
             "bitfile/finn-accel.xclbin",
         ] + common
-    elif shell_flow_type == build_cfg.ShellFlowType.SLASH_ALVEO:
+    elif board in slash_part_map:
         # The SLASH link writes the report straight into bitfile/ and only emits
         # the JSON resource report (no post_synth_resources.xml).
         return [
@@ -85,7 +86,87 @@ def bitfile_output_files(shell_flow_type):
             "report/post_synth_resources.json",
         ]
     else:
-        raise ValueError("Unsupported shell flow type: %s" % shell_flow_type)
+        raise ValueError("Unknown board, can't determine bitfile outputs: %s" % board)
+
+
+# --- shared build configuration -------------------------------------------
+
+# Full-build output products; reduced-flow models pass their own list.
+DEFAULT_BUILD_OUTPUTS = [
+    build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
+    build_cfg.DataflowOutputType.STITCHED_IP,
+    build_cfg.DataflowOutputType.PYNQ_DRIVER,
+    build_cfg.DataflowOutputType.BITFILE,
+    build_cfg.DataflowOutputType.DEPLOYMENT_PACKAGE,
+    build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
+]
+
+# Shell-independent build-product artifacts every full benchmark build emits.
+# Tests append the model-specific extras plus bitfile_output_files(shell).
+CORE_BUILD_OUTPUT_FILES = [
+    "time_per_step.json",
+    "final_hw_config.json",
+    "template_specialize_layers_config.json",
+    "stitched_ip/ip/component.xml",
+    "driver/driver.py",
+    "report/estimate_layer_cycles.json",
+    "report/estimate_layer_resources.json",
+    "report/estimate_network_performance.json",
+    "report/rtlsim_performance.json",
+]
+
+
+def benchmark_config_paths(subdir, folding_name, specialize_name):
+    """Resolve a model's folding/specialize JSON paths under its benchmark dir."""
+    base = os.path.join(benchmark_root(), subdir)
+    folding = os.path.join(base, "folding_config", folding_name + ".json")
+    specialize = os.path.join(base, "specialize_layers_config", specialize_name + ".json")
+    return folding, specialize
+
+
+def make_benchmark_cfg(board, output_dir, **overrides):
+    """Build a ``DataflowBuildConfig`` from the shared benchmark skeleton.
+
+    Fills the fields every benchmark build shares (``enable_build_pdb_debug``,
+    ``output_dir``, ``board``, ``generate_outputs=DEFAULT_BUILD_OUTPUTS``) and
+    forwards ``**overrides`` straight to ``DataflowBuildConfig``, so any field can
+    be set or a default overridden without this factory knowing the signature.
+    The fpga part, vitis platform, and shell flow are all left for the builder to
+    resolve from ``board``.
+
+    A key passed explicitly as ``None`` is dropped so the ``DataflowBuildConfig``
+    default stands.
+    """
+    cfg_kwargs = dict(
+        enable_build_pdb_debug=False,
+        output_dir=output_dir,
+        board=board,
+        generate_outputs=list(DEFAULT_BUILD_OUTPUTS),
+    )
+    cfg_kwargs.update(overrides)
+    cfg_kwargs = {key: value for key, value in cfg_kwargs.items() if value is not None}
+    return build_cfg.DataflowBuildConfig(**cfg_kwargs)
+
+
+def find_cached_build(prefix, build_dir=None):
+    """Return the first ``build_dir`` child whose name starts with ``prefix``.
+
+    Generic caching hook for flows that reuse a previously built/synthesized model
+    (e.g. re-running only a later step such as FIFO sizing) instead of rebuilding
+    from scratch: scan ``FINN_BUILD_DIR`` (or ``build_dir``) for a matching build
+    directory. Unused by the current benchmark suite. Returns the directory path,
+    or ``None`` if no match exists.
+    """
+    if build_dir is None:
+        build_dir = os.environ.get("FINN_BUILD_DIR", ".")
+    if not os.path.isdir(build_dir):
+        return None
+    for entry in sorted(os.listdir(build_dir)):
+        if entry.startswith(prefix):
+            candidate = os.path.join(build_dir, entry)
+            if os.path.isdir(candidate):
+                return candidate
+    return None
 
 
 def check_build_outputs(output_dir, expected_files, write_report=True):
