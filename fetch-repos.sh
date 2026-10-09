@@ -47,6 +47,7 @@ KV260_BDF_COMMIT="98e0d3efc901f0b974006bc4370c2a7ad8856c79"
 #   find deps/board_files/ -type f -exec md5sum {} \; | sort -k 2 | md5sum
 EXP_BOARD_FILES_MD5="221a7edc838f4236922afbd9b9a20f17"
 AUPZU3_BDF_COMMIT="b595ecdf37c7204129517de1773b0895bcdcc2ed"
+PYNQ_COMMIT="d90670c69f7b71ea1a5d23aaa3e0ec713ff5fa9f"
 
 QONNX_URL="https://github.com/fastmachinelearning/qonnx.git"
 FINN_EXP_URL="https://github.com/Xilinx/finn-experimental.git"
@@ -57,6 +58,7 @@ XIL_BDF_URL="https://github.com/Xilinx/XilinxBoardStore.git"
 RFSOC4x2_BDF_URL="https://github.com/RealDigitalOrg/RFSoC4x2-BSP.git"
 KV260_BDF_URL="https://github.com/Xilinx/XilinxBoardStore.git"
 AUPZU3_BDF_URL="https://github.com/RealDigitalOrg/aup-zu3-bsp.git"
+PYNQ_URL="https://github.com/Xilinx/PYNQ.git"
 
 QONNX_DIR="qonnx"
 FINN_EXP_DIR="finn-experimental"
@@ -67,6 +69,7 @@ XIL_BDF_DIR="xil-bdf"
 RFSOC4x2_BDF_DIR="rfsoc4x2-bdf"
 KV260_SOM_BDF_DIR="kv260-som-bdf"
 AUPZU3_BDF_DIR="aupzu3-8gb-bdf"
+PYNQ_DIR="pynq"
 
 # absolute path to this script, e.g. /home/user/bin/foo.sh
 SCRIPT=$(readlink -f "$0")
@@ -160,6 +163,11 @@ fetch_repo $XIL_BDF_URL $XIL_BDF_COMMIT $XIL_BDF_DIR
 fetch_repo $RFSOC4x2_BDF_URL $RFSOC4x2_BDF_COMMIT $RFSOC4x2_BDF_DIR
 fetch_repo $KV260_BDF_URL $KV260_BDF_COMMIT $KV260_SOM_BDF_DIR
 fetch_repo $AUPZU3_BDF_URL $AUPZU3_BDF_COMMIT $AUPZU3_BDF_DIR
+
+# PYNQ is only needed to build the VCK190 golden reference
+if [ "$FINN_VCK190_GOLDEN" = "1" ]; then
+    fetch_repo $PYNQ_URL $PYNQ_COMMIT $PYNQ_DIR
+fi
 
 # Can skip downloading of board files entirely if desired
 if [ "$FINN_SKIP_BOARD_FILES" = "1" ]; then

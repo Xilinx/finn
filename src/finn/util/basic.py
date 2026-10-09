@@ -54,6 +54,8 @@ pynq_part_map["RFSoC2x2"] = "xczu28dr-ffvg1517-2-e"
 pynq_part_map["RFSoC4x2"] = "xczu48dr-ffvg1517-2-e"
 pynq_part_map["KV260_SOM"] = "xck26-sfvc784-2LV-c"
 pynq_part_map["AUP-ZU3_8GB"] = "xczu3eg-sfvc784-2-e"
+pynq_part_map["VEK280"] = "xcve2802-vsvh1760-2MP-e-S"
+pynq_part_map["VCK190"] = "xcvc1902-vsva2197-2MP-e-S"
 
 # Zynq-7000 boards (Pynq-Z1/Z2) retired from official support with the move to
 # Vivado 2024.2. The build flow itself is unchanged and Vivado 2024.2 still
@@ -76,6 +78,9 @@ pynq_native_port_width["RFSoC2x2"] = 128
 pynq_native_port_width["RFSoC4x2"] = 128
 pynq_native_port_width["KV260_SOM"] = 128
 pynq_native_port_width["AUP-ZU3_8GB"] = 128
+# native AXI port width (in bits) for the PL NoC slave ports on Versal
+pynq_native_port_width["VCK190"] = 512
+pynq_native_port_width["VEK280"] = 512
 
 # Vitis device and platform mappings
 vitis_part_map = dict()
@@ -99,8 +104,6 @@ slash_part_map["V80"] = "xcv80-lsva4737-2MHP-e-s"
 
 # Create a joint part map, encompassing other boards too
 part_map = {**pynq_part_map, **vitis_part_map, **slash_part_map}
-part_map["VEK280"] = "xcve2802-vsvh1760-2MP-e-S"
-part_map["VCK190"] = "xcvc1902-vsva2197-2MP-e-S"
 
 # Boards that expose HBM. Note that U50 has only HBM (no DDR), while the other
 # entries have HBM in addition to DDR. All boards not listed here are assumed to
@@ -138,6 +141,17 @@ def get_finn_root():
         correctly. Please ensure you have launched the Docker contaier correctly.
         """
         )
+
+
+# Golden reference design files the Versal PYNQ shell is built against
+pynq_golden_files = ["golden_ref.tcl", "golden_noc.ncr", "golden_routed.dcp"]
+
+
+def get_pynq_golden_dir(board):
+    """Return the directory holding the golden reference design for a Versal PYNQ
+    board."""
+
+    return os.path.join(get_finn_root(), "deps", "pynq_golden", board.lower())
 
 
 def fifo_rtl_files(abspath=True, gauge=False):

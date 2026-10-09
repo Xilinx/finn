@@ -348,7 +348,7 @@ class MakePYNQDriver(Transformation):
     after conversion to HLS layers, folding and the creation of
     dataflow partitions for correct operation.
 
-    platform: one of ["zynq-iodma", "vitis-xrt"]
+    platform: one of ["pynq-iodma", "vitis-xrt"]
 
     Outcome if successful: sets the pynq_driver_dir attribute in the ONNX
     ModelProto's metadata_props field, with the created driver dir as the
