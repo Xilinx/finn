@@ -63,14 +63,13 @@ class FINNExampleOverlay(Overlay):
         bitfile_name: str
             Path to accelerator .bit/.xclbin file
         platform: str
-            FINN platform type, either "vitis-xrt" or "zynq-iodma"
+            FINN platform type, either "vitis-xrt" or "pynq-iodma"
         io_shape_dict: dict
             Dictionary with particulars of the generated accelerator
         batch_size: int
             Maximum batch size in driver (hardware batchsize is always 1)
         fclk_mhz: float
             Override the clock frequency, only possible for Zynq.
-            TODO: For Versal this currently does not work
         device: pynq.Device
             Which PYNQ device to use, None for default.
         download: bool
@@ -107,7 +106,7 @@ class FINNExampleOverlay(Overlay):
             self.odma = [self.odma0]
             if self.platform == "vitis-xrt":
                 self.odma_handle.append(None)
-        if self.platform == "zynq-iodma":
+        if self.platform == "pynq-iodma":
             # set the clock frequency as specified by user during transformations
             if self.fclk_mhz > 0:
                 Clocks.fclk0_mhz = self.fclk_mhz
@@ -314,7 +313,7 @@ class FINNExampleOverlay(Overlay):
             self.ibuf_packed_device = None
         if self.obuf_packed_device is not None:
             self.obuf_packed_device = None
-        cacheable = {"vitis-xrt": False, "zynq-iodma": True}[self.platform]
+        cacheable = {"vitis-xrt": False, "pynq-iodma": True}[self.platform]
         self.ibuf_packed_device = []
         self.obuf_packed_device = []
         self.obuf_packed = []
@@ -389,7 +388,7 @@ class FINNExampleOverlay(Overlay):
         if batch_size is None:
             batch_size = self.batch_size
         assert batch_size <= self.batch_size, "Specified batch_size is too large."
-        if self.platform == "zynq-iodma":
+        if self.platform == "pynq-iodma":
             for o in range(self.num_outputs):
                 assert self.odma[o].read(0x00) & 0x4 != 0, "Output DMA %d is not idle" % (o)
             # manually launch IODMAs since signatures are missing
@@ -429,7 +428,7 @@ class FINNExampleOverlay(Overlay):
 
     def wait_until_finished(self):
         "Block until all output DMAs have finished writing."
-        if self.platform == "zynq-iodma":
+        if self.platform == "pynq-iodma":
             # check if output IODMA is finished via register reads
             for o in range(self.num_outputs):
                 status = self.odma[o].read(0x00)
@@ -490,7 +489,7 @@ class FINNExampleOverlay(Overlay):
             res["DRAM_extw_%s_bandwidth[MB/s]" % iwdma_name] = (
                 self.batch_size * np.prod(iwbuf.shape) * num_repeats * 0.000001 / runtime
             )
-        if self.platform == "zynq-iodma":
+        if self.platform == "pynq-iodma":
             res["fclk[mhz]"] = Clocks.fclk0_mhz
         elif self.platform == "vitis-xrt":
             res["fclk[mhz]"] = self.clock_dict["clock0"]["frequency"]

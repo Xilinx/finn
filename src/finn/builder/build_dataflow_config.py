@@ -430,9 +430,9 @@ class DataflowBuildConfig:
 
     def _resolve_driver_platform(self):
         if self.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
-            return "zynq-iodma"
+            return "pynq-iodma"
         elif self.shell_flow_type == ShellFlowType.VIVADO_VERSAL:
-            return "zynq-iodma"  # FINE for now, change later
+            return "pynq-iodma"  # FINE for now, change later
         elif self.shell_flow_type == ShellFlowType.VITIS_ALVEO:
             return "vitis-xrt"
         elif self.shell_flow_type == ShellFlowType.SLASH_ALVEO:

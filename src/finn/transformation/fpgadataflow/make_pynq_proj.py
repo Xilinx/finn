@@ -395,7 +395,7 @@ class PynqBuild(Transformation):
             kernel_model = kernel_model.transform(
                 CreateStitchedIP(self.fpga_part, self.period_ns, sdp_node.onnx_node.name)
             )
-            kernel_model.set_metadata_prop("platform", "zynq-iodma")
+            kernel_model.set_metadata_prop("platform", "pynq-iodma")
             kernel_model.save(dataflow_model_filename)
         # Assemble design from IPs
         model = model.transform(
@@ -403,6 +403,6 @@ class PynqBuild(Transformation):
         )
 
         # set platform attribute for correct remote execution
-        model.set_metadata_prop("platform", "zynq-iodma")
+        model.set_metadata_prop("platform", "pynq-iodma")
 
         return (model, False)
