@@ -31,12 +31,197 @@
 # and performance metrics annotation.
 
 import numpy as np
+import os
+import re
 from qonnx.custom_op.registry import getCustomOp
-from typing import Callable
+from typing import Any, Callable, Dict, Optional, Tuple
 
 from finn import xsi
 
 SimEngine = xsi.SimEngine if xsi.is_available() else None
+
+
+def parse_fifo_log_name(fname: str) -> Optional[Tuple[str, str]]:
+    """
+    Given a FIFO log name, either split it into
+    (ONNX Node Name, Vivado build hash)
+    or return None.
+    """
+    node_hash_regex = re.compile(
+        r"^(?P<node>(?:FINNLoop_\d+_)*StreamingFIFO_rtl_\d+)_(?P<hash>[a-z0-9_]{8})\.log$"
+    )
+    m = node_hash_regex.match(fname)
+    if m is None:
+        return None
+    else:
+        return m.group("node"), m.group("hash")
+
+
+def parse_fifo_log(path: str) -> Dict[str, Any]:
+    """Parse one FIFO gauge log, as written by finn-rtllib/fifo/hdl/fifo_gauge.sv.
+
+    The plain and verbose formats are told apart by the log's own header line,
+    so callers do not have to know which one the simulation was configured for.
+
+    Args:
+        path: Path to a single ``<node name>_<hash>.log`` file. A name that does
+            not follow that convention still parses, but leaves node/hash as None
+
+    Returns:
+        A dict with the log's contents:
+
+        * path: Path of log.
+        * verbose: False: <data_in>, True: <data>, <direction>, <cycle>.
+        * node: the ONNX node name this log belongs to, from the filename,
+          or None if the name does not follow the convention.
+        * hash: the ipgen hash of the RTL build that wrote it, from the
+          filename, or None as above.
+        * name: the SystemVerilog name of the FIFO instance.
+        * txns: List of(data:int, direction:Optional[int], cycle:Optional[int])
+        * cycles, maxfill, in, out: the gauge's summary (bottom line).
+    """
+
+    def is_verbose(header_line: str) -> bool:
+        """Determine if FIFO logs are in verbose mode based on header."""
+        headers = {"# data": False, "# data dir cycle": True}
+        if header_line not in headers.keys():
+            raise ValueError(
+                "%s: header is %r, expected one of %s" % (path, header_line, headers.keys())
+            )
+        return headers[header_line]
+
+    def summary(text: str) -> Tuple[str, Dict[str, int]]:
+        """Parse last line of the logs, the summary line."""
+        # Format regex
+        summary_regex = re.compile(
+            r"^# \[(?P<name>.+) @(?P<time>\d+)\] Cycles: (?P<cycles>\d+); "
+            r"MaxFill: (?P<maxfill>\d+); Transactions: in=(?P<n_in>\d+) out=(?P<n_out>\d+)$"
+        )
+
+        # Match & validate
+        sum_match = summary_regex.match(text)
+        if sum_match is None:
+            raise ValueError("%s: last line %r is not a gauge summary line" % (path, text))
+
+        # Transform to int dictionary
+        summary_dict = sum_match.groupdict()
+        fifo_name = summary_dict["name"]
+        fifo_values = {k: int(v) for k, v in summary_dict.items() if k != "name"}
+
+        return fifo_name, fifo_values
+
+    def data(line: str, verbose: bool, lineno: int, path: str):
+        """Parse a line of the data."""
+        # Map Verbose -> Regex
+        data_regex = (
+            re.compile(r"^(?P<data>[0-9a-fA-FxXzZ]+)$")
+            if not verbose
+            else re.compile(r"^(?P<data>[0-9a-fA-FxXzZ]+) (?P<dir>[01]) (?P<cycle>\d+)$")
+        )
+
+        # Match & Validate
+        m = data_regex.match(line)
+        if m is None:
+            data_syntax = {False: "<hex>", True: "<hex> <0|1> <cycle>"}
+            raise ValueError(
+                "%s:%d: %r does not match %r" % (path, lineno, line, data_syntax[verbose])
+            )
+
+        # Handle X/Z Values
+        data = None if re.search(r"[xXzZ]", m.group("data")) else int(m.group("data"), 16)
+        direction = None if not verbose else int(m.group("dir"))
+        cycle = None if not verbose else int(m.group("cycle"))
+        return (data, direction, cycle)
+
+    # Buffer FIFO Log
+    with open(path) as f:
+        lines = f.read().splitlines()
+    if len(lines) < 2:
+        raise ValueError("%s: expected at least a header and a summary line" % path)
+
+    # Parse
+    node, ipgen_hash = parse_fifo_log_name(os.path.basename(path)) or (None, None)
+    verbose = is_verbose(lines[0])
+    fifo_name, fifo_values = summary(lines[-1])
+    txns = [data(line, verbose, lineno, path) for lineno, line in enumerate(lines[1:-1], start=2)]
+
+    return {
+        "path": path,
+        "node": node,
+        "hash": ipgen_hash,
+        "verbose": verbose,
+        "name": fifo_name,
+        "txns": txns,
+        "cycles": fifo_values["cycles"],
+        "maxfill": fifo_values["maxfill"],
+        "in": fifo_values["n_in"],
+        "out": fifo_values["n_out"],
+    }
+
+
+def read_fifo_log_snapshot(log_dir: str) -> Dict[str, Dict[str, Any]]:
+    """Parse every FIFO gauge log in one snapshot directory."
+    Args - log_dir: str path
+    Return - Map FIFO Name -> parse_fifo_log() dictionary.
+    """
+    if not os.path.isdir(log_dir):
+        raise ValueError("no FIFO log directory at " + log_dir)
+    logs: Dict[str, Dict[str, Any]] = {}
+    for fname in sorted(os.listdir(log_dir)):
+        if not fname.endswith(".log"):
+            continue
+        path = os.path.join(log_dir, fname)
+        if os.path.getsize(path) == 0:
+            continue
+        log = parse_fifo_log(path)
+        key = log["node"] if log["node"] is not None else os.path.splitext(fname)[0]
+        if key in logs:
+            raise ValueError(
+                "%s: %s and %s both report on node %s" % (log_dir, logs[key]["path"], path, key)
+            )
+        logs[key] = log
+    return logs
+
+
+def fifo_log_is_consistent(log: Dict[str, Any]) -> None:
+    """Validate number of transactions = reported summary.
+    Args:
+        log: parse_fifo_log() dict
+    Raises:
+        ValueError: on the first inconsistency found.
+    """
+    path = log["path"]
+
+    def fail(msg, *args):
+        raise ValueError("%s: %s" % (path, msg % args))
+
+    # <direction> 0 means input, 1 means output
+    ins = [t for t in log["txns"] if t[1] in [0, None]]
+    outs = [t for t in log["txns"] if t[1] == 1]
+
+    if len(ins) != log["in"]:
+        fail("%d input lines but summary says in=%d", len(ins), log["in"])
+    if log["maxfill"] > log["in"]:
+        fail("MaxFill %d exceeds the %d words written", log["maxfill"], log["in"])
+
+    if not log["verbose"]:
+        # a plain log records inputs only, so every body line must be one
+        if outs or len(log["txns"]) != log["in"]:
+            fail("body has lines that are not inputs")
+        return
+
+    if len(outs) != log["out"]:
+        fail("%d output lines but summary says out=%d", len(outs), log["out"])
+    for i, out in enumerate(outs):
+        if out[0] != ins[i][0]:
+            fail("output #%d is %#x, but input #%d was %#x", i, out[0], i, ins[i][0])
+        if out[2] <= ins[i][2]:
+            fail("output #%d at cycle %d precedes its input", i, out[2])
+    cycles = [t[2] for t in log["txns"]]
+    if cycles != sorted(cycles):
+        fail("cycle column is not monotonic")
+    if cycles and log["cycles"] < max(cycles):
+        fail("a transaction is logged after the last cycle")
 
 
 def annotate_rtlsim_performance(rtlsim_stats, batch_size, clock_period_ns):

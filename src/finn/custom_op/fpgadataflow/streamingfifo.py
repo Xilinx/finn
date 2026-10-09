@@ -64,7 +64,10 @@ class StreamingFIFO(HWCustomOp):
                 # the FIFO does not need its own FIFOs
                 "inFIFODepths": ("ints", False, [0]),
                 "outFIFODepths": ("ints", False, [0]),
-                "debug_log_path": ("s", False, ""),
+                "debug_log_dir": ("s", False, ""),
+                "debug_log_prefix": ("s", False, ""),
+                "fifo_log_verbose": ("i", False, 0),
+                "fifo_log_flush_cycles": ("i", False, 10000),
             }
         )
 

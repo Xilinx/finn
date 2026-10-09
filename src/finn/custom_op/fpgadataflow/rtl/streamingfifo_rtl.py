@@ -29,7 +29,7 @@ import os
 
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
-from finn.util.basic import fifo_rtl_files
+from finn.util.basic import build_dir_hash, fifo_rtl_files
 
 
 class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
@@ -48,6 +48,24 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
         if self.get_nodeattr("depth_monitor") == 1:
             ret["ap_none"] = ["maxcount"]
         return ret
+
+    def get_debug_log_path(self):
+        """Returns the fifo_gauge log path to bake into this node's RTL"""
+        log_dir = self.get_nodeattr("debug_log_dir")
+        if log_dir == "":
+            return ""
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        assert code_gen_dir != "", (
+            "%s: debug_log_dir is set but code_gen_dir_ipgen is not, so the log "
+            "filename cannot be derived. generate_hdl() must run after PrepareIP "
+            "has allocated the ipgen dir." % self.onnx_node.name
+        )
+        fname = "%s%s_%s.log" % (
+            self.get_nodeattr("debug_log_prefix"),
+            self.onnx_node.name,
+            build_dir_hash(code_gen_dir),
+        )
+        return os.path.join(os.path.abspath(log_dir), fname)
 
     def generate_hdl(self, model, fpgapart, clk):
         rtlsrc = os.environ["FINN_ROOT"] + "/finn-rtllib/fifo/hdl"
@@ -78,7 +96,9 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
         # fifo.sv's RAM_STYLE_EFF ladder still uses the legacy "shift" token for the SRL
         # backing; map the FINN-facing "srl" onto it at the RTL boundary
         code_gen_dict["$RAM_STYLE$"] = "shift" if ram_style == "srl" else ram_style
-        code_gen_dict["$DATA_LOGFILE$"] = self.get_nodeattr("debug_log_path")
+        code_gen_dict["$DATA_LOGFILE$"] = self.get_debug_log_path()
+        code_gen_dict["$LOG_VERBOSE$"] = str(int(self.get_nodeattr("fifo_log_verbose")))
+        code_gen_dict["$LOG_FLUSH_CYCLES$"] = str(int(self.get_nodeattr("fifo_log_flush_cycles")))
         # apply code generation to templates
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         with open(template_path, "r") as f:

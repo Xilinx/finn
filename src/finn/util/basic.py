@@ -202,6 +202,13 @@ def get_rtlsim_timeout_error_message(threshold, cycles_estimate=None):
     )
 
 
+def build_dir_hash(build_dir):
+    """Returns the random suffix make_build_dir() gave this build dir."""
+    name = os.path.basename(os.path.normpath(build_dir))
+    assert len(name) >= 8, "%s is not a make_build_dir() directory" % build_dir
+    return name[-8:]
+
+
 def make_build_dir(prefix=""):
     """Creates a folder with given prefix to be used as a build dir.
     Use this function instead of tempfile.mkdtemp to ensure any generated files

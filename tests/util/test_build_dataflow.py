@@ -37,6 +37,7 @@ from shutil import copytree
 
 from finn.builder.build_dataflow import build_dataflow_directory
 from finn.util.basic import make_build_dir
+from finn.util.rtlsim import parse_fifo_log_name
 
 
 @pytest.mark.slow
@@ -152,3 +153,10 @@ def test_end2end_build_dataflow_directory():
     assert os.path.isdir(stitched_rtlsim_dir), "Stitched IP rtlsim log directory not created"
     stitched_logs = [f for f in os.listdir(stitched_rtlsim_dir) if f.endswith(".log")]
     assert len(stitched_logs) > 0, "No FIFO debug logs created during stitched_ip_rtlsim phase"
+
+    # Every log is named <node name>_<ipgen hash>.log, so it can be tied back to
+    # the ONNX node it came from
+    for fname in fifo_sizing_logs + stitched_logs:
+        assert parse_fifo_log_name(fname) is not None, (
+            "%s does not follow the <node name>_<ipgen hash>.log convention" % fname
+        )
