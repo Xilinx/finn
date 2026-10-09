@@ -53,6 +53,7 @@ from functools import partial
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
+from qonnx.transformation.composed import ComposedTransformation
 from qonnx.transformation.fold_constants import FoldConstants
 from qonnx.transformation.general import (
     GiveReadableTensorNames,
@@ -155,7 +156,12 @@ from finn.transformation.qonnx.quant_act_to_multithreshold import (
     default_filter_function_generator,
 )
 from finn.transformation.streamline import Streamline
-from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
+from finn.transformation.streamline.reorder import (
+    MakeMaxPoolNHWC,
+    MoveTransposePastEltwise,
+    MoveTransposePastFork,
+    MoveTransposePastJoinAdd,
+)
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import get_rtlsim_trace_depth
 from finn.util.config import (
@@ -416,6 +422,25 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
             model = model.transform(transform)
         return model
 
+    # Cancel channels-last (NCHW<->NHWC) layout transposes to a fixpoint before HW
+    # op-conversion, so they absorb into MultiThresholds (fixing their data_layout)
+    # instead of freezing into shuffle layers. Idempotent once linear graphs are
+    # detangled; the fixpoint is what resolves residual fork/join chains (e.g. ResNet).
+    if len(model.get_nodes_by_op_type("Transpose")) > 0:
+        model = model.transform(InferDataLayouts())
+        model = model.transform(
+            ComposedTransformation(
+                [
+                    MoveTransposePastJoinAdd(),
+                    MoveTransposePastFork(),
+                    MoveTransposePastEltwise(),
+                    absorb.AbsorbConsecutiveTransposes(),
+                    absorb.AbsorbTransposeIntoMultiThreshold(),
+                ]
+            )
+        )
+        model = model.transform(InferDataLayouts())
+
     # Thresholding layers (standalone mode)
     if cfg.standalone_thresholds:
         # First: Convert high-bitwidth MultiThreshold and all Quant nodes to Requant
@@ -473,27 +498,9 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
         model, ["MultiThreshold"], to_hw.InferThresholdingLayer(), "threshold layers"
     )
 
-    # Convolution-related transformations
-    model = apply_if_relevant(
-        model,
-        ["MaxPool", "AveragePool", "MaxPoolNHWC", "QuantAvgPool2d"],
-        to_hw.InferPool(),
-        "pooling layers",
-    )
-    model = apply_if_relevant(model, ["Im2Col"], to_hw.InferConvInpGen(), "conv input generator")
-    # If ConvInpGen derived, run remove cnv to fc flatten transform
-    model = apply_if_relevant(
-        model, ["ConvolutionInputGenerator"], RemoveCNVtoFCFlatten(), "Flatten"
-    )
-
-    # Streaming operations
-    model = apply_if_relevant(
-        model, ["Concat"], to_hw.InferPad1DLayer(), "1D padding and CLS token insertion"
-    )
-    model = apply_if_relevant(model, ["Concat"], to_hw.InferConcatLayer(), "concat layers")
-    model = apply_if_relevant(model, ["Split"], to_hw.InferSplitLayer(), "split layers")
-
-    # Elementwise operations
+    # Elementwise binary ops (Add/Mul/...). Before InferPool: promoting a preceding
+    # integer-valued Add/Mul to an integer ElementwiseAdd/Mul lets the pool's
+    # integer-input gate pass (e.g. QuantAvgPool2d).
     model = apply_if_relevant(
         model,
         [
@@ -513,6 +520,31 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
         to_hw.InferElementwiseBinaryOperation(),
         "elementwise binary operations",
     )
+
+    # Convolution-related transformations
+    model = apply_if_relevant(
+        model,
+        ["MaxPool", "AveragePool", "MaxPoolNHWC", "QuantAvgPool2d"],
+        to_hw.InferPool(),
+        "pooling layers",
+    )
+    model = apply_if_relevant(model, ["Im2Col"], to_hw.InferConvInpGen(), "conv input generator")
+    # Remove a flatten-into-FC pattern (standalone flatten between two dataflow
+    # nodes, or a [0,3,1,2] transpose+flatten absorbed into the following MVAU).
+    # The transform is fully self-gating and a no-op unless the exact pattern is
+    # present. Runs before InferShuffle so
+    # genuinely-absorbable transposes are eliminated rather than turned into
+    # (resource-costing) shuffle layers.
+    model = apply_if_relevant(model, ["Flatten", "Reshape"], RemoveCNVtoFCFlatten(), "Flatten")
+
+    # Streaming operations
+    model = apply_if_relevant(
+        model, ["Concat"], to_hw.InferPad1DLayer(), "1D padding and CLS token insertion"
+    )
+    model = apply_if_relevant(model, ["Concat"], to_hw.InferConcatLayer(), "concat layers")
+    model = apply_if_relevant(model, ["Split"], to_hw.InferSplitLayer(), "split layers")
+
+    # Elementwise operations
     model = apply_if_relevant(model, ["Where"], to_hw.InferWhereLayer(), "where selection")
     model = apply_if_relevant(
         model, ["Relu"], to_hw.InferReLUAsElementwiseMax(), "ReLU as elementwise max"
@@ -1313,7 +1345,8 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
         report_dir = cfg.output_dir + "/report"
         os.makedirs(report_dir, exist_ok=True)
         partition_model_dir = cfg.output_dir + "/intermediate_models/kernel_partitions"
-        if cfg.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
+        shell_flow_type = cfg._resolve_shell_flow_type()
+        if shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
             model = model.transform(
                 ZynqBuild(
                     cfg.board,
@@ -1340,7 +1373,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
             )
             copy(timing_rpt, report_dir + "/post_route_timing.rpt")
 
-        elif cfg.shell_flow_type == ShellFlowType.VITIS_ALVEO:
+        elif shell_flow_type == ShellFlowType.VITIS_ALVEO:
             model = model.transform(
                 PrepareForLinking(
                     cfg._resolve_fpga_part(),
@@ -1367,7 +1400,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
             post_synth_resources = model.analysis(post_synth_res)
             with open(report_dir + "/post_synth_resources.json", "w") as f:
                 json.dump(post_synth_resources, f, indent=2)
-        elif cfg.shell_flow_type == ShellFlowType.SLASH_ALVEO:
+        elif shell_flow_type == ShellFlowType.SLASH_ALVEO:
             model = model.transform(
                 PrepareForLinking(cfg._resolve_fpga_part(), cfg.synth_clk_period_ns, "slash-vrt")
             )
@@ -1379,7 +1412,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                 with open(report_dir + "/post_synth_resources.json", "w") as f:
                     json.dump(post_synth_resources, f, indent=2)
         else:
-            raise Exception("Unrecognized shell_flow_type: " + str(cfg.shell_flow_type))
+            raise Exception("Unrecognized shell_flow_type: " + str(shell_flow_type))
         print("Bitfile written into " + bitfile_dir)
 
     else:
@@ -1566,6 +1599,7 @@ build_dataflow_step_lookup = {
     "step_create_dataflow_partition": step_create_dataflow_partition,
     "step_target_fps_parallelization": step_target_fps_parallelization,
     "step_apply_folding_config": step_apply_folding_config,
+    "step_minimize_bit_width_datatype_only": step_minimize_bit_width_datatype_only,
     "step_minimize_bit_width": step_minimize_bit_width,
     "step_transpose_decomposition": step_transpose_decomposition,
     "step_generate_estimate_reports": step_generate_estimate_reports,

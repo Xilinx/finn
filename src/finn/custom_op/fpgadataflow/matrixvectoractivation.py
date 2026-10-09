@@ -518,13 +518,21 @@ class MVAU(HWCustomOp):
 
         idt = self.get_input_datatype(0)
 
-        # if datatype_only, runtime-writeable weights, mem_mode=external, or
-        # weights are absent (MLO), then we use worst-case values from datatypes
+        # if datatype_only, runtime-writeable weights, mem_mode=external,
+        # weights are absent (MLO), or this is a binary-XNOR node, then we use
+        # worst-case values from datatypes.
+        # binaryXnorMode is special: the hardware replaces the bipolar MAC with
+        # XNOR + popcount, so its accumulator is an unsigned popcount in [0, MW],
+        # not the signed bipolar dot-product. The value-based branch reinterprets
+        # only the weights as bipolar and would describe a signed accumulator
+        # that doesn't match the XNOR hardware (and is no tighter than [0, MW]
+        # anyway), so XNOR nodes use the datatype-bound unsigned range.
         if (
             datatype_only
             or self.get_nodeattr("runtime_writeable_weights")
             or self.get_nodeattr("mem_mode") in ["external", "external_mem", "dynamic"]
             or weights is None
+            or self.get_nodeattr("binaryXnorMode")
         ):
             mw = self.get_nodeattr("MW")
             mh = self.get_nodeattr("MH")
@@ -624,8 +632,18 @@ class MVAU(HWCustomOp):
         inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
         wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
         if inp_is_bipolar and wt_is_bipolar:
-            # ensure all thresholds are nonnegative
-            assert (orig_thres_matrix >= 0).all()
+            # Bipolar-XNOR nodes accumulate an unsigned popcount, so thresholds
+            # reaching HW codegen must be non-negative (a negative threshold means
+            # "always fire" and should already have been clipped to 0 by
+            # RoundAndClipThresholds). A negative here means the accumulator was
+            # minimized as signed (see minimize_accumulator_width) or
+            # RoundAndClipThresholds did not run.
+            assert (orig_thres_matrix >= 0).all(), (
+                "Negative threshold on a bipolar-XNOR node reaching HW codegen; "
+                "expected non-negative (unsigned popcount) thresholds. Check that "
+                "the accumulator was minimized as unsigned and that "
+                "RoundAndClipThresholds ran."
+            )
             # ensure all thresholds are integer
             assert (orig_thres_matrix.astype(np.int32) == orig_thres_matrix).all()
         ret = orig_thres_matrix
