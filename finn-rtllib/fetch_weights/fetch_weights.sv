@@ -34,7 +34,8 @@
  *  the VPC crops (N=MH*MW), preventing stale data bleeding across transfers.
  *
  *  IWSIMD depends on the operating mode:
- *    TH > 1 (tiled): IWSIMD = (PE * SIMD) / TH — one tile's worth of weights
+ *    TH > 1 (tiled): IWSIMD = WSIMD (compiler-chosen divisor of PE*SIMD with
+ *                     NW = PE*SIMD/WSIMD <= TH)
  *    TH = 1 (direct): IWSIMD = SIMD — one dot-product group
  *
  *  Alignment assumptions:
@@ -72,13 +73,13 @@ module fetch_weights #(
 
 	bit [ADDR_BITS-1:0]  ADDRESS_OFFSET = 0,
 
+	// IWSIMD/OWSIMD: weight-stream parallelism, computed by the FINN compiler
+	// and passed from the wrapper template. IWSIMD must divide PE*SIMD and
+	// PE*SIMD/IWSIMD <= TH for TH > 1.
+	int unsigned  IWSIMD,
+	int unsigned  OWSIMD,
+
 	// Safely deducible parameters
-	// In external memory (DDR, HBM, ...) weights are stored per IWSIMD group, each
-	// padded to roundup(IWSIMD*WEIGHT_WIDTH, 8) bits (= DS_BITS_BA, the DWC output
-	// width). The per-layer stride must reflect that per-group padding (not tight
-	// bit-packing); reduces to the tight value when IWSIMD*WEIGHT_WIDTH is byte-aligned.
-	localparam int unsigned  IWSIMD = (TH > 1)? ((PE*SIMD)/TH) : SIMD,
-	localparam int unsigned  OWSIMD = (PE * SIMD) / TH,
 	localparam int unsigned  DS_BITS_BA = (IWSIMD*WEIGHT_WIDTH+7)/8 * 8,
 	localparam int unsigned  WS_BITS_BA = (OWSIMD*WEIGHT_WIDTH+7)/8 * 8
 )(
@@ -162,8 +163,12 @@ module fetch_weights #(
 			$error("%m: WEIGHT_WIDTH must be non-zero.");
 			$finish;
 		end
-		if((PE * SIMD) % TH != 0) begin
-			$error("%m: PE*SIMD (%0d) must be divisible by TH (%0d).", PE * SIMD, TH);
+		if(TH > 1 && (PE * SIMD) % IWSIMD != 0) begin
+			$error("%m: IWSIMD (%0d) must divide PE*SIMD (%0d).", IWSIMD, PE * SIMD);
+			$finish;
+		end
+		if(TH > 1 && (PE * SIMD) / IWSIMD > TH) begin
+			$error("%m: NW=%0d exceeds TH=%0d (weight tile fill exceeds replay window).", (PE*SIMD)/IWSIMD, TH);
 			$finish;
 		end
 		if((MH * MW) % IWSIMD != 0) begin
