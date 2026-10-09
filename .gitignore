@@ -96,3 +96,8 @@ MANIFEST
 
 # downloaded dep repos
 /deps/
+
+# benchmark test onnx models and npy files
+/tests/benchmark/models/*.onnx
+/tests/benchmark/models/*.zip
+/tests/benchmark/verification_io/*.npy

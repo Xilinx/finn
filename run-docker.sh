@@ -80,6 +80,8 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${FINN_SKIP_XRT_DOWNLOAD=""}
 : ${FINN_XRT_PATH=""}
 : ${FINN_DOCKER_NO_CACHE="0"}
+: ${VERIFICATION_EN="0"}
+: ${VERIFICATION_IO=""}
 
 # print-tag emits the Docker image tag and exits, so the Jenkins publish step
 # has one source of truth for the tag (FINN_DOCKER_TAG). Placed before any
@@ -369,32 +371,17 @@ if [ ! -z "$FINN_XILINX_PATH" ];then
   fi
 fi
 
-# This part is used for internal ci for finn-examples
-# if using build verification for finn-examples ci, set up the necessary Docker variables
-if [ "$VERIFICATION_EN" = 1 ]; then
-  if [ -z "$FINN_EXAMPLES_ROOT" ]; then
-    recho "FINN_EXAMPLES_ROOT path has not been set."
-    recho "Please set FINN_EXAMPLES_ROOT path to enable verification."
-    exit -1
-  elif [ ! -d "${FINN_EXAMPLES_ROOT}/ci" ]; then
-    recho "ci folder not found in ${FINN_EXAMPLES_ROOT}."
-    recho "Please ensure the FINN-examples repo has been set up correctly, and FINN_EXAMPLES_ROOT path is set correctly, to enable verification."
-    exit -1
-  elif [ -z "$VERIFICATION_IO" ]; then
-    recho "VERIFICATION_IO paths has not been set."
-    recho "Please ensure the path to the input and expected output files has been set correctly to eneable verification."
-    exit -1
-  elif [ ! -d "$VERIFICATION_IO" ]; then
-    recho "${VERIFICATION_IO} is not a directory."
-    recho "Please ensure the VERIFICATION_IO path has been set to the directory containing the input and expected output files for verification."
-    exit -1
-  else
-    DOCKER_EXEC+="-e VERIFICATION_EN=$VERIFICATION_EN "
-    DOCKER_EXEC+="-e FINN_EXAMPLES_ROOT=$FINN_EXAMPLES_ROOT "
-    DOCKER_EXEC+="-e VERIFICATION_IO=$VERIFICATION_IO "
-    FINN_DOCKER_EXTRA+="-v $FINN_EXAMPLES_ROOT/ci:$FINN_EXAMPLES_ROOT/ci "
-    FINN_DOCKER_EXTRA+="-v $VERIFICATION_IO:$VERIFICATION_IO "
-  fi
+# Forward the verification toggle into the container. The benchmark suite
+# (tests/benchmark) keeps verification OFF by default; setting VERIFICATION_EN=1
+# enables the numeric verification steps. The golden I/O is deliberately not
+# committed to git: by default the suite reads it from the in-repo
+# tests/benchmark/verification_io/ (already inside the mounted workspace), but
+# VERIFICATION_IO can point at an external directory, which is then mounted into
+# the container at the same path and exported so the tests resolve it.
+DOCKER_EXEC+="-e VERIFICATION_EN=$VERIFICATION_EN "
+if [ -n "$VERIFICATION_IO" ]; then
+  DOCKER_EXEC+="-v $VERIFICATION_IO:$VERIFICATION_IO "
+  DOCKER_EXEC+="-e VERIFICATION_IO=$VERIFICATION_IO "
 fi
 
 

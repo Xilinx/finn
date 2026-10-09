@@ -1,0 +1,75 @@
+{
+  "Defaults": {},
+  "Thresholding_0": {
+    "preferred_impl_style": "rtl"
+  },
+  "ConvolutionInputGenerator_0": {
+    "preferred_impl_style": "rtl"
+  },
+  "MVAU_0": {
+    "preferred_impl_style": "hls",
+    "mem_mode": "internal_embedded"
+  },
+  "ConvolutionInputGenerator_1": {
+    "preferred_impl_style": "rtl"
+  },
+  "MVAU_1": {
+    "preferred_impl_style": "hls",
+    "mem_mode": "internal_embedded"
+  },
+  "ConvolutionInputGenerator_2": {
+    "preferred_impl_style": "rtl"
+  },
+  "Pool_0": {
+    "preferred_impl_style": "rtl"
+  },
+  "ConvolutionInputGenerator_3": {
+    "preferred_impl_style": "rtl"
+  },
+  "MVAU_2": {
+    "preferred_impl_style": "hls",
+    "mem_mode": "internal_embedded"
+  },
+  "ConvolutionInputGenerator_4": {
+    "preferred_impl_style": "rtl"
+  },
+  "MVAU_3": {
+    "preferred_impl_style": "hls",
+    "mem_mode": "internal_embedded"
+  },
+  "ConvolutionInputGenerator_5": {
+    "preferred_impl_style": "rtl"
+  },
+  "Pool_1": {
+    "preferred_impl_style": "rtl"
+  },
+  "ConvolutionInputGenerator_rtl6": {
+    "preferred_impl_style": "hls"
+  },
+  "MVAU_4": {
+    "preferred_impl_style": "hls",
+    "mem_mode": "internal_embedded"
+  },
+  "ConvolutionInputGenerator_7": {
+    "preferred_impl_style": "rtl"
+  },
+  "MVAU_5": {
+    "preferred_impl_style": "hls",
+    "mem_mode": "internal_embedded"
+  },
+  "MVAU_6": {
+    "preferred_impl_style": "hls",
+    "mem_mode": "internal_embedded"
+  },
+  "MVAU_7": {
+    "preferred_impl_style": "hls",
+    "mem_mode": "internal_embedded"
+  },
+  "MVAU_8": {
+    "preferred_impl_style": "hls",
+    "mem_mode": "internal_embedded"
+  },
+  "LabelSelect_0": {
+    "preferred_impl_style": "hls"
+  }
+}

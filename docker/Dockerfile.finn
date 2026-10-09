@@ -103,10 +103,11 @@ RUN if [ -z "$SKIP_XRT" ];then \
 
 # versioned Python package requirements for FINN compiler
 # these are given in requirements.txt
-# The apt-provided typing_extensions has no pip RECORD and cannot be
-# uninstalled by pip; install a pip-managed copy first so the requirements
-# install can upgrade it for onnx/onnxruntime instead of failing on it.
-RUN pip install --break-system-packages --ignore-installed typing_extensions
+# Some apt-provided packages (typing_extensions, packaging) have no pip RECORD
+# and cannot be uninstalled by pip; install pip-managed copies first so the
+# requirements install can upgrade them (e.g. for onnx/onnxruntime, sphinx)
+# instead of failing on the Debian-installed versions.
+RUN pip install --break-system-packages --ignore-installed typing_extensions packaging
 RUN pip install --break-system-packages -r /tmp/requirements.txt
 RUN rm /tmp/requirements.txt
 
