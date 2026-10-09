@@ -6,6 +6,7 @@ import warnings
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import Characteristic_Node
 
 
 class Pad1D(HWCustomOp):
@@ -180,6 +181,49 @@ class Pad1D(HWCustomOp):
 
     def get_exp_cycles(self):
         return int(np.prod(self.get_folded_output_shape()[:-1]))
+
+    def get_tree_model(self):
+        """Emits the left pad, then the input sequence, then the right pad.
+
+        The layer writes one folded word every cycle for the whole output
+        sequence and never stalls: the pad words come from constants held in the
+        design, so the input stream is read only while the sequence itself is
+        being passed through. That splits one period into three back-to-back
+        phases -- ``PadLeft`` tokens written with nothing read, ``NumTokens``
+        tokens read and written, ``PadRight`` tokens written with nothing read --
+        each token being ``NumChannels / SIMD`` folded words. The period is the
+        output frame, which is what ``get_exp_cycles`` returns.
+
+        The single-cycle output register between reading a word and writing it is
+        not modelled; the wind-up is shorter than one cycle of the period rtlsim
+        measures and so contributes nothing to it.
+
+        Valid for the RTL implementation at any SIMD dividing NumChannels and any
+        pad widths. Assumes the module accepts a word every cycle, as
+        ``get_exp_cycles`` does.
+        """
+        if not self.onnx_node.op_type.endswith("_rtl"):
+            return None
+        simd = self.get_nodeattr("SIMD")
+        num_channels = self.get_nodeattr("NumChannels")
+        num_tokens = self.get_nodeattr("NumTokens")
+        pad_left = self.get_nodeattr("PadLeft")
+        pad_right = self.get_nodeattr("PadRight")
+        if simd < 1 or num_channels % simd != 0:
+            return None
+        folds = num_channels // simd
+        if folds < 1 or num_tokens < 1 or min(pad_left, pad_right) < 0:
+            return None
+        phases = []
+        if pad_left > 0:
+            left = Characteristic_Node("emit the left pad", [(pad_left * folds, [0, 1])], True)
+            phases.append((1, left))
+        thru = Characteristic_Node("pass the sequence on", [(num_tokens * folds, [1, 1])], True)
+        phases.append((1, thru))
+        if pad_right > 0:
+            right = Characteristic_Node("emit the right pad", [(pad_right * folds, [0, 1])], True)
+            phases.append((1, right))
+        return Characteristic_Node("pad a sequence", phases, False)
 
     def _get_expanded_pad_values(self, context, ind):
         pad_count = self._get_pad_count(ind)

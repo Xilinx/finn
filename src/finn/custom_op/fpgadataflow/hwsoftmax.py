@@ -7,11 +7,13 @@
 # @author       Shane T. Fleming <shane.fleming@amd.com>
 ############################################################################
 
+import numpy as np
 import warnings
 from qonnx.core.datatype import DataType
 from scipy.special import softmax
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import Characteristic_Node
 
 
 class HWSoftmax(HWCustomOp):
@@ -36,6 +38,48 @@ class HWSoftmax(HWCustomOp):
 
     def get_normal_output_shape(self, ind=0):
         return self.get_normal_input_shape()
+
+    def get_tree_model(self):
+        """One beat in and one out per cycle, with a short stall between vectors.
+
+        The HLS design is three dataflow stages -- maximum, exponentiate and
+        accumulate, divide -- with a FIFO between each. Inside a vector the beats
+        stream straight through: one beat is read and one written every cycle.
+        The stall is at the vector boundary, where the middle stage spends a
+        cycle taking the next vector's maximum before it will touch data again;
+        from SIMD 4 upwards it spends one more, the reduction tree over the SIMD
+        exponentials having to settle before the vector's sum can be handed on.
+        So a vector costs ``N / SIMD + stall`` cycles and a frame is one vector
+        per position of the feature map.
+
+        The period carries no pipeline fill. The stages buffer whole vectors
+        between them and consecutive frames run into each other, so a frame
+        boundary is just another inter-vector stall: what the schedule has to
+        get right is the rate, and the recorded period is longer than a frame by
+        the node's share of the fill rather than by anything periodic.
+
+        Within a vector the stages are assumed to run at II=1, as
+        ``get_exp_cycles`` does. A design that schedules slower stretches every
+        beat by that factor and takes proportionally longer.
+
+        The RTL design has no per-vector stall and is not modelled here; it falls
+        back to rtlsim.
+
+        Valid for SIMD 1..16 and N / SIMD 4..96.
+        """
+        if not self.onnx_node.op_type.endswith("_hls"):
+            return None
+        n_beats = int(np.prod(self.get_folded_input_shape()[:-1]))
+        n = self.get_normal_input_shape()[-1]
+        simd = self.get_nodeattr("SIMD")
+        beats_per_vec = max(1, n // simd)
+        if n_beats < 1 or n_beats % beats_per_vec:
+            return None
+        stall = 2 if simd < 4 else 3
+        stream = Characteristic_Node("stream a vector", [(beats_per_vec, [1, 1])], True)
+        gap = Characteristic_Node("wait on the next maximum and sum", [(stall, [0, 0])], True)
+        vector = Characteristic_Node("softmax one vector", [(1, stream), (1, gap)], False)
+        return Characteristic_Node("softmax frame", [(n_beats // beats_per_vec, vector)], False)
 
     def execute_node(self, context, graph):
         node = self.onnx_node

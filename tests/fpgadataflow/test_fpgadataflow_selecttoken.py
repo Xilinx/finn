@@ -21,6 +21,7 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.test import tree_model_test
 
 FPGA_PART = "xc7z020clg400-1"
 CLK_NS = 10
@@ -28,10 +29,12 @@ NUM_TOKENS = 4
 NUM_CHANNELS = 4
 
 
-def make_selecttoken_modelwrapper(token_index, idt):
+def make_selecttoken_modelwrapper(
+    token_index, idt, num_tokens=NUM_TOKENS, num_channels=NUM_CHANNELS
+):
     indices = np.asarray(token_index, dtype=np.int64)
-    output_shape = [1, NUM_CHANNELS] if indices.ndim == 0 else [1, len(indices), NUM_CHANNELS]
-    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, NUM_TOKENS, NUM_CHANNELS])
+    output_shape = [1, num_channels] if indices.ndim == 0 else [1, len(indices), num_channels]
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, num_tokens, num_channels])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, output_shape)
     gather = helper.make_node("Gather", ["inp", "indices"], ["outp"], axis=1)
     graph = helper.make_graph(
@@ -140,3 +143,91 @@ def test_infer_selecttoken_layer_rejects_nonscalar_gather():
 
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     assert np.array_equal(y_produced, y_expected)
+
+
+# (NumTokens, NumChannels, TokenIndex, SIMD, idt): first, middle and last token,
+# CF from 1 to 8, and a single token, where the core's width counter degenerates.
+SELECTTOKEN_TREE_MODEL_CONFIGS = [
+    pytest.param((4, 4, 2, 1, "INT8"), id="t4-mid-cf4"),
+    pytest.param((4, 4, -1, 2, "UINT4"), id="t4-last-cf2"),
+    pytest.param((4, 4, 0, 4, "INT8"), id="t4-first-cf1"),
+    pytest.param((16, 32, 7, 4, "INT8"), id="t16-mid-cf8"),
+    pytest.param((16, 8, 15, 8, "INT8"), id="t16-last-cf1"),
+    pytest.param((1, 8, 0, 2, "INT8"), id="t1-cf4"),
+]
+
+
+def make_selecttoken_rtl_tree_model(config, part):
+    """The single-node SelectToken_rtl model for ``config``, specialized and folded."""
+    num_tokens, num_channels, token_index, simd, idt = config
+    model = make_selecttoken_modelwrapper(token_index, DataType[idt], num_tokens, num_channels)
+    model = model.transform(InferSelectTokenLayer())
+    assert model.graph.node[0].op_type == "SelectToken"
+    model = model.transform(SpecializeLayers(part))
+    assert model.graph.node[0].op_type == "SelectToken_rtl"
+    getCustomOp(model.graph.node[0]).set_nodeattr("SIMD", simd)
+    return model.transform(GiveUniqueNodeNames())
+
+
+@pytest.mark.parametrize("config", SELECTTOKEN_TREE_MODEL_CONFIGS)
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_selecttoken(config):
+    part = "xczu7ev-ffvc1156-2-e"
+    target_clk_ns = 5
+    model = make_selecttoken_rtl_tree_model(config, part)
+    node_details = ("SelectToken_rtl", config)
+
+    # Exact, as for Crop_rtl, whose core this is: a solid read row and the
+    # selected token's folds two cycles into rtlsim's window after their reads.
+    # Every delta measured is zero. The floor of one is for the reference, not
+    # the model: rtlsim's window is cut at cycles_rtlsim // 5, which lands on
+    # the frame only while the simulator's reset and drain overhead (two or
+    # three cycles here) stays under five cycles.
+    max_allowed_volume_frac = 0.0
+    volume_const = 1
+    max_allowed_length_frac = 0.0
+    length_const = 1
+
+    assert tree_model_test(
+        model,
+        node_details,
+        part,
+        target_clk_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    ), "characterized TAV does not match RTLsim'd one!"
+
+
+@pytest.mark.fpgadataflow
+def test_selecttoken_rtl_tree_model_token_counts():
+    """One period of the SelectToken_rtl schedule moves exactly one sequence.
+
+    Reads every token's folds and writes the selected token's, from the node's
+    own geometry. Before this node had a model of its own it inherited Crop's,
+    which read Crop attributes nothing sets on a SelectToken; the last
+    assertion pins the writes to the selected token itself.
+    """
+    part = "xczu7ev-ffvc1156-2-e"
+    for param in SELECTTOKEN_TREE_MODEL_CONFIGS:
+        config = param.values[0]
+        num_tokens, num_channels, token_index, simd, _ = config
+        model = make_selecttoken_rtl_tree_model(config, part)
+        node = getCustomOp(model.graph.node[0])
+        tree = node.get_tree_model()
+        assert tree is not None, config
+        cum = tree.cumulative(periods=1)
+        cf = num_channels // simd
+        assert cum.shape[0] == node.get_exp_cycles(), f"{config}: period {cum.shape[0]}"
+        assert cum[-1, 0] == num_tokens * cf, f"{config}: reads {cum[-1, 0]}"
+        assert cum[-1, 1] == cf, f"{config}: writes {cum[-1, 1]}"
+        # the writes are the selected token's folds, in order, one per cycle
+        selected = token_index % num_tokens
+        wr = np.flatnonzero(np.diff(np.concatenate(([0], cum[:, 1]))))
+        # the core's 2-cycle read-to-write latency; see Crop.get_tree_model
+        first = (selected * cf + 2) % cum.shape[0]
+        assert np.array_equal(np.sort(wr), np.sort((first + np.arange(cf)) % cum.shape[0]))

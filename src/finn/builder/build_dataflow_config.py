@@ -46,9 +46,21 @@ from finn.util.basic import (
 
 
 class AutoFIFOSizingMethod(str, Enum):
-    "Select the type of automatic FIFO sizing strategy."
+    """Select the type of automatic FIFO sizing strategy.
 
-    CHARACTERIZE = "characterize"
+    The two heuristic strategies differ only in where each node's token access
+    vector comes from. ``heuristic_analytical`` builds it from the node's tree
+    model, which needs no IP generation and no simulator; ``heuristic_rtlsim``
+    measures it per node with rtlsim, which is far slower but covers operators
+    that have no tree model. Both then size the FIFOs with the chained-TAV pass
+    in ``derive_characteristic``.
+    """
+
+    #: token access vectors from the operators' tree models
+    HEURISTIC_ANALYTICAL = "heuristic_analytical"
+    #: token access vectors measured per node with rtlsim
+    HEURISTIC_RTLSIM = "heuristic_rtlsim"
+    #: set every FIFO large, rtlsim the whole graph, then trim to the high-water mark
     LARGEFIFO_RTLSIM = "largefifo_rtlsim"
 
 
@@ -284,7 +296,9 @@ class DataflowBuildConfig:
     auto_fifo_depths: Optional[bool] = True
 
     #: When `auto_fifo_depths = True`, select which method will be used for
-    #: setting the FIFO sizes.
+    #: setting the FIFO sizes. See :class:`AutoFIFOSizingMethod`; the two
+    #: heuristic strategies differ only in whether each node's token access
+    #: vector comes from its tree model or from rtlsim.
     auto_fifo_strategy: Optional[AutoFIFOSizingMethod] = AutoFIFOSizingMethod.LARGEFIFO_RTLSIM
 
     #: Enable input throttling for simulation-based FIFO sizing
