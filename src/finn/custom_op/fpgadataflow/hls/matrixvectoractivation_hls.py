@@ -35,8 +35,8 @@ from qonnx.util.basic import interleave_matrix_outer_dim_from_partitions
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.util.data_packing import (
-    numpy_to_hls_code,
     npy_to_rtlsim_input,
+    numpy_to_hls_code,
     rtlsim_output_to_npy,
 )
 
@@ -190,9 +190,7 @@ class MVAU_hls(MVAU, HLSBackend):
                 wt, export_wdt, "weights", pack_innermost_dim=False, no_decl=True
             )
             with open(weight_file_name, "w") as f_weights:
-                f_weights.write(
-                    "const TW weights[%d][PE1][SIMD1] = \n" % tiles
-                )
+                f_weights.write("const TW weights[%d][PE1][SIMD1] = \n" % tiles)
                 f_weights.write(weight_hls_code)
         elif "decoupled" in weight_file_mode:
             if weight_file_mode == "decoupled_npy":
@@ -215,16 +213,13 @@ class MVAU_hls(MVAU, HLSBackend):
         simd = self.get_nodeattr("SIMD")
         pe = self.get_nodeattr("PE")
         self.code_gen_dict["$STREAMDECLARATIONS$"] = [
-            entry for entry in self.code_gen_dict["$STREAMDECLARATIONS$"]
-            if "in0_V" not in entry
+            entry for entry in self.code_gen_dict["$STREAMDECLARATIONS$"] if "in0_V" not in entry
         ]
         self.code_gen_dict["$STREAMDECLARATIONS$"].insert(
-            0,
-            'hls::stream<hls::vector<TI, %d>> in0_V ("in0_V");' % simd
+            0, 'hls::stream<hls::vector<TI, %d>> in0_V ("in0_V");' % simd
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"] = [
-            entry for entry in self.code_gen_dict["$STREAMDECLARATIONS$"]
-            if "out0_V" not in entry
+            entry for entry in self.code_gen_dict["$STREAMDECLARATIONS$"] if "out0_V" not in entry
         ]
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<hls::vector<TO, %d>> out0_V ("out0_V");' % pe
@@ -232,25 +227,23 @@ class MVAU_hls(MVAU, HLSBackend):
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode in ["internal_decoupled", "external", "external_mem"]:
             self.code_gen_dict["$STREAMDECLARATIONS$"] = [
-                entry for entry in self.code_gen_dict["$STREAMDECLARATIONS$"]
+                entry
+                for entry in self.code_gen_dict["$STREAMDECLARATIONS$"]
                 if "in1_V" not in entry
             ]
             self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-                'hls::stream<hls::vector<hls::vector<TW, %d>, %d>> in1_V ("in1_V");'
-                % (simd, pe)
+                'hls::stream<hls::vector<hls::vector<TW, %d>, %d>> in1_V ("in1_V");' % (simd, pe)
             )
 
     def _bipolar_flags(self):
         """Return (inp_is_bipolar, wt_is_bipolar) considering native BIPOLAR
         type and BINARY+binaryXnorMode."""
         bin_xnor_mode = self.get_nodeattr("binaryXnorMode")
-        inp_bipolar = (
-            self.get_input_datatype(0) == DataType["BIPOLAR"]
-            or (self.get_input_datatype(0) == DataType["BINARY"] and bin_xnor_mode)
+        inp_bipolar = self.get_input_datatype(0) == DataType["BIPOLAR"] or (
+            self.get_input_datatype(0) == DataType["BINARY"] and bin_xnor_mode
         )
-        wt_bipolar = (
-            self.get_input_datatype(1) == DataType["BIPOLAR"]
-            or (self.get_input_datatype(1) == DataType["BINARY"] and bin_xnor_mode)
+        wt_bipolar = self.get_input_datatype(1) == DataType["BIPOLAR"] or (
+            self.get_input_datatype(1) == DataType["BINARY"] and bin_xnor_mode
         )
         return inp_bipolar, wt_bipolar
 
@@ -315,13 +308,11 @@ using TW = {tw};\nusing TI = {ti};\nusing TO = {to};\n""".format(
             npy_in = "%s/input_0.npy" % code_gen_dir
             simd = self.get_nodeattr("SIMD")
             self.code_gen_dict["$READNPYDATA$"] = [
-                entry for entry in self.code_gen_dict["$READNPYDATA$"]
-                if "in0_V" not in entry
+                entry for entry in self.code_gen_dict["$READNPYDATA$"] if "in0_V" not in entry
             ]
             self.code_gen_dict["$READNPYDATA$"].insert(
                 0,
-                'npy2vectorstream<TI, float, %d>("%s", in0_V, false);'
-                % (simd, npy_in),
+                'npy2vectorstream<TI, float, %d>("%s", in0_V, false);' % (simd, npy_in),
             )
         # Decoupled weights: load flat npy into nested hls::vector<vector<TW, SIMD>, PE>
         mem_mode = self.get_nodeattr("mem_mode")
@@ -334,8 +325,7 @@ using TW = {tw};\nusing TI = {ti};\nusing TO = {to};\n""".format(
             pe = self.get_nodeattr("PE")
             wmem = self.calc_wmem()
             self.code_gen_dict["$READNPYDATA$"] = [
-                entry for entry in self.code_gen_dict["$READNPYDATA$"]
-                if "in1_V" not in entry
+                entry for entry in self.code_gen_dict["$READNPYDATA$"] if "in1_V" not in entry
             ]
             self.code_gen_dict["$READNPYDATA$"].append(
                 """{{\n"""
@@ -354,8 +344,12 @@ using TW = {tw};\nusing TI = {ti};\nusing TO = {to};\n""".format(
                 """    }}\n"""
                 """  }}\n"""
                 """}}""".format(
-                    npy=npy_in, wmem=wmem, reps=numReps,
-                    simd=simd, pe=pe, pe_x_simd=pe * simd,
+                    npy=npy_in,
+                    wmem=wmem,
+                    reps=numReps,
+                    simd=simd,
+                    pe=pe,
+                    pe_x_simd=pe * simd,
                 )
             )
 
@@ -369,12 +363,16 @@ using TW = {tw};\nusing TI = {ti};\nusing TO = {to};\n""".format(
         if mem_mode == "internal_embedded":
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """Matrix_Vector_Activate_Batch<MW1, MH1, SIMD1, PE1, TW, TI, TO>
-                (in0_V, out0_V, weights, {});""".format(threshs)
+                (in0_V, out0_V, weights, {});""".format(
+                    threshs
+                )
             ]
         elif mem_mode in ["internal_decoupled", "external", "external_mem"]:
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """Matrix_Vector_Activate_Stream_Batch<MW1, MH1, SIMD1, PE1, TW, TI, TO>
-                (in0_V, out0_V, in1_V, {});""".format(threshs)
+                (in0_V, out0_V, in1_V, {});""".format(
+                    threshs
+                )
             ]
         else:
             raise Exception(
@@ -391,7 +389,9 @@ using TW = {tw};\nusing TI = {ti};\nusing TO = {to};\n""".format(
                 """void {name}(
                     hls::stream<hls::vector<TI, {simd}>> &in0_V,
                     hls::stream<hls::vector<TO, {pe}>> &out0_V
-                )""".format(name=self.onnx_node.name, simd=simd, pe=pe)
+                )""".format(
+                    name=self.onnx_node.name, simd=simd, pe=pe
+                )
             ]
         elif mem_mode in ["internal_decoupled", "external", "external_mem"]:
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
@@ -399,7 +399,9 @@ using TW = {tw};\nusing TI = {ti};\nusing TO = {to};\n""".format(
                     hls::stream<hls::vector<TI, {simd}>> &in0_V,
                     hls::stream<hls::vector<hls::vector<TW, {simd}>, {pe}>> &in1_V,
                     hls::stream<hls::vector<TO, {pe}>> &out0_V
-                )""".format(name=self.onnx_node.name, simd=simd, pe=pe)
+                )""".format(
+                    name=self.onnx_node.name, simd=simd, pe=pe
+                )
             ]
         else:
             raise Exception(

@@ -124,9 +124,7 @@ class TLastMarker_hls(HWCustomOp, HLSBackend):
         num_iters = self.get_nodeattr("NumIters")
 
         if direction == "in":
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                "TLastMarker_In<InDType>(in0_V, out0_V);"
-            ]
+            self.code_gen_dict["$DOCOMPUTE$"] = ["TLastMarker_In<InDType>(in0_V, out0_V);"]
         else:
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 "TLastMarker_Out<%d, OutDType>(in0_V, out0_V);" % num_iters
