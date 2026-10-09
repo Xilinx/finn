@@ -36,20 +36,14 @@ def verification_io_dir():
 def get_verify_steps(steps, env_var="VERIFICATION_EN", board_enabled=True):
     """Return ``steps`` when verification is enabled, else None.
 
-    Verification (cppsim/rtlsim numeric checks) is slow, so the benchmark suite
-    keeps it OFF by default and only runs it when ``VERIFICATION_EN`` is set to a
-    truthy value (``1``/``true``/``yes``/``on``). This reuses the env-var
-    convention from ``run-docker.sh``. Passing the result straight to
-    ``DataflowBuildConfig(verify_steps=...)`` disables verification cleanly when
-    ``None``. Whether the verification actually passed is assessed later by the
-    aggregation harness (Phase 4), not by the per-test output check.
+    Verification (cppsim/rtlsim) is slow, so it stays OFF unless ``VERIFICATION_EN``
+    is truthy (``1``/``true``/``yes``/``on``). The ``None`` result disables
+    verification when passed to ``DataflowBuildConfig(verify_steps=...)``.
 
-    ``board_enabled`` additionally scopes verification to a single baseline
-    board. Numeric correctness is board/part-independent across the suite's
-    UltraScale+ targets, so re-verifying the same (model, datatype) on a second
-    board is pure redundancy. Multi-board models pass
-    ``board_enabled=(board == BASELINE_BOARD)`` so only the baseline build
-    verifies; single-board models leave it at the default ``True``.
+    ``board_enabled`` lets a test gate verification by board: a model built on
+    several boards passes ``board_enabled=(board == BASELINE_BOARD)`` to verify
+    only the baseline build and skip the rest; single-board models leave it at
+    the default ``True``.
     """
     enabled = os.environ.get(env_var, "0").strip().lower() in ("1", "true", "yes", "on")
     return list(steps) if (enabled and board_enabled) else None
@@ -172,11 +166,9 @@ def find_cached_build(prefix, build_dir=None):
 def check_build_outputs(output_dir, expected_files, write_report=True):
     """Check that all expected build output *products* exist.
 
-    Rather than asserting one file at a time (which aborts at the first missing
-    artifact and hides the status of the rest), this checks every expected
-    build-product artifact, records whether each is present, writes an
-    ``output_products_check.json`` report into ``<output_dir>/report/``, and
-    finally asserts that nothing is missing, listing every absent file at once.
+    Checks every expected artifact, writes an ``output_products_check.json``
+    report into ``<output_dir>/report/``, and asserts that nothing is missing,
+    listing every absent file at once.
 
     Verification results are intentionally *not* checked here -- verification is
     toggled via :func:`get_verify_steps` and its per-step pass/fail is assessed by
@@ -219,9 +211,7 @@ def check_build_outputs(output_dir, expected_files, write_report=True):
 # aggregation harness mines the few metrics worth tracking over time (estimated
 # vs. rtlsim throughput/latency and estimated/post-synth resource usage) and
 # collapses every (model, board) build of a run into one timestamped JSON + a
-# flat CSV, so later runs can be diffed. The functions are kept here (not in the
-# conftest) so they can be imported and exercised standalone against existing
-# build directories.
+# flat CSV, so later runs can be diffed.
 
 BENCH_RESULTS_SUBDIR = "benchmark_results"
 
