@@ -31,6 +31,7 @@ import pytest
 
 import numpy as np
 import os
+import xml.etree.ElementTree as ET
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -354,3 +355,42 @@ def test_fpgadataflow_ipstitch_zynqbuild_end2end(board):
     bitfile_name = model.get_metadata_prop("bitfile")
     assert bitfile_name is not None
     assert os.path.isfile(bitfile_name)
+
+
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+def test_fpgadataflow_tlastmarker_single_beat_top_pipeline():
+    """A TLastMarker with a static count of one beat per frame (fully unrolled last
+    layer) must achieve II=1. The function-pipelined hlslib kernel handles this
+    internally — no top-level pipeline pragma needed."""
+    width = 64
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, width])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, width])
+    node = helper.make_node(
+        "TLastMarker_hls",
+        ["inp"],
+        ["outp"],
+        NumIters=1,
+        StreamWidth=width,
+        ElemWidth=1,
+        DynIters=0,
+        Direction="out",
+        Protocol="internal",
+        domain="finn.custom_op.fpgadataflow.hls",
+        backend="fpgadataflow",
+    )
+    graph = helper.make_graph([node], "tlastmarker", [inp], [outp])
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="tlastmarker"))
+    model = model.transform(GiveUniqueNodeNames())
+    node = model.graph.node[0]
+
+    model = model.transform(PrepareIP(test_fpga_part, 10))
+    model = model.transform(HLSSynthIP())
+    code_gen_dir = getCustomOp(model.graph.node[0]).get_nodeattr("code_gen_dir_ipgen")
+    report = f"{code_gen_dir}/project_{node.name}/sol1/syn/report/{node.name}_csynth.xml"
+    latency = ET.parse(report).getroot().find("PerformanceEstimates/SummaryOfOverallLatency")
+    pii = latency.find("PipelineInitiationInterval")
+    if pii is not None:
+        assert int(pii.text) == 1
+    else:
+        assert int(latency.find("Interval-min").text) == 1

@@ -41,7 +41,7 @@ class InsertTLastMarker(Transformation):
     More information available on the TLastMarker documentation.
     """
 
-    def __init__(self, both=False, external=True, dynamic=True):
+    def __init__(self, both=False, external=True, dynamic=False):
         super().__init__()
         self.dyniters = dynamic
         self.external = external

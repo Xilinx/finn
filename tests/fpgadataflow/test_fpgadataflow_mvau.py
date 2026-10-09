@@ -30,6 +30,7 @@ import pytest
 
 import numpy as np
 import qonnx.custom_op.general.xnorpopcount as xp
+import xml.etree.ElementTree as ET
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -1124,3 +1125,39 @@ def test_fpgadataflow_mvau_hls_threshold_width_cppsim():
     assert np.allclose(
         y_min_produced, y_min_expected
     ), f"Min input test failed: expected {y_min_expected}, got {y_min_produced}"
+
+
+# mem_mode: on-chip weights, embedded or streamed from the packaged weight streamer
+@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+def test_fpgadataflow_mvau_hls_single_iteration_top_pipeline(mem_mode):
+    """A fully unrolled HLS MVAU (SIMD=MW, PE=MH) must achieve II=1.
+    The function-pipelined hlslib kernel handles this natively —
+    no special top-level pragma workaround needed."""
+    mw, mh = 16, 16
+    idt = wdt = DataType["INT4"]
+    W = gen_finn_dt_tensor(wdt, (mw, mh))
+    model = make_single_fclayer_modelwrapper(W, mh, mw, wdt, idt, DataType["INT32"])
+    inst = getCustomOp(model.graph.node[0])
+    inst.set_nodeattr("preferred_impl_style", "hls")
+    inst.set_nodeattr("mem_mode", mem_mode)
+    part = "xczu7ev-ffvc1156-2-e"
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(GiveUniqueNodeNames())
+    node = model.graph.node[0]
+    assert node.op_type == "MVAU_hls"
+
+    model = model.transform(PrepareIP(part, 10))
+    model = model.transform(HLSSynthIP())
+    inst = getCustomOp(model.graph.node[0])
+    code_gen_dir = inst.get_nodeattr("code_gen_dir_ipgen")
+    report = f"{code_gen_dir}/project_{node.name}/sol1/syn/report/{node.name}_csynth.xml"
+    latency = ET.parse(report).getroot().find("PerformanceEstimates/SummaryOfOverallLatency")
+    # With function-pipelined hlslib kernels the top-level report uses
+    # Interval-min instead of PipelineInitiationInterval.
+    pii = latency.find("PipelineInitiationInterval")
+    if pii is not None:
+        assert int(pii.text) == 1
+    else:
+        assert int(latency.find("Interval-min").text) == 1
