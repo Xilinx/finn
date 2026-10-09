@@ -432,7 +432,7 @@ class DataflowBuildConfig:
         if self.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
             return "pynq-iodma"
         elif self.shell_flow_type == ShellFlowType.VIVADO_VERSAL:
-            return "pynq-iodma"  # FINE for now, change later
+            return "pynq-iodma"
         elif self.shell_flow_type == ShellFlowType.VITIS_ALVEO:
             return "vitis-xrt"
         elif self.shell_flow_type == ShellFlowType.SLASH_ALVEO:
