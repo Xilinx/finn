@@ -40,6 +40,12 @@ The flow, as ``step_set_fifo_depths`` runs it:
 3. ``DeriveFIFOSizes`` reads the TAVs, derives a wall-clock schedule for every
    edge with ``derive_chained_tav_depths`` and writes the resulting depths to
    ``inFIFODepths``/``outFIFODepths``.
+
+The pass is a sequence of named steps (``read_node_tavs``, ``node_periods``,
+``pacer_drivers``, ``reconvergent_branch_nodes``, ``local_clock`` /
+``token_times`` per node, ``peak_occupancy`` and ``edge_depth`` per edge).
+Every rule that is more than "depth = peak occupancy" is documented with a
+measured example in ``docs/finn/fifo_sizing_heuristics.rst``.
 """
 
 import numpy as np
@@ -64,17 +70,6 @@ _UNCHARACTERIZED_OPS = [
     "StreamingFIFO_hls",
     "StreamingFIFO_rtl",
 ]
-
-#: Ops the chained-TAV pass treats as transparent, by op type: a token handed to
-#: them is handed on in the same cycle. Any node without a TAV is treated the
-#: same way. Note that this matches *every* ElementwiseAdd, including a unary
-#: one with a constant operand, which does carry a TAV of its own.
-_TRANSPARENT_OPS = (
-    "DuplicateStreams_hls",
-    "AddStreams_hls",
-    "ElementwiseAdd_hls",
-    "ElementwiseAdd_rtl",
-)
 
 
 # ---------------------------------------------------------------------------
@@ -254,72 +249,6 @@ def read_tav_rows(inst):
     return out[0], out[1]
 
 
-def input_rows_collapsed(model, node):
-    """QUIRK inherited from the full flow: True if this node's input TAV is
-    reduced to row 0.
-
-    In the full flow ``DelayCharacteristicFunctions`` re-saved ``io_chrc_in``
-    as its first row for every node whose ``input[0]`` has a producer (looking
-    through one DWC). The sidecar path depends only on the node and attribute
-    name, so this also overwrote the file ``io_chrc_in_original`` pointed to.
-    The per-stream input binding in ``stream_curves`` therefore only ever saw
-    several rows on nodes fed directly by a graph input.
-    """
-    producer = model.find_producer(node.input[0]) if len(node.input) else None
-    if producer is not None and "StreamingDataWidthConverter" in producer.name:
-        producer = model.find_producer(producer.input[0])
-    return producer is not None
-
-
-def inherited_fork_join_tav_lengths(model):
-    """QUIRK inherited from the full flow: TAV lengths forks and joins carry.
-
-    In the full flow ``HandleBranches`` copied a neighbour's TAV onto a fork
-    and the join it reconverges at, but only for pairs it could trace (both
-    join inputs walk back along ``input[0]`` to the same fork). The fork got
-    its producer's output TAV (or, if it forks a graph input, its first
-    consumer's input TAV); the join got its consumer's input TAV. Joins are
-    processed in graph order, and a copy made earlier is what a later lookup
-    sees.
-
-    The chained-TAV pass treats forks and joins as transparent, but still reads
-    the copied TAV's *length* as the node's own period, which feeds
-    ``chain_period`` and ``drives_pacer``. Returns ``{node name: length}``.
-    """
-    fork_ops = ("DuplicateStreams_hls", "ReplicateStream_hls")
-    assigned = {}
-
-    def tav_len(node, attr):
-        if node.name in assigned:
-            return assigned[node.name]
-        raw = registry.getCustomOp(node).get_nodeattr(attr)
-        return None if raw == "" else np.atleast_2d(decompress_string_to_numpy(raw)).shape[-1]
-
-    def fork_of(join, idx):
-        last = model.find_producer(join.input[idx])
-        seen = set()
-        while last is not None and last.op_type not in fork_ops:
-            if last.name in seen or len(last.input) < 1:
-                return None
-            seen.add(last.name)
-            last = model.find_producer(last.input[0])
-        return last
-
-    for join in [n for n in model.graph.node if is_stream_join(n)]:
-        f0, f1 = fork_of(join, 0), fork_of(join, 1)
-        if f0 is None or f1 is None or f0 is not f1:
-            continue
-        prod = model.find_producer(f0.input[0])
-        if prod is not None:
-            assigned[f0.name] = tav_len(prod, "io_chrc_out")
-        else:
-            assigned[f0.name] = tav_len(model.find_consumer(f0.output[0]), "io_chrc_in")
-        cons = model.find_consumer(join.output[0])
-        if cons is not None:
-            assigned[join.name] = tav_len(cons, "io_chrc_in")
-    return {k: v for k, v in assigned.items() if v is not None}
-
-
 def stream_curves(node, inst, rows_in, rows_out):
     """Bind TAV rows to tensor names: ``({tensor: curve}, {tensor: curve})``.
 
@@ -486,8 +415,6 @@ def read_node_tavs(model, nodes):
         try:
             inst = registry.getCustomOp(node)
             rows_in, rows_out = read_tav_rows(inst)
-            if rows_in is not None and input_rows_collapsed(model, node):
-                rows_in = rows_in[:1]
             in_curves, out_curves = stream_curves(node, inst, rows_in, rows_out)
             tavs[node.name] = (
                 None if rows_in is None else rows_in[0],
@@ -500,19 +427,10 @@ def read_node_tavs(model, nodes):
     return tavs
 
 
-def node_periods(model, nodes, tavs):
+def node_periods(nodes, tavs):
     """Step 2: each node's own period, half its TAV length. Forks and joins
-    have no TAV and are transparent below, but still carry a period (see
-    ``inherited_fork_join_tav_lengths``)."""
-    inherited = inherited_fork_join_tav_lengths(model)
-    own_period = {}
-    for node in nodes:
-        tin = tavs[node.name][0]
-        if tin is not None:
-            own_period[node.name] = len(tin) // 2
-        elif node.name in inherited:
-            own_period[node.name] = inherited[node.name] // 2
-    return own_period
+    have no TAV and no period of their own."""
+    return {n.name: len(tavs[n.name][0]) // 2 for n in nodes if tavs[n.name][0] is not None}
 
 
 def pacer_drivers(model, nodes, own_period, pacer_period):
@@ -665,7 +583,7 @@ def edge_depth(
     return max(after_slack, floor)
 
 
-def derive_chained_tav_depths(model, global_period, causal):
+def derive_chained_tav_depths(model, global_period, causal=True):
     """Per-edge FIFO depths from token arrival times on the dataflow DAG.
 
     Returns ``{tensor_name: depth}``. Edges not in the dict get the minimum.
@@ -681,7 +599,7 @@ def derive_chained_tav_depths(model, global_period, causal):
     """
     nodes = [n for n in model.graph.node if is_hls_node(n) or is_rtl_node(n)]
     tavs = read_node_tavs(model, nodes)
-    own_period = node_periods(model, nodes, tavs)
+    own_period = node_periods(nodes, tavs)
 
     # Global period: the slower of the caller's estimate and the slowest
     # measured TAV period (some ops' cycle estimates under-state their period).
@@ -719,10 +637,10 @@ def derive_chained_tav_depths(model, global_period, causal):
         fill_only = len(dyn_inputs) > 1 or node.name in in_branch
         t_up, t_prop = chain_period(node)
 
-        if tin is None or tout is None or node.op_type in _TRANSPARENT_OPS:
-            # Step 5a, transparent node: forward the input timeline with zero
-            # latency. A join waits for its latest input, a fork hands one
-            # schedule to every output.
+        if tin is None or tout is None:
+            # Step 5a, a node without a TAV (fork, join) is transparent: it
+            # forwards the input timeline with zero latency. A join waits for
+            # its latest input, a fork hands one schedule to every output.
             srcs = [edges[t].writes for t in dyn_inputs if t in edges]
             if not srcs:
                 continue
@@ -781,7 +699,10 @@ class DeriveFIFOSizes(Transformation):
     """Prerequisite: DeriveTokenAccessVectors already called on the graph.
 
     Sizes every edge with the chained-TAV pass and writes the depths to the
-    ``inFIFODepths``/``outFIFODepths`` attributes of both endpoints.
+    ``inFIFODepths``/``outFIFODepths`` attributes of both endpoints, at least
+    ``minimum_size`` (2) everywhere and ``io_fifo_depth`` on the graph's input
+    and output. ``period`` is the graph's frame interval in cycles (the
+    slowest node's); None takes the slowest TAV period.
     """
 
     def __init__(self, period=None, io_fifo_depth=5):
