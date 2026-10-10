@@ -160,7 +160,14 @@ class StreamingDataWidthConverter(HWCustomOp):
         context[node.output[0]] = output
 
     def get_exp_cycles(self):
-        return np.prod(self.get_folded_input_shape()) + np.prod(self.get_folded_output_shape())
+        num_in_words = int(np.prod(self.get_folded_input_shape()[:-1]))
+        num_out_words = int(np.prod(self.get_folded_output_shape()[:-1]))
+        inw, outw = self.get_instream_width(), self.get_outstream_width()
+        if max(inw, outw) % min(inw, outw) == 0:
+            # (de)serialization moves one word per cycle on its busier side
+            return max(num_in_words, num_out_words)
+        # general conversion: conservatively both sides in turn
+        return num_in_words + num_out_words
 
     def lut_estimation(self, fpgapart):
         """Calculates resource estimations for LUTs"""
