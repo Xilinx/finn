@@ -26,6 +26,9 @@ Environment:
     FEATURE_FLOW_QUICK: when truthy, stop after phase_optimize_hardware (folding,
         bit width minimization, folded cppsim verification, FIFO sizing, estimates):
         no IP generation or rtlsim, for fast checks of a transformation.
+    FEATURE_FLOW_MODELS: comma-separated model keys to run instead of FEATURE_MODELS,
+        or ``all`` for FEATURE_MODELS + EXTRA_FEATURE_MODELS.
+    FEATURE_FLOW_BOARDS: comma-separated boards to run instead of FEATURE_BOARDS.
 """
 
 import pytest
@@ -40,6 +43,7 @@ import json
 import numpy as np
 import os
 import shutil
+import sys
 import time
 from benchmark_helpers import benchmark_root, find_cached_build
 from qonnx.core.modelwrapper import ModelWrapper
@@ -65,6 +69,18 @@ FEATURE_MODELS = [
     ("bnn-pynq", "tfc-w1a1"),
     ("bnn-pynq", "cnv-w1a1"),
     ("cybersecurity-mlp", None),
+]
+
+# Larger finn-examples models, for quick-mode regressions of a transformation's
+# output (full mode costs hours of HLS per model). Selected with FEATURE_FLOW_MODELS.
+EXTRA_FEATURE_MODELS = [
+    ("bnn-pynq", "tfc-w2a2"),
+    ("bnn-pynq", "cnv-w2a2"),
+    ("gtsrb", None),
+    ("kws", None),
+    ("vgg10-radioml", None),
+    ("mobilenet_v1", None),
+    ("resnet50", None),
 ]
 
 CACHE_PHASE = "phase_convert_to_hardware"
@@ -93,11 +109,23 @@ def model_key(model_dir, model):
 
 
 def feature_cases(models=None):
-    """pytest params over (model_dir, model, board)."""
+    """pytest params over (model_dir, model, board), narrowed by FEATURE_FLOW_MODELS
+    and FEATURE_FLOW_BOARDS."""
+    if models is None:
+        models = FEATURE_MODELS
+        selected = os.environ.get("FEATURE_FLOW_MODELS", "").strip()
+        if selected == "all":
+            models = FEATURE_MODELS + EXTRA_FEATURE_MODELS
+        elif selected:
+            keys = [k.strip() for k in selected.split(",")]
+            models = [m for m in FEATURE_MODELS + EXTRA_FEATURE_MODELS if model_key(*m) in keys]
+    boards = FEATURE_BOARDS
+    if os.environ.get("FEATURE_FLOW_BOARDS", "").strip():
+        boards = [b.strip() for b in os.environ["FEATURE_FLOW_BOARDS"].split(",")]
     return [
         pytest.param(model_dir, model, board, id="%s-%s" % (model_key(model_dir, model), board))
-        for model_dir, model in (FEATURE_MODELS if models is None else models)
-        for board in FEATURE_BOARDS
+        for model_dir, model in models
+        for board in boards
     ]
 
 
@@ -107,7 +135,12 @@ def load_bench_module(model_dir):
     assert len(cands) == 1, "expected one test_build_*.py in %s, got %s" % (model_dir, cands)
     spec = importlib.util.spec_from_file_location("bench_" + model_dir.replace("-", "_"), cands[0])
     mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    # the module imports its custom steps from its own directory
+    sys.path.insert(0, os.path.dirname(cands[0]))
+    try:
+        spec.loader.exec_module(mod)
+    finally:
+        sys.path.pop(0)
     return mod
 
 
@@ -191,7 +224,12 @@ def cached_checkpoint(model_dir, model, board):
         cache_time = time.time() - start
 
         # golden pair from the streamlined model, the reference for every flow
-        ref = ModelWrapper(os.path.join(cache_dir, "intermediate_models", "step_streamline.onnx"))
+        # (models with a custom streamline step save it under their own name)
+        ref_cands = sorted(
+            glob.glob(os.path.join(cache_dir, "intermediate_models", "step_*streamline*.onnx")),
+            key=lambda p: os.path.basename(p) != "step_streamline.onnx",
+        )
+        ref = ModelWrapper(ref_cands[0])
         iname = ref.get_first_global_in()
         ishape = ref.get_tensor_shape(iname)
         frames = int(os.environ.get("FEATURE_FLOW_FRAMES", "1"))
