@@ -139,3 +139,38 @@ of rebuilding from scratch.
 3. Add `<model>/test_build_<model>.py` following the three-layer anatomy above.
 4. Add `verification_io/<model>_input.npy` / `_output.npy` if the model should be
    verified.
+
+## Feature-flow tests
+
+The `test_*_flow.py` tests exercise a single transformation (folding, FIFO sizing,
+DWC padding) on small models for ZCU104 and U55C: they check that it keeps the model
+functionally correct and record how long it takes and what it costs. Each test's
+docstring describes its variants and checks. Builds stop at stitched IP + rtlsim
+performance (no bitfile).
+
+* Each (model, board) is built once up to `phase_convert_to_hardware` and cached in
+  `$FINN_BUILD_DIR/featureflow_cache_*` (found again via `find_cached_build`), with a golden
+  input/output pair from the streamlined model. Every flow resumes from that checkpoint.
+* Synthesized HLS IP is reused across runs when a node's generated code is unchanged
+  (`$FINN_BUILD_DIR/featureflow_ipcache.json`), so variants with the same folding pay for
+  HLS synthesis once.
+* Verification: folded cppsim + stitched-IP rtlsim against the golden pair; a build that
+  deadlocks has no rtlsim throughput and fails.
+* Timing: `step_target_fps_parallelization`, `step_apply_folding_config` and
+  `step_set_fifo_depths` are timed individually.
+
+```bash
+pytest tests/benchmark/test_<feature>_flow.py -k "tfc and ZCU104"
+FEATURE_FLOW_QUICK=1 pytest tests/benchmark/test_<feature>_flow.py   # minutes, cppsim only
+python tests/benchmark/feature_flow_report.py     # table of the latest results
+```
+
+| Var | Default | Effect |
+|-----|---------|--------|
+| `FEATURE_FLOW_VERIFY` | `folded_hls_cppsim,stitched_ip_rtlsim` | verification steps |
+| `FEATURE_FLOW_FRAMES` | `1` | golden frames (only when the cache is built) |
+| `FEATURE_FLOW_REBUILD_CACHE` | `0` | rebuild the cached checkpoints |
+| `FEATURE_FLOW_IP_CACHE` | `1` | reuse synthesized HLS IP |
+| `FEATURE_FLOW_QUICK` | `0` | stop after `phase_optimize_hardware` (no IP generation, no rtlsim) |
+
+Results are appended to `$FINN_BUILD_DIR/feature_flow_results/<flow>.jsonl`.
