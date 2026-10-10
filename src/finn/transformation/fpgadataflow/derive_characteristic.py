@@ -46,6 +46,7 @@ import numpy as np
 import os
 import qonnx.custom_op.registry as registry
 import warnings
+from collections import namedtuple
 from qonnx.transformation.base import NodeLocalTransformation, Transformation
 
 from finn.transformation.fpgadataflow.prepare_ip import _codegen_single_node
@@ -467,48 +468,42 @@ THROTTLED_CAP = 256
 #: first-order estimate that cannot be trusted.
 CAP_MARGIN = 1.25
 
+#: What the pass knows about an edge once its producer has been scheduled:
+#: ``writes`` are the per-token wall-clock write times, ``per_frame`` the tokens
+#: the producer writes per frame, ``t_up`` the longest period in the chain
+#: feeding the edge since the last pacer, and ``t_prop`` what is handed further
+#: downstream (0 past a pacer, else ``t_up``).
+Edge = namedtuple("Edge", "writes per_frame t_up t_prop")
 
-def derive_chained_tav_depths(model, global_period, causal):
-    """Per-edge FIFO depths from token arrival times on the dataflow DAG.
 
-    Returns ``{tensor_name: depth}``. Edges not in the dict get the minimum.
-
-    Each node's TAV is a schedule on a *local* clock. Visiting nodes in
-    topological order, the local clock of node v is mapped to wall-clock time by
-    the max-plus recurrence
-
-        R(c) = max(R(c - 1) + 1, arrival time of the tokens read by cycle c)
-
-    so a node stalls exactly as long as its latest input is late. The depth an
-    edge needs is the peak of ``written_by(t) - read_by(t)`` over those
-    schedules, relaxed by the producer's slack and floored by the consumer's
-    burst demand.
-
-    ``causal`` applies ``causal_writes`` to every node's output schedule.
-    """
-    nodes = [n for n in model.graph.node if is_hls_node(n) or is_rtl_node(n)]
-
-    # -- read every TAV once -------------------------------------------------
-    tavs = {}  # node -> (row 0 of input TAV, row 0 of output TAV)
-    curves = {}  # node -> ({in tensor: curve}, {out tensor: curve})
+def read_node_tavs(model, nodes):
+    """Step 1: read every TAV once. ``{node name: (tin, tout, in_curves,
+    out_curves)}``: row 0 of each TAV, and the per-stream curves of
+    ``stream_curves``. A node whose TAV cannot be read gets ``(None, None,
+    {}, {})`` and is treated as transparent."""
+    tavs = {}
     for node in nodes:
         try:
             inst = registry.getCustomOp(node)
             rows_in, rows_out = read_tav_rows(inst)
             if rows_in is not None and input_rows_collapsed(model, node):
                 rows_in = rows_in[:1]
+            in_curves, out_curves = stream_curves(node, inst, rows_in, rows_out)
             tavs[node.name] = (
                 None if rows_in is None else rows_in[0],
                 None if rows_out is None else rows_out[0],
+                in_curves,
+                out_curves,
             )
-            curves[node.name] = stream_curves(node, inst, rows_in, rows_out)
         except Exception:
-            tavs[node.name] = (None, None)
-            curves[node.name] = ({}, {})
+            tavs[node.name] = (None, None, {}, {})
+    return tavs
 
-    # own_period[v]: half the TAV length. Forks and joins have no TAV and are
-    # transparent below, but still carry a period (see
-    # inherited_fork_join_tav_lengths).
+
+def node_periods(model, nodes, tavs):
+    """Step 2: each node's own period, half its TAV length. Forks and joins
+    have no TAV and are transparent below, but still carry a period (see
+    ``inherited_fork_join_tav_lengths``)."""
     inherited = inherited_fork_join_tav_lengths(model)
     own_period = {}
     for node in nodes:
@@ -517,29 +512,29 @@ def derive_chained_tav_depths(model, global_period, causal):
             own_period[node.name] = len(tin) // 2
         elif node.name in inherited:
             own_period[node.name] = inherited[node.name] // 2
+    return own_period
 
-    # -- graph-level quantities ---------------------------------------------
-    # Global period: the slower of the caller's estimate and the slowest
-    # measured TAV period (some ops' cycle estimates under-state their period).
-    periods = list(own_period.values())
-    measured = max(periods) if periods else 0
-    global_period = max(int(global_period or 0), measured, 1)
-    graph_inputs = {x.name for x in model.graph.input}
-    pacer_period = max([global_period] + periods) * PACER_TOLERANCE
 
-    # drives_pacer[v]: v runs at the pacer's period, or feeds something that
-    # does. A consumer for which this is False can be throttled.
+def pacer_drivers(model, nodes, own_period, pacer_period):
+    """Step 3: ``{node name: bool}``, True if the node runs at the pacer's
+    period or feeds something that does. A consumer for which this is False
+    can be throttled: it finishes its frame later without slowing the graph."""
     drives_pacer = {}
     for node in reversed(nodes):
-        own = own_period.get(node.name, 0)
-        below = False
-        for t in node.output:
-            cons = model.find_consumer(t)
-            if cons is not None and drives_pacer.get(cons.name):
-                below = True
-        drives_pacer[node.name] = own >= pacer_period or below
+        below = any(
+            drives_pacer.get(cons.name)
+            for cons in (model.find_consumer(t) for t in node.output)
+            if cons is not None
+        )
+        drives_pacer[node.name] = own_period.get(node.name, 0) >= pacer_period or below
+    return drives_pacer
 
-    # in_branch: nodes between a fork and the node its branches reconverge at.
+
+def reconvergent_branch_nodes(model, nodes):
+    """Step 4: the nodes between a fork and the node its branches reconverge
+    at. Their deadline is the join, not the frame, so their edges are never
+    relaxed (``fill_only`` below)."""
+
     def reachable(tensor):
         seen, stack = set(), [model.find_consumer(tensor)]
         while stack:
@@ -562,177 +557,222 @@ def derive_chained_tav_depths(model, global_period, causal):
             continue  # the branches never meet again; ordinary chains
         for r in reach:
             in_branch |= r - shared
+    return in_branch
 
-    arrival = {}  # tensor -> per-token wall-clock write times
+
+def graph_input_schedule(curve, global_period):
+    """Write times of the tokens on a graph input: one frame per
+    ``global_period``, evenly spaced. Without this the source is infinitely
+    fast and every edge above the bottleneck grows without bound."""
+    rate = global_period / max(int(curve[len(curve) // 2 - 1]), 1)
+    return (np.arange(1, int(curve[-1]) + 1) * rate).astype(np.int64)
+
+
+def local_clock(span, in_scheds):
+    """Wall-clock time of each local cycle of a node, given ``{tensor:
+    (write times, curve)}`` for its streamed inputs: the max-plus recurrence
+
+        R(c) = max(R(c - 1) + 1, arrival time of the tokens read by cycle c)
+
+    as a running maximum of ``req(c) - c``. A node stalls exactly as long as
+    its latest input is late."""
+    cycles = np.arange(span, dtype=np.int64)
+    req = np.zeros(span, dtype=np.int64)
+    for sched, curve in in_scheds.values():
+        req = np.maximum(req, arrival_of(sched, curve))
+    return cycles + np.maximum.accumulate(req - cycles)
+
+
+def token_times(clock, curve):
+    """Wall-clock time of each token of ``curve`` (a cumulative count per local
+    cycle) on a node whose local cycles happen at ``clock``."""
+    n = int(curve[-1])
+    idx = np.searchsorted(curve, np.arange(1, n + 1), side="left")
+    return clock[np.minimum(idx, len(clock) - 1)]
+
+
+def frame_tokens(curve):
+    """Tokens of the first of the two frames a TAV stores."""
+    return int(curve[len(curve) // 2 - 1]) if len(curve) >= 2 else int(curve[-1])
+
+
+def idle_window_floor(curve, throttleable):
+    """Tokens that arrive while the consumer is not reading this stream: a
+    frame's tokens times the fraction of the consumer's period spent outside
+    its read window. Zero for continuous readers. Capped for a consumer that
+    can be throttled through its idle window instead."""
+    half = len(curve) // 2
+    if half < 2:
+        return 0
+    per_frame = int(curve[half - 1])
+    if per_frame <= 0:
+        return 0
+    reads = np.searchsorted(curve, np.arange(1, per_frame + 1), side="left")
+    duty = min(1.0, float(reads[-1] - reads[0] + 1) / float(half))
+    want = int(round(per_frame * (1.0 - duty)))
+    if throttleable:
+        want = min(want, THROTTLED_CAP)
+    return want
+
+
+def absorbed_frame_floor(node, tensor):
+    """One folded input frame, for a consumer whose TAV reads nothing in the
+    stored window (a node that absorbs its whole input frame before releasing
+    anything, e.g. a FINNLoop)."""
+    cons = registry.getCustomOp(node)
+    try:
+        idx = list(node.input).index(tensor)
+        shape = cons.get_folded_input_shape(idx)
+    except Exception:
+        return 0
+    if shape is None or len(shape) < 2:
+        return 0
+    n = 1
+    for d in shape[:-1]:
+        n *= int(d)
+    return int(n)
+
+
+def edge_depth(
+    peak, read_times, edge, fill_only, throttleable, global_period, pacer_period, idle_floor=0
+):
+    """Step 6: turn an edge's peak occupancy into its depth.
+
+    * Joins and reconvergent branches (``fill_only``) are never relaxed:
+      throttling the early input of a join starves the fork, and with it the
+      branch the join is waiting for (a deadlock, not a slowdown). They get
+      ``max(peak, idle_floor)``.
+    * Slack relaxation: a producer whose chain finishes a frame in
+      ``t_up < global_period`` can be blocked for the difference, and draining
+      ``k`` tokens costs ``k * global_period / per_frame`` cycles, so that many
+      tokens of the peak are given up.
+    * Burst floor: the consumer's largest demand above the edge's rate line.
+    * Throttled cap: bounds the floor when the consumer can be throttled, the
+      producer can be blocked (its chain is not at the pacer) and the blocking
+      budget is not marginal (``CAP_MARGIN``).
+    """
+    if fill_only:
+        return max(int(peak), int(idle_floor))
+    allowance = edge.per_frame * (1.0 - min(edge.t_up, global_period) / float(global_period))
+    after_slack = int(round(peak - allowance))
+    floor = min(peak, burst_above_rate(read_times, edge.per_frame / float(global_period)))
+    if (
+        throttleable
+        and edge.t_up < pacer_period
+        and not (peak > 0 and allowance < CAP_MARGIN * peak)
+    ):
+        floor = min(floor, THROTTLED_CAP)
+    return max(after_slack, floor)
+
+
+def derive_chained_tav_depths(model, global_period, causal):
+    """Per-edge FIFO depths from token arrival times on the dataflow DAG.
+
+    Returns ``{tensor_name: depth}``. Edges not in the dict get the minimum.
+
+    Each node's TAV is a schedule on a *local* clock. Visiting nodes in
+    topological order, the local clock of node v is mapped to wall-clock time by
+    ``local_clock``, so a node stalls exactly as long as its latest input is
+    late. The depth an edge needs is the peak of ``written_by(t) - read_by(t)``
+    over those schedules (``peak_occupancy``), turned into a depth by
+    ``edge_depth``.
+
+    ``causal`` applies ``causal_writes`` to every node's output schedule.
+    """
+    nodes = [n for n in model.graph.node if is_hls_node(n) or is_rtl_node(n)]
+    tavs = read_node_tavs(model, nodes)
+    own_period = node_periods(model, nodes, tavs)
+
+    # Global period: the slower of the caller's estimate and the slowest
+    # measured TAV period (some ops' cycle estimates under-state their period).
+    global_period = max(int(global_period or 0), max(own_period.values(), default=0), 1)
+    pacer_period = global_period * PACER_TOLERANCE
+    drives_pacer = pacer_drivers(model, nodes, own_period, pacer_period)
+    in_branch = reconvergent_branch_nodes(model, nodes)
+    graph_inputs = {x.name for x in model.graph.input}
+
+    edges = {}  # tensor -> Edge, once its producer is scheduled
     depths = {}
-    #: tensor -> (tokens the producer writes on it per frame,
-    #:            t_up: longest period in the chain feeding this edge since the
-    #:                  last pacer,
-    #:            the value to hand further downstream: 0 past a pacer)
-    supply = {}
 
     def chain_period(node):
         own = own_period.get(node.name, 0)
-        upstream = [supply[t][2] for t in node.input if t in supply]
+        upstream = [edges[t].t_prop for t in node.input if t in edges]
         chain = max([own] + upstream) if (upstream or own) else global_period
         propagated = 0 if own >= pacer_period else chain
         return chain, propagated
 
-    def idle_window_floor(tensor, curve, consumer):
-        """Tokens that arrive while the consumer is not reading this stream:
-        a frame's tokens times the fraction of the consumer's period spent
-        outside its read window. Zero for continuous readers."""
-        if curve is None or tensor not in supply:
-            return 0
-        half = len(curve) // 2
-        if half < 2:
-            return 0
-        per_frame = int(curve[half - 1])
-        if per_frame <= 0:
-            return 0
-        reads = np.searchsorted(curve, np.arange(1, per_frame + 1), side="left")
-        duty = min(1.0, float(reads[-1] - reads[0] + 1) / float(half))
-        want = int(round(per_frame * (1.0 - duty)))
-        if not drives_pacer.get(consumer, True):
-            want = min(want, THROTTLED_CAP)
-        return want
-
-    def absorbed_frame_floor(node, tensor):
-        """One folded input frame, for a consumer whose TAV reads nothing in
-        the stored window (a node that absorbs its whole input frame before
-        releasing anything, e.g. a FINNLoop)."""
-        cons = registry.getCustomOp(node)
-        try:
-            idx = list(node.input).index(tensor)
-            shape = cons.get_folded_input_shape(idx)
-        except Exception:
-            return 0
-        if shape is None or len(shape) < 2:
-            return 0
-        n = 1
-        for d in shape[:-1]:
-            n *= int(d)
-        return int(n)
-
-    def depth_from_peak(tensor, peak, read_times, consumer, join, idle_floor=0):
-        """Turn an edge's peak occupancy into its depth."""
-        if tensor not in supply or join:
-            # Joins and reconvergent branches are never relaxed: throttling the
-            # early input of a join starves the fork, and with it the branch
-            # the join is waiting for (a deadlock, not a slowdown).
-            return max(int(peak), int(idle_floor))
-        per_frame, t_up, _ = supply[tensor]
-        # Slack relaxation: a producer whose chain finishes a frame in
-        # t_up < global_period can be blocked for the difference, and draining
-        # k tokens costs k * global_period / per_frame cycles.
-        allowance = per_frame * (1.0 - min(t_up, global_period) / float(global_period))
-        after_slack = int(round(peak - allowance))
-        # Burst floor: the consumer's largest demand above the edge's rate line.
-        floor = min(peak, burst_above_rate(read_times, per_frame / float(global_period)))
-        # Throttled cap: bounds the floor when the consumer can be throttled,
-        # the producer can be blocked (not at the pacer), and the blocking
-        # budget is not marginal.
-        if (
-            not drives_pacer.get(consumer, True)
-            and t_up < pacer_period
-            and not (peak > 0 and allowance < CAP_MARGIN * peak)
-        ):
-            floor = min(floor, THROTTLED_CAP)
-        return max(after_slack, floor)
+    def size_edge(tensor, peak, read_times, consumer, fill_only, idle_floor=0):
+        depths[tensor] = edge_depth(
+            peak,
+            read_times,
+            edges[tensor],
+            fill_only,
+            not drives_pacer.get(consumer.name, True),
+            global_period,
+            pacer_period,
+            idle_floor,
+        )
 
     for node in nodes:
-        tin, tout = tavs[node.name]
+        tin, tout, in_curves, out_curves = tavs[node.name]
         dyn_inputs = [t for t in node.input if model.find_producer(t) is not None]
-        is_join = len(dyn_inputs) > 1
-        fill_only = is_join or node.name in in_branch
-        transparent = tin is None or tout is None or node.op_type in _TRANSPARENT_OPS
+        fill_only = len(dyn_inputs) > 1 or node.name in in_branch
+        t_up, t_prop = chain_period(node)
 
-        if transparent:
-            # Forward the input timeline with zero latency: a join waits for its
-            # latest input, a fork hands one schedule to every output.
-            out_sched = None
-            srcs = [arrival[t] for t in dyn_inputs if t in arrival]
-            if srcs:
-                n = min(len(s) for s in srcs)
-                out_sched = np.max(np.stack([s[:n] for s in srcs]), axis=0)
-            t_up, t_prop = chain_period(node)
+        if tin is None or tout is None or node.op_type in _TRANSPARENT_OPS:
+            # Step 5a, transparent node: forward the input timeline with zero
+            # latency. A join waits for its latest input, a fork hands one
+            # schedule to every output.
+            srcs = [edges[t].writes for t in dyn_inputs if t in edges]
+            if not srcs:
+                continue
+            n = min(len(s) for s in srcs)
+            out_sched = np.max(np.stack([s[:n] for s in srcs]), axis=0)
             for t in dyn_inputs:
-                if t in arrival and out_sched is not None:
+                if t in edges:
                     peak = peak_occupancy(
-                        arrival[t],
-                        out_sched,
-                        global_period,
-                        supply.get(t, (0,))[0],
-                        fill_only,
+                        edges[t].writes, out_sched, global_period, edges[t].per_frame, fill_only
                     )
-                    depths[t] = depth_from_peak(t, peak, out_sched, node.name, fill_only)
+                    size_edge(t, peak, out_sched, node, fill_only)
             for t in node.output:
-                if out_sched is not None:
-                    arrival[t] = out_sched
-                    supply[t] = (max(1, len(out_sched) // 2), t_up, t_prop)
+                edges[t] = Edge(out_sched, max(1, len(out_sched) // 2), t_up, t_prop)
             continue
 
-        in_curves, out_curves = curves[node.name]
-        span = len(tin)
-        cycles = np.arange(span, dtype=np.int64)
-
-        # req[c]: wall-clock time by which every token read by local cycle c
-        # has arrived, over all streamed inputs
-        req = np.zeros(span, dtype=np.int64)
+        # Step 5b, characterized node: the write times of every streamed input
         in_scheds = {}
         for t in node.input:
             curve = in_curves.get(t)
             if curve is None:
                 continue
-            if t in arrival:
-                sched = arrival[t]
+            if t in edges:
+                sched = edges[t].writes
             elif t in graph_inputs and model.find_producer(t) is None:
-                # graph input: paced at one frame per global_period
-                rate = global_period / max(int(curve[len(curve) // 2 - 1]), 1)
-                sched = (np.arange(1, int(curve[-1]) + 1) * rate).astype(np.int64)
+                sched = graph_input_schedule(curve, global_period)
             else:
                 continue  # weights / thresholds: no stream behind them
-            if len(sched) == 0:
-                continue  # no token crosses this edge in the window
-            in_scheds[t] = (sched, curve)
-            req = np.maximum(req, arrival_of(sched, curve))
-
-        # the max-plus recurrence, as a running maximum of req(c) - c
-        clock = cycles + np.maximum.accumulate(req - cycles)
-
-        def token_times(curve):
-            n = int(curve[-1])
-            return clock[
-                np.minimum(np.searchsorted(curve, np.arange(1, n + 1), side="left"), span - 1)
-            ]
+            if len(sched) > 0:
+                in_scheds[t] = (sched, curve)
+        clock = local_clock(len(tin), in_scheds)
 
         for t, (sched, curve) in in_scheds.items():
-            if model.find_producer(t) is None:
+            if t not in edges:
                 continue  # graph input: sized by io_fifo_depth
             if int(curve[-1]) == 0:
                 depths[t] = max(depths.get(t, 0), absorbed_frame_floor(node, t))
                 continue
-            read_times = token_times(curve)
-            n_frame = int(curve[len(curve) // 2 - 1]) if len(curve) >= 2 else 0
-            peak = peak_occupancy(sched, read_times, global_period, n_frame, fill_only)
-            depths[t] = depth_from_peak(
-                t,
-                peak,
-                read_times,
-                node.name,
-                fill_only,
-                idle_floor=idle_window_floor(t, curve, node.name),
-            )
+            read_times = token_times(clock, curve)
+            peak = peak_occupancy(sched, read_times, global_period, frame_tokens(curve), fill_only)
+            throttleable = not drives_pacer.get(node.name, True)
+            size_edge(t, peak, read_times, node, fill_only, idle_window_floor(curve, throttleable))
 
-        t_up, t_prop = chain_period(node)
         for t in node.output:
             curve = out_curves.get(t)
             if curve is None:
                 continue
-            wt = token_times(curve)
-            arrival[t] = causal_writes(wt, in_scheds) if causal else wt
-            per_frame_out = int(curve[len(curve) // 2 - 1]) if len(curve) >= 2 else int(curve[-1])
-            supply[t] = (max(1, per_frame_out), t_up, t_prop)
+            writes = token_times(clock, curve)
+            if causal:
+                writes = causal_writes(writes, in_scheds)
+            edges[t] = Edge(writes, max(1, frame_tokens(curve)), t_up, t_prop)
 
     return depths
 
