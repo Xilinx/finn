@@ -29,12 +29,35 @@ model_dir_markers = ("driver.py", "input.npy")
 packaging_skip_prefix = "incomplete deployment package:"
 
 
+def should_skip_test(test_name):
+    """Check if a test method should be skipped based on FINN_CI_TEST_SKIP env var.
+
+    Args:
+        test_name: Name of the test method (e.g., "execute", "validate", "throughput")
+
+    Returns:
+        True if the test should be skipped, False otherwise.
+    """
+    test_skip_raw = os.environ.get("FINN_CI_TEST_SKIP", "")
+    if not test_skip_raw:
+        return False
+    skip_list = [x.strip().lower() for x in test_skip_raw.split(",") if x.strip()]
+    return test_name.lower() in skip_list
+
+
 def find_model_dirs(parent_dir):
     # Maps each model directory to the markers it lacks, empty when it is whole.
     # A directory carrying none of them is a cache, or anything else the unpacked
     # board zip happens to contain, and was never a test.
     dirs = {}
+    # Get model exclusion list from environment (comma-separated substrings)
+    model_exclude_raw = os.environ.get("FINN_CI_MODEL_EXCLUDE", "")
+    model_exclude = [x.strip() for x in model_exclude_raw.split(",") if x.strip()]
     for name in os.listdir(parent_dir):
+        # Skip models matching any exclusion pattern
+        if model_exclude and any(excl in name for excl in model_exclude):
+            logger.info(f"Excluding model directory '{name}' (matches FINN_CI_MODEL_EXCLUDE)")
+            continue
         missing = [
             m for m in model_dir_markers if not os.path.isfile(os.path.join(parent_dir, name, m))
         ]
@@ -57,6 +80,16 @@ def delete_file(file_path):
 
 def get_platform(board_str):
     return "vitis-xrt" if "U55C" in board_str else "zynq-iodma"
+
+
+def get_dataset(test_dir):
+    """Determine the dataset based on the model topology in the test directory name."""
+    if "tfc" in test_dir or "lfc" in test_dir:
+        return "mnist"
+    elif "cnv" in test_dir:
+        return "cifar10"
+    else:
+        return None
 
 
 def get_full_parameterized_test_list(marker, test_dir_list, batch_size_list, platform_list):
@@ -138,6 +171,8 @@ def pytest_generate_tests(metafunc):
 @pytest.mark.KV260_SOM
 class TestBnn:
     def test_type_execute(self, test_dir, batch_size, platform):
+        if should_skip_test("execute"):
+            pytest.skip("Skipped via FINN_CI_TEST_SKIP=execute")
         # Enter into test directory and clean any files from a potential previous run
         os.chdir(os.path.join(base_dir_global, test_dir))
         delete_file(output_execute_results_file)
@@ -173,6 +208,8 @@ class TestBnn:
             raise
 
     def test_type_throughput(self, test_dir, batch_size, platform):
+        if should_skip_test("throughput"):
+            pytest.skip("Skipped via FINN_CI_TEST_SKIP=throughput")
         os.chdir(os.path.join(base_dir_global, test_dir))
         delete_file(output_throughput_results_file)
 
@@ -244,3 +281,64 @@ class TestBnn:
         with open(throughput_results_formatted_file, "w") as f:
             f.write(ret_str)
         assert os.path.exists(throughput_results_formatted_file)
+
+    def test_type_validate(self, test_dir, batch_size, platform):
+        """Validate top-1 accuracy on the full test dataset (MNIST or CIFAR-10)."""
+        if should_skip_test("validate"):
+            pytest.skip("Skipped via FINN_CI_TEST_SKIP=validate")
+        os.chdir(os.path.join(base_dir_global, test_dir))
+
+        # Check if validate.py exists in the deployment package
+        if not os.path.exists("validate.py"):
+            pytest.skip("validate.py not found in deployment package")
+
+        # Determine dataset based on topology
+        dataset = get_dataset(test_dir)
+        if dataset is None:
+            pytest.skip(f"Unknown dataset for test_dir={test_dir}")
+
+        bitfile = "a.xclbin" if platform == "vitis-xrt" else "resizer.bit"
+
+        # Use larger batch size for validation efficiency (default in validate.py is 100)
+        # batch_size=1 would require 10000 inference calls for CIFAR-10
+        validate_batchsize = 100
+
+        # Validation runs through the full test set, so use a longer timeout
+        # CIFAR-10 download + 100 batches can take a while
+        validate_timeout = 1200  # 20 minutes
+
+        result = subprocess.run(
+            [
+                "python",
+                "validate.py",
+                f"--dataset={dataset}",
+                f"--batchsize={validate_batchsize}",
+                f"--bitfile={bitfile}",
+                f"--platform={platform}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=validate_timeout,
+        )
+
+        # Print output for debugging
+        if result.stdout:
+            print(result.stdout)
+        if result.stderr:
+            print(result.stderr)
+
+        assert (
+            result.returncode == 0
+        ), f"validate.py failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
+
+        # Check that accuracy is reported and reasonable (> 80% for these models)
+        if "Final accuracy:" in result.stdout:
+            # Extract accuracy from output
+            for line in result.stdout.split("\n"):
+                if "Final accuracy:" in line:
+                    accuracy = float(line.split(":")[-1].strip())
+                    print(f"Top-1 accuracy: {accuracy}%")
+                    assert (
+                        accuracy > 80.0
+                    ), f"Accuracy {accuracy}% is below expected threshold of 80%"
+                    break
