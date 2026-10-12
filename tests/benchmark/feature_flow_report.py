@@ -46,7 +46,11 @@ def main():
     rows = []
     for path in sorted(glob.glob(os.path.join(results_dir, "*.jsonl"))):
         with open(path) as f:
-            rows += [json.loads(line) for line in f if line.strip()]
+            for line in f:
+                try:
+                    rows.append(json.loads(line))
+                except ValueError:  # a line cut short, e.g. by a full disk
+                    continue
     # other result files (e.g. padding sweeps) have their own layout
     rows = [row for row in rows if "flow" in row]
     if "--all" not in sys.argv:

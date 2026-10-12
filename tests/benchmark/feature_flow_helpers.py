@@ -315,6 +315,12 @@ class HLSIPCache:
                         index[self.pending[node.name]] = {
                             attr: inst.get_nodeattr(attr) for attr in self.ATTRS
                         }
+                        # the synthesis database (GBs for large MVAUs) is not needed once
+                        # the IP is exported; stitching uses impl/ip, reports use syn/
+                        autopilot = os.path.join(
+                            inst.get_nodeattr("ipgen_path"), "sol1", ".autopilot"
+                        )
+                        shutil.rmtree(autopilot, ignore_errors=True)
             with open(self.index_path, "w") as f:
                 json.dump(index, f, indent=1)
         return model
@@ -528,7 +534,10 @@ def latest_row(flow, model, board):
     found = None
     with open(path) as f:
         for line in f:
-            row = json.loads(line)
+            try:
+                row = json.loads(line)
+            except ValueError:  # a line cut short, e.g. by a full disk
+                continue
             if (row["model"], row["board"]) == (model, board):
                 if row["build_ok"] and not row.get("quick"):
                     found = row
