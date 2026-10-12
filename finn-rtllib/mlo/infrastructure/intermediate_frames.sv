@@ -232,6 +232,22 @@ if(1) begin : blkCredit
     assign  wr_rdy = DmaCredit[$left(DmaCredit)];
 end : blkCredit
 
+// Next-iteration index of every frame held in a DMA slot. Pushed with wr_sent
+// and popped at rd_start
+logic  slot_idx_ivld;
+uwire  slot_idx_irdy;
+logic [IDX_BITS-1:0]  slot_idx_idat;
+uwire  slot_idx_ovld;
+logic  slot_idx_ordy;
+
+fifo #(
+    .DEPTH(N_OUTSTANDING_DMAS), .DATA_WIDTH(IDX_BITS)) inst_queue_slot_idx (
+    .clk(aclk), .rst(!aresetn),
+    .count(), .maxcount(),
+    .idat(slot_idx_idat), .ivld(slot_idx_ivld), .irdy(slot_idx_irdy),
+    .odat(m_idx_tdata), .ovld(slot_idx_ovld), .ordy(slot_idx_ordy)
+);
+
 // FSM
 typedef enum logic[0:0] {ST_WR_IDLE, ST_WR_SEND} state_wr_t;
 state_wr_t state_wr_C = ST_WR_IDLE, state_wr_N;
@@ -266,7 +282,7 @@ always_comb begin: NSL_WR
 
     case (state_wr_C)
         ST_WR_IDLE:
-            state_wr_N = (idx_in_tvalid && m_idx_tready) ? ST_WR_SEND : ST_WR_IDLE;
+            state_wr_N = idx_in_tvalid ? ST_WR_SEND : ST_WR_IDLE;
 
         ST_WR_SEND:
             state_wr_N = (wr_rdy && s0_dma_in_tready) ? ST_WR_IDLE : ST_WR_SEND;
@@ -278,29 +294,21 @@ always_comb begin: DP_WR
     wr_ptr_N = wr_ptr_C;
 
     idx_in_tready = 1'b0;
-    m_idx_tvalid = 1'b0;
-    m_idx_tdata = idx_in_tdata + 1;
+    slot_idx_ivld = 1'b0;
+    slot_idx_idat = idx_in_tdata + 1;
 
     s0_dma_in_tvalid = 1'b0;
     s0_dma_in_tdata = base_address + ADDRESS_OFFSET + l_offsets[wr_ptr_C];
     wr_sent = 1'b0;
 
     case (state_wr_C)
-        ST_WR_IDLE: begin
-            if(idx_in_tvalid) begin
-                m_idx_tvalid = 1'b1;
-
-                if(m_idx_tready) begin
-                    idx_in_tready = 1'b1;
-                end
-            end
-        end
-
         ST_WR_SEND: begin
             if(wr_rdy) begin
                 s0_dma_in_tvalid = 1'b1;
 
                 if(s0_dma_in_tready) begin
+                    idx_in_tready = 1'b1;
+                    slot_idx_ivld = 1'b1;
                     wr_sent = 1'b1;
                     wr_ptr_N = (wr_ptr_C == N_OUTSTANDING_DMAS-1) ? 0 : wr_ptr_C + 1;
                 end
@@ -363,7 +371,7 @@ always_comb begin: NSL_RD
 
     case (state_rd_C)
         ST_RD_IDLE:
-            state_rd_N = done_wr_out ? ST_RD_SEND : ST_RD_IDLE;
+            state_rd_N = (done_wr_out && m_idx_tready) ? ST_RD_SEND : ST_RD_IDLE;
 
         ST_RD_SEND:
             state_rd_N = s1_dma_in_tready ? ST_RD_IDLE : ST_RD_SEND;
@@ -375,13 +383,20 @@ always_comb begin: DP_RD
     rd_ptr_N = rd_ptr_C;
 
     rd_start = 1'b0;
+    m_idx_tvalid = 1'b0;
+    slot_idx_ordy = 1'b0;
     s1_dma_in_tvalid = 1'b0;
     s1_dma_in_tdata = base_address + ADDRESS_OFFSET + l_offsets[rd_ptr_C];
 
     case (state_rd_C)
         ST_RD_IDLE: begin
             if(done_wr_out) begin
-                rd_start = 1'b1;
+                m_idx_tvalid = 1'b1;
+
+                if(m_idx_tready) begin
+                    rd_start = 1'b1;
+                    slot_idx_ordy = 1'b1;
+                end
             end
         end
 
