@@ -2,27 +2,42 @@
 
 Streaming FIFO
 =======================================
-A FINN-compiled accelerator requires FIFOs to buffer residual paths or
-parallelism mismatches.
-These FIFOs are implemented in
+In a FINN dataflow accelerator, all layers run concurrently and exchange data
+through streams. Their production and consumption patterns rarely match
+exactly: layers differ in latency, and many produce or consume data in bursts
+rather than at a steady rate. FIFOs between layers absorb these differences so
+that a briefly stalled consumer does not stall its producer, which is necessary
+to reach the full throughput of a given folding configuration. Where paths fork
+and rejoin, such as the skip connection of a residual block, sufficiently deep
+FIFOs are additionally required to avoid deadlock.
+
+Because the required depths depend on the folding configuration, FINN can size
+these FIFOs automatically (see ``auto_fifo_depths`` in
+:py:class:`~finn.builder.build_dataflow_config.DataflowBuildConfig`).
+The FIFOs are implemented in
 `fifo.sv <https://github.com/Xilinx/finn/blob/main/finn-rtllib/fifo/hdl/fifo.sv>`_.
 
 Debug Logging
 -------------
-Streaming FIFOs can be used to debug designs. We introduce debug logging
-to our FIFO implementation, which makes every FIFO into an *unbound*, *recorded*
-queue. Typical use cases for this can be:
+Streaming FIFOs can be used to debug designs. In behavioral RTL simulation,
+every FIFO is replaced by
+`fifo_gauge.sv <https://github.com/Xilinx/finn/blob/main/finn-rtllib/fifo/hdl/fifo_gauge.sv>`_,
+an *unbounded* queue that never applies backpressure. With debug logging
+enabled, each of these queues also *records* the transactions it sees to a log
+file. Since the FIFOs are unbounded in these simulations, the logs show how full
+each FIFO would need to be, not stalls caused by the FIFO depths of the final
+design. Typical use cases are:
 
-- **Mid-simulation** observation: Let a script or agent observe whether the fifo
-  logs are progressing, or if a FIFO is silently accumulating the entire input.
-- **Optimisation**: cycles, occupancy and fill rates allow parallelism
-  intelligent parallelism configurations on the design.
-- **Visualisation tools**: Verbose debug logs combine with an ONNX graph to
-  visually highlight hotspots, starvation, or give general insight into
+- **Mid-simulation observation**: let a script or agent check whether the FIFO
+  logs are progressing, or whether a FIFO is silently accumulating the entire
+  input.
+- **Optimization**: cycles, occupancy and fill rates help to find better
+  parallelism configurations for the design.
+- **Visualization tools**: verbose debug logs can be combined with the ONNX
+  graph to highlight hotspots and starvation, or to give general insight into
   accelerator performance.
 
-Such debug logging can be enabled and parameterised by setting the following
-fields in
+Debug logging is enabled and parameterized by the following fields in
 :py:class:`~finn.builder.build_dataflow_config.DataflowBuildConfig`:
 
 .. literalinclude:: /../../src/finn/builder/build_dataflow_config.py
@@ -31,48 +46,59 @@ fields in
    :end-at: fifo_log_flush_cycles: Optional[int] = 10000
    :dedent:
 
-- ``debug_fifo``: Enable FIFO logging for this build.
-  - This automatically enables ``verify_rtlsim_behavioural``.
-- ``fifo_log_verbose``: the verbosity of the log (see below).
-- ``fifo_log_flush_cycles``: how many simulation cycles to wait before flush to
-  disk.
+- ``debug_fifo``: enables FIFO logging for this build.
 
-These parameters are passed down to
-`fifo_gauge.sv <https://github.com/Xilinx/finn/blob/main/finn-rtllib/fifo/hdl/fifo_gauge.sv>`_,
-which implements the logging logic.
+  - This automatically enables ``verify_rtlsim_behavioral``, since the logs are
+    written by the behavioral FIFO model.
 
-Logs outputs are located under
-``<output_dir>/debug/fifo_logs/<phase>/<scope>/``:
-- ``<phase>``: phase of the build, such as ``fifo_sizing`` or stiched_ip_rtlsim``
-- ``<scope>``: ``main`` or a ``FINNLoop``.
-- Each log is named after the FINNLoop and ONNX node name, e.g. ``FINNLoop_0_StreamingFIFO_rtl_12_t8515yv3.log``.
+- ``fifo_log_verbose``: selects the log format (see `Log Verbosity`_).
+- ``fifo_log_flush_cycles``: how many simulation cycles each FIFO waits before
+  flushing its log to disk. A FIFO only flushes if it has logged something since
+  its last flush, so all logs lag the simulation by at most this many cycles,
+  which makes it possible to watch the logs while a long simulation is still
+  running. Smaller values keep the logs more up to date but slow down the
+  simulation (see `Performance Characterization`_). ``0`` disables periodic
+  flushing, so the logs are only written when the simulation ends.
+
+``fifo_log_verbose`` and ``fifo_log_flush_cycles`` only have an effect when
+``debug_fifo=True``.
+
+Log outputs are located under ``<output_dir>/debug/fifo_logs/<phase>/<scope>/``:
+
+- ``<phase>``: phase of the build, i.e. ``fifo_sizing`` or ``stitched_ip_rtlsim``.
+- ``<scope>``: ``main`` for the top-level graph, or the name of a ``FINNLoop``
+  (e.g. ``FINNLoop_0``) for FIFOs inside a loop body.
+- Each log is named after its ONNX node, prefixed by the enclosing FINNLoop if
+  there is one, and followed by the suffix of the node's IP generation
+  directory, e.g. ``FINNLoop_0_StreamingFIFO_rtl_12_t8515yv3.log``.
 
 Log Verbosity
 ~~~~~~~~~~~~~
-The ``LOG_VERBOSE`` parameter controls how verbose the logs are.
-This gives control of a trade-off between design visibility and simulation speed.
+``fifo_log_verbose`` controls how much each FIFO logs, which is a trade-off
+between design visibility and simulation speed.
 
-When verbose logs are off (``LOG_VERBOSE=0``), an example log file could be:
+With ``fifo_log_verbose=False`` (the default), an example log file could be:
 
 .. code-block:: text
 
-   # data_in
+   # data
    1f0f
    1101
    1f0f
    0f10
-   1101
-   # [StreamingFIFO_1.inst @4216778000] Cycles: 11432; MaxFill: 2; Transactions: in=4 out=3
+   # [StreamingFIFO_rtl_1.inst.fifo @4216778000] Cycles: 11432; MaxFill: 2; Transactions: in=4 out=3
 
-This verbosity only prints the data that it has seen at the input port, tailed
-by a summary of tho total properties. This is enough for the FIFO sizing
-simulation, as the only number it cares for is MaxFill (2).
+After a header line, the log lists every data word seen at the input port, in
+hexadecimal, followed by a summary line with the FIFO's hierarchical instance
+name (shortened here), the number of simulated cycles, the maximum fill level
+and the number of input and output transactions. This is enough for FIFO
+sizing, which only needs the maximum fill level (``MaxFill``).
 
-When verbosity is turned on (``LOG_VERBOSE=1``), the same FIFO would log this:
+With ``fifo_log_verbose=True``, the same FIFO logs:
 
 .. code-block:: text
 
-   # data direction cycles
+   # data dir cycle
    1f0f 0 1080
    1101 0 2481
    1f0f 1 4221
@@ -80,41 +106,48 @@ When verbosity is turned on (``LOG_VERBOSE=1``), the same FIFO would log this:
    1101 1 6223
    1f0f 1 7283
    0f10 0 8922
-   # [StreamingFIFO_1.inst @4216778000] Cycles: 11432; MaxFill: 2; Transactions: in=4 out=3
+   # [StreamingFIFO_rtl_1.inst.fifo @4216778000] Cycles: 11432; MaxFill: 2; Transactions: in=4 out=3
 
-The main differences are that we no longer monitor just the input, but also the
-*output*, and *cycle timestamp* of each transaction. Whilst slowing down the
-simulation (see below), this lets you debug IP stalls, FIFO resource estimations,
-or identify resource estimations based on the amount of time spent waiting.
+Each line now records the data word, its direction (``0`` for input, ``1`` for
+output) and the cycle of the transaction. While this slows down the simulation
+(see below), it lets you see when each word entered and left the FIFO, which
+helps to debug stalls and to understand where data is waiting.
 
-Performance Characterisation
+The logs can be loaded in Python with :py:func:`finn.util.rtlsim.parse_fifo_log`
+for a single file, or :py:func:`finn.util.rtlsim.read_fifo_log_snapshot` for a
+whole ``<phase>/<scope>`` directory.
+
+Performance Characterization
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Increased logging isn't free, which is why it's important to understand how
-it affects your build times. The table below documents a small ONNX graph
-with a residual path.
+Logging is not free, so it is important to understand how it affects your
+build times. The table below shows the FIFO sizing simulation of a small ONNX
+graph with a residual path.
 
 +---------------+-----------------+------------------------+-----------------+
-| Configuration | Flush (cycles)  | FIFO Sizing (Seconds)  | Log Size (MiB)  |
+| Log format    | Flush (cycles)  | FIFO Sizing (Seconds)  | Log Size (MiB)  |
 +===============+=================+========================+=================+
-| Log Off       |                 | 1.6                    |                 |
+| Logging off   |                 | 1.6                    |                 |
 +---------------+-----------------+------------------------+-----------------+
-| Default       | 1               | 7.3                    | 23              |
+| Plain         | 1               | 7.3                    | 23              |
 +---------------+-----------------+------------------------+-----------------+
 | Verbose       | 1               | 9.0                    | 244             |
 +---------------+-----------------+------------------------+-----------------+
-| Default       | 10,000          | 2.7                    | 23              |
+| Plain         | 10,000 (default)| 2.7                    | 23              |
 +---------------+-----------------+------------------------+-----------------+
-| Verbose       | 10,000          | 4.4                    | 244             |
+| Verbose       | 10,000 (default)| 4.4                    | 244             |
 +---------------+-----------------+------------------------+-----------------+
-| Default       | 100,000         | 2.7                    | 23              |
+| Plain         | 100,000         | 2.7                    | 23              |
 +---------------+-----------------+------------------------+-----------------+
 | Verbose       | 100,000         | 4.4                    | 244             |
 +---------------+-----------------+------------------------+-----------------+
 
-Out-takes:
+Takeaways:
 
-- **File size**: Verbose FIFO logs are 10x larger than non-Verbose ones.
-- **Single Flush**: At flush=1, verbose logs add **23%** execution time to
-  the FIFO sizing simulation.
-- **Large Flush**: At flushes > 10,000, verbose logs add **63%** execution
-  time to the FIFO sizing simulation.
+- **Logging itself**: with the default flush interval, plain logs already add
+  about **70%** to the FIFO sizing simulation time (1.6 s to 2.7 s).
+- **File size**: verbose logs are about 10x larger than plain ones.
+- **Flushing every cycle**: at a flush interval of 1, verbose logs add **23%**
+  simulation time compared to plain logs.
+- **Larger flush intervals**: at 10,000 cycles or more, verbose logs add **63%**
+  simulation time compared to plain logs. Beyond 10,000 cycles, increasing the
+  interval brings no further speedup.
