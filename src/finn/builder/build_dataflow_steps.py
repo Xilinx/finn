@@ -213,6 +213,7 @@ def verify_step(
     cfg: DataflowBuildConfig,
     step_name: str,
     need_parent: bool,
+    batched: bool = False,
 ):
     print("Running verification for " + step_name)
     verify_out_dir = cfg.output_dir + "/verification_output"
@@ -222,14 +223,28 @@ def verify_step(
     bsize_in = in_npy_all.shape[0]
     bsize_out = exp_out_npy_all.shape[0]
     assert bsize_in == bsize_out, "Batch sizes don't match for verification IO pair"
+    if batched and cfg.verify_batch_size is not None:
+        target_batch = int(cfg.verify_batch_size)
+        if target_batch < 1:
+            raise ValueError("verify_batch_size must be > 0")
+        if bsize_in not in (1, target_batch):
+            raise ValueError(
+                f"Verification IO has batch size {bsize_in}, cannot expand it to "
+                f"verify_batch_size={target_batch}"
+            )
+        if bsize_in == 1 and target_batch > 1:
+            in_npy_all = np.repeat(in_npy_all, target_batch, axis=0)
+            exp_out_npy_all = np.repeat(exp_out_npy_all, target_batch, axis=0)
+            bsize_in = target_batch
+            bsize_out = target_batch
     all_res = True
-    # Verification runs one frame at a time (execute_onnx only accepts a single
-    # frame), so split the batched IO array into single-frame chunks. Batched
-    # multi-frame rtlsim is still possible by calling rtlsim_exec directly.
-    chunks = [
-        (np.expand_dims(in_npy_all[b], axis=0), np.expand_dims(exp_out_npy_all[b], axis=0), b)
-        for b in range(bsize_in)
-    ]
+    if batched:
+        chunks = [(in_npy_all, exp_out_npy_all, 0)]
+    else:
+        chunks = [
+            (np.expand_dims(in_npy_all[b], axis=0), np.expand_dims(exp_out_npy_all[b], axis=0), b)
+            for b in range(bsize_in)
+        ]
     for in_npy, exp_out_npy, index in chunks:
         if need_parent:
             assert cfg.save_intermediate_models, "Enable save_intermediate_models for verification"
@@ -247,8 +262,31 @@ def verify_step(
                 )
                 print("Attempting to force model shape on verification input")
                 in_npy = in_npy.reshape(target_ishape)
-            out_dict = execute_parent(parent_model_fn, child_model_fn, in_npy, return_full_ctx=True)
-            out_npy = out_dict[out_tensor_name]
+            parent_result = execute_parent(
+                parent_model_fn,
+                child_model_fn,
+                in_npy,
+                return_full_ctx=True,
+                batch_child=batched,
+            )
+            if isinstance(parent_result, list):
+                frame_contexts = parent_result
+                out_npy = np.concatenate(
+                    [context[out_tensor_name] for context in frame_contexts], axis=0
+                )
+                out_dict = {out_tensor_name: out_npy}
+                if cfg.verify_save_full_context:
+                    parent_input_name = parent_model.get_first_global_in()
+                    out_dict[parent_input_name] = np.concatenate(
+                        [context[parent_input_name] for context in frame_contexts],
+                        axis=0,
+                    )
+                    for batch_index, context in enumerate(frame_contexts):
+                        for tensor_name, value in context.items():
+                            out_dict[f"frame_{batch_index}_{tensor_name}"] = value
+            else:
+                out_dict = parent_result
+                out_npy = out_dict[out_tensor_name]
         else:
             inp_tensor_name = model.get_first_global_in()
             out_tensor_name = model.get_first_global_out()
@@ -287,7 +325,8 @@ def verify_step(
                 index,
                 res_str,
             )
-            np.savez(verification_output_fn, **out_dict)
+            # skip qonnx's None placeholder for empty tensor names, np.savez would pickle it
+            np.savez(verification_output_fn, **{k: v for k, v in out_dict.items() if v is not None})
         else:
             verification_output_fn = verify_out_dir + "/verify_%s_%d_%s.npy" % (
                 step_name,
@@ -1199,6 +1238,7 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
                 cfg,
                 "stitched_ip_rtlsim",
                 need_parent=True,
+                batched=cfg.verify_batch_size is not None,
             )
             if is_mlo(model):
                 for loop_node in verify_model.get_nodes_by_op_type("FINNLoop"):
