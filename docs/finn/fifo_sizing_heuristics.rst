@@ -16,7 +16,7 @@ evidence.
 The reference every number is compared with is ``largefifo_rtlsim``: the
 accelerator is simulated with oversized FIFOs and every FIFO is trimmed to the
 occupancy it reached. All measurements on this page are ZCU104 builds of the
-committed folding configurations, run through
+committed folding configurations with Vivado 2024.2, run through
 ``tests/benchmark/test_fifo_sizing_flow.py`` (stitched-IP rtlsim, one frame).
 
 Token access vectors
@@ -221,8 +221,10 @@ when the average rate is matched; otherwise it stalls at every burst.
 ConvolutionInputGenerator_rtl_0`` 2 instead of 60, ``..._rtl_8 ->
 ConvolutionInputGenerator_rtl_5`` 28 instead of 52, ``Pool_hls_1 ->
 ConvolutionInputGenerator_rtl_6`` 66 instead of 72. rtlsim throughput drops
-from 12255 to 12077 frames/s (-1.5 %) for 9.7 instead of 11.9 kbit. This is
-the rule that sizes most of the storage: without it the regression set's
+from 12255 to 12077 frames/s (-1.5 %) for 9.7 instead of 11.9 kbit. On
+cnv-w2a2 it drops from 3051 to 1644 frames/s (-46 %, 22.2 instead of 25.5
+kbit) and on gtsrb from 8134 to 6751 (-17 %, 7.5 instead of 9.9 kbit). This
+is the rule that sizes most of the storage: without it the regression set's
 totals fall to 176/271 (cnv-w1a1), 882/1405 (cnv-w2a2), 521/1298 (gtsrb),
 26/452 (kws) and 3003/9432 (mobilenet_v1).
 
@@ -355,31 +357,133 @@ model              reference fps   heuristic fps    reference kbit   heuristic k
 =================  ==============  ===============  ===============  ===============
 tfc-w1a1           12.5 M          12.5 M           9.1              18.3
 cnv-w1a1           12255           12255            22.3             11.9
+cnv-w2a2           3045            3051             83.5             25.5
 cybersecurity-mlp  16.7 M          16.7 M           1.9              3.7
 kws                25471           25471            0.9              4.3
-gtsrb              5315            8134             24.0             9.9
+gtsrb              8134            8134             26.7             9.9
+vgg10-radioml      243427          243427           14.0             14.2
 =================  ==============  ===============  ===============  ===============
 
 (The MLP throughputs are the one-frame testbench's interval, not a sustained
 rate.) Where the heuristic is larger it is the graph-input FIFO (tfc,
 cybersecurity-mlp) or the burst floor under the paced-source assumption (kws);
-where it is smaller (cnv-w1a1, gtsrb) the reference measured the saturating
-testbench's burst into the first FIFO (617 on ``StreamingDataWidthConverter_rtl_0
--> ConvolutionInputGenerator_rtl_0`` in both models). On gtsrb the heuristic
-sizing is also *faster* than the reference: the one-frame reference run trims
-``StreamingDataWidthConverter_rtl_13 -> MVAU_hls_8`` to 2 and
-``StreamingDataWidthConverter_rtl_7 -> ConvolutionInputGenerator_rtl_5`` to 2
-where the heuristic keeps 215 and 151 (burst floors of bursty consumers), and
-the trimmed design stalls at 5315 frames/s against 8134.
+where it is smaller (cnv-w1a1, cnv-w2a2, gtsrb) the reference measured the
+saturating testbench's burst into the first FIFOs (617 on
+``StreamingDataWidthConverter_rtl_0 -> ConvolutionInputGenerator_rtl_0`` in
+cnv-w1a1 and gtsrb, 2529 on ``Thresholding_rtl_0 ->
+ConvolutionInputGenerator_rtl_0`` in cnv-w2a2) and the run-ahead the slack
+relaxation gives up (497 against 59 on gtsrb's ``Pool_hls_0 ->
+ConvolutionInputGenerator_rtl_3``, 1152 against 594 on cnv-w2a2's
+``StreamingDataWidthConverter_rtl_6 -> ConvolutionInputGenerator_rtl_4``).
+In the other direction the heuristic keeps burst floors the saturating
+testbench never needs (``Pool_hls_1 -> ConvolutionInputGenerator_rtl_6`` 192
+against 2 on cnv-w2a2, ``StreamingDataWidthConverter_rtl_7 ->
+ConvolutionInputGenerator_rtl_5`` 151 against 2 on gtsrb). Both reach the
+reference throughput within 0.2 %.
 
-Regression set
-==============
+Impact of each rule
+===================
 
-The sizer is regressed on characterized fixtures of tfc-w1a1, tfc-w2a2,
-cnv-w1a1, cnv-w2a2, cybersecurity-mlp, gtsrb, kws, vgg10-radioml and
-mobilenet_v1 (ZCU104) and resnet50 (the only model with forks and joins); a
-change to the pass has to give identical depths on all of them or come with
-rtlsim evidence. ``tests/fpgadataflow/test_fifosizing_chained_tav.py`` pins
-the depths of small synthetic graphs and the arithmetic helpers without
-synthesis; ``tests/benchmark/test_fifo_sizing_flow.py`` compares each strategy's
-rtlsim throughput with the reference (``FEATURE_FLOW_QUICK=1`` for depths only).
+How much each rule matters was measured by removing it alone from the full
+sizer (an *ablation*) and sizing every regression model again: the change of
+the total FIFO depth and of the total storage (depth x stream width, kbit)
+says what the rule buys or costs; a stitched-IP rtlsim of the ablated depths
+(ZCU104, Vivado 2024.2, one frame, ``auto_fifo_depths=False`` with the ablated
+depths as a folding config) says whether throughput depends on it. tfc-w1a1,
+tfc-w2a2 and cybersecurity-mlp are at the minimum depth everywhere and no rule
+changes them. mobilenet_v1 and resnet50 are depth-only where noted
+(mobilenet_v1's ZCU104 stitched-IP rtlsim returns undefined output bits on
+2024.2 as it did on 2023.1, so its builds fail before a throughput is
+measured; resnet50's V80 build has no rtlsim here).
+
+Two classes of rules:
+
+* **depth-minimizing** rules take depth away from the peak occupancy; removing
+  one makes FIFOs deeper and can never cost throughput. They are: the paced
+  graph input, the slack relaxation (with its two helpers, the reset past the
+  pacer and the pacer tolerance), the throttled cap, the two-frame split and
+  the fill-frame-only evaluation of join/branch edges.
+* **throughput-protecting** rules put depth back where a minimizing rule would
+  over-minimize; removing one makes FIFOs shallower and risks a stall. The
+  burst floor corrects the slack relaxation and the paced input (a bursty
+  consumer needs its burst buffered whatever the average rate says); the cap
+  margin corrects the throttled cap; the join/branch rule and the idle-window
+  floor correct the slack relaxation and the cap on edges whose deadline is a
+  join; the max of the causal and non-causal pass corrects each pass by the
+  other; the measured global period corrects the caller's period estimate.
+
+Ranking by storage effect (median and largest change of the total storage over
+the models the rule changes, the largest change of the total depth, and the
+worst rtlsim throughput change measured when the rule is removed):
+
+====================================  ==========  ======  =============  ==========  ===========  ================  =====================================================================
+rule                                  class       models  median kbit %  max kbit %  max depth %  worst fps %       models affected                                                      
+====================================  ==========  ======  =============  ==========  ===========  ================  =====================================================================
+paced graph input                     minimizing  5       +189.9         +969.5      +213.3       none (3 sim.)     cnv-w1a1, cnv-w2a2, gtsrb, mobilenet_v1, resnet50                    
+slack relaxation                      minimizing  5       +11.5          +460.1      +587.4       none (3 sim.)     cnv-w2a2, gtsrb, vgg10-radioml, mobilenet_v1, resnet50               
+slack reset past the pacer            minimizing  2       +204.9         +398.4      +584.8       none (1 sim.)     vgg10-radioml, mobilenet_v1                                          
+pacer tolerance                       minimizing  2       +204.9         +398.4      +584.8       none (1 sim.)     vgg10-radioml, mobilenet_v1                                          
+throttled cap                         minimizing  1       +371.6         +371.6      +582.5       -                 mobilenet_v1                                                         
+two-frame split                       minimizing  6       +35.6          +87.8       +113.6       none (4 sim.)     cnv-w1a1, cnv-w2a2, gtsrb, vgg10-radioml, mobilenet_v1, resnet50     
+join/branch edges never relaxed       protecting  1       -79.6          -79.6       -85.0        -                 resnet50                                                             
+burst floor                           protecting  7       -18.6          -78.0       -94.2        -46.1 (cnv-w2a2)  kws, cnv-w1a1, cnv-w2a2, gtsrb, vgg10-radioml, mobilenet_v1, resnet50
+idle-window floor (branch edges)      protecting  1       -9.7           -9.7        -8.9         -                 resnet50                                                             
+fill frame only on join/branch edges  minimizing  1       +5.3           +5.3        +4.2         -                 resnet50                                                             
+non-causal pass (max of two passes)   protecting  1       -1.6           -1.6        -2.0         -                 resnet50                                                             
+causal pass (max of two passes)       protecting  4       -0.0           -0.1        -0.4         none (3 sim.)     cnv-w1a1, gtsrb, mobilenet_v1, resnet50                              
+cap margin                            protecting  1       -0.0           -0.0        -0.0         -                 resnet50                                                             
+measured global period                protecting  0       +0.0           +0.0        +0.0         -                 none                                                                 
+====================================  ==========  ======  =============  ==========  ===========  ================  =====================================================================
+
+Per model, the change of total depth / total storage / rtlsim throughput when
+the rule is removed (``=`` no change; throughput only where simulated):
+
+====================================  ====================  ======================  ======================  ======================  ===================  ===============  =============
+rule removed                          kws                   cnv-w1a1                cnv-w2a2                gtsrb                   vgg10-radioml        mobilenet_v1     resnet50     
+====================================  ====================  ======================  ======================  ======================  ===================  ===============  =============
+paced graph input                     =                     +213.3 / +113.7 / +0.0  +189.0 / +258.3 / +0.0  +117.5 / +189.9 / +0.0  =                    +40.8 / +969.5   +34.1 / +61.8
+slack relaxation                      =                     =                       +40.5 / +25.1 / +0.0    +9.0 / +9.3 / +0.0      +3.8 / +11.5 / +0.0  +587.4 / +460.1  =            
+slack reset past the pacer            =                     =                       =                       =                       +3.8 / +11.5 / +0.0  +584.8 / +398.4  =            
+pacer tolerance                       =                     =                       =                       =                       +3.8 / +11.5 / +0.0  +584.8 / +398.4  =            
+throttled cap                         =                     =                       =                       =                       =                    +582.5 / +371.6  =            
+two-frame split                       =                     +53.5 / +54.2 / +0.0    +113.6 / +76.5 / +0.0   +41.6 / +17.1 / +0.0    +3.1 / +1.7 / +0.0   +4.6 / +11.3     +89.4 / +87.8
+fill frame only on join/branch edges  =                     =                       =                       =                       =                    =                +4.2 / +5.3  
+burst floor                           -94.2 / -78.0 / +0.0  -35.1 / -18.6 / -1.4    -37.2 / -13.1 / -46.1   -59.9 / -23.6 / -17.0   -6.1 / -1.8 / +0.0   -68.2 / -65.0    -1.1 / -2.1  
+causal pass (max of two passes)       =                     -0.4 / -0.0 / +0.0      =                       -0.1 / -0.1 / +0.0      =                    =                =            
+non-causal pass (max of two passes)   =                     =                       =                       =                       =                    =                -2.0 / -1.6  
+join/branch edges never relaxed       =                     =                       =                       =                       =                    =                -85.0 / -79.6
+idle-window floor (branch edges)      =                     =                       =                       =                       =                    =                -8.9 / -9.7  
+====================================  ====================  ======================  ======================  ======================  ===================  ===============  =============
+
+What the numbers say:
+
+* **Heavy-duty depth minimizers**: the paced graph input (x2-x4 depth on every
+  convolutional model without it, +970 % storage on mobilenet_v1), the slack
+  relaxation together with its pacer reset and tolerance (x6 depth on
+  mobilenet_v1, +25-40 % on cnv-w2a2) and the throttled cap (x6 depth on
+  mobilenet_v1; it is the only model with a throttleable consumer whose burst
+  exceeds 256). The two-frame split is the fourth: +40-115 % depth on the
+  convolutional models, +89 % on resnet50. None of these costs throughput
+  where it was simulated (cnv-w1a1, cnv-w2a2, gtsrb, kws, vgg10-radioml).
+* **The one heavy-duty throughput protector** is the burst floor: it is what
+  keeps a bursty consumer (an MVAU reading ``SF`` words at the start of each
+  output window, a sliding window generator reading rows) fed once the slack
+  relaxation and the paced input have taken the run-ahead away. Without it
+  cnv-w2a2 loses 46 % and gtsrb 17 % of its throughput, cnv-w1a1 1.5 %; the
+  depth it adds is 35-95 % of the total on those models, but only 13-24 % of
+  the storage, because it lands on narrow edges. On kws the same rule
+  over-sizes (4.3 kbit instead of 0.9 for no throughput), see `Burst floor`_.
+* **Minor rules**: the causal/non-causal pass pair changes one token on one
+  edge of the linear models and 2 % of resnet50's depth (non-causal larger);
+  the cap margin changes 16 tokens on one resnet50 edge; the fill-frame-only
+  rule 4 % of resnet50's depth; the idle-window floor 9 % of resnet50's
+  storage (deep DWC -> FMPadding FIFOs inside residual branches). The join
+  rule is minor in count (one model) but not in size: without it resnet50's
+  shortcut FIFOs collapse (-80 % storage) into what the deadlock argument says
+  cannot work; it was not simulated.
+* **No effect on any model**: the measured global period (the builder already
+  passes the slowest TAV period; the rule only matters for a caller that
+  passes none) and, on the linear models, the cap margin. Both are
+  candidates for removal if a resnet50 simulation shows the 16-token edge
+  does not need the margin; the measured period is one line and guards
+  ``DeriveFIFOSizes(period=None)``.
