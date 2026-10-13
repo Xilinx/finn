@@ -180,6 +180,18 @@ STAGES = [
         "workers": 2,
         "zipArtifacts": {"hwTestType": "bnn_build_full", "boards": ["KV260_SOM"]},
     },
+    {
+        # finn-examples benchmark suite. Full-synthesis builds, so it is kept out
+        # of the nightly "full" matrix (see FULL_EXCLUDED_PARAMS) and run on its
+        # own "benchmark" choice. Build-only (no zipArtifacts/HW handoff yet);
+        # workers=1 because concurrent Vivado on one agent OOMs, parallelism comes
+        # from shards across build agents.
+        "param": "benchmark",
+        "stage": "FINN Examples Benchmark",
+        "marker": "finn_examples",
+        "shards": 3,
+        "workers": 1,
+    },
 ]
 
 
@@ -345,16 +357,23 @@ def ci_param_names(stages=None):
     return seen
 
 
+# Params that "full" must NOT sweep in, even though they are selectable on their
+# own choice. The benchmark suite is full-synthesis finn-examples builds: far too
+# heavy for the nightly "full" matrix, so it is opt-in via its own choice only.
+FULL_EXCLUDED_PARAMS = ("benchmark",)
+
+
 def enabled_params_for_choice(choice, stages=None):
     """Map the Jenkins STAGES choice to the set of CI params it enables.
 
-    "full" enables every distinct param. A bare param name enables just
-    that one. Unknown choices fail loudly.
+    "full" enables every distinct param except those in FULL_EXCLUDED_PARAMS.
+    A bare param name enables just that one (including an excluded one, so it
+    stays independently selectable). Unknown choices fail loudly.
     """
     stages = stages if stages is not None else STAGES
     all_params = ci_param_names(stages)
     if choice == "full":
-        return list(all_params)
+        return [p for p in all_params if p not in FULL_EXCLUDED_PARAMS]
     if choice in all_params:
         return [choice]
     raise ValueError(
