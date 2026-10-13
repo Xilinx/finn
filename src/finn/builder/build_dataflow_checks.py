@@ -168,14 +168,18 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
             )
         )
 
-    # Resolve the shell the build will actually use: an unset shell_flow_type is
-    # inferred from the board, so these consistency checks only fire when the
-    # caller explicitly sets a shell that conflicts with the board.
-    resolved_shell = (
-        cfg._resolve_shell_flow_type()
-        if (cfg.shell_flow_type is not None or cfg.board is not None)
-        else None
-    )
+    # Resolve the shell the build will actually use for the bitfile-consistency
+    # checks below: an unset shell_flow_type is inferred from the board. A board
+    # with no shell is only an error when a bitfile is requested, so leave resolved_shell
+    # as None here and let the has_bitfile-gated checks below report it.
+    try:
+        resolved_shell = (
+            cfg._resolve_shell_flow_type()
+            if (cfg.shell_flow_type is not None or cfg.board is not None)
+            else None
+        )
+    except Exception:
+        resolved_shell = None
 
     if has_bitfile:
         is_v80 = cfg.board == "V80" or (cfg.fpga_part and cfg.fpga_part.startswith("xcv80"))
