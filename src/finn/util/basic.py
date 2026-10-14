@@ -79,7 +79,6 @@ pynq_native_port_width["KV260_SOM"] = 128
 pynq_native_port_width["AUP-ZU3_8GB"] = 128
 # native AXI port width (in bits) for the PL NoC slave ports on Versal
 pynq_native_port_width["VCK190"] = 512
-pynq_native_port_width["VEK280"] = 512
 
 # Vitis device and platform mappings
 vitis_part_map = dict()
@@ -103,7 +102,7 @@ slash_part_map["V80"] = "xcv80-lsva4737-2MHP-e-s"
 
 # Create a joint part map, encompassing other boards too
 part_map = {**pynq_part_map, **vitis_part_map, **slash_part_map}
-pynq_part_map["VEK280"] = "xcve2802-vsvh1760-2MP-e-S"
+part_map["VEK280"] = "xcve2802-vsvh1760-2MP-e-S"
 
 # Boards that expose HBM. Note that U50 has only HBM (no DDR), while the other
 # entries have HBM in addition to DDR. All boards not listed here are assumed to
