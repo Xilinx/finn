@@ -904,6 +904,56 @@ def test_finnloop_end2end_mlo(
         ), f"Check vivado.log in {tmp_output_dir}/stitched_ip"
 
 
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_finnloop_end2end_mlo_batched_verification():
+    """verify_batch_size: 5 distinct frames go through the FINNLoop in one stitched-IP
+    rtlsim run, while the non-HW parent Transpose runs per frame."""
+    model, *bodies = create_chained_loop_bodies(16, 16, 3)
+    nodes_per_body = len(model.graph.node)
+    for body in bodies:
+        model = model.transform(MergeONNXModels(body))
+    # as the first node, the Transpose stays non-HW and lands in dataflow_parent.onnx
+    inp, outp = model.graph.input[0].name, model.graph.output[0].name
+    model.find_consumer(inp).input[0] = "tr_out"
+    model.graph.node.insert(0, helper.make_node("Transpose", [inp], ["tr_out"], perm=[0, 2, 1, 3]))
+    model = model.transform(InferShapes()).transform(InferDataTypes())
+
+    x = gen_finn_dt_tensor(DataType["INT8"], (5, 3, 3, 16))
+    ref = model.transform(PrepareCppSim()).transform(CompileCppSim())
+    ref = ref.transform(SetExecMode("cppsim"))
+    y_ref = np.concatenate([oxe.execute_onnx(ref, {inp: x[i : i + 1]})[outp] for i in range(5)])
+
+    out_dir = make_build_dir("build_mlo_batched_verification_")
+    np.save(out_dir + "/input.npy", x)
+    np.save(out_dir + "/expected_output.npy", y_ref)
+    model.save(out_dir + "/mlo_model.onnx")
+    cfg = build_cfg.DataflowBuildConfig(
+        output_dir=out_dir,
+        steps=build_cfg.default_build_dataflow_steps[2:],  # already HW, skip model phases
+        synth_clk_period_ns=10.0,
+        board="V80",
+        mlo=True,
+        loop_body_hierarchy=[["", "layers.0"]],
+        loop_body_range=(model.graph.node[1], model.graph.node[nodes_per_body]),
+        verify_steps=["stitched_ip_rtlsim"],
+        verify_input_npy=out_dir + "/input.npy",
+        verify_expected_output_npy=out_dir + "/expected_output.npy",
+        verify_batch_size=5,
+        verify_save_full_context=True,
+        mute_config_assertions=True,  # folding is pinned on the nodes
+        generate_outputs=[build_cfg.DataflowOutputType.STITCHED_IP],
+    )
+    assert build.build_dataflow_cfg(out_dir + "/mlo_model.onnx", cfg) == 0
+
+    parent = ModelWrapper(out_dir + "/intermediate_models/dataflow_parent.onnx")
+    assert parent.get_nodes_by_op_type("Transpose")
+    # a single SUCCESS file: all 5 frames were checked in one stitched-IP rtlsim run
+    results = os.listdir(out_dir + "/verification_output")
+    assert results == ["verify_stitched_ip_rtlsim_0_SUCCESS.npz"], results
+
+
 @pytest.mark.parametrize(
     "dim, simd, pe, bitwidth, weight_bitwidth",
     [
