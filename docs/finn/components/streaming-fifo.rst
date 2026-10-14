@@ -66,11 +66,14 @@ Debug logging is enabled and parameterized by the following fields in
 Log outputs are located under ``<output_dir>/debug/fifo_logs/<phase>/<scope>/``:
 
 - ``<phase>``: phase of the build, i.e. ``fifo_sizing`` or ``stitched_ip_rtlsim``.
-- ``<scope>``: ``main`` for the top-level graph, or the name of a ``FINNLoop``
-  (e.g. ``FINNLoop_0``) for FIFOs inside a loop body.
-- Each log is named after its ONNX node, prefixed by the enclosing FINNLoop if
-  there is one, and followed by the suffix of the node's IP generation
-  directory, e.g. ``FINNLoop_0_StreamingFIFO_rtl_12_t8515yv3.log``.
+- ``<scope>``: Applies to the FIFO sizing sim:
+  - ``main`` for the top-level graph,
+  - ``FINNLoop_0`` for FIFOs inside FINNLoop 0.
+- Each FIFO's ONNX node contains attribute
+  `debug_log_path <https://github.com/Xilinx/finn/blob/38c42bf95abbdad493db0b0f5053060074698908/src/finn/custom_op/fpgadataflow/streamingfifo.py#L67>`,
+  - This is the path of the *live* log.
+  - It is then re-written to the appropriate <phase>/<scope> structure, with the
+    same log number.
 
 Log Verbosity
 ~~~~~~~~~~~~~
