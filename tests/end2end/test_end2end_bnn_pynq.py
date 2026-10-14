@@ -806,7 +806,7 @@ class TestEnd2End:
             else:
                 model = model.transform(MakePYNQDriver("vitis-xrt"))
         elif build_data["toolchain"] == "pynq":
-            model = model.transform(MakePYNQDriver("zynq-iodma"))
+            model = model.transform(MakePYNQDriver("pynq-iodma"))
         else:
             raise Exception("Unsupported toolchain/topology combination for driver generation")
         model.save(get_checkpoint_name(board, topology, wbits, abits, "driver"))
