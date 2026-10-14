@@ -224,7 +224,7 @@ if(PACED) begin : genPaced
     uwire  credit_in = r_valid & r_ready;
     always_ff @(posedge aclk) begin
         if (~aresetn)  Credit <= CREDIT_INIT;
-        else           Credit <= Credit - (ar_accept? m_axi_arlen + 1 : 0) + credit_in;
+        else           Credit <= Credit + (ar_accept? $signed({1'b1, ~m_axi_arlen}) : 0) + credit_in;
     end
     assign  credit_ok = !Credit[$left(Credit)];
 
