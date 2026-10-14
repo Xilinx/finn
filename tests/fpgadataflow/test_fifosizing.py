@@ -473,6 +473,11 @@ def test_fifosizing_residual_matches_gauge_maxfill():
         InsertAndSetFIFODepths(FPGAPART, max_depth=max_depth, debug_log_dir=log_dir)
     )
 
+    pre_fifosim_onnx = os.path.join(log_dir, "intermediate_models", "pre_fifosim.onnx")
+    assert os.path.isfile(pre_fifosim_onnx), (
+        "Expected pre-FIFO-sim model snapshot was not saved to %s" % pre_fifosim_onnx
+    )
+
     observed = gauge_maxfill_per_fifo(log_dir)
     assert observed, "No gauge logs were produced, so nothing was actually measured"
 

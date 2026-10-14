@@ -468,6 +468,15 @@ class InsertAndSetFIFODepths(Transformation):
         else:
             throttle_cycles = 0
 
+        if self.debug_log_dir is not None:
+            intermediate_models_dir = os.path.abspath(
+                os.path.join(self.debug_log_dir, "intermediate_models")
+            )
+            os.makedirs(intermediate_models_dir, exist_ok=True)
+            model.save(
+                os.path.join(intermediate_models_dir, self.debug_log_prefix + "pre_fifosim.onnx")
+            )
+
         sim = xsi_fifosim(
             model, self.cfg_n_inferences, max_iters=max_iters, throttle_cycles=throttle_cycles
         )
