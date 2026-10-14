@@ -65,6 +65,9 @@ module fetch_weights #(
 
 	int unsigned  N_LAYERS,
 
+	int unsigned  BURST_LEN = 16,
+	int unsigned  N_OUTSTANDING = 64,
+
 	int unsigned  QDEPTH = 8,
 	int unsigned  EN_OREG = 1,
 	int unsigned  N_DCPL_STGS = 1,
@@ -197,7 +200,24 @@ module fetch_weights #(
 	logic  dma_tvalid;
 	logic  dma_tready;
 	logic [ADDR_BITS-1:0]  dma_addr;
-	logic [ LEN_BITS-1:0]  dma_len;
+
+	//--- Index Queue (shared by tiled and direct paths) --------------------
+	uwire  q_idx_vld;
+	logic  q_idx_rdy;
+	uwire [IDX_BITS-1:0]  q_idx_dat;
+
+	fifo #(.DEPTH(QDEPTH), .DATA_WIDTH(IDX_BITS)) inst_idx_queue (
+		.clk(aclk), .rst(!aresetn),
+		.count(), .maxcount(),
+		.idat(s_idx_tdata), .ivld(s_idx_tvalid), .irdy(s_idx_tready),
+		.odat(q_idx_dat), .ovld(q_idx_vld), .ordy(q_idx_rdy)
+	);
+
+	// DMA-word-aligned fetch: ceil(MH*MW / DMA_PE) bus words, where each word
+	// carries DMA_PE = DATA_BITS/WEIGHT_WIDTH whole elements (top bits padded).
+	// This matches the wrapper VPC (PI=DMA_PE, discards the padded top bits) and
+	// make_weight_file's word-aligned image; no element straddles a bus word.
+	localparam logic [LEN_BITS-1:0]  DMA_LEN = WORD_BEATS * (DATA_BITS/8);
 
 	if(TH > 1) begin : genTiled
 
@@ -215,24 +235,7 @@ module fetch_weights #(
 		logic [IDX_BITS-1:0]  Idx = '0;
 		logic [IDX_BITS-1:0]  idx_n;
 
-		//--- Index Queue ---------------------------------------------------
-		uwire  q_idx_vld;
-		logic  q_idx_rdy;
-		uwire [IDX_BITS-1:0]  q_idx_dat;
-
-		fifo #(.DEPTH(QDEPTH), .DATA_WIDTH(IDX_BITS)) inst_queue_in (
-			.clk(aclk), .rst(!aresetn),
-			.count(), .maxcount(),
-			.idat(s_idx_tdata), .ivld(s_idx_tvalid), .irdy(s_idx_tready),
-			.odat(q_idx_dat), .ovld(q_idx_vld), .ordy(q_idx_rdy)
-		);
-
 		assign	dma_addr = base_address + ADDRESS_OFFSET + l_offsets[Idx];
-		// DMA-word-aligned fetch: ceil(MH*MW / DMA_PE) bus words, where each word
-		// carries DMA_PE = DATA_BITS/WEIGHT_WIDTH whole elements (top bits padded).
-		// This matches the wrapper VPC (PI=DMA_PE, discards the padded top bits) and
-		// make_weight_file's word-aligned image; no element straddles a bus word.
-		assign dma_len = WORD_BEATS * (DATA_BITS/8);
 
 		//--- Sequential ----------------------------------------------------
 		always_ff @(posedge aclk) begin
@@ -288,20 +291,9 @@ module fetch_weights #(
 	end : genTiled
 	else begin : genDirect
 
-		uwire [IDX_BITS-1:0]  q_idx_dat;
-
-		fifo #(.DEPTH(QDEPTH), .DATA_WIDTH(IDX_BITS)) inst_idx_queue (
-			.clk(aclk), .rst(!aresetn),
-			.count(), .maxcount(),
-			.idat(s_idx_tdata), .ivld(s_idx_tvalid), .irdy(s_idx_tready),
-			.odat(q_idx_dat), .ovld(dma_tvalid), .ordy(dma_tready)
-		);
-
-		assign	dma_addr = base_address + ADDRESS_OFFSET + l_offsets[q_idx_dat];
-		// Same DMA-word-aligned fetch as the tiled path (see above): ceil(MH*MW/DMA_PE)
-		// bus words, DMA_PE = DATA_BITS/WEIGHT_WIDTH whole elements per word (top bits
-		// padded), matching the wrapper VPC and make_weight_file's word-aligned image.
-		assign dma_len = WORD_BEATS * (DATA_BITS/8);
+		assign	dma_addr   = base_address + ADDRESS_OFFSET + l_offsets[q_idx_dat];
+		assign	dma_tvalid = q_idx_vld;
+		assign	q_idx_rdy  = dma_tready;
 
 	end : genDirect
 
@@ -319,42 +311,52 @@ module fetch_weights #(
 	assign	m_axi_ddr_wlast   = 0;
 	assign	m_axi_ddr_wstrb   = '0;
 	assign	m_axi_ddr_wvalid  = 0;
-	assign	m_axi_ddr_bready  = 0;
+	assign	m_axi_ddr_bready  = 1;
 
 	//=== DMA Engine ========================================================
-	cdma_u_rd #(
-		.DATA_BITS(DATA_BITS),
-		.ADDR_BITS(ADDR_BITS),
-		.LEN_BITS(LEN_BITS)
+	axi_dma_rd_u #(
+		.AXI_DATA_WIDTH(DATA_BITS),
+		.AXI_ADDR_WIDTH(ADDR_BITS),
+		.AXI_STRB_WIDTH(DATA_BITS/8),
+		.AXI_MAX_BURST_LEN(BURST_LEN),
+		.AXIS_DATA_WIDTH(DATA_BITS),
+		.AXIS_KEEP_ENABLE(1),
+		.AXIS_KEEP_WIDTH(DATA_BITS/8),
+		.AXIS_LAST_ENABLE(1),
+		.LEN_WIDTH(LEN_BITS),
+		.N_OUTSTANDING(N_OUTSTANDING)
 	) inst_dma (
 		.aclk(aclk), .aresetn(aresetn),
 
-		.rd_valid(dma_tvalid), .rd_ready(dma_tready),
-		.rd_paddr(dma_addr), .rd_len(dma_len),
-		.rd_done(m_done),
+		.s_axis_read_desc_addr(dma_addr),
+		.s_axis_read_desc_len(DMA_LEN),
+		.s_axis_read_desc_valid(dma_tvalid),
+		.s_axis_read_desc_ready(dma_tready),
 
-		.m_axi_ddr_arvalid(m_axi_ddr_arvalid),
-		.m_axi_ddr_arready(m_axi_ddr_arready),
-		.m_axi_ddr_araddr(m_axi_ddr_araddr),
-		.m_axi_ddr_arid(m_axi_ddr_arid),
-		.m_axi_ddr_arlen(m_axi_ddr_arlen),
-		.m_axi_ddr_arsize(m_axi_ddr_arsize),
-		.m_axi_ddr_arburst(m_axi_ddr_arburst),
-		.m_axi_ddr_arlock(m_axi_ddr_arlock),
-		.m_axi_ddr_arcache(m_axi_ddr_arcache),
-		.m_axi_ddr_arprot(m_axi_ddr_arprot),
-		.m_axi_ddr_rvalid(m_axi_ddr_rvalid),
-		.m_axi_ddr_rready(m_axi_ddr_rready),
-		.m_axi_ddr_rdata(m_axi_ddr_rdata),
-		.m_axi_ddr_rlast(m_axi_ddr_rlast),
-		.m_axi_ddr_rid(m_axi_ddr_rid),
-		.m_axi_ddr_rresp(m_axi_ddr_rresp),
+		.m_axis_read_desc_status_valid(m_done),
 
-		.m_axis_ddr_tvalid(axis_dma_tvalid),
-		.m_axis_ddr_tready(axis_dma_tready),
-		.m_axis_ddr_tdata(axis_dma_tdata),
-		.m_axis_ddr_tkeep(),
-		.m_axis_ddr_tlast()
+		.m_axis_read_data_tdata(axis_dma_tdata),
+		.m_axis_read_data_tkeep(),
+		.m_axis_read_data_tvalid(axis_dma_tvalid),
+		.m_axis_read_data_tready(axis_dma_tready),
+		.m_axis_read_data_tlast(),
+
+		.m_axi_arvalid(m_axi_ddr_arvalid),
+		.m_axi_arready(m_axi_ddr_arready),
+		.m_axi_araddr(m_axi_ddr_araddr),
+		.m_axi_arid(m_axi_ddr_arid),
+		.m_axi_arlen(m_axi_ddr_arlen),
+		.m_axi_arsize(m_axi_ddr_arsize),
+		.m_axi_arburst(m_axi_ddr_arburst),
+		.m_axi_arlock(m_axi_ddr_arlock),
+		.m_axi_arcache(m_axi_ddr_arcache),
+		.m_axi_arprot(m_axi_ddr_arprot),
+		.m_axi_rvalid(m_axi_ddr_rvalid),
+		.m_axi_rready(m_axi_ddr_rready),
+		.m_axi_rdata(m_axi_ddr_rdata),
+		.m_axi_rlast(m_axi_ddr_rlast),
+		.m_axi_rid(m_axi_ddr_rid),
+		.m_axi_rresp(m_axi_ddr_rresp)
 	);
 
 	//=== Local Weight Buffer ===============================================
