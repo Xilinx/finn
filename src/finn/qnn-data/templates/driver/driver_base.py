@@ -29,6 +29,7 @@
 import numpy as np
 import os
 import time
+import warnings
 from pynq import Overlay, allocate
 from pynq.ps import Clocks
 from qonnx.core.datatype import DataType
@@ -86,12 +87,20 @@ class FINNExampleOverlay(Overlay):
         self._io_shape_dict = io_shape_dict
         self.ibuf_packed_device = None
         self.obuf_packed_device = None
-        self.platform = platform
-        self.batch_size = batch_size
         self.fclk_mhz = fclk_mhz
         self.idma = []
         self.odma = []
         self.odma_handle = []
+        if platform == "zynq-iodma":
+            warnings.warn(
+                'Platform "zynq-iodma" has been renamed to "pynq-iodma" and will be '
+                "removed in a future release.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            platform = "pynq-iodma"
+        self.platform = platform
+        self.batch_size = batch_size
         if "input_dma_name" in io_shape_dict.keys():
             for idma_name in io_shape_dict["input_dma_name"]:
                 self.idma.append(getattr(self, idma_name))

@@ -358,6 +358,14 @@ class MakePYNQDriver(Transformation):
 
     def __init__(self, platform):
         super().__init__()
+        if platform == "zynq-iodma":
+            warnings.warn(
+                'Platform "zynq-iodma" has been renamed to "pynq-iodma" and will be '
+                "removed in a future release.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            platform = "pynq-iodma"
         self.platform = platform
 
     def apply(self, model):
