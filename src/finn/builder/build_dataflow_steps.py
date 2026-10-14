@@ -163,7 +163,7 @@ from finn.transformation.streamline.reorder import (
     MoveTransposePastJoinAdd,
 )
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import get_rtlsim_trace_depth, is_versal
+from finn.util.basic import get_rtlsim_trace_depth
 from finn.util.config import (
     extract_model_config_consolidate_shuffles,
     extract_model_config_to_json,
@@ -1347,7 +1347,6 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
         partition_model_dir = cfg.output_dir + "/intermediate_models/kernel_partitions"
         shell_flow_type = cfg._resolve_shell_flow_type()
         if shell_flow_type in (ShellFlowType.VIVADO_ZYNQ, ShellFlowType.VIVADO_VERSAL):
-            versal = is_versal(cfg._resolve_fpga_part())
             model = model.transform(
                 PYNQBuild(
                     cfg.board,
@@ -1356,8 +1355,8 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                     partition_model_dir=partition_model_dir,
                 )
             )
-            accel_ext = "pdi" if versal else "bit"
-            copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel." + accel_ext)
+            bitfile = model.get_metadata_prop("bitfile")
+            copy(bitfile, bitfile_dir + "/finn-accel" + os.path.splitext(bitfile)[1])
             copy(model.get_metadata_prop("hw_handoff"), bitfile_dir + "/finn-accel.hwh")
             copy(
                 model.get_metadata_prop("vivado_synth_rpt"),
