@@ -227,7 +227,7 @@ def test_fpgadataflow_ipstitch_gen_model(mem_mode):
     model = model.transform(PrepareIP(test_fpga_part, 5))
     model = model.transform(HLSSynthIP())
     assert model.graph.node[0].op_type == "MVAU_hls"
-    assert model.graph.node[-1].op_type == "TLastMarker_hls"
+    assert model.graph.node[-1].op_type == "TLastMarker_rtl"
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model_%s.onnx" % mem_mode)
 
 
