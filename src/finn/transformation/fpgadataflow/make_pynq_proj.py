@@ -91,12 +91,13 @@ def collect_ip_dirs(model, ipstitch_path):
     return ip_dirs
 
 
-class MakePynqProject(Transformation):
+class MakePYNQProject(Transformation):
     """Create a Vivado overlay project (including the shell infrastructure)
     from the already-stitched IP block for this graph.
     All nodes in the graph must have the fpgadataflow backend attribute,
     and the CreateStitchedIP transformation must have been previously run on
-    the graph. This creates a fully custom block design.
+    the graph. For Zynq this creates a fully custom block design. For Versal
+    it builds on the PYNQ golden reference (requires FINN_VCK190_GOLDEN=1).
     However, this transform requires DMAs in the accelerator design.
 
     Outcome if successful: sets the vivado_pynq_proj attribute in the ONNX
@@ -343,7 +344,7 @@ class MakePynqProject(Transformation):
         return (model, False)
 
 
-class PynqBuild(Transformation):
+class PYNQBuild(Transformation):
     """Best-effort attempt at building the accelerator for Pynq.
     It assumes the model has only fpgadataflow nodes
 
@@ -399,7 +400,7 @@ class PynqBuild(Transformation):
             kernel_model.save(dataflow_model_filename)
         # Assemble design from IPs
         model = model.transform(
-            MakePynqProject(self.platform, self.period_ns, enable_debug=self.enable_debug)
+            MakePYNQProject(self.platform, self.period_ns, enable_debug=self.enable_debug)
         )
 
         # set platform attribute for correct remote execution

@@ -282,7 +282,7 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                 Severity.ERROR,
                 False,
                 f"BITFILE generation with {flow_name} requires 'board' to be set. "
-                "PynqBuild needs the board name and will fail in step_synthesize_bitfile "
+                "PYNQBuild needs the board name and will fail in step_synthesize_bitfile "
                 "if missing",
                 f"Set board to a valid {flow_name} board name",
             )

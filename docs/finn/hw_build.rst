@@ -22,10 +22,10 @@ Internally, the hardware build consists of the following steps:
 2. DMA and DWC node insertion
 3. Partitioning for floorplanning
 4. FIFO insertion and IP generation
-5. Project generation and synthesis (Vivado for Zynq, Vitis or Slash for Alveo)
+5. Project generation and synthesis (Vivado for Zynq and embedded Versal, Vitis or Slash for Alveo)
 
 .. note::
-  In previous FINN releases it was necessary to step through the individual sub-steps for hardware build manually by calling each transformation. The hardware build transformations `PynqBuild` now execute all necessary sub-transformations. For more control over the build process, the transformations listed below can still be called individually.
+  In previous FINN releases it was necessary to step through the individual sub-steps for hardware build manually by calling each transformation. The hardware build transformations `PYNQBuild` now execute all necessary sub-transformations. For more control over the build process, the transformations listed below can still be called individually.
 
 
 Driver Generation
@@ -80,10 +80,12 @@ Project Generation and Synthesis
 ---------------------------------
 
 The final step in the hardware build flow is to generate a project and run synthesis to produce
-a bitfile. For Zynq and embedded Versal this is done using the `MakePynqProject` transformation. For Alveo, the
+a bitfile. For Zynq and embedded Versal this is done using the `MakePYNQProject` transformation. For Alveo, the
 stitched IP kernels are first prepared by `PrepareForLinking` and then linked using either the
 `VitisLink` transformation (for UltraScale+-based Alveo cards) or the `SlashLink` transformation
 (for Versal-based Alveo cards such as the V80).
+
+.. note:: For embedded Versal, the block design is built on top of the PYNQ golden reference design. Currently only the VCK190 is supported, build its golden reference once by launching the container with ``FINN_VCK190_GOLDEN=1 ./run-docker.sh`` (requires Vivado).
 
 
 Deployment
