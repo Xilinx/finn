@@ -631,6 +631,11 @@ def assert_mlo_fifo_logs(build_dir, loop_name):
 
     sizing_logs = _read_fifo_log_dir(f"{log_root}/fifo_sizing/{loop_name}")
     stitched_body_logs = _read_fifo_log_dir(f"{log_root}/stitched_ip_rtlsim/{loop_name}")
+
+    body_pre_fifosim = (
+        f"{log_root}/fifo_sizing/{loop_name}/intermediate_models/{body_prefix}pre_fifosim.onnx"
+    )
+    assert os.path.isfile(body_pre_fifosim), f"no pre-FIFO-sim model snapshot at {body_pre_fifosim}"
     for scope, logs in [("fifo_sizing", sizing_logs), ("stitched_ip_rtlsim", stitched_body_logs)]:
         untagged = sorted(n for n in logs if not n.startswith(body_prefix))
         assert not untagged, (

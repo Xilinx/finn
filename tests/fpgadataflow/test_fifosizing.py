@@ -559,6 +559,11 @@ def test_fifo_log_build(fifo_log_verbose):
         output_dir + "/verification_output/verify_stitched_ip_rtlsim_0_SUCCESS.npy"
     ), "stitched-ip rtlsim did not reproduce the expected output"
 
+    sizing_dir = output_dir + "/debug/fifo_logs/fifo_sizing/main"
+    assert os.path.isfile(sizing_dir + "/intermediate_models/pre_fifosim.onnx"), (
+        "no pre-FIFO-sim model snapshot in " + sizing_dir
+    )
+
     log_dir = output_dir + "/debug/fifo_logs/stitched_ip_rtlsim/main"
     logs = read_fifo_log_snapshot(log_dir)
     assert logs, "debug_fifo was on but no FIFO log in " + log_dir

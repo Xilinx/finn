@@ -209,31 +209,54 @@ def _attach_fifo_debug_logs(model, cfg, prefix=""):
 
 
 def snapshot_fifo_logs(cfg, phase_name, loop_context=None, exclude_prefixes=()):
-    if not cfg.debug_fifo:
-        return
+    """
+    Move the live fifo logs, located in
+    `<output>/debug/fifo_logs/_live`,
+    into a "snapshotted" directory, located in
+    `<output>/debug/fifo_logs/<phase_name>/<loop_context>`.
+
+    Should only be called after a simulation is finished.
+    """
+    # Determine live directories
     live_dir = _fifo_debug_live_dir(cfg)
-    if not os.path.isdir(live_dir):
+    live_onnx_dir = os.path.join(live_dir, "intermediate_models")
+    if not cfg.debug_fifo or not os.path.isdir(live_dir):
         return
+
+    # Determine snapshot directories
     prefix = (loop_context + "_") if loop_context else None
     subdir = loop_context or "main"
     dest_dir = os.path.join(cfg.output_dir, "debug", "fifo_logs", phase_name, subdir)
+    dest_onnx_dir = os.path.join(dest_dir, "intermediate_models")
     os.makedirs(dest_dir, exist_ok=True)
-    for fn in os.listdir(live_dir):
-        if not fn.endswith(".log"):
-            continue
-        if prefix is not None and not fn.startswith(prefix):
-            continue
-        # don't let one scope's snapshot pick up another scope's logs
-        if any(fn.startswith(p) for p in exclude_prefixes):
-            continue
-        src = os.path.join(live_dir, fn)
-        # already-snapshotted logs are truncated to zero bytes; skip those
-        # instead of emitting a phantom empty log in this scope
-        if os.path.getsize(src) == 0:
-            continue
-        dst = os.path.join(dest_dir, fn)
-        shutil.copy2(src, dst)
-        open(src, "w").close()
+    if os.path.isdir(live_onnx_dir):
+        os.makedirs(dest_onnx_dir, exist_ok=True)
+
+    # Filter to only relevant log files
+    log_files = [
+        log_file
+        for log_file in os.listdir(live_dir)
+        if log_file.endswith(".log")
+        and (prefix is None or log_file.startswith(prefix))
+        and not any(log_file.startswith(p) for p in exclude_prefixes)
+    ]
+
+    # Identify relevant ONNX files
+    onnx_files = [
+        onnx_file
+        for onnx_file in (os.listdir(live_onnx_dir) if os.path.isdir(live_onnx_dir) else [])
+        if onnx_file.endswith(".onnx")
+        and (prefix is None or onnx_file.startswith(prefix))
+        and not any(onnx_file.startswith(p) for p in exclude_prefixes)
+    ]
+
+    # Move relevant log files to snapshot directory
+    for log_file in log_files:
+        shutil.move(os.path.join(live_dir, log_file), os.path.join(dest_dir, log_file))
+
+    # Move relevant onnx files to snapshot directory
+    for onnx_file in onnx_files:
+        shutil.move(os.path.join(live_onnx_dir, onnx_file), os.path.join(dest_onnx_dir, onnx_file))
 
 
 def verify_step(
