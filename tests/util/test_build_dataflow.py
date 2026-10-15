@@ -147,6 +147,11 @@ def test_end2end_build_dataflow_directory():
     fifo_sizing_logs = [f for f in os.listdir(fifo_sizing_dir) if f.endswith(".log")]
     assert len(fifo_sizing_logs) > 0, "No FIFO debug logs created during fifo_sizing phase"
 
+    # Check that the pre-FIFO-sim model snapshot was created alongside the logs
+    assert os.path.isfile(
+        fifo_sizing_dir + "/intermediate_models/pre_fifosim.onnx"
+    ), "No pre-FIFO-sim model snapshot created during fifo_sizing phase"
+
     # Check that stitched_ip_rtlsim phase logs were created
     stitched_rtlsim_dir = fifo_log_base + "/stitched_ip_rtlsim/main"
     assert os.path.isdir(stitched_rtlsim_dir), "Stitched IP rtlsim log directory not created"
