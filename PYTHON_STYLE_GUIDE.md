@@ -29,7 +29,7 @@ StreamingConcat      # HWCustomOp subclass
 StreamingFIFO        # HWCustomOp subclass
 Pool_hls             # HLS implementation (note _hls suffix)
 FMPadding_rtl        # RTL implementation (note _rtl suffix)
-MakeZYNQProject      # Transformation class
+MakePYNQProject      # Transformation class
 InsertDWC            # Transformation class
 AnnotateResources    # Analysis class
 ```
