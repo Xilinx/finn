@@ -53,6 +53,17 @@ def _determine_impl_style(node, fpgapart, model):
     if impl_style == "":
         if rtl_variant:
             if optype == "MVAU":
+                if node_inst.get_nodeattr("mem_mode") == "internal_embedded":
+                    # the RTL variant with embedded weights is the distributed-arithmetic
+                    # core, which is opt-in (preferred_impl_style="rtl") for now
+                    da_possible, _ = _mvu_rtl_da_possible(node, model)
+                    if da_possible:
+                        warnings.warn(
+                            f"{node.name}: mem_mode=internal_embedded qualifies for the "
+                            "distributed-arithmetic RTL MVU; set preferred_impl_style to "
+                            "'rtl' (with SIMD=MW, PE=MH) to use it instead of the HLS MVAU."
+                        )
+                    return "hls"
                 idt = node_inst.get_input_datatype(0)
                 wdt = node_inst.get_input_datatype(1)
                 inp_width_fit = idt.bitwidth() >= 4
@@ -129,6 +140,16 @@ def _determine_impl_style(node, fpgapart, model):
             )
     elif impl_style == "rtl":
         if optype == "MVAU":
+            if node_inst.get_nodeattr("mem_mode") == "internal_embedded":
+                da_possible, reason = _mvu_rtl_da_possible(node, model)
+                if da_possible:
+                    return "rtl"
+                raise ValueError(
+                    f"{node.name}: preferred_impl_style='rtl' with mem_mode="
+                    "'internal_embedded' selects the distributed-arithmetic RTL MVU, "
+                    f"but {reason}. Fix the configuration or use preferred_impl_style="
+                    "'hls' for the HLS MVAU with embedded weights."
+                )
             if _mvu_rtl_possible(node, fpgapart, model):
                 return "rtl"
             else:
@@ -225,6 +246,44 @@ def _determine_impl_style(node, fpgapart, model):
                 impl_style
             )
         )
+
+
+def _mvu_rtl_da_possible(n, model):
+    """Check the folding-independent requirements of the distributed-arithmetic
+    RTL MVU (MVAU_rtl with mem_mode=internal_embedded, constant weights compiled
+    into a pipelined adder graph).
+
+    Returns (True, "") or (False, reason). The remaining requirement, SIMD=MW and
+    PE=MH, depends on the folding configuration that is applied after
+    specialization and is therefore checked at code generation time.
+    """
+    node_inst = getCustomOp(n)
+    checks = [
+        (node_inst.get_nodeattr("noActivation") == 1, "it requires standalone thresholds"),
+        (node_inst.get_nodeattr("binaryXnorMode") == 0, "it does not support binaryXnorMode"),
+        (model.get_initializer(n.input[1]) is not None, "it requires static weights"),
+        (
+            node_inst.get_nodeattr("runtime_writeable_weights") == 0,
+            "it does not support runtime_writeable_weights",
+        ),
+        (node_inst.get_nodeattr("resType") != "dsp", "it is LUT-only (resType='dsp' set)"),
+        (node_inst.get_nodeattr("TH") == 1, "it does not support tiling (TH>1)"),
+        (node_inst.get_nodeattr("mlo_max_iter") == 0, "it cannot stream per-iteration weights"),
+        (node_inst.get_nodeattr("pumpedMemory") == 0, "it does not support clock pumping"),
+        (
+            node_inst.get_input_datatype(0).is_integer()
+            and node_inst.get_input_datatype(1).is_integer(),
+            "it supports integer datatypes only",
+        ),
+        (
+            node_inst.get_input_datatype(1).bitwidth() <= 24,
+            "it supports weights of at most 24 bits",
+        ),
+    ]
+    for ok, reason in checks:
+        if not ok:
+            return False, reason
+    return True, ""
 
 
 def _mvu_rtl_possible(n, fpgapart, model):
@@ -436,6 +495,62 @@ class SpecializeLayers(Transformation):
                     new_node.attribute.append(attribute)
             graph.node.insert(node_ind, new_node)
             # remove old nodes
+            graph.node.remove(node)
+            graph_modified = True
+        return (model, graph_modified)
+
+
+class SpecializeDAMVAU(Transformation):
+    """Switch fully unrolled MVAU layers to the distributed-arithmetic RTL MVU.
+
+    Runs after the folding has been decided (build option ``enable_da_mvau``):
+    every ``MVAU_hls``/``MVAU_rtl`` node that the folding already implements with
+    ``SIMD = MW`` and ``PE = MH`` and that meets the constraints of the DA core
+    (standalone thresholds, static integer weights, no XNOR mode, tiling, pumping
+    or explicit ``resType="dsp"``) is replaced by an ``MVAU_rtl`` with
+    ``mem_mode="internal_embedded"`` and ``resType="lut"``, i.e. its constant
+    weight matrix is compiled into an adder graph instead of a MAC array. The
+    folding is never changed, so designs do not grow by enabling the option.
+    """
+
+    def apply(self, model):
+        graph = model.graph
+        graph_modified = False
+        for node_ind, node in enumerate(list(graph.node)):
+            if node.op_type not in ("MVAU_hls", "MVAU_rtl"):
+                continue
+            node_inst = getCustomOp(node)
+            if (
+                node_inst.get_nodeattr("mem_mode") == "internal_embedded"
+                and node.op_type == "MVAU_rtl"
+            ):
+                continue  # already the DA core
+            if node_inst.calc_wmem() != 1:
+                continue  # the folding does not unroll the weight matrix fully
+            if node_inst.get_nodeattr("mem_mode") not in (
+                "internal_embedded",
+                "internal_decoupled",
+            ):
+                continue  # weights are not on-chip constants
+            da_possible, _ = _mvu_rtl_da_possible(node, model)
+            if not da_possible:
+                continue
+            new_node = helper.make_node(
+                "MVAU_rtl",
+                node.input,
+                node.output,
+                domain="finn.custom_op.fpgadataflow.rtl",
+                name=node.name,
+            )
+            allowed = set(rtl_variants["MVAU_rtl"](new_node).get_nodeattr_types().keys())
+            for attribute in node.attribute:
+                if attribute.name in allowed:
+                    new_node.attribute.append(attribute)
+            # set the attributes before inserting: the graph stores a copy of the node
+            new_inst = getCustomOp(new_node)
+            new_inst.set_nodeattr("mem_mode", "internal_embedded")
+            new_inst.set_nodeattr("resType", "lut")
+            graph.node.insert(node_ind, new_node)
             graph.node.remove(node)
             graph_modified = True
         return (model, graph_modified)

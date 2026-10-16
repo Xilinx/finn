@@ -37,7 +37,9 @@ from qonnx.custom_op.general.multithreshold import multithreshold
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import (
+    calculate_matvec_accumulator_range,
     calculate_signed_dot_prod_range,
     gen_finn_dt_tensor,
     qonnx_make_model,
@@ -1124,3 +1126,224 @@ def test_fpgadataflow_mvau_hls_threshold_width_cppsim():
     assert np.allclose(
         y_min_produced, y_min_expected
     ), f"Min input test failed: expected {y_min_expected}, got {y_min_produced}"
+
+
+# ---------------------------------------------------------------------------
+# Distributed-arithmetic RTL MVU: MVAU_rtl with mem_mode=internal_embedded
+# compiles the constant weight matrix into a pipelined adder graph (alkaid).
+# ---------------------------------------------------------------------------
+
+DA_DTYPES = [
+    (DataType["UINT4"], DataType["INT4"]),
+    (DataType["INT8"], DataType["INT8"]),
+    (DataType["UINT4"], DataType["BIPOLAR"]),
+    (DataType["BIPOLAR"], DataType["INT4"]),
+    (DataType["INT4"], DataType["INT2"]),
+]
+DA_PARTS = ["xcvc1902-vsva2197-2MP-e-S", "xczu7ev-ffvc1156-2-e", "xc7z020clg400-1"]
+
+
+def _da_sparsify(W, amount, wdt):
+    """Zero a random fraction of the weights (BIPOLAR cannot hold zeros: flip signs
+    of a row block instead so that sharing patterns still change)."""
+    if amount == 0:
+        return W
+    W = W.copy()
+    n = int(amount * W.size)
+    idx = np.random.choice(W.size, size=n, replace=False)
+    flat = W.reshape(-1)
+    if wdt == DataType["BIPOLAR"]:
+        flat[idx] = -flat[idx]
+    else:
+        flat[idx] = 0
+    return flat.reshape(W.shape)
+
+
+@pytest.mark.parametrize("mw_mh", [(16, 16), (32, 32), (24, 40)])
+@pytest.mark.parametrize("idt_wdt", DA_DTYPES, ids=[f"{i.name}x{w.name}" for i, w in DA_DTYPES])
+@pytest.mark.parametrize("part", DA_PARTS)
+@pytest.mark.parametrize("clk_ns", [1.66, 4, 10])
+@pytest.mark.parametrize("sparsity", [0, 0.5])
+@pytest.mark.parametrize("hard_dc", [-1, 2])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_fpgadataflow_rtl_mvau_da(mw_mh, idt_wdt, part, clk_ns, sparsity, hard_dc):
+    mw, mh = mw_mh
+    idt, wdt = idt_wdt
+    baseline = mw_mh == (16, 16) and idt_wdt == DA_DTYPES[0]
+    # Prune the sweep: the part, the clock (pipeline depth) and the depth
+    # constraint are swept on the baseline shape/datatype only; every
+    # datatype/shape/sparsity combination runs once on the middle part.
+    if not baseline and (part != DA_PARTS[1] or clk_ns != 4 or hard_dc != 2):
+        pytest.skip("Non-baseline configs run with part=zu7ev, clk=4ns, hard_dc=2 only")
+
+    ofm_shape = (3, 3)
+    ofm_h, ofm_w = ofm_shape
+    ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, ofm_h, ofm_w, mw])
+    ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, (1, ofm_h, ofm_w, mh))
+    W = _da_sparsify(gen_finn_dt_tensor(wdt, (mw, mh)), sparsity, wdt)
+    model = make_single_matmul_modelwrapper(ifm, ofm, idt, wdt, W)
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
+
+    A = gen_finn_dt_tensor(
+        model.get_tensor_datatype("global_in"), model.get_tensor_shape("global_in")
+    )
+    input_dict = prepare_inputs(A, idt, wdt, inp_name="global_in")
+    output_matmul = oxe.execute_onnx(model, input_dict)["global_out"]
+
+    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(MinimizeAccumulatorWidth())
+    model = model.transform(InferDataTypes())
+
+    # opt in to the distributed-arithmetic core
+    inst = getCustomOp(model.graph.node[0])
+    inst.set_nodeattr("mem_mode", "internal_embedded")
+    inst.set_nodeattr("resType", "lut")
+    inst.set_nodeattr("preferred_impl_style", "rtl")
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(GiveUniqueNodeNames())
+    assert model.graph.node[0].op_type == "MVAU_rtl"
+    folding_config = {
+        "Defaults": {},
+        "MVAU_rtl_0": {"SIMD": mw, "PE": mh, "da_hard_dc": hard_dc},
+    }
+    model = model.transform(ApplyConfig(folding_config))
+
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareIP(part, clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+    output_mvau_rtl = oxe.execute_onnx(model, input_dict)["global_out"]
+    assert (
+        output_matmul == output_mvau_rtl
+    ).all(), "Output of ONNX model not matching output of node-by-node rtlsim!"
+
+    inst = getCustomOp(model.graph.node[0])
+    assert inst.get_nodeattr("da_cost") > 0
+    assert inst.get_nodeattr("da_latency_cycles") >= 2
+    assert inst.dsp_estimation(part) == 0
+    assert inst.lut_estimation(part) > 0
+    # one vector per cycle plus the pipeline: cycle count must stay close to the estimate
+    exp_cycles = model.analysis(exp_cycles_per_layer)[model.graph.node[0].name]
+    cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
+    assert exp_cycles == ofm_h * ofm_w
+    assert cycles_rtlsim - exp_cycles < inst.get_nodeattr("da_latency_cycles") + 16
+
+    # stitched-IP rtlsim once per datatype pair (FIFOs, flat cell, no 2x clock)
+    if mw_mh == (16, 16) and clk_ns == 4 and hard_dc == 2 and sparsity == 0 and part == DA_PARTS[1]:
+        model = model.transform(InsertAndSetFIFODepths(part, clk_ns))
+        model = model.transform(PrepareIP(part, clk_ns))
+        model = model.transform(HLSSynthIP())
+        model = model.transform(CreateStitchedIP(part, clk_ns))
+        model.set_metadata_prop("exec_mode", "rtlsim")
+        output_stitched = oxe.execute_onnx(model, input_dict)["global_out"]
+        assert (
+            output_matmul == output_stitched
+        ).all(), "Output of ONNX model not matching output of stitched-IP rtlsim!"
+
+
+@pytest.mark.parametrize(
+    "idt_wdt", [DA_DTYPES[0], DA_DTYPES[3]], ids=["UINT4xINT4", "BIPOLARxINT4"]
+)
+@pytest.mark.parametrize("n_da", [1, 2])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_fpgadataflow_rtl_mvau_da_with_thresholding(idt_wdt, n_da):
+    """DA MVAU(s) feeding standalone RTL thresholding, stitched together: exercises
+    the interface with a real consumer and the module-name hygiene of several DA
+    cores in one Vivado project."""
+    idt, wdt = idt_wdt
+    part, clk_ns = "xczu7ev-ffvc1156-2-e", 4
+    mw, mh, mid = 16, 16, 16
+    act = DataType["UINT4"]
+    ofm_h, ofm_w = 2, 2
+    np.random.seed(11)
+
+    nodes, inits = [], {}
+    ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, ofm_h, ofm_w, mw])
+    prev, prev_dt, prev_w = "ifm", idt, mw
+    for i in range(n_da):
+        out_w = mh if i == n_da - 1 else mid
+        W = gen_finn_dt_tensor(wdt, (prev_w, out_w))
+        nodes.append(helper.make_node("MatMul", [prev, f"w{i}"], [f"mm{i}"]))
+        inits[f"w{i}"] = (W, wdt)
+        acc_min, acc_max = calculate_matvec_accumulator_range(W, prev_dt)
+        n_steps = act.get_num_possible_values() - 1
+        T = np.sort(
+            np.random.randint(acc_min, acc_max, (out_w, n_steps)).astype(np.float32), axis=1
+        )
+        nodes.append(
+            helper.make_node(
+                "MultiThreshold",
+                [f"mm{i}", f"t{i}"],
+                [f"act{i}"],
+                domain="qonnx.custom_op.general",
+                out_dtype=act.name,
+                out_bias=0.0,
+                out_scale=1.0,
+                data_layout="NHWC",
+            )
+        )
+        inits[f"t{i}"] = (T, DataType["INT32"])
+        prev, prev_dt, prev_w = f"act{i}", act, out_w
+    ofm = helper.make_tensor_value_info(prev, TensorProto.FLOAT, [1, ofm_h, ofm_w, mh])
+    graph = helper.make_graph(nodes=nodes, name="da_thr_graph", inputs=[ifm], outputs=[ofm])
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="da-thr-model"))
+    model.set_tensor_datatype("ifm", idt)
+    for name, (val, dt) in inits.items():
+        model.set_initializer(name, val)
+        model.set_tensor_datatype(name, dt)
+    model = model.transform(InferShapes())
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
+    model = model.transform(InferDataTypes())
+
+    A = gen_finn_dt_tensor(idt, model.get_tensor_shape("global_in"))
+    input_dict = prepare_inputs(A, idt, wdt, inp_name="global_in")
+    output_ref = oxe.execute_onnx(model, input_dict)["global_out"]
+
+    # standalone thresholds first, then the matmuls (as step_convert_to_hw does)
+    model = model.transform(to_hw.InferThresholdingLayer())
+    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(MinimizeAccumulatorWidth())
+    model = model.transform(InferDataTypes())
+    for node in model.get_nodes_by_op_type("MVAU"):
+        inst = getCustomOp(node)
+        assert inst.get_nodeattr("noActivation") == 1
+        inst.set_nodeattr("mem_mode", "internal_embedded")
+        inst.set_nodeattr("resType", "lut")
+        inst.set_nodeattr("preferred_impl_style", "rtl")
+    for node in model.get_nodes_by_op_type("Thresholding"):
+        getCustomOp(node).set_nodeattr("preferred_impl_style", "rtl")
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(GiveUniqueNodeNames())
+    assert len(model.get_nodes_by_op_type("MVAU_rtl")) == n_da
+    assert len(model.get_nodes_by_op_type("Thresholding_rtl")) == n_da
+    for node in model.get_nodes_by_op_type("MVAU_rtl"):
+        inst = getCustomOp(node)
+        inst.set_nodeattr("SIMD", inst.get_nodeattr("MW"))
+        inst.set_nodeattr("PE", inst.get_nodeattr("MH"))
+    for node in model.get_nodes_by_op_type("Thresholding_rtl"):
+        getCustomOp(node).set_nodeattr("PE", 4)
+
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareIP(part, clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+    output_nodewise = oxe.execute_onnx(model, input_dict)["global_out"]
+    assert (output_ref == output_nodewise).all(), "node-by-node rtlsim mismatch"
+
+    model = model.transform(InsertAndSetFIFODepths(part, clk_ns))
+    model = model.transform(PrepareIP(part, clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(CreateStitchedIP(part, clk_ns))
+    model.set_metadata_prop("exec_mode", "rtlsim")
+    output_stitched = oxe.execute_onnx(model, input_dict)["global_out"]
+    assert (output_ref == output_stitched).all(), "stitched-IP rtlsim mismatch"

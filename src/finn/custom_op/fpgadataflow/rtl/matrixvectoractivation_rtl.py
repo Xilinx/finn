@@ -26,13 +26,23 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import math
 import numpy as np
 import os
 
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
+from finn.custom_op.fpgadataflow.rtl.da_codegen import (
+    DA_LUT_PER_COST_BIT,
+    build_da_core,
+)
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.util.basic import get_dsp_block, get_dsp_datapath_limits
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+
+# Coarse LUT estimate per weight and operand bit for the distributed-arithmetic
+# core before the alkaid solution (da_cost) is available; ~1 LUT per (W+A) per
+# weight matches the dense 4-bit/8-bit results reported for da4ml.
+DA_FALLBACK_LUT_PER_WEIGHT_BIT = 1.0
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation_rtl:
 # input 0 is the input tensor, shape (.., i_size) = (..., MW)
@@ -51,10 +61,170 @@ class MVAU_rtl(MVAU, RTLBackend):
         my_attrs = {
             # Double-pumped DSPs enabled
             "pumpedCompute": ("i", False, 0, {0, 1}),
+            # --- distributed-arithmetic core (mem_mode=internal_embedded) ---
+            # alkaid depth constraint for the adder trees (-1: unconstrained)
+            "da_hard_dc": ("i", False, 2),
+            # per-stage latency budget in alkaid's surrogate units
+            # (0: derive from the target clock period)
+            "da_latency_cutoff": ("f", False, 0.0),
+            # fuse adder pairs into three-input adders (alkaid default flow)
+            "da_ternary_fuse": ("i", False, 1, {0, 1}),
+            # results written by the code generator (read-only)
+            "da_cost": ("f", False, 0.0),
+            "da_adders": ("i", False, 0),
+            "da_depth": ("f", False, 0.0),
+            "da_latency_cycles": ("i", False, 0),
         }
         my_attrs.update(MVAU.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
+
+    # ------------------------------------------------------------------
+    # Distributed-arithmetic core (mem_mode=internal_embedded)
+    # ------------------------------------------------------------------
+    def _is_da_mode(self):
+        """True if this node uses the constant-weight distributed-arithmetic core."""
+        return self.get_nodeattr("mem_mode") == "internal_embedded"
+
+    def _check_da_constraints(self, model=None):
+        """Raise a ValueError naming the first violated requirement of the
+        distributed-arithmetic core (only meaningful in DA mode)."""
+        name = self.onnx_node.name
+        mw, mh = self.get_nodeattr("MW"), self.get_nodeattr("MH")
+        simd, pe = self.get_nodeattr("SIMD"), self.get_nodeattr("PE")
+        hint = " (MVAU_rtl with mem_mode=internal_embedded)"
+        checks = [
+            (
+                self.calc_wmem() == 1,
+                f"{name}: the distributed-arithmetic MVU{hint} needs the weight matrix "
+                f"fully unrolled: SIMD=MW={mw} and PE=MH={mh}, got SIMD={simd}, PE={pe}.",
+            ),
+            (
+                self.get_nodeattr("noActivation") == 1,
+                f"{name}: the distributed-arithmetic MVU{hint} requires standalone "
+                "thresholds (noActivation=1).",
+            ),
+            (
+                self.get_nodeattr("binaryXnorMode") == 0,
+                f"{name}: the distributed-arithmetic MVU{hint} does not support "
+                "binaryXnorMode; use BIPOLAR datatypes instead.",
+            ),
+            (
+                self.get_nodeattr("resType") != "dsp",
+                f"{name}: the distributed-arithmetic MVU{hint} is LUT-only, set "
+                "resType to 'lut' (or 'auto') or use mem_mode=internal_decoupled for DSPs.",
+            ),
+            (
+                self.get_nodeattr("runtime_writeable_weights") == 0,
+                f"{name}: the distributed-arithmetic MVU{hint} bakes the weights into "
+                "the logic, runtime_writeable_weights is not possible.",
+            ),
+            (
+                self.get_nodeattr("mlo_max_iter") == 0,
+                f"{name}: the distributed-arithmetic MVU{hint} cannot be used inside a "
+                "loop body with per-iteration weights.",
+            ),
+            (
+                self.get_nodeattr("TH") == 1,
+                f"{name}: the distributed-arithmetic MVU{hint} does not support tiling (TH>1).",
+            ),
+            (
+                self.get_nodeattr("pumpedCompute") == 0 and self.get_nodeattr("pumpedMemory") == 0,
+                f"{name}: the distributed-arithmetic MVU{hint} does not support clock pumping.",
+            ),
+            (
+                model is None or model.get_initializer(self.onnx_node.input[1]) is not None,
+                f"{name}: the distributed-arithmetic MVU{hint} requires static weights "
+                "(initializer).",
+            ),
+        ]
+        for ok, msg in checks:
+            if not ok:
+                raise ValueError(msg)
+
+    def _build_da_core(self, model, clk, top_name):
+        """Run alkaid on the weight initializer and cache the result attributes."""
+        weights = model.get_initializer(self.onnx_node.input[1])
+        core = build_da_core(
+            weights,
+            self.get_input_datatype(0),
+            self.get_input_datatype(1),
+            self.get_output_datatype(),
+            f"{top_name}_da_core",
+            hard_dc=self.get_nodeattr("da_hard_dc"),
+            latency_cutoff=self.get_nodeattr("da_latency_cutoff"),
+            clk_ns=clk,
+            ternary_fuse=bool(self.get_nodeattr("da_ternary_fuse")),
+        )
+        self.set_nodeattr("da_cost", core.cost)
+        self.set_nodeattr("da_adders", core.adders)
+        self.set_nodeattr("da_depth", core.depth)
+        self.set_nodeattr("da_latency_cycles", core.latency_cycles)
+        return core
+
+    def prepare_da_solution(self, model, clk=None):
+        """Run the alkaid solver without writing HDL so that the da_* result
+        attributes (used by the resource estimation) are available early. Without
+        a target clock the pipeline depth is not meaningful and da_latency_cycles
+        is left untouched."""
+        self._check_da_constraints(model)
+        latency_cycles = self.get_nodeattr("da_latency_cycles")
+        self._build_da_core(model, clk if clk else 5.0, self.get_verilog_top_module_name())
+        if clk is None:
+            self.set_nodeattr("da_latency_cycles", latency_cycles)
+
+    def _generate_hdl_da(self, model, clk, code_gen_dir):
+        """Generate the distributed-arithmetic core and its AXI wrapper."""
+        self._check_da_constraints(model)
+        top = self.get_verilog_top_module_name()
+        # save top module name so we can refer to it after this node has been renamed
+        self.set_nodeattr("gen_top_module", top)
+        core = self._build_da_core(model, clk, top)
+        for fname, text in core.files.items():
+            with open(os.path.join(code_gen_dir, fname), "w") as f:
+                f.write(text)
+
+        code_gen_dict = {
+            "$MODULE_NAME_AXI_WRAPPER$": top,
+            "$DA_CORE_WRAPPER$": core.wrapper_name,
+            "$MW$": str(self.get_nodeattr("MW")),
+            "$MH$": str(self.get_nodeattr("MH")),
+            "$ACTIVATION_WIDTH$": str(self.get_input_datatype(0).bitwidth()),
+            "$ACCU_WIDTH$": str(self.get_output_datatype().bitwidth()),
+            "$SIGNED_OUTPUT$": str(int(core.out_signed)),
+            "$CORE_LATENCY$": str(core.latency_cycles),
+            "$OUT_SLOT_WIDTH$": str(core.out_slot_width),
+            "$OUT_SHIFT_LEFT$": str(core.out_shift_left),
+        }
+        template_path = os.path.join(
+            os.environ["FINN_ROOT"], "finn-rtllib/mvu_da/mvu_da_axi_wrapper.v"
+        )
+        with open(template_path, "r") as f:
+            template_wrapper = f.read()
+        for key, val in code_gen_dict.items():
+            template_wrapper = template_wrapper.replace(key, val)
+        with open(os.path.join(code_gen_dir, top + "_wrapper.v"), "w") as f:
+            f.write(template_wrapper)
+
+        # set ipgen_path and ip_path so that HLS-Synth transformation
+        # and stich_ip transformation do not complain
+        self.set_nodeattr("ipgen_path", code_gen_dir)
+        self.set_nodeattr("ip_path", code_gen_dir)
+
+    def _get_da_file_list(self, abspath):
+        """Generated Verilog of the DA core (sorted for reproducible file lists)."""
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        top = self.get_nodeattr("gen_top_module")
+        rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu_da/")
+        generated = sorted(
+            f
+            for f in os.listdir(code_gen_dir)
+            if f.startswith(top + "_da_core") and f.endswith(".v")
+        )
+        files = [top + "_wrapper.v"] + generated
+        if abspath:
+            return [os.path.join(code_gen_dir, f) for f in files] + [rtllib_dir + "mvu_da_axi.sv"]
+        return files + ["mvu_da_axi.sv"]
 
     def adapt_for_loop_body(self, input_types):
         """
@@ -158,9 +328,24 @@ class MVAU_rtl(MVAU, RTLBackend):
             )
 
     def lut_estimation(self, fpgapart):
-        return 0
+        # 0 for the DSP-based RTL MVU; for the distributed-arithmetic core the
+        # calibrated alkaid cost, or a coarse per-weight estimate as long as the
+        # solver has not run for this node
+        if not self._is_da_mode():
+            return 0
+        # the flow-control bracket keeps an SRL output queue of one LUT per output bit
+        queue_luts = self.get_nodeattr("MH") * self.get_output_datatype().bitwidth()
+        da_cost = self.get_nodeattr("da_cost")
+        if da_cost > 0:
+            return int(math.ceil(da_cost * DA_LUT_PER_COST_BIT)) + queue_luts
+        W = self.get_input_datatype(1).bitwidth()
+        A = self.get_input_datatype(0).bitwidth()
+        weights = self.get_nodeattr("MW") * self.get_nodeattr("MH")
+        return int(math.ceil(DA_FALLBACK_LUT_PER_WEIGHT_BIT * weights * (W + A))) + queue_luts
 
     def dsp_estimation(self, fpgapart):
+        if self._is_da_mode():
+            return 0
         # multiplication
         P = self.get_nodeattr("PE")
         Q = self.get_nodeattr("SIMD")
@@ -175,6 +360,16 @@ class MVAU_rtl(MVAU, RTLBackend):
         # instantiate the RTL IP
         node_name = self.onnx_node.name
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+
+        if self._is_da_mode():
+            # flat module reference, no weight infrastructure and no 2x clock
+            for f in self._get_da_file_list(abspath=True):
+                cmd.append("add_files -norecurse %s" % (f))
+            cmd.append(
+                "create_bd_cell -type hier -reference %s %s"
+                % (self.get_nodeattr("gen_top_module"), node_name)
+            )
+            return
 
         theight = self.get_nodeattr("TH")
 
@@ -279,11 +474,12 @@ class MVAU_rtl(MVAU, RTLBackend):
     def _resolve_dsp_version(self, dsp_block):
         # Based on target device and activation/weight-width, choose the
         # supported RTL compute core
-        assert (
-            self.get_nodeattr("resType") != "lut"
-        ), """LUT-based RTL-MVU implementation currently not supported!
-        Please change resType for {} to 'dsp' or consider switching to HLS-based MVAU!""".format(
-            self.onnx_node.name
+        assert self.get_nodeattr("resType") != "lut", (
+            "{}: the LUT-based RTL MVU is only available as the distributed-arithmetic "
+            "core with mem_mode=internal_embedded, which requires SIMD=MW and PE=MH. "
+            "Otherwise change resType to 'dsp' or switch to the HLS MVAU.".format(
+                self.onnx_node.name
+            )
         )
 
         match dsp_block:
@@ -295,8 +491,13 @@ class MVAU_rtl(MVAU, RTLBackend):
                 return 1
 
     def generate_hdl(self, model, fpgapart, clk):
-        # Generate params as part of IP preparation
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        if self._is_da_mode():
+            # constant weights become the adder graph, no parameter files needed
+            self._generate_hdl_da(model, clk, code_gen_dir)
+            return
+
+        # Generate params as part of IP preparation
         if not self.get_nodeattr("mlo_max_iter"):
             self.generate_params(model, code_gen_dir)
 
@@ -340,6 +541,11 @@ class MVAU_rtl(MVAU, RTLBackend):
         self.set_nodeattr("ip_path", code_gen_dir)
 
     def prepare_codegen_default(self, fpgapart, clk):
+        if self._is_da_mode():
+            raise ValueError(
+                f"{self.onnx_node.name}: prepare_codegen_default is for the DSP-based "
+                "RTL MVU; the distributed-arithmetic core is generated by generate_hdl."
+            )
         if self.get_nodeattr("TH") > 1:
             template_path = (
                 os.environ["FINN_ROOT"] + "/finn-rtllib/mvu_tiled/mvu_tiled_axi_wrapper.v"
@@ -449,6 +655,8 @@ class MVAU_rtl(MVAU, RTLBackend):
         return template_path, code_gen_dict
 
     def get_rtl_file_list(self, abspath=False):
+        if self._is_da_mode():
+            return self._get_da_file_list(abspath)
         if abspath:
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen") + "/"
             if self.get_nodeattr("TH") > 1:
@@ -490,7 +698,9 @@ class MVAU_rtl(MVAU, RTLBackend):
 
     def get_verilog_paths(self):
         verilog_paths = super().get_verilog_paths()
-        if self.get_nodeattr("TH") > 1:
+        if self._is_da_mode():
+            verilog_paths.append(os.environ["FINN_ROOT"] + "/finn-rtllib/mvu_da")
+        elif self.get_nodeattr("TH") > 1:
             verilog_paths.append(os.environ["FINN_ROOT"] + "/finn-rtllib/mvu_tiled")
         else:
             verilog_paths.append(os.environ["FINN_ROOT"] + "/finn-rtllib/mvu")

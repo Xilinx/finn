@@ -158,6 +158,15 @@ class SetFolding(Transformation):
                 max_pe = node_inst.get_nodeattr("MH")
                 node_inst.set_nodeattr("PE", 1)
                 node_inst.set_nodeattr("SIMD", 1)
+                if (
+                    op_type == "MVAU_rtl"
+                    and node_inst.get_nodeattr("mem_mode") == "internal_embedded"
+                ):
+                    # distributed-arithmetic core: the constant weight matrix is compiled
+                    # into an adder graph, which only exists fully unrolled
+                    node_inst.set_nodeattr("SIMD", max_simd)
+                    node_inst.set_nodeattr("PE", max_pe)
+                    continue
                 # increase SIMD until either we meet
                 # the target or weight stream becomes
                 # too wide
