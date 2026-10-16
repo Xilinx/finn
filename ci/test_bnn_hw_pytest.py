@@ -56,7 +56,7 @@ def delete_file(file_path):
 
 
 def get_platform(board_str):
-    return "vitis-xrt" if "U55C" in board_str else "zynq-iodma"
+    return "vitis-xrt" if "U55C" in board_str else "pynq-iodma"
 
 
 def get_full_parameterized_test_list(marker, test_dir_list, batch_size_list, platform_list):

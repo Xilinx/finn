@@ -348,7 +348,7 @@ class MakePYNQDriver(Transformation):
     after conversion to HLS layers, folding and the creation of
     dataflow partitions for correct operation.
 
-    platform: one of ["zynq-iodma", "vitis-xrt"]
+    platform: one of ["pynq-iodma", "vitis-xrt"]
 
     Outcome if successful: sets the pynq_driver_dir attribute in the ONNX
     ModelProto's metadata_props field, with the created driver dir as the
@@ -358,6 +358,14 @@ class MakePYNQDriver(Transformation):
 
     def __init__(self, platform):
         super().__init__()
+        if platform == "zynq-iodma":
+            warnings.warn(
+                'Platform "zynq-iodma" has been renamed to "pynq-iodma" and will be '
+                "removed in a future release.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            platform = "pynq-iodma"
         self.platform = platform
 
     def apply(self, model):
