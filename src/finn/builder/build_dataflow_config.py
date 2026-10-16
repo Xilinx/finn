@@ -246,6 +246,16 @@ class DataflowBuildConfig:
     #: flexibility, and makes it possible to have runtime-writable thresholds.
     standalone_thresholds: Optional[bool] = False
 
+    #: (Optional) Whether MVAU layers that the folding implements fully unrolled
+    #: (SIMD=MW, PE=MH) with constant on-chip weights and standalone thresholds
+    #: are switched to the distributed-arithmetic RTL MVAU (MVAU_rtl with
+    #: mem_mode=internal_embedded, see finn-rtllib/mvu_da/README.md) after the
+    #: folding has been applied: their weight matrix is compiled into a
+    #: pipelined, multiplier-free adder graph instead of a MAC array. The folding
+    #: itself is never changed by this option, partially folded layers keep their
+    #: implementation.
+    enable_da_mvau: Optional[bool] = False
+
     #: (Optional) Bitwidth threshold for choosing between Requant and Thresholding
     #: for MultiThreshold nodes. When output bitwidth >= this threshold, Requant is
     #: preferred (if thresholds are uniform). When output bitwidth < threshold,
