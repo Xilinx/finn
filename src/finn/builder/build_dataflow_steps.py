@@ -141,7 +141,10 @@ from finn.transformation.fpgadataflow.set_fifo_depths import (
 )
 from finn.transformation.fpgadataflow.set_folding import SetFolding
 from finn.transformation.fpgadataflow.set_loop_boundary import SetLoopBoundary
-from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.transformation.fpgadataflow.specialize_layers import (
+    SpecializeDAMVAU,
+    SpecializeLayers,
+)
 from finn.transformation.fpgadataflow.transpose_decomposition import (
     InferInnerOuterShuffles,
     ShuffleDecomposition,
@@ -763,6 +766,11 @@ def step_apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(ApplyConfig(cfg.folding_config_file), apply_to_subgraphs=True)
     else:
         print("No folding config json provided, skipping step_apply_folding_config.")
+
+    if cfg.enable_da_mvau:
+        # the folding is final now: fully unrolled MVAUs with constant weights
+        # become distributed-arithmetic cores
+        model = model.transform(SpecializeDAMVAU())
 
     return model
 
