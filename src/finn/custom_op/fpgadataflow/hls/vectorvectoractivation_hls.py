@@ -297,6 +297,7 @@ class VVAU_hls(VVAU, HLSBackend):
                 """Please set mem_mode to "internal_embedded", "internal_decoupled", or "external",
                 currently no other parameter value is supported!"""
             )
+        self.code_gen_dict["$GLOBALS$"] += ['#include "vvau.hpp"']
         if self.calc_tmem() != 0:
             self.code_gen_dict["$GLOBALS$"] += ['#include "thresh.h"']
 
@@ -392,9 +393,14 @@ class VVAU_hls(VVAU, HLSBackend):
             threshs = "threshs"
 
         if mem_mode == "internal_embedded":
+            n = "numReps*(Channels1/PE1)*(InnerProdDim/SIMD1+1)"
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """Vector_Vector_Activate_Batch<Channels1, InnerProdDim, SIMD1, PE1, 1, {}, {}, {}>
-                (in0_V, out0_V, weights, {}, numReps, {});""".format(
+                "for(unsigned i = 0; i < %s; i++)\n"
+                "Vector_Vector_Activate_Batch"
+                "<Channels1, InnerProdDim, SIMD1, PE1, 1, %s, %s, %s>"
+                "(in0_V, out0_V, weights, %s, %s);"
+                % (
+                    n,
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
                     tmpl_args["TWeightI"],
@@ -409,10 +415,15 @@ class VVAU_hls(VVAU, HLSBackend):
             else:
                 export_wdt = wdt
             wdtype_hls_str = export_wdt.get_hls_datatype_str()
+            n = "numReps*(Channels1/PE1)*(InnerProdDim/SIMD1+1)"
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """{}<Channels1, InnerProdDim, SIMD1, PE1, 1, {}, {}, {}, {}>
-                (in0_V, out0_V, in1_V, {}, numReps, {});""".format(
-                    "Vector_Vector_Activate_Stream_Batch",
+                "for(unsigned i = 0; i < %s; i++)\n"
+                "Vector_Vector_Activate_Stream_Batch"
+                "<Channels1, InnerProdDim, SIMD1, PE1, 1,"
+                " %s, %s, %s, %s>"
+                "(in0_V, out0_V, in1_V, %s, %s);"
+                % (
+                    n,
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
                     tmpl_args["TWeightI"],

@@ -316,8 +316,9 @@ class MVAU_hls(MVAU, HLSBackend):
             threshs = "threshs"
         if mem_mode == "internal_embedded":
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """Matrix_Vector_Activate_Batch<MW1, MH1, SIMD1, PE1, 1, {}, {}, {}>
-                (in0_V, out0_V, weights, {}, numReps, {});""".format(
+                """for(unsigned i = 0; i < numReps * (MH1/PE1) * (MW1/SIMD1 + 1); i++)
+                Matrix_Vector_Activate_Batch<MW1, MH1, SIMD1, PE1, 1, {}, {}, {}>
+                (in0_V, out0_V, weights, {}, {});""".format(
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
                     tmpl_args["TWeightI"],
@@ -333,8 +334,9 @@ class MVAU_hls(MVAU, HLSBackend):
                 export_wdt = wdt
             wdtype_hls_str = export_wdt.get_hls_datatype_str()
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """Matrix_Vector_Activate_Stream_Batch<MW1, MH1, SIMD1, PE1, {}, {}, {}, {} >
-                (in0_V, out0_V, in1_V, {}, numReps, {});""".format(
+                """for(unsigned i = 0; i < numReps * (MH1/PE1) * (MW1/SIMD1 + 1); i++)
+                Matrix_Vector_Activate_Stream_Batch<MW1, MH1, SIMD1, PE1, {}, {}, {}, {} >
+                (in0_V, out0_V, in1_V, {}, {});""".format(
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
                     tmpl_args["TWeightI"],
