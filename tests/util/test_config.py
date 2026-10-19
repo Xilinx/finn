@@ -145,7 +145,7 @@ def test_extract_model_config():
     attrs_to_extract = ["kernel_size", "stride", "pad_amount", "input_shape"]
 
     extracted_config = extract_model_config(
-        model, subgraph_hier=None, attr_names_to_extract=attrs_to_extract
+        model, subgraph_hier=None, attr_names_to_extract=attrs_to_extract, apply_to_subgraphs=True
     )
     assert extracted_config == expected_config, "Extracted config does not match expected config"
 
@@ -158,12 +158,12 @@ def test_roundtrip_export_import():
 
     # Extract config from model
     original_config = extract_model_config(
-        model, subgraph_hier=None, attr_names_to_extract=attrs_to_extract
+        model, subgraph_hier=None, attr_names_to_extract=attrs_to_extract, apply_to_subgraphs=True
     )
     # Save in json
     test_dir = make_build_dir("test_config_roundtrip_")
     config_json_file = os.path.join(test_dir, "original_config.json")
-    extract_model_config_to_json(model, config_json_file, attrs_to_extract)
+    extract_model_config_to_json(model, config_json_file, attrs_to_extract, apply_to_subgraphs=True)
 
     # Modify all Im2Col nodes to different values (recursively through subgraphs)
     def modify_all_im2col_nodes(graph_proto):
@@ -181,15 +181,15 @@ def test_roundtrip_export_import():
     modify_all_im2col_nodes(model.graph)
     # test that modification happened
     new_config = extract_model_config(
-        model, subgraph_hier=None, attr_names_to_extract=attrs_to_extract
+        model, subgraph_hier=None, attr_names_to_extract=attrs_to_extract, apply_to_subgraphs=True
     )
     assert new_config != original_config, "Config of nodes wasn't properly changed"
 
-    model = model.transform(ApplyConfig(config_json_file))
+    model = model.transform(ApplyConfig(config_json_file, apply_to_subgraphs=True))
 
     # Re-extract config and verify it matches original
     restored_config = extract_model_config(
-        model, subgraph_hier=None, attr_names_to_extract=attrs_to_extract
+        model, subgraph_hier=None, attr_names_to_extract=attrs_to_extract, apply_to_subgraphs=True
     )
     assert restored_config == original_config, "Config not properly restored after roundtrip"
 
