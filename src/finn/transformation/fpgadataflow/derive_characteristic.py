@@ -400,9 +400,10 @@ CAP_MARGIN = 1.25
 #: What the pass knows about an edge once its producer has been scheduled:
 #: ``writes`` are the per-token wall-clock write times, ``per_frame`` the tokens
 #: the producer writes per frame, ``t_up`` the longest period in the chain
-#: feeding the edge since the last pacer, and ``t_prop`` what is handed further
-#: downstream (0 past a pacer, else ``t_up``).
-Edge = namedtuple("Edge", "writes per_frame t_up t_prop")
+#: feeding the edge since the last pacer, ``t_prop`` what is handed further
+#: downstream (0 past a pacer, else ``t_up``) and ``t_full`` the longest period
+#: in the whole chain feeding the edge (not reset past a pacer).
+Edge = namedtuple("Edge", "writes per_frame t_up t_prop t_full")
 
 
 def read_node_tavs(model, nodes):
@@ -551,8 +552,34 @@ def absorbed_frame_floor(node, tensor):
     return int(n)
 
 
+def refill_floor(write_times, read_times, slack):
+    """Largest number of tokens the consumer reads while the producer writes
+    nothing (e.g. while a sliding window generator upstream refills its rows at
+    a frame boundary), not counting the first ``slack`` cycles of each gap,
+    which are covered otherwise."""
+    n = min(len(write_times), len(read_times))
+    if n < 2:
+        return 0
+    w = np.sort(np.asarray(write_times[:n], dtype=np.int64))
+    r = np.sort(np.asarray(read_times[:n], dtype=np.int64))
+    start, end = w[:-1] + int(slack), w[1:]
+    ok = end > start
+    if not ok.any():
+        return 0
+    got = np.searchsorted(r, end[ok], side="left") - np.searchsorted(r, start[ok], side="right")
+    return int(max(0, got.max()))
+
+
 def edge_depth(
-    peak, read_times, edge, fill_only, throttleable, global_period, pacer_period, idle_floor=0
+    peak,
+    read_times,
+    edge,
+    fill_only,
+    throttleable,
+    global_period,
+    pacer_period,
+    idle_floor=0,
+    refill=0,
 ):
     """Step 6: turn an edge's peak occupancy into its depth.
 
@@ -563,17 +590,27 @@ def edge_depth(
     * Slack relaxation: a producer whose chain finishes a frame in
       ``t_up < global_period`` can be blocked for the difference, and draining
       ``k`` tokens costs ``k * global_period / per_frame`` cycles, so that many
-      tokens of the peak are given up.
+      tokens of the peak are given up. For a consumer that drives the pacer
+      the chain is ``t_full``: below a pacer the producer is input-bound at the
+      global period and cannot catch up after being blocked.
     * Burst floor: the consumer's largest demand above the edge's rate line.
+    * Refill floor (consumers that drive the pacer): the tokens the consumer
+      reads during the producer's longest write gap, beyond its own slack and
+      the supply held in the (full) FIFOs above the producer. A blocked
+      producer has given up its run-ahead, so the FIFO has to carry the
+      consumer through the gap.
     * Throttled cap: bounds the floor when the consumer can be throttled, the
       producer can be blocked (its chain is not at the pacer) and the blocking
       budget is not marginal (``CAP_MARGIN``).
     """
     if fill_only:
         return max(int(peak), int(idle_floor))
-    allowance = edge.per_frame * (1.0 - min(edge.t_up, global_period) / float(global_period))
+    t_chain = edge.t_up if throttleable else edge.t_full
+    allowance = edge.per_frame * (1.0 - min(t_chain, global_period) / float(global_period))
     after_slack = int(round(peak - allowance))
     floor = min(peak, burst_above_rate(read_times, edge.per_frame / float(global_period)))
+    if not throttleable:
+        floor = max(floor, min(peak, refill))
     if (
         throttleable
         and edge.t_up < pacer_period
@@ -617,9 +654,29 @@ def derive_chained_tav_depths(model, global_period, causal=True):
         upstream = [edges[t].t_prop for t in node.input if t in edges]
         chain = max([own] + upstream) if (upstream or own) else global_period
         propagated = 0 if own >= pacer_period else chain
-        return chain, propagated
+        full = max([own] + [edges[t].t_full for t in node.input if t in edges])
+        return chain, propagated, full
+
+    def upstream_cover(tensor):
+        """Cycles of supply the FIFOs above ``tensor``'s producer hold while it
+        is blocked (they are full then), ``depth * global_period / per_frame``
+        each, back along a single-input chain to a pacer, a join or the input."""
+        cover = 0.0
+        node = model.find_producer(tensor)
+        while node is not None and own_period.get(node.name, 0) < pacer_period:
+            ins = [t for t in node.input if t in edges]
+            if len(ins) != 1:
+                break
+            t = ins[0]
+            cover += max(depths.get(t, 0), 2) * global_period / float(edges[t].per_frame)
+            node = model.find_producer(t)
+        return int(cover)
 
     def size_edge(tensor, peak, read_times, consumer, fill_only, idle_floor=0):
+        # a write gap is harmless for as long as the consumer's own slack and
+        # the supply buffered above the producer last
+        slack = max(0, global_period - own_period.get(consumer.name, global_period))
+        slack += upstream_cover(tensor)
         depths[tensor] = edge_depth(
             peak,
             read_times,
@@ -629,13 +686,14 @@ def derive_chained_tav_depths(model, global_period, causal=True):
             global_period,
             pacer_period,
             idle_floor,
+            refill_floor(edges[tensor].writes, read_times, slack),
         )
 
     for node in nodes:
         tin, tout, in_curves, out_curves = tavs[node.name]
         dyn_inputs = [t for t in node.input if model.find_producer(t) is not None]
         fill_only = len(dyn_inputs) > 1 or node.name in in_branch
-        t_up, t_prop = chain_period(node)
+        t_up, t_prop, t_full = chain_period(node)
 
         if tin is None or tout is None:
             # Step 5a, a node without a TAV (fork, join) is transparent: it
@@ -653,7 +711,7 @@ def derive_chained_tav_depths(model, global_period, causal=True):
                     )
                     size_edge(t, peak, out_sched, node, fill_only)
             for t in node.output:
-                edges[t] = Edge(out_sched, max(1, len(out_sched) // 2), t_up, t_prop)
+                edges[t] = Edge(out_sched, max(1, len(out_sched) // 2), t_up, t_prop, t_full)
             continue
 
         # Step 5b, characterized node: the write times of every streamed input
@@ -690,7 +748,7 @@ def derive_chained_tav_depths(model, global_period, causal=True):
             writes = token_times(clock, curve)
             if causal:
                 writes = causal_writes(writes, in_scheds)
-            edges[t] = Edge(writes, max(1, frame_tokens(curve)), t_up, t_prop)
+            edges[t] = Edge(writes, max(1, frame_tokens(curve)), t_up, t_prop, t_full)
 
     return depths
 

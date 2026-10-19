@@ -192,6 +192,8 @@ finishes a frame in ``t_up < global period`` cycles, ``edge_depth`` subtracts
 ``per_frame * (1 - t_up / global period)`` tokens from the peak. Past a pacer
 the chain period is reset (``t_prop = 0``): an edge leaving the pacer has no
 slack, an edge two hops down is limited only by the segment since the pacer.
+The reset only applies to consumers that can be throttled, see `Pacer-bound
+chains`_.
 
 *Why:* the peak occupancy is the depth at which the producer *never* waits,
 which is more than throughput needs. A producer with that much slack can be
@@ -237,6 +239,71 @@ the burst is served from the source itself. Under a rate-matched source the
 MVAU would stall for most of its first output window without the buffer. The
 sizer keeps the conservative answer; a build that knows its source bursts can
 drop it.
+
+Pacer-bound chains
+------------------
+
+*What:* for a consumer that runs at the pacer's period or feeds a node that
+does, the slack relaxation uses ``t_full``, the slowest period of the whole
+chain feeding the edge, without the reset past a pacer. Below a pacer the
+allowance is therefore (almost) zero for these consumers.
+
+*Why:* a chain below a pacer is input-bound at the global period, however fast
+its own nodes are: once blocked it cannot catch up, and with the shallow FIFOs
+between it and the pacer the block reaches the pacer. Its run-ahead is what
+carries a consumer that cannot be throttled through the producer's gaps (a
+sliding window generator refilling rows at the frame boundary).
+
+*Example:* cnv-w2a2, optimizer folding in maximize mode on AUP-ZU3 (pacers
+``MVAU_hls_2`` and ``MVAU_hls_4``, 27655 cycles; ``MVAU_hls_3`` 25607).
+``StreamingDataWidthConverter_rtl_4 -> MVAU_hls_3``: the chain since
+``MVAU_hls_2`` measures 14690 cycles, so the allowance (187 tokens) exceeded
+the peak (48) and the burst floor (32) set the depth. Every frame
+``ConvolutionInputGenerator_rtl_4`` waits for 26 new pixels from
+``MVAU_hls_2`` before its first window, longer than ``MVAU_hls_3``'s slack.
+rtlsim interval 28226 cycles (-2.0 %); with 48 (the peak, now the depth) it is
+27655. ``StreamingDataWidthConverter_rtl_6 -> MVAU_hls_4`` goes from 41 to 49.
+Of the committed foldings only vgg10-radioml changes (four FIFOs 2 to 3, 14.2
+to 15.7 kbit).
+
+Refill floor
+------------
+
+*What:* for a consumer that runs at the pacer's period or feeds a node that
+does, the depth never drops below ``min(peak, refill_floor(...))``: the most
+tokens the consumer reads during one gap in the producer's writes, not
+counting the first cycles of the gap that are covered otherwise: the
+consumer's own slack (``global period - consumer period``) and the supply
+held in the FIFOs above the producer (``upstream_cover``: ``depth * global
+period / per_frame`` per FIFO, back along the single-input chain to a pacer,
+a join or the graph input; they are full while the producer is blocked).
+
+*Why:* the slack relaxation gives up the producer's run-ahead, so the producer
+delivers just in time. Where its writes pause (a sliding window generator
+upstream re-reading ``(K - 1)`` rows at a frame boundary), the FIFO alone has
+to feed the consumer through the pause; the burst floor, an average-rate
+argument, does not see it.
+
+*Example:* cnv-w1a2, optimizer folding in maximize mode on KV260 (pacer
+``MVAU_hls_1``, 12551 cycles; ``MVAU_hls_0`` 10807).
+``StreamingDataWidthConverter_rtl_3 -> MVAU_hls_1``: peak 404, allowance 436,
+depth 4. The producer's writes pause for 824 cycles per frame while
+``ConvolutionInputGenerator_rtl_1`` waits for 2 rows and 3 pixels from
+``MVAU_hls_0``; the pacer reads 208 tokens meanwhile. rtlsim interval 13262
+cycles (-5.4 %) at depth 4, 12881 at 100 and 12551 (the estimate) at 190, 260
+and 404; the floor gives 184, also 12551. The same edge pattern (sliding
+window generator -> width converter -> MVAU) in other maximize-mode foldings:
+gtsrb (16 to 65) 12992 to 12806 cycles (estimate 12807), cnv-w1a1 (2 to 56)
+14457 to 14406 (14407); cnv-w2a2 in target mode (7 to 225) 33320 to 33206. No
+committed folding changes.
+
+*Cover:* mobilenet_v1, ``MVAU_hls_1 -> StreamingDataWidthConverter_rtl_4``
+(a pacer): the producer's writes pause for 10750 cycles, but the 202-deep FIFO
+in front of ``ConvolutionInputGenerator_rtl_1`` holds 12474 cycles of supply,
+so the depth stays 2 (rtlsim reaches the estimate with 2; without the cover
+the floor gives 677, +116 kbit). Without the cover one committed cnv-w1a2 /
+cnv-w2a2 edge would also grow (594 to 608), and the foldings above would get
+208, 71, 58 and 242 (same throughput).
 
 .. _Throttled cap:
 

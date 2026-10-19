@@ -54,6 +54,7 @@ from finn.transformation.fpgadataflow.derive_characteristic import (
     local_clock,
     peak_occupancy,
     periodic_peak,
+    refill_floor,
 )
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
@@ -234,3 +235,9 @@ def test_periodic_peak_and_floors():
     curve = np.array([1, 2, 3, 4])
     clock = local_clock(4, {"x": (np.array([0, 0, 10, 10]), curve)})
     assert list(clock) == [0, 1, 10, 11]
+    # writes pause from cycle 29 to 130 while the consumer reads one token per
+    # 4 cycles: 25 reads in the gap, 15 beyond a consumer slack of 40 cycles
+    w_gap = np.concatenate([np.arange(30), np.arange(10) + 130])
+    r_gap = np.arange(40) * 4 + 2
+    assert refill_floor(w_gap, r_gap, 0) == 25
+    assert refill_floor(w_gap, r_gap, 40) == 15
