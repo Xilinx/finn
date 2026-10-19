@@ -40,6 +40,7 @@ from qonnx.transformation.general import GiveUniqueNodeNames
 # Import the elementwise binary operation module to extract names of all
 # specializations (which require PE parallelism to be configured)
 import finn.custom_op.fpgadataflow.hls.elementwise_binary_hls as elementwise_binary_hls
+import finn.custom_op.fpgadataflow.rtl.elementwise_binary_rtl as elementwise_binary_rtl
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
@@ -62,12 +63,16 @@ def common_divisors(numbers):
     return [int(x) for x in functools.reduce(np.intersect1d, separate_divisors)]
 
 
-# Find the op-type names for all HLS specializations of elementwise binary
-# operations
+# Find the op-type names for all HLS and RTL specializations of elementwise
+# binary operations
 ELEMENTWISE_BINARY_OPS = [
     op_type
     for op_type, cls in inspect.getmembers(elementwise_binary_hls, inspect.isclass)
     if issubclass(cls, elementwise_binary_hls.ElementwiseBinaryOperation_hls)
+] + [
+    op_type
+    for op_type, cls in inspect.getmembers(elementwise_binary_rtl, inspect.isclass)
+    if issubclass(cls, elementwise_binary_rtl.ElementwiseBinary_rtl)
 ]
 
 
@@ -130,6 +135,8 @@ class SetFolding(Transformation):
             "DuplicateStreams_hls",
             "GlobalAccPool_hls",
             "PWPolyF_rtl",
+            "Requant_hls",
+            "Requant_rtl",
             "Thresholding_hls",
             "Thresholding_rtl",
             *ELEMENTWISE_BINARY_OPS,
@@ -145,6 +152,8 @@ class SetFolding(Transformation):
             "StreamingSplit_hls",
             "StreamingConcat_hls",
             "LayerNorm_rtl",
+            "HWSoftmax_hls",
+            "HWSoftmax_rtl",
             "Shuffle",
         ]
         # these ops are preceded by depthwise SWG and have special behavior,
