@@ -79,8 +79,10 @@ class UpsampleNearestNeighbour_hls(UpsampleNearestNeighbour, HLSBackend):
             "void {}(hls::stream<tensor<{},{}>> &in0_V, "
             "hls::stream<tensor<{},{}>> &out0_V)".format(
                 self.onnx_node.name,
-                input_elem_hls_type, i_n_elems,
-                output_elem_hls_type, o_n_elems,
+                input_elem_hls_type,
+                i_n_elems,
+                output_elem_hls_type,
+                o_n_elems,
             )
         ]
 

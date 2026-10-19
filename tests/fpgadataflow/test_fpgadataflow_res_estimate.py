@@ -85,7 +85,6 @@ def test_res_estimate():
         weightDataType=wdt.name,
         outputDataType=odt.name,
         ActVal=actval,
-
         noActivation=0,
     )
     graph = helper.make_graph(

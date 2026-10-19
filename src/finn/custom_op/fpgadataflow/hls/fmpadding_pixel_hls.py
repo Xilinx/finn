@@ -79,9 +79,7 @@ class FMPadding_Pixel_hls(FMPadding_Pixel, HLSBackend):
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0_V"]
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out0_V")
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
     def ipgen_extra_directives(self):
         "Return a list of extra tcl directives for HLS synthesis."

@@ -97,7 +97,6 @@ def create_one_fc_model(mem_mode="internal_embedded"):
         weightDataType=wdt.name,
         outputDataType=odt.name,
         ActVal=actval,
-
         noActivation=no_act,
         mem_mode=mem_mode,
     )
@@ -149,7 +148,6 @@ def create_two_fc_model(mem_mode="internal_decoupled"):
         weightDataType=wdt.name,
         outputDataType=odt.name,
         ActVal=actval,
-
         noActivation=no_act,
         mem_mode=mem_mode,
     )
@@ -168,7 +166,6 @@ def create_two_fc_model(mem_mode="internal_decoupled"):
         weightDataType=wdt.name,
         outputDataType=odt.name,
         ActVal=actval,
-
         noActivation=no_act,
         mem_mode=mem_mode,
     )

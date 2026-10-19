@@ -91,9 +91,6 @@ class LabelSelect_hls(LabelSelect, HLSBackend):
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_input_datatype()
-        elem_hls_type = dtype.get_hls_datatype_str()
-        pe = self.get_nodeattr("PE")
         npy_type = "float"
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
@@ -127,7 +124,5 @@ class LabelSelect_hls(LabelSelect, HLSBackend):
         odt = self.get_output_datatype().get_hls_datatype_str()
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             "void {}(hls::stream<tensor<{}, {}>> &in0_V, "
-            "hls::stream<tensor<{}, 1>> &out0_V)".format(
-                self.onnx_node.name, idt, pe, odt
-            )
+            "hls::stream<tensor<{}, 1>> &out0_V)".format(self.onnx_node.name, idt, pe, odt)
         ]

@@ -436,8 +436,7 @@ compilation transformations?
             npy_type = "half" if dtype.get_hls_datatype_str() == "half" else "float"
             npy_in = "%s/input_%s.npy" % (code_gen_dir, i)
             self.code_gen_dict["$READNPYDATA$"].append(
-                'npy2tensorstream<%s>("%s", in%s_V);'
-                % (npy_type, npy_in, i)
+                'npy2tensorstream<%s>("%s", in%s_V);' % (npy_type, npy_in, i)
             )
 
     def strm_decl(self):
@@ -496,8 +495,7 @@ compilation transformations?
             oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
 
             self.code_gen_dict["$DATAOUTSTREAM$"].append(
-                'tensorstream2npy<%s>(strm%s, %s, "%s");'
-                % (npy_type, o, oshape_cpp_str, npy_out)
+                'tensorstream2npy<%s>(strm%s, %s, "%s");' % (npy_type, o, oshape_cpp_str, npy_out)
             )
 
     def save_as_npy(self):

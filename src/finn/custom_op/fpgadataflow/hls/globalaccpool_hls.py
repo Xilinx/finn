@@ -109,7 +109,5 @@ class GlobalAccPool_hls(GlobalAccPool, HLSBackend):
         odt = self.get_output_datatype().get_hls_datatype_str()
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             "void {}(hls::stream<tensor<{}, {}>> &in0_V, "
-            "hls::stream<tensor<{}, {}>> &out0_V)".format(
-                self.onnx_node.name, idt, pe, odt, pe
-            )
+            "hls::stream<tensor<{}, {}>> &out0_V)".format(self.onnx_node.name, idt, pe, odt, pe)
         ]

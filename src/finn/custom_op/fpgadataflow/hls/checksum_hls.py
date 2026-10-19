@@ -157,15 +157,11 @@ class CheckSum_hls(HWCustomOp, HLSBackend):
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_input_datatype()
-        elem_hls_type = dtype.get_hls_datatype_str()
-        n_elems = self.get_folded_input_shape()[-1]
         npy_type = "float"
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2tensorstream<%s>("%s", in0_V);'
-            % (npy_type, npy_in)
+            'npy2tensorstream<%s>("%s", in0_V);' % (npy_type, npy_in)
         )
 
     def strm_decl(self):
@@ -199,17 +195,13 @@ class CheckSum_hls(HWCustomOp, HLSBackend):
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_output_datatype()
-        elem_hls_type = dtype.get_hls_datatype_str()
-        n_elems = self.get_folded_output_shape()[-1]
         npy_type = "float"
         npy_out = "%s/output_0.npy" % code_gen_dir
         shape = tuple(self.get_folded_output_shape())
         shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'tensorstream2npy<%s>(strm0, %s, "%s");'
-            % (npy_type, shape_cpp_str, npy_out),
+            'tensorstream2npy<%s>(strm0, %s, "%s");' % (npy_type, shape_cpp_str, npy_out),
             "std::vector<unsigned int> checksum(1);",
             "checksum[0] = chk;",
             'cnpy::npy_save("%s/output_1.npy",&checksum[0],{1});' % code_gen_dir,
@@ -224,8 +216,10 @@ class CheckSum_hls(HWCustomOp, HLSBackend):
             "hls::stream<tensor<{},{}>> &out0_V, "
             "ap_uint<32> &chk, ap_uint<1> &drain)".format(
                 self.onnx_node.name,
-                elem_hls_type, n_elems,
-                elem_hls_type, n_elems,
+                elem_hls_type,
+                n_elems,
+                elem_hls_type,
+                n_elems,
             )
         ]
 

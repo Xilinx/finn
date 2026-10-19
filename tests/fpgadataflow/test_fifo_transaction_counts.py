@@ -43,7 +43,6 @@ def make_multi_fclayer_model(ch, wdt, adt, nnodes):
                 weightDataType=wdt.name,
                 outputDataType=adt.name,
                 ActVal=0,
-
                 noActivation=1,
             )
         )

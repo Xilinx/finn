@@ -83,7 +83,6 @@ def create_two_fc_model():
         weightDataType=wdt.name,
         outputDataType=odt.name,
         ActVal=actval,
-
         noActivation=no_act,
         mem_mode="internal_decoupled",
     )
@@ -102,7 +101,6 @@ def create_two_fc_model():
         weightDataType=wdt.name,
         outputDataType=odt.name,
         ActVal=actval,
-
         noActivation=no_act,
         mem_mode="internal_decoupled",
     )

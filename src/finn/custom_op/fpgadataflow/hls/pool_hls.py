@@ -75,7 +75,9 @@ class Pool_hls(Pool, HLSBackend):
 
         self.code_gen_dict["$DOCOMPUTE$"] = []
         if fxn == "MaxPool":
-            self.code_gen_dict["$DOCOMPUTE$"] += ["MaxPoolFunction<{}> pool_fxn;".format(o_tensor_dt)]
+            self.code_gen_dict["$DOCOMPUTE$"] += [
+                "MaxPoolFunction<{}> pool_fxn;".format(o_tensor_dt)
+            ]
         elif fxn == "QuantAvgPool":
             shift = self.get_nodeattr("Size")
             accum_bits = self.get_nodeattr("AccumBits")

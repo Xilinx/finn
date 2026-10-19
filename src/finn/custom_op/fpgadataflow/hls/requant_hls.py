@@ -110,8 +110,7 @@ class Requant_hls(Requant, HLSBackend):
 
     def docompute(self):
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            "Requant_Batch<NumChannels1, PE1, MIN_VAL, MAX_VAL>"
-            "(in0_V, out0_V, rq_params);"
+            "Requant_Batch<NumChannels1, PE1, MIN_VAL, MAX_VAL>" "(in0_V, out0_V, rq_params);"
         ]
 
     def blackboxfunction(self):
@@ -120,9 +119,7 @@ class Requant_hls(Requant, HLSBackend):
         odt = self.get_output_datatype().get_hls_datatype_str()
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             "void {}(hls::stream<tensor<{}, {}>> &in0_V, "
-            "hls::stream<tensor<{}, {}>> &out0_V)".format(
-                self.onnx_node.name, idt, pe, odt, pe
-            )
+            "hls::stream<tensor<{}, {}>> &out0_V)".format(self.onnx_node.name, idt, pe, odt, pe)
         ]
 
     def pragmas(self):

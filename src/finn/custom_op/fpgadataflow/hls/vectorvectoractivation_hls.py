@@ -162,9 +162,7 @@ class VVAU_hls(VVAU, HLSBackend):
                 # Folded shape has last dim = simd*pe in SIMD-major order
                 # (from SWG PE interleaving). Reshape to match tensor<TI, PE, 1, SIMD>
                 # which fills PE-major via npy2tensorstream.
-                reshaped_input = context[inputs].reshape(
-                    *expected_inp_shape[:-1], simd, pe
-                )
+                reshaped_input = context[inputs].reshape(*expected_inp_shape[:-1], simd, pe)
                 reshaped_input = reshaped_input.transpose(
                     *range(len(expected_inp_shape) - 1), -1, -2
                 )
@@ -281,7 +279,6 @@ class VVAU_hls(VVAU, HLSBackend):
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_input_datatype(0)
         npy_type = "float"
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
@@ -297,9 +294,8 @@ class VVAU_hls(VVAU, HLSBackend):
             num_reps = dim_h * dim_w
             # weight stream type deduced from in1_V declaration
             self.code_gen_dict["$READNPYDATA$"].append(
-                'for(unsigned rep = 0; rep < %d; rep++) '
-                'npy2tensorstream<%s>("%s", in1_V);'
-                % (num_reps, npy_type, npy_in)
+                "for(unsigned rep = 0; rep < %d; rep++) "
+                'npy2tensorstream<%s>("%s", in1_V);' % (num_reps, npy_type, npy_in)
             )
 
     def strm_decl(self):
@@ -373,17 +369,13 @@ class VVAU_hls(VVAU, HLSBackend):
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_output_datatype()
-        elem_hls_type = dtype.get_hls_datatype_str()
-        n_elems = self.get_folded_output_shape()[-1]
         npy_type = "float"
         npy_out = "%s/output_0.npy" % code_gen_dir
         shape = self.get_folded_output_shape()
         shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'tensorstream2npy<%s>(strm0, %s, "%s");'
-            % (npy_type, shape_cpp_str, npy_out)
+            'tensorstream2npy<%s>(strm0, %s, "%s");' % (npy_type, shape_cpp_str, npy_out)
         ]
 
     def save_as_npy(self):

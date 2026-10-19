@@ -912,9 +912,6 @@ class MVAU(HWCustomOp):
             thresholds = model.get_initializer(self.onnx_node.input[2])
             if thresholds is not None:
                 threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
-                # use UINT32 threshold export for bipolar times bipolar
-                inp_is_bipolar = self.get_input_datatype(0) == DataType["BIPOLAR"]
-                wt_is_bipolar = self.get_input_datatype(1) == DataType["BIPOLAR"]
                 # get computed threshold datatype from tensor
                 tdt = model.get_tensor_datatype(self.onnx_node.input[2])
                 assert np.vectorize(tdt.allowed)(

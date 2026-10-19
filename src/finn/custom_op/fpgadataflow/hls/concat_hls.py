@@ -68,9 +68,7 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
         for i in range(n_inputs):
             elem = self.get_input_datatype(i).get_hls_datatype_str()
             n_elems = self.get_folded_input_shape(i)[-1]
-            in_streams.append(
-                "hls::stream<tensor<{},{}>> &in{}_V".format(elem, n_elems, i)
-            )
+            in_streams.append("hls::stream<tensor<{},{}>> &in{}_V".format(elem, n_elems, i))
         in_streams = ", ".join(in_streams)
         o_elem = self.get_output_datatype().get_hls_datatype_str()
         o_n_elems = self.get_folded_output_shape()[-1]

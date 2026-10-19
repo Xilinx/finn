@@ -194,7 +194,7 @@ class IODMA_hls(HWCustomOp, HLSBackend):
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "dma.hpp"']
         self.code_gen_dict["$GLOBALS$"].append('#include "dwc.hpp"')
-        self.code_gen_dict["$GLOBALS$"].append('#include <hls_task.h>')
+        self.code_gen_dict["$GLOBALS$"].append("#include <hls_task.h>")
 
     def defines(self, var):
         itype_bits = self.get_input_datatype().bitwidth()

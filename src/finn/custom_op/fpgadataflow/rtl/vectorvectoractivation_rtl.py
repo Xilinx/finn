@@ -28,7 +28,6 @@
 
 import numpy as np
 import os
-from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.custom_op.fpgadataflow.vectorvectoractivation import VVAU

@@ -135,7 +135,6 @@ def _make_mvau_model(
         accDataType=adt.name,
         ActVal=tdt.min() if tdt is not None else 0,
         noActivation=0 if tdt is not None else 1,
-
     )
 
     nodes = [main_node]
@@ -174,7 +173,6 @@ def _make_mvau_model(
             accDataType=adt.name,
             ActVal=0,
             noActivation=1,
-    
         )
         nodes.append(successor_node)
         initializers.append(
@@ -242,7 +240,6 @@ def _make_vvau_mvau_model(wdt: DataType, idt: DataType, tdt: Optional[DataType] 
         weightDataType=wdt.name,
         ActVal=tdt.min() if tdt is not None else 0,
         noActivation=0 if tdt is not None else 1,
-
     )
     graph = helper.make_graph(
         nodes=[layer1, layer2], name="fclayer_graph", inputs=[inp], outputs=[outp]

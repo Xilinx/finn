@@ -454,7 +454,6 @@ class Thresholding_hls(Thresholding, HLSBackend):
         elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "half" if elem_hls_type == "half" else "float"
         npy_in = "%s/input_0.npy" % code_gen_dir
-        n_elems_per_word = self.get_folded_input_shape()[-1]
         self.code_gen_dict["$READNPYDATA$"] = []
         self.code_gen_dict["$READNPYDATA$"].append(
             'npy2tensorstream<%s>("%s", in0_V);'
@@ -469,13 +468,11 @@ class Thresholding_hls(Thresholding, HLSBackend):
             elem_hls_type = tdt.get_hls_datatype_str()
             npy_type = "half" if elem_hls_type == "half" else "float"
             npy_in = "%s/thresholds.npy" % code_gen_dir
-            pe = self.get_nodeattr("PE")
-            n_thres_steps = self.get_nodeattr("numSteps")
             # thresholds must be replicated for every spatial position
             total_spatial_size = int(np.prod(self.get_nodeattr("numInputVectors")))
 
             self.code_gen_dict["$READNPYDATA$"].append(
-                'for(unsigned rep = 0; rep < %d; rep++) '
+                "for(unsigned rep = 0; rep < %d; rep++) "
                 'npy2tensorstream<%s>("%s", in1_V);'
                 % (
                     total_spatial_size,
@@ -535,7 +532,6 @@ class Thresholding_hls(Thresholding, HLSBackend):
         npy_out = "%s/output_0.npy" % code_gen_dir
         shape = self.get_folded_output_shape()
         shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")
-        n_elems_per_word = shape[-1]
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
             'tensorstream2npy<%s>(strm0, %s, "%s");'
@@ -558,8 +554,10 @@ class Thresholding_hls(Thresholding, HLSBackend):
                     hls::stream<tensor<{},{}>> &out0_V
                     )""".format(
                     self.onnx_node.name,
-                    i_hls_type, pe,
-                    o_hls_type, pe,
+                    i_hls_type,
+                    pe,
+                    o_hls_type,
+                    pe,
                 )
             ]
         elif self.get_nodeattr("mem_mode") == "internal_decoupled":
@@ -572,9 +570,13 @@ class Thresholding_hls(Thresholding, HLSBackend):
                     hls::stream<tensor<{},{}>> &out0_V
                     )""".format(
                     self.onnx_node.name,
-                    i_hls_type, pe,
-                    t_hls_type, pe, n_thres_steps,
-                    o_hls_type, pe,
+                    i_hls_type,
+                    pe,
+                    t_hls_type,
+                    pe,
+                    n_thres_steps,
+                    o_hls_type,
+                    pe,
                 )
             ]
         else:

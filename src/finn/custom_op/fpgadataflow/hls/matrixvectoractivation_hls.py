@@ -207,9 +207,8 @@ class MVAU_hls(MVAU, HLSBackend):
             num_reps = int(np.prod(self.get_nodeattr("numInputVectors")))
             # stream type deduced from in1_V declaration
             self.code_gen_dict["$READNPYDATA$"].append(
-                'for(unsigned rep = 0; rep < %d; rep++) '
-                'npy2tensorstream<%s>("%s", in1_V);'
-                % (num_reps, npy_type, npy_in)
+                "for(unsigned rep = 0; rep < %d; rep++) "
+                'npy2tensorstream<%s>("%s", in1_V);' % (num_reps, npy_type, npy_in)
             )
 
     def strm_decl(self):
@@ -280,9 +279,6 @@ class MVAU_hls(MVAU, HLSBackend):
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_output_datatype()
-        elem_hls_type = dtype.get_hls_datatype_str()
-        pe = self.get_nodeattr("PE")
         npy_type = "float"
         npy_out = "%s/output_0.npy" % code_gen_dir
         shape = self.get_folded_output_shape()
@@ -290,8 +286,7 @@ class MVAU_hls(MVAU, HLSBackend):
 
         # stream type deduced from strm0 declaration
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'tensorstream2npy<%s>(strm0, %s, "%s");'
-            % (npy_type, shape_cpp_str, npy_out)
+            'tensorstream2npy<%s>(strm0, %s, "%s");' % (npy_type, shape_cpp_str, npy_out)
         ]
 
     def save_as_npy(self):

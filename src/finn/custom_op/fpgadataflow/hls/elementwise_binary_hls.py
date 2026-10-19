@@ -295,9 +295,12 @@ class ElementwiseBinaryOperation_hls(
             f"static constexpr auto RhsWidth = {self.rhs_dtype.bitwidth()};",
             f"static constexpr auto OutWidth = {self.out_dtype.bitwidth()};",
             # Number of elements packed into each stream word
-            f"static constexpr unsigned LhsFold = {self.get_instream_width(ind=0) // self.lhs_dtype.bitwidth()};",
-            f"static constexpr unsigned RhsFold = {self.get_instream_width(ind=1) // self.rhs_dtype.bitwidth()};",
-            f"static constexpr unsigned OutFold = {self.get_outstream_width(ind=0) // self.out_dtype.bitwidth()};",
+            "static constexpr unsigned LhsFold = "
+            f"{self.get_instream_width(ind=0) // self.lhs_dtype.bitwidth()};",
+            "static constexpr unsigned RhsFold = "
+            f"{self.get_instream_width(ind=1) // self.rhs_dtype.bitwidth()};",
+            "static constexpr unsigned OutFold = "
+            f"{self.get_outstream_width(ind=0) // self.out_dtype.bitwidth()};",
             # Tensor types for stream elements
             "using LhsTensor = tensor<LhsType, LhsFold>;",
             "using RhsTensor = tensor<RhsType, RhsFold>;",

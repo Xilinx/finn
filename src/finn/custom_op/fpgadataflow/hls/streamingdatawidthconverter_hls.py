@@ -109,9 +109,7 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
                 "%s<LCMWidth, OutWidth>(intermediate, out0_V);" % op,
             ]
         else:
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                "%s<InWidth, OutWidth>(in0_V, out0_V);" % op
-            ]
+            self.code_gen_dict["$DOCOMPUTE$"] = ["%s<InWidth, OutWidth>(in0_V, out0_V);" % op]
 
     def blackboxfunction(self):
         in_packed_bits = self.get_instream_width()

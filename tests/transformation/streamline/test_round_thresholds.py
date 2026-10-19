@@ -652,7 +652,6 @@ def test_round_and_clip_thresholds_mvau_vvau(op_type, i_dtype, o_dtype, wdt, n_c
             accDataType="INT32",  # Will be minimized
             ActVal=0,
             noActivation=0,
-
         )
     else:  # VVAU
         k_h, k_w = 3, 3

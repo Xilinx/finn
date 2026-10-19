@@ -2134,7 +2134,6 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             weightDataType=wdt.name,
                             outputDataType=odt.name,
                             ActVal=actval,
-
                             noActivation=0,
                             numInputVectors=list(mm_in_shape[:-1]),
                             name="MVAU_" + n.name,
@@ -2166,7 +2165,6 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             weightDataType=wdt.name,
                             outputDataType=odt.name,
                             ActVal=0,
-
                             noActivation=1,
                             numInputVectors=list(mm_in_shape[:-1]),
                             name="MVAU_" + n.name,

@@ -95,15 +95,12 @@ class Lookup_hls(Lookup, HLSBackend):
             ext_mem_emb_align = ceil(log2(ext_mem_emb_size))
             my_defines.append("static constexpr unsigned MemBits = %d;" % ext_mem_width)
             my_defines.append("static constexpr unsigned EmbeddingSize = %d;" % ext_mem_emb_size)
-            my_defines.append(
-                "static constexpr unsigned EmbeddingAlign = %d;" % ext_mem_emb_align
-            )
+            my_defines.append("static constexpr unsigned EmbeddingAlign = %d;" % ext_mem_emb_align)
             my_defines.append("using T_SRC = %s;" % elem_hls_type)
             my_defines.append("using T_DST = ap_uint<MemBits>;")
         elif mem_mode == "internal_embedded":
             my_defines.append(
-                "static constexpr unsigned NumEmbeddings = %d;"
-                % self.get_nodeattr("NumEmbeddings")
+                "static constexpr unsigned NumEmbeddings = %d;" % self.get_nodeattr("NumEmbeddings")
             )
             my_defines.append("static constexpr unsigned EmbeddingDim = %d;" % emb_dim)
             my_defines.append("using InputType = %s;" % elem_hls_type)
@@ -112,17 +109,13 @@ class Lookup_hls(Lookup, HLSBackend):
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_output_datatype()
-        elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "float"
         npy_out = "%s/output_0.npy" % code_gen_dir
         oshape = self.get_folded_output_shape()
         oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
-        n_elems = oshape[-1]
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'tensorstream2npy<%s>(strm0, %s, "%s");'
-            % (npy_type, oshape_cpp_str, npy_out)
+            'tensorstream2npy<%s>(strm0, %s, "%s");' % (npy_type, oshape_cpp_str, npy_out)
         ]
 
     def docompute(self):
