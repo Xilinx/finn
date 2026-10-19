@@ -40,6 +40,7 @@ from qonnx.transformation.general import GiveUniqueNodeNames
 # Import the elementwise binary operation module to extract names of all
 # specializations (which require PE parallelism to be configured)
 import finn.custom_op.fpgadataflow.hls.elementwise_binary_hls as elementwise_binary_hls
+import finn.custom_op.fpgadataflow.rtl.elementwise_binary_rtl as elementwise_binary_rtl
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
@@ -62,12 +63,16 @@ def common_divisors(numbers):
     return [int(x) for x in functools.reduce(np.intersect1d, separate_divisors)]
 
 
-# Find the op-type names for all HLS specializations of elementwise binary
-# operations
+# Find the op-type names for all HLS and RTL specializations of elementwise
+# binary operations
 ELEMENTWISE_BINARY_OPS = [
     op_type
     for op_type, cls in inspect.getmembers(elementwise_binary_hls, inspect.isclass)
     if issubclass(cls, elementwise_binary_hls.ElementwiseBinaryOperation_hls)
+] + [
+    op_type
+    for op_type, cls in inspect.getmembers(elementwise_binary_rtl, inspect.isclass)
+    if issubclass(cls, elementwise_binary_rtl.ElementwiseBinary_rtl)
 ]
 
 
@@ -130,6 +135,8 @@ class SetFolding(Transformation):
             "DuplicateStreams_hls",
             "GlobalAccPool_hls",
             "PWPolyF_rtl",
+            "Requant_hls",
+            "Requant_rtl",
             "Thresholding_hls",
             "Thresholding_rtl",
             *ELEMENTWISE_BINARY_OPS,
@@ -145,13 +152,18 @@ class SetFolding(Transformation):
             "StreamingSplit_hls",
             "StreamingConcat_hls",
             "LayerNorm_rtl",
+            "HWSoftmax_hls",
+            "HWSoftmax_rtl",
             "Shuffle",
         ]
         # these ops are preceded by depthwise SWG and have special behavior,
         # as explained in the SetFolding docstring
         depthwise_op_exceptions = ["VVAU_hls", "VVAU_rtl", "Pool_hls"]
         for node in graph.node:
-            if not (is_hls_node(node) or is_rtl_node(node)):
+            # Shuffle is still a generic layer here (it is decomposed into
+            # Inner/OuterShuffle stages by step_transpose_decomposition, which
+            # inherit its SIMD), so it has to be folded before specialization
+            if not (is_hls_node(node) or is_rtl_node(node) or node.op_type == "Shuffle"):
                 continue
             op_type = node.op_type
             node_inst = getCustomOp(node)
@@ -284,6 +296,22 @@ class SetFolding(Transformation):
                     for simd_val in common_divisors(channels_per_stream):
                         node_inst.set_nodeattr("SIMD", simd_val)
                         cyc = node_inst.get_exp_cycles()
+                        if cyc < self.target_cycles_per_frame:
+                            break
+                elif op_type == "Shuffle":
+                    # SIMD must divide the innermost dimension of the input (for the
+                    # decomposition) and of the output (InnerShuffle folding);
+                    # values without a valid decomposition estimate 0 cycles
+                    node_inst.set_nodeattr("SIMD", 1)
+                    in_dim = node_inst.get_normal_input_shape()[-1]
+                    out_dim = node_inst.get_normal_output_shape()[-1]
+                    for simd_val in common_divisors([in_dim, out_dim]):
+                        prev_simd = node_inst.get_nodeattr("SIMD")
+                        node_inst.set_nodeattr("SIMD", simd_val)
+                        cyc = node_inst.get_exp_cycles()
+                        if cyc == 0 and simd_val > 1:
+                            node_inst.set_nodeattr("SIMD", prev_simd)
+                            continue
                         if cyc < self.target_cycles_per_frame:
                             break
                 elif op_type == "LayerNorm_rtl":

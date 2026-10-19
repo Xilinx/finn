@@ -137,7 +137,7 @@ STAGES = [
         "param": "fpgadataflow",
         "stage": "fpgadataflow",
         "marker": "fpgadataflow",
-        "shards": 2,
+        "shards": 3,
         "workers": 8,
         "coverage": True,
     },
