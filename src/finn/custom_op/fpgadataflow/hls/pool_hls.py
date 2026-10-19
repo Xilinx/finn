@@ -62,11 +62,8 @@ class Pool_hls(Pool, HLSBackend):
 
     def defines(self, var):
         k = int(np.prod(self.get_nodeattr("KernelSize")))
-        cf = int(self.get_nodeattr("Channels") / self.get_nodeattr("PE"))
-        osz = np.prod(self.get_nodeattr("OutImgDims"))
         self.code_gen_dict["$DEFINES$"] = [
-            "constexpr unsigned  ISIZE = {};".format(osz * cf * k),
-            "constexpr unsigned  K = {};".format(k),
+            "static constexpr unsigned K = {};".format(k),
         ]
 
     def docompute(self):
@@ -74,26 +71,26 @@ class Pool_hls(Pool, HLSBackend):
         fxn = self.get_nodeattr("Function")
         idt = self.get_input_datatype()
         odt = self.get_output_datatype()
-        o_hls_dt = "hls::vector<%s, %d>" % (odt.get_hls_datatype_str(), pe)
+        o_tensor_dt = "tensor<%s, %d>" % (odt.get_hls_datatype_str(), pe)
 
         self.code_gen_dict["$DOCOMPUTE$"] = []
         if fxn == "MaxPool":
-            self.code_gen_dict["$DOCOMPUTE$"] += ["MaxPoolFunction<{}> pool_fxn;".format(o_hls_dt)]
+            self.code_gen_dict["$DOCOMPUTE$"] += ["MaxPoolFunction<{}> pool_fxn;".format(o_tensor_dt)]
         elif fxn == "QuantAvgPool":
             shift = self.get_nodeattr("Size")
             accum_bits = self.get_nodeattr("AccumBits")
-            act_hls_dt = "hls::vector<ap_%sint<%d>, %d>" % (
+            act_tensor_dt = "tensor<ap_%sint<%d>, %d>" % (
                 "" if idt.signed() else "u",
                 accum_bits,
                 pe,
             )
             self.code_gen_dict["$DOCOMPUTE$"] += [
-                "QuantAvgPoolFunction<{},{},{}> pool_fxn;".format(o_hls_dt, act_hls_dt, shift)
+                "QuantAvgPoolFunction<{},{},{}> pool_fxn;".format(o_tensor_dt, act_tensor_dt, shift)
             ]
         else:
             raise Exception("Pool_Batch doesn't currently support " + fxn)
 
-        self.code_gen_dict["$DOCOMPUTE$"] += ["Pool_batch<ISIZE, K>(in0_V, out0_V, pool_fxn);"]
+        self.code_gen_dict["$DOCOMPUTE$"] += ["Pool_batch<K>(in0_V, out0_V, pool_fxn);"]
 
     def pragmas(self):
         super().pragmas()
@@ -101,16 +98,20 @@ class Pool_hls(Pool, HLSBackend):
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS aggregate variable=in0_V compact=bit")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS aggregate variable=out0_V compact=bit")
 
+    def ipgen_extra_directives(self):
+        "Return a list of extra tcl directives for HLS synthesis."
+        return ["config_compile -pipeline_style flp"]
+
     def blackboxfunction(self):
         pe = self.get_nodeattr("PE")
         idt = self.get_input_datatype()
         odt = self.get_output_datatype()
-        i_hls_dt = "hls::vector<%s, %d>" % (idt.get_hls_datatype_str(), pe)
-        o_hls_dt = "hls::vector<%s, %d>" % (odt.get_hls_datatype_str(), pe)
+        i_tensor_dt = "tensor<%s, %d>" % (idt.get_hls_datatype_str(), pe)
+        o_tensor_dt = "tensor<%s, %d>" % (odt.get_hls_datatype_str(), pe)
 
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             "void %s(hls::stream<%s> &in0_V, hls::stream<%s> &out0_V)"
-            % (self.onnx_node.name, i_hls_dt, o_hls_dt)
+            % (self.onnx_node.name, i_tensor_dt, o_tensor_dt)
         ]
 
     def execute_node(self, context, graph):

@@ -88,48 +88,41 @@ class Lookup_hls(Lookup, HLSBackend):
         emb_hls_type = emb_type.get_hls_datatype_str()
         emb_dim = self.get_nodeattr("EmbeddingDim")
         mem_mode = self.get_nodeattr("mem_mode")
-        my_defines = []
-        my_defines.append("#define NumInputs %d" % n_inputs)
+        my_defines = ["static constexpr unsigned NumInputs = %d;" % n_inputs]
         if mem_mode == "external":
             ext_mem_width = self.get_nodeattr("ext_mem_width")
             ext_mem_emb_size = self.get_folded_output_shape()[-2]
             ext_mem_emb_align = ceil(log2(ext_mem_emb_size))
-            my_defines.append("#define MemBits %d" % ext_mem_width)
-            my_defines.append("#define EmbeddingSize %d" % ext_mem_emb_size)
-            my_defines.append("#define EmbeddingAlign %d" % ext_mem_emb_align)
-            my_defines.append("#define T_SRC %s" % elem_hls_type)
-            my_defines.append("#define T_DST ap_uint<MemBits>")
+            my_defines.append("static constexpr unsigned MemBits = %d;" % ext_mem_width)
+            my_defines.append("static constexpr unsigned EmbeddingSize = %d;" % ext_mem_emb_size)
+            my_defines.append(
+                "static constexpr unsigned EmbeddingAlign = %d;" % ext_mem_emb_align
+            )
+            my_defines.append("using T_SRC = %s;" % elem_hls_type)
+            my_defines.append("using T_DST = ap_uint<MemBits>;")
         elif mem_mode == "internal_embedded":
-            my_defines.append("#define NumEmbeddings %d" % self.get_nodeattr("NumEmbeddings"))
-            my_defines.append("#define EmbeddingDim %d" % emb_dim)
-            my_defines.append("#define InputType %s" % elem_hls_type)
-            my_defines.append("#define EmbeddingType %s" % emb_hls_type)
+            my_defines.append(
+                "static constexpr unsigned NumEmbeddings = %d;"
+                % self.get_nodeattr("NumEmbeddings")
+            )
+            my_defines.append("static constexpr unsigned EmbeddingDim = %d;" % emb_dim)
+            my_defines.append("using InputType = %s;" % elem_hls_type)
+            my_defines.append("using EmbeddingType = %s;" % emb_hls_type)
         self.code_gen_dict["$DEFINES$"] = my_defines
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_output_datatype()
-        if dtype == DataType["BIPOLAR"]:
-            # use binary for bipolar storage
-            dtype = DataType["BINARY"]
-        packed_bits = self.get_outstream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "float"
         npy_out = "%s/output_0.npy" % code_gen_dir
         oshape = self.get_folded_output_shape()
         oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
+        n_elems = oshape[-1]
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %s>(out0_V, %s, "%s", %s);'
-            % (
-                packed_hls_type,
-                elem_hls_type,
-                npy_type,
-                oshape_cpp_str,
-                npy_out,
-                "false",
-            )
+            'tensorstream2npy<%s>(strm0, %s, "%s");'
+            % (npy_type, oshape_cpp_str, npy_out)
         ]
 
     def docompute(self):

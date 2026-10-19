@@ -176,7 +176,7 @@ def make_loop_modelwrapper(
                 "weightDataType": wdtype.name,
                 "outputDataType": "INT32",
                 "ActVal": 0,
-                "binaryXnorMode": 0,
+
                 "noActivation": 1,
             },
         ),
@@ -210,7 +210,7 @@ def make_loop_modelwrapper(
                 "weightDataType": wdtype.name,
                 "outputDataType": "INT32",
                 "ActVal": 0,
-                "binaryXnorMode": 0,
+
                 "noActivation": 1,
             },
         ),
@@ -244,7 +244,7 @@ def make_loop_modelwrapper(
                 "weightDataType": wdtype.name,
                 "outputDataType": "INT32",
                 "ActVal": 0,
-                "binaryXnorMode": 0,
+
                 "noActivation": 1,
             },
         ),
@@ -461,7 +461,7 @@ def make_single_mvau_loop_body(
                 "weightDataType": "INT8",
                 "outputDataType": "INT32",
                 "ActVal": 0,
-                "binaryXnorMode": 0,
+
                 "noActivation": 1,
             },
         ),

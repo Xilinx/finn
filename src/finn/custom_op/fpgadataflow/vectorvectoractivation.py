@@ -99,9 +99,6 @@ class VVAU(HWCustomOp):
                 "auto",
                 {"auto", "block", "distributed", "ultra"},
             ),
-            # use xnor-popcount for binary weights/inputs, thus treating them
-            # as bipolar
-            "binaryXnorMode": ("i", False, 0, {0, 1}),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -167,11 +164,18 @@ class VVAU(HWCustomOp):
     def infer_node_datatype(self, model):
         node = self.onnx_node
         idt = model.get_tensor_datatype(node.input[0])
-        if idt != self.get_input_datatype(0):
+        cur_idt = self.get_input_datatype(0)
+        # BIPOLAR values {-1,+1} use the same 1-bit encoding as BINARY {0,1}.
+        # When the node expects BIPOLAR (e.g. from XnorPopcountMatMul conversion)
+        # but the tensor annotation says BINARY, keep BIPOLAR — the semantic
+        # difference (XNOR popcount vs AND) is handled by the HLS Bipolar type.
+        if cur_idt == DataType["BIPOLAR"] and idt == DataType["BINARY"]:
+            idt = DataType["BIPOLAR"]
+        if idt != cur_idt:
             warn_str = "inputDataType changing for %s: %s -> %s " % (
                 node.name,
-                str(self.get_input_datatype(0)),
-                str(idt),
+                str(cur_idt),
+                str(idt.name),
             )
             warnings.warn(warn_str)
         self.set_nodeattr("inputDataType", idt.name)
@@ -406,28 +410,22 @@ class VVAU(HWCustomOp):
         fm = self.get_nodeattr("Channels")
         # put weights into the shape expected by calculate_matvec_accumulator_range
         weights = weights.reshape(fm, k_h * k_w).transpose()
-        # since in the calculation the values of the weight matrix are used,
-        # for the bipolar case they need to be converted to bipolar
-        if self.get_nodeattr("binaryXnorMode"):
-            weights = 2 * weights - 1
 
         idt = self.get_input_datatype(0)
+        wdt = self.get_input_datatype(1)
 
-        # if datatype_only, runtime-writeable weights, mem_mode=external, or this
-        # is a binary-XNOR node, then we use worst-case values from the datatypes.
-        # binaryXnorMode is special: the hardware replaces the bipolar MAC with
-        # XNOR + popcount, so its accumulator is an unsigned popcount in [0, MW],
-        # not the signed bipolar dot-product. The value-based branch reinterprets
-        # only the weights as bipolar and would describe a signed accumulator
-        # that doesn't match the XNOR hardware (and is no tighter than [0, MW]
-        # anyway), so XNOR nodes use the datatype-bound unsigned range.
-        if (
+        # Bipolar x Bipolar: the HLS Bipolar type implements XNOR popcount,
+        # producing an unsigned accumulator in [0, k_h*k_w].
+        if idt == DataType["BIPOLAR"] and wdt == DataType["BIPOLAR"]:
+            acc_min = 0
+            acc_max = k_h * k_w
+        # if datatype_only, runtime-writeable weights, or mem_mode=external,
+        # then we use worst-case values from the datatypes.
+        elif (
             datatype_only
             or self.get_nodeattr("runtime_writeable_weights")
             or self.get_nodeattr("mem_mode") == "external"
-            or self.get_nodeattr("binaryXnorMode")
         ):
-            wdt = self.get_input_datatype(1)
             lower_worst = wdt.min() * np.ones((k_h * k_w, fm))
             lower_range = calculate_matvec_accumulator_range(lower_worst, idt)
             upper_worst = wdt.max() * np.ones((k_h * k_w, fm))
@@ -515,12 +513,6 @@ class VVAU(HWCustomOp):
         n_thres_steps = orig_thres_matrix.shape[1]
         inp_is_bipolar = self.get_input_datatype(0) == DataType["BIPOLAR"]
         wt_is_bipolar = self.get_input_datatype(1) == DataType["BIPOLAR"]
-        # reinterpret inp/wt as bipolar if bin_xnor_mode is iset
-        inp_is_binary = self.get_input_datatype(0) == DataType["BINARY"]
-        wt_is_binary = self.get_input_datatype(1) == DataType["BINARY"]
-        bin_xnor_mode = self.get_nodeattr("binaryXnorMode") == 1
-        inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
-        wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
         if inp_is_bipolar and wt_is_bipolar:
             # Bipolar-XNOR nodes accumulate an unsigned popcount, so thresholds
             # reaching HW codegen must be non-negative (a negative threshold means
@@ -596,31 +588,29 @@ class VVAU(HWCustomOp):
         # convert weights into hlslib-compatible format
         weight_tensor = self.get_hw_compatible_weight_tensor(weights)
         export_wdt = self.get_input_datatype(1)
-        # we have converted bipolar weights to binary for export,
-        # so use it as such for weight generation
-        if self.get_input_datatype(1) == DataType["BIPOLAR"]:
-            export_wdt = DataType["BINARY"]
+        # get_hw_compatible_weight_tensor encodes bipolar {-1,+1} as {0,1},
+        # which is the BINARY domain — use BINARY for value validation in
+        # hex packing (.dat) and .npy paths
+        if export_wdt == DataType["BIPOLAR"]:
+            pack_wdt = DataType["BINARY"]
+        else:
+            pack_wdt = export_wdt
         if weight_file_mode == "hls_header":
-            weight_hls_code = numpy_to_hls_code(weight_tensor, export_wdt, "weights", True, True)
-            # write weights into C++ header file as dictated by finn-hlslib
+            pe = self.get_nodeattr("PE")
+            simd = self.get_nodeattr("SIMD")
+            wmem = self.calc_wmem()
+            # weight_tensor is (1, PE, WMEM, SIMD) in natural order (no SIMD flip).
+            # Transpose to (WMEM, PE, SIMD) for aggregate initialization of
+            # tensor<TW, PE, SIMD> weights[WMEM].
+            wt = weight_tensor.reshape(pe, wmem, simd)
+            wt = np.transpose(wt, (1, 0, 2))  # (WMEM, PE, SIMD)
+            weight_hls_code = numpy_to_hls_code(wt, export_wdt, "weights", False, True)
             f_weights = open(weight_file_name, "w")
-            if export_wdt.bitwidth() != 1:
-                f_weights.write(
-                    "const FixedPointWeights<{},{},{},{}> weights = ".format(
-                        self.get_nodeattr("SIMD"),
-                        export_wdt.get_hls_datatype_str(),
-                        self.get_nodeattr("PE"),
-                        self.calc_wmem(),
-                    )
+            f_weights.write(
+                "const tensor<{}, {}, {}> weights[{}] = ".format(
+                    export_wdt.get_hls_datatype_str(), pe, simd, wmem
                 )
-            else:
-                f_weights.write(
-                    "const BinaryWeights<{},{},{}> weights = ".format(
-                        self.get_nodeattr("SIMD"),
-                        self.get_nodeattr("PE"),
-                        self.calc_wmem(),
-                    )
-                )
+            )
             f_weights.write(weight_hls_code)
             f_weights.close()
         elif "decoupled" in weight_file_mode:
@@ -647,12 +637,11 @@ class VVAU(HWCustomOp):
             weight_tensor_pe_simd_flipped = weight_tensor_pe_simd_flipped.copy()
             if weight_file_mode == "decoupled_npy":
                 # save weight stream into npy for cppsim
-                if self.onnx_node.op_type == "VVAU_rtl":
-                    weight_tensor_unflipped = weight_tensor_unflipped.reshape(1, -1, pe * simd)
-                    weight_tensor_unflipped = weight_tensor_unflipped.copy()
-                    np.save(weight_file_name, weight_tensor_unflipped)
-                else:
-                    np.save(weight_file_name, weight_tensor_simd_flipped)
+                # npy2tensorstream loads in natural order (no reversal), so use
+                # unflipped weights for both HLS and RTL backends.
+                weight_tensor_unflipped = weight_tensor_unflipped.reshape(1, -1, pe * simd)
+                weight_tensor_unflipped = weight_tensor_unflipped.copy()
+                np.save(weight_file_name, weight_tensor_unflipped)
             elif weight_file_mode == "decoupled_verilog_dat":
                 # convert weight values into hexstring
                 weight_width = self.get_instream_width(1)
@@ -660,11 +649,11 @@ class VVAU(HWCustomOp):
                 weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
                 if self.onnx_node.op_type == "VVAU_rtl":
                     weight_arr = pack_innermost_dim_as_hex_string(
-                        weight_tensor_pe_simd_flipped, export_wdt, weight_width_padded, prefix=""
+                        weight_tensor_pe_simd_flipped, pack_wdt, weight_width_padded, prefix=""
                     )
                 else:
                     weight_arr = pack_innermost_dim_as_hex_string(
-                        weight_tensor_pe_flipped, export_wdt, weight_width_padded, prefix=""
+                        weight_tensor_pe_flipped, pack_wdt, weight_width_padded, prefix=""
                     )
                 # add zeroes to pad out file to 1024 entries
                 weight_stream = weight_arr.flatten()
@@ -682,7 +671,7 @@ class VVAU(HWCustomOp):
                 weight_width_padded = words_per_memwidth * 32
                 # first, pack and ensure padding to 32 bits
                 weight_tensor_pe_flipped = pack_innermost_dim_as_hex_string(
-                    weight_tensor_pe_flipped, export_wdt, weight_width_padded, prefix=""
+                    weight_tensor_pe_flipped, pack_wdt, weight_width_padded, prefix=""
                 )
                 weight_stream = weight_tensor_pe_flipped.flatten()
                 weight_stream = weight_stream.copy()
@@ -731,12 +720,6 @@ class VVAU(HWCustomOp):
                 # use UINT32 threshold export for bipolar times bipolar
                 inp_is_bipolar = self.get_input_datatype(0) == DataType["BIPOLAR"]
                 wt_is_bipolar = self.get_input_datatype(1) == DataType["BIPOLAR"]
-                # reinterpret inp/wt as bipolar if bin_xnor_mode is iset
-                inp_is_binary = self.get_input_datatype(0) == DataType["BINARY"]
-                wt_is_binary = self.get_input_datatype(1) == DataType["BINARY"]
-                bin_xnor_mode = self.get_nodeattr("binaryXnorMode") == 1
-                inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
-                wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
                 # get computed threshold datatype from tensor
                 tdt = model.get_tensor_datatype(self.onnx_node.input[2])
 

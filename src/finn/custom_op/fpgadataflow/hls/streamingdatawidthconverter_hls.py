@@ -61,35 +61,27 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
         return my_attrs
 
     def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "streamtools.h"']
+        self.code_gen_dict["$GLOBALS$"] = ['#include "dwc.hpp"']
 
     def defines(self, var):
-        numReps = 1
-        numInWords = int(np.prod(self.get_folded_input_shape()[:-1]))
         inWidth = self.get_nodeattr("inWidth")
         outWidth = self.get_nodeattr("outWidth")
         self.code_gen_dict["$DEFINES$"] = [
-            "#define InWidth %d " % inWidth,
-            "#define OutWidth %d " % outWidth,
-            "#define NumInWords %d " % numInWords,
-            "#define numReps %d" % numReps,
+            "static constexpr unsigned InWidth = %d;" % inWidth,
+            "static constexpr unsigned OutWidth = %d;" % outWidth,
         ]
         if self._needs_element_width_split():
             elemWidth = self.get_input_datatype().bitwidth()
             assert inWidth % elemWidth == 0, "DWC input width must be element-aligned"
             assert outWidth % elemWidth == 0, "DWC output width must be element-aligned"
-            numMiddleWords = numInWords * (inWidth // elemWidth)
-            assert (
-                numMiddleWords % (outWidth // elemWidth) == 0
-            ), "Error in DWC element-width split calculation"
-            self.code_gen_dict["$DEFINES$"].append("#define IntermediateWidth %d" % elemWidth)
-            self.code_gen_dict["$DEFINES$"].append("#define NumMiddleWords %d" % numMiddleWords)
+            self.code_gen_dict["$DEFINES$"].append(
+                "static constexpr unsigned IntermediateWidth = %d;" % elemWidth
+            )
         elif self.needs_lcm():
             lcmWidth = self.get_iowidth_lcm()
-            assert numInWords % (lcmWidth / inWidth) == 0, "Error in DWC LCM calculation"
-            numLCMToOut = numInWords // (lcmWidth / inWidth)
-            self.code_gen_dict["$DEFINES$"].append("#define LCMWidth %d" % lcmWidth)
-            self.code_gen_dict["$DEFINES$"].append("#define NumLCMToOut %d" % (numLCMToOut))
+            self.code_gen_dict["$DEFINES$"].append(
+                "static constexpr unsigned LCMWidth = %d;" % lcmWidth
+            )
 
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
@@ -101,26 +93,24 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
         )
 
     def docompute(self):
-        # TODO continue with fxns below, they are copy-pasted
-        op = "StreamingDataWidthConverter_Batch"
+        op = "StreamingDataWidthConverter"
         if self._needs_element_width_split():
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 'hls::stream<ap_uint<IntermediateWidth>> intermediate ("intermediate");',
-                "%s<InWidth, IntermediateWidth, NumInWords>(in0_V, intermediate, numReps);" % op,
-                "%s<IntermediateWidth, OutWidth, NumMiddleWords>(intermediate, out0_V, numReps);"
-                % op,
+                "%s<InWidth, IntermediateWidth>(in0_V, intermediate);" % op,
+                "%s<IntermediateWidth, OutWidth>(intermediate, out0_V);" % op,
             ]
         elif self.needs_lcm():
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 'hls::stream<ap_uint<{}>> intermediate ("intermediate");'.format(
                     self.get_iowidth_lcm()
                 ),
-                "%s<InWidth, LCMWidth, NumInWords>(in0_V, intermediate, numReps);" % op,
-                "%s<LCMWidth, OutWidth, NumLCMToOut>(intermediate, out0_V, numReps);" % op,
+                "%s<InWidth, LCMWidth>(in0_V, intermediate);" % op,
+                "%s<LCMWidth, OutWidth>(intermediate, out0_V);" % op,
             ]
         else:
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                "%s<InWidth, OutWidth, NumInWords>(in0_V, out0_V, numReps);" % op
+                "%s<InWidth, OutWidth>(in0_V, out0_V);" % op
             ]
 
     def blackboxfunction(self):
@@ -154,3 +144,8 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
 
         elif mode == "rtlsim":
             HLSBackend.execute_node(self, context, graph)
+
+    def ipgen_extra_directives(self):
+        "Return a list of extra tcl directives for HLS synthesis."
+
+        return ["config_compile -pipeline_style flp"]

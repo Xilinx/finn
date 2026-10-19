@@ -62,7 +62,6 @@ def create_two_fc_model():
     m = 4
     actval = 0
     no_act = 1
-    binary_xnor_mode = 0
     pe = 2
     simd = 2
 
@@ -84,7 +83,7 @@ def create_two_fc_model():
         weightDataType=wdt.name,
         outputDataType=odt.name,
         ActVal=actval,
-        binaryXnorMode=binary_xnor_mode,
+
         noActivation=no_act,
         mem_mode="internal_decoupled",
     )
@@ -103,7 +102,7 @@ def create_two_fc_model():
         weightDataType=wdt.name,
         outputDataType=odt.name,
         ActVal=actval,
-        binaryXnorMode=binary_xnor_mode,
+
         noActivation=no_act,
         mem_mode="internal_decoupled",
     )

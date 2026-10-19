@@ -84,7 +84,7 @@ class LabelSelect_hls(LabelSelect, HLSBackend):
         context[outp] = ret.astype(np.int64)
 
     def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "maxpool.h"']
+        self.code_gen_dict["$GLOBALS$"] = ['#include "topk.hpp"']
 
     def defines(self, var):
         self.code_gen_dict["$DEFINES$"] = []
@@ -92,22 +92,15 @@ class LabelSelect_hls(LabelSelect, HLSBackend):
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_input_datatype()
-        packed_bits = self.get_instream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
+        pe = self.get_nodeattr("PE")
         npy_type = "float"
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
 
-        # Calling npy2apintstream with reverse_inner = false to have LE packing
-        # as required by HLS fxn LabelSelect_Batch
-        # Also notice that StreamingDataWidthConverter_Batch performs LE packing
-
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %s>("%s", in0_V, false);'
+            'npy2tensorstream<%s>("%s", in0_V);'
             % (
-                packed_hls_type,
-                elem_hls_type,
                 npy_type,
                 npy_in,
             )
@@ -115,7 +108,7 @@ class LabelSelect_hls(LabelSelect, HLSBackend):
 
     def docompute(self):
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """LabelSelect_Batch<{}, {}, {}, {}, {} > (in0_V, out0_V, 1);""".format(
+            """LabelSelect_Batch<{}, {}, {}, {}, {} > (in0_V, out0_V);""".format(
                 self.get_nodeattr("Labels"),
                 self.get_nodeattr("PE"),
                 self.get_nodeattr("K"),
@@ -124,13 +117,17 @@ class LabelSelect_hls(LabelSelect, HLSBackend):
             )
         ]
 
+    def ipgen_extra_directives(self):
+        "Return a list of extra tcl directives for HLS synthesis."
+        return ["config_compile -pipeline_style frp"]
+
     def blackboxfunction(self):
+        pe = self.get_nodeattr("PE")
+        idt = self.get_input_datatype().get_hls_datatype_str()
+        odt = self.get_output_datatype().get_hls_datatype_str()
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            """void {}(hls::stream<ap_uint<{}*{}>> &in0_V,
-                hls::stream<ap_uint<{}> > &out0_V)""".format(
-                self.onnx_node.name,
-                self.get_nodeattr("PE"),
-                self.get_input_datatype().bitwidth(),
-                self.get_output_datatype().bitwidth(),
+            "void {}(hls::stream<tensor<{}, {}>> &in0_V, "
+            "hls::stream<tensor<{}, 1>> &out0_V)".format(
+                self.onnx_node.name, idt, pe, odt
             )
         ]

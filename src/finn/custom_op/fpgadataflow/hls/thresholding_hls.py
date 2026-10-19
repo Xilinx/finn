@@ -357,12 +357,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
                 not float32 or float16 as expected."""
                 expected_inp_shape = self.get_folded_input_shape()
                 reshaped_input = context[inputs].reshape(expected_inp_shape)
-                if self.get_input_datatype(0) == DataType["BIPOLAR"]:
-                    # store bipolar activations as binary
-                    reshaped_input = (reshaped_input + 1) / 2
-                    export_idt = DataType["BINARY"]
-                else:
-                    export_idt = self.get_input_datatype(0)
+                export_idt = self.get_input_datatype(0)
                 # make copy before saving the array
                 reshaped_input = reshaped_input.copy()
                 np.save(
@@ -438,45 +433,32 @@ class Thresholding_hls(Thresholding, HLSBackend):
 
     # TODO check and add whatever missing
     def defines(self, var):
-        numReps = 1
-        numInputVectors = list(self.get_nodeattr("numInputVectors"))
-        total_spatial_size = int(np.prod(numInputVectors))
-
         self.code_gen_dict["$DEFINES$"] = [
-            """#define NumChannels1 {}\n #define PE1 {}\n #define numReps {}\n
-               #define ImgDim1 {}""".format(
-                self.get_nodeattr("NumChannels"),
-                self.get_nodeattr("PE"),
-                numReps,
-                total_spatial_size,
-            )
+            "static constexpr unsigned NumChannels1 = %d;" % self.get_nodeattr("NumChannels"),
+            "static constexpr unsigned PE1 = %d;" % self.get_nodeattr("PE"),
         ]
         if self.get_nodeattr("mem_mode") == "internal_decoupled":
             self.code_gen_dict["$DEFINES$"].append(
-                "#define ActVal1 %d" % self.get_nodeattr("ActVal")
+                "static constexpr int ActVal1 = %d;" % self.get_nodeattr("ActVal")
             )
             self.code_gen_dict["$DEFINES$"].append(
-                "#define ThresType1 %s" % self.get_input_datatype(1).get_hls_datatype_str()
+                "using ThresType1 = %s;" % self.get_input_datatype(1).get_hls_datatype_str()
             )
             self.code_gen_dict["$DEFINES$"].append(
-                "#define NumSteps1 %d" % self.get_nodeattr("numSteps")
+                "static constexpr unsigned NumSteps1 = %d;" % self.get_nodeattr("numSteps")
             )
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_input_datatype(0)
-        packed_bits = self.get_instream_width(0)
-        packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "half" if elem_hls_type == "half" else "float"
         npy_in = "%s/input_0.npy" % code_gen_dir
+        n_elems_per_word = self.get_folded_input_shape()[-1]
         self.code_gen_dict["$READNPYDATA$"] = []
-        # note: the innermost dim is reversed for the input
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %s>("%s", in0_V, false);'
+            'npy2tensorstream<%s>("%s", in0_V);'
             % (
-                packed_hls_type,
-                elem_hls_type,
                 npy_type,
                 npy_in,
             )
@@ -484,17 +466,19 @@ class Thresholding_hls(Thresholding, HLSBackend):
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "internal_decoupled":
             tdt = self.get_input_datatype(1)
-            packed_bits = self.get_instream_width(1)
-            packed_hls_type = "ap_uint<%d>" % packed_bits
             elem_hls_type = tdt.get_hls_datatype_str()
             npy_type = "half" if elem_hls_type == "half" else "float"
             npy_in = "%s/thresholds.npy" % code_gen_dir
+            pe = self.get_nodeattr("PE")
+            n_thres_steps = self.get_nodeattr("numSteps")
+            # thresholds must be replicated for every spatial position
+            total_spatial_size = int(np.prod(self.get_nodeattr("numInputVectors")))
 
             self.code_gen_dict["$READNPYDATA$"].append(
-                'npy2apintstream<%s, %s, %s>("%s", in1_V, false, ImgDim1);'
+                'for(unsigned rep = 0; rep < %d; rep++) '
+                'npy2tensorstream<%s>("%s", in1_V);'
                 % (
-                    packed_hls_type,
-                    elem_hls_type,
+                    total_spatial_size,
                     npy_type,
                     npy_in,
                 )
@@ -502,40 +486,43 @@ class Thresholding_hls(Thresholding, HLSBackend):
 
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
+        idt = self.get_input_datatype(0)
+        i_hls_type = idt.get_hls_datatype_str()
+        pe = self.get_nodeattr("PE")
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0_V ("in0_V");'.format(self.get_instream_width(0))
+            'hls::stream<tensor<{},{}>> in0_V ("in0_V");'.format(i_hls_type, pe)
         )
+        odt = self.get_output_datatype()
+        o_hls_type = odt.get_hls_datatype_str()
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out0_V ("out0_V");'.format(self.get_outstream_width())
+            'hls::stream<tensor<{},{}>> out0_V ("out0_V");'.format(o_hls_type, pe)
+        )
+        # buffer stream for freerunning timeout template
+        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+            'hls::stream<tensor<{},{}>> strm0 ("strm0");'.format(o_hls_type, pe)
         )
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "internal_decoupled":
+            tdt = self.get_input_datatype(1)
+            t_hls_type = tdt.get_hls_datatype_str()
+            n_thres_steps = self.get_nodeattr("numSteps")
             self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-                'hls::stream<ap_uint<{}>> in1_V ("in1_V");'.format(self.get_instream_width(1))
+                'hls::stream<tensor<{},{},{}>> in1_V ("in1_V");'.format(
+                    t_hls_type, pe, n_thres_steps
+                )
             )
 
     def docompute(self):
-        tmpl_args = self.get_template_param_values()
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "internal_embedded":
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """Thresholding_Batch<ImgDim1, NumChannels1, PE1, {}, {}>
-                (in0_V, out0_V, threshs, numReps);""".format(
-                    tmpl_args["TSrcI"],
-                    tmpl_args["TDstI"],
-                )
+                """Thresholding_Batch<NumChannels1, PE1>
+                (in0_V, out0_V, threshs);"""
             ]
         elif mem_mode == "internal_decoupled":
-            # note that numReps is set to 1 in the invocation below, since
-            # - for cppsim the repetition comes from the threshold stream reader+input
-            # - for synth the unit runs continuously anyway (ap_ctrl_none)
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """{}<ImgDim1, NumChannels1, PE1, {}, {}, ActVal1, ThresType1, NumSteps1>
-                (in0_V, out0_V, in1_V, numReps);""".format(
-                    "Thresholding_Stream_Batch",
-                    tmpl_args["TSrcI"],
-                    tmpl_args["TDstI"],
-                )
+                """Thresholding_Stream_Batch<NumChannels1, PE1, ActVal1, ThresType1, NumSteps1>
+                (in0_V, out0_V, in1_V);"""
             ]
         else:
             raise Exception("Unrecognized mem_mode")
@@ -543,23 +530,16 @@ class Thresholding_hls(Thresholding, HLSBackend):
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_output_datatype()
-        if dtype == DataType["BIPOLAR"]:
-            # use binary for bipolar storage
-            dtype = DataType["BINARY"]
-        packed_bits = self.get_outstream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "half" if elem_hls_type == "half" else "float"
         npy_out = "%s/output_0.npy" % code_gen_dir
         shape = self.get_folded_output_shape()
         shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")
+        n_elems_per_word = shape[-1]
 
-        # note: the innermost dim is not reversed for the output
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %s>(out0_V, %s, "%s", false);'
+            'tensorstream2npy<%s>(strm0, %s, "%s");'
             % (
-                packed_hls_type,
-                elem_hls_type,
                 npy_type,
                 shape_cpp_str,
                 npy_out,
@@ -567,26 +547,34 @@ class Thresholding_hls(Thresholding, HLSBackend):
         ]
 
     def blackboxfunction(self):
+        idt = self.get_input_datatype(0)
+        i_hls_type = idt.get_hls_datatype_str()
+        odt = self.get_output_datatype()
+        o_hls_type = odt.get_hls_datatype_str()
+        pe = self.get_nodeattr("PE")
         if self.get_nodeattr("mem_mode") == "internal_embedded":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                """void {}(hls::stream<ap_uint<{}>> &in0_V,
-                    hls::stream<ap_uint<{}>> &out0_V
+                """void {}(hls::stream<tensor<{},{}>> &in0_V,
+                    hls::stream<tensor<{},{}>> &out0_V
                     )""".format(
                     self.onnx_node.name,
-                    self.get_instream_width(0),
-                    self.get_outstream_width(),
+                    i_hls_type, pe,
+                    o_hls_type, pe,
                 )
             ]
         elif self.get_nodeattr("mem_mode") == "internal_decoupled":
+            tdt = self.get_input_datatype(1)
+            t_hls_type = tdt.get_hls_datatype_str()
+            n_thres_steps = self.get_nodeattr("numSteps")
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                """void {}(hls::stream<ap_uint<{}>> &in0_V,
-                    hls::stream<ap_uint<{}>> &in1_V,
-                    hls::stream<ap_uint<{}>> &out0_V
+                """void {}(hls::stream<tensor<{},{}>> &in0_V,
+                    hls::stream<tensor<{},{},{}>> &in1_V,
+                    hls::stream<tensor<{},{}>> &out0_V
                     )""".format(
                     self.onnx_node.name,
-                    self.get_instream_width(0),
-                    self.get_instream_width(1),
-                    self.get_outstream_width(),
+                    i_hls_type, pe,
+                    t_hls_type, pe, n_thres_steps,
+                    o_hls_type, pe,
                 )
             ]
         else:
