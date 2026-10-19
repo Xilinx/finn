@@ -140,37 +140,23 @@ of rebuilding from scratch.
 4. Add `verification_io/<model>_input.npy` / `_output.npy` if the model should be
    verified.
 
-## Feature-flow tests
+## Feature tests (FIFO sizing, folding, DWC padding)
 
-The `test_*_flow.py` tests exercise a single transformation (folding, FIFO sizing,
-DWC padding) on small models for ZCU104 and U55C: they check that it keeps the model
-functionally correct and record how long it takes and what it costs. Each test's
-docstring describes its variants and checks. Builds stop at stitched IP + rtlsim
-performance (no bitfile).
+Each model's test file also carries feature tests, selected by marker:
 
-* Each (model, board) is built once up to `phase_convert_to_hardware` and cached in
-  `$FINN_BUILD_DIR/featureflow_cache_*` (found again via `find_cached_build`), with a golden
-  input/output pair from the streamlined model. Every flow resumes from that checkpoint.
-* Synthesized HLS IP is reused across runs when a node's generated code is unchanged
-  (`$FINN_BUILD_DIR/featureflow_ipcache.json`), so variants with the same folding pay for
-  HLS synthesis once.
-* Verification: folded cppsim + stitched-IP rtlsim against the golden pair; a build that
-  deadlocks has no rtlsim throughput and fails.
-* Timing: `step_target_fps_parallelization`, `step_apply_folding_config` and
-  `step_set_fifo_depths` are timed individually.
+| marker | test | checks |
+|--------|------|--------|
+| `fifo_sizing` | `test_<model>_fifo_sizing[<strategy>]` | committed folding, FIFOs sized by `heuristic_analytical` / `heuristic_rtlsim` |
+
+All of them resume the `phase_convert_to_hardware` checkpoint of a cached estimate-only build
+with the committed folding (`$FINN_BUILD_DIR/est_<model>_<board>_*`), whose estimated
+throughput is the reference. They build up to stitched IP (no bitfile) and pass if the
+stitched-IP rtlsim output matches the golden output and the rtlsim throughput is at least
+98 % of the build's own analytic estimate.
+Numbers (estimated and rtlsim throughput, FIFO storage, padding DWCs,
+folding and FIFO sizing step times) are written to `report/feature_metrics.json`.
 
 ```bash
-pytest tests/benchmark/test_<feature>_flow.py -k "tfc and ZCU104"
-FEATURE_FLOW_QUICK=1 pytest tests/benchmark/test_<feature>_flow.py   # minutes, cppsim only
-python tests/benchmark/feature_flow_report.py     # table of the latest results
+pytest tests/benchmark/gtsrb/test_build_gtsrb.py -m fifo_sizing -k heuristic_analytical
+pytest tests/benchmark -m "folding or dwc" -n 4 --dist loadgroup
 ```
-
-| Var | Default | Effect |
-|-----|---------|--------|
-| `FEATURE_FLOW_VERIFY` | `folded_hls_cppsim,stitched_ip_rtlsim` | verification steps |
-| `FEATURE_FLOW_FRAMES` | `1` | golden frames (only when the cache is built) |
-| `FEATURE_FLOW_REBUILD_CACHE` | `0` | rebuild the cached checkpoints |
-| `FEATURE_FLOW_IP_CACHE` | `1` | reuse synthesized HLS IP |
-| `FEATURE_FLOW_QUICK` | `0` | stop after `phase_optimize_hardware` (no IP generation, no rtlsim) |
-
-Results are appended to `$FINN_BUILD_DIR/feature_flow_results/<flow>.jsonl`.

@@ -7,12 +7,20 @@ import pytest
 import os
 from benchmark_helpers import (
     CORE_BUILD_OUTPUT_FILES,
+    ESTIMATE_OUTPUTS,
+    ESTIMATE_PHASE,
+    FEATURE_OUTPUTS,
     benchmark_config_paths,
     benchmark_root,
     bitfile_output_files,
+    cached_build,
     check_build_outputs,
+    feature_metrics,
+    feature_steps,
     get_verify_steps,
     make_benchmark_cfg,
+    resume_checkpoint,
+    timed_steps,
     verification_io_dir,
 )
 from custom_steps_mobilenet import step_mobilenet_streamline
@@ -113,3 +121,76 @@ def test_mobilenetv1(board, bench_recorder):
     # (ZCU104 -> .bit/.hwh via Vivado/Zynq, U55C -> .xclbin via Vitis/Alveo).
     build_output_files = CORE_BUILD_OUTPUT_FILES + bitfile_output_files(board)
     check_build_outputs(output_dir, build_output_files)
+
+
+# --- feature tests: FIFO sizing, folding, DWC padding -----------------------
+# Each test resumes the convert-phase checkpoint of a cached estimate-only build
+# (committed folding) with the feature's settings, builds the stitched IP and
+# checks it in rtlsim: output equal to the golden output and throughput within
+# 2 % of the build's own analytic estimate.
+
+# ZCU104 is left out: its stitched-IP rtlsim gives X outputs (URAM init)
+FEATURE_BUILDS = ["U55C"]
+
+
+def reference_estimate(board):
+    """Estimate-only build with the committed folding: its convert-phase
+    checkpoint and estimated throughput are the feature tests' reference."""
+
+    def build_estimate(output_dir):
+        cfg = configure_build(
+            board,
+            output_dir,
+            generate_outputs=ESTIMATE_OUTPUTS,
+            stop_step=ESTIMATE_PHASE,
+            verify_steps=[],
+        )
+        assert build.build_dataflow_cfg(model_file, cfg) == 0
+
+    return cached_build(
+        f"est_mobilenet_v1_{board}_", build_estimate, "report/estimate_network_performance.json"
+    )
+
+
+def run_feature_build(board, name, estimate_only=False, **overrides):
+    """Resume the reference checkpoint with ``overrides`` and, unless
+    ``estimate_only``, check the stitched IP in rtlsim. Returns the metrics."""
+    ref_dir = reference_estimate(board)
+    output_dir = make_build_dir(f"{name}_mobilenet_v1_{board}_")
+    cfg = configure_build(
+        board,
+        output_dir,
+        steps=feature_steps(build_steps),
+        generate_outputs=ESTIMATE_OUTPUTS if estimate_only else FEATURE_OUTPUTS,
+        stop_step=ESTIMATE_PHASE if estimate_only else None,
+        verify_steps=[] if estimate_only else ["stitched_ip_rtlsim"],
+        stitched_ip_gen_dcp=False,
+        save_intermediate_models=True,
+        **overrides,
+    )
+    # make_benchmark_cfg drops None values: apply them afterwards (e.g. no folding JSON)
+    for key, value in overrides.items():
+        if value is None:
+            setattr(cfg, key, None)
+    with timed_steps() as step_times:
+        ret = build.build_dataflow_cfg(resume_checkpoint(ref_dir, output_dir), cfg)
+    metrics = feature_metrics(output_dir, ref_dir, test=name, step_times_s=step_times)
+    assert ret == 0, f"build failed, see {output_dir}/build_dataflow.log"
+    if not estimate_only:
+        assert metrics["verified"], "stitched-IP rtlsim output differs from the golden output"
+        assert (metrics["rtlsim_vs_est"] or 0) >= 0.98, "rtlsim %s fps, estimate %s fps" % (
+            metrics["rtlsim_fps"],
+            metrics["est_fps"],
+        )
+    return metrics
+
+
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.finn_examples
+@pytest.mark.fifo_sizing
+@pytest.mark.xdist_group("mobilenet_v1")
+@pytest.mark.parametrize("strategy", ["heuristic_analytical", "heuristic_rtlsim"])
+@pytest.mark.parametrize("board", FEATURE_BUILDS)
+def test_mobilenetv1_fifo_sizing(board, strategy):
+    run_feature_build(board, f"fifo-{strategy}", auto_fifo_depths=True, auto_fifo_strategy=strategy)
