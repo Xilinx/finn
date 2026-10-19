@@ -43,9 +43,11 @@ from qonnx.util.basic import (
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 from finn.util.basic import (
     Characteristic_Node,
+    decompress_string_to_numpy,
     fifo_rtl_files,
     flat_characteristic_leaf,
     is_versal,
+    save_tav_npy,
 )
 from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
 
@@ -1520,18 +1522,22 @@ class MVAU(HWCustomOp):
 
         Two configurations are declined outright rather than approximated:
 
-        * ``mem_mode`` in ``{"external_mem", "dynamic"}``. Both change *when*
-          weights arrive -- ``external_mem`` fetches them over AXI-MM,
-          ``dynamic`` streams a fresh set per loop iteration -- so neither can
-          be assumed to keep pace with the compute, and the schedules below all
-          assume it does. ``internal_embedded``, ``internal_decoupled`` and
+        * ``mem_mode="external_mem"``. It fetches the weights over AXI-MM, so they
+          cannot be assumed to keep pace with the compute, and the schedules below
+          all assume they do. ``internal_embedded``, ``internal_decoupled`` and
           ``external`` present the weights as an always-ready stream, which is
-          the regime the constants here hold in.
+          the regime the constants here hold in. So does ``dynamic`` as long as
+          its ``dynamic_load`` refills a bank faster than the compute replays the
+          other one (``numInputVectors[-1] >= SIMD``); its own streamed input is
+          added by ``dynamic_in1_tav``.
         * a folding whose period cannot hold the schedule at one transaction per
           cycle, or a single output for the whole node. See the guards below.
         """
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode in ("external_mem", "dynamic"):
+        n_reps = self.get_nodeattr("numInputVectors")[-1]
+        if mem_mode == "external_mem":
+            return None
+        if mem_mode == "dynamic" and n_reps < self.get_nodeattr("SIMD"):
             return None
 
         MW = self.get_nodeattr("MW")
@@ -1648,7 +1654,9 @@ class MVAU(HWCustomOp):
         }
 
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode in ["internal_decoupled", "external"]:
+        # a dynamic node's rtlsim is the bare MVU without its dynamic_load, so
+        # its in1 also takes one weight tile per compute cycle
+        if mem_mode in ["internal_decoupled", "external", "dynamic"]:
             n_weight_inps = self.calc_wmem()
             num_w_reps = int(np.prod(self.get_nodeattr("numInputVectors")))
             io_dict["inputs"]["in1"] = [i for i in range(num_w_reps * n_weight_inps)]
@@ -1656,6 +1664,36 @@ class MVAU(HWCustomOp):
         super().derive_token_access_vectors(
             model, period, strategy, fpga_part, clk_period, op_type, override_dict=io_dict
         )
+        if mem_mode == "dynamic":
+            self.dynamic_in1_tav()
+
+    def dynamic_in1_tav(self):
+        """Add the TAV row of a dynamic node's streamed second operand.
+
+        Both characterizations describe only in0 and out0. In hardware, in1 feeds
+        ``dynamic_load``, which buffers one ``MW x MH`` matrix (``MW * MH / PE``
+        words) in one of two banks and replays it for ``numInputVectors[-1]``
+        input vectors. So in1 is read as one burst of a matrix, one word per
+        cycle, at the start of the in0 reads of every ``numInputVectors[-1]``
+        vectors. The row is placed modulo the period, like the tree models, and
+        stored after the in0 row, the order ``stream_curves`` binds rows in.
+        """
+        rows = np.atleast_2d(decompress_string_to_numpy(self.get_nodeattr("io_chrc_in")))
+        cum0 = rows[0].astype(np.int64)
+        period = cum0.shape[0] // 2
+        n_reps = self.get_nodeattr("numInputVectors")[-1]
+        n_mats = int(np.prod(self.get_nodeattr("numInputVectors"))) // n_reps
+        burst = self.get_nodeattr("MW") * self.get_nodeattr("MH") // self.get_nodeattr("PE")
+        sf = self.get_nodeattr("MW") // self.get_nodeattr("SIMD")
+        # cycle of the first in0 read of each matrix's vectors in the first period
+        first = np.arange(n_mats) * n_reps * sf + 1
+        starts = np.searchsorted(cum0[:period], first, side="left")
+        rd = np.zeros(period, dtype=np.int64)
+        # add rather than set, so the count stays exact even if bursts overlap
+        np.add.at(rd, ((starts[:, None] + np.arange(burst)[None, :]) % period).ravel(), 1)
+        cum1 = np.cumsum(np.tile(rd, 2))
+        save = np.stack([cum0, cum1]).astype(np.int32)
+        self.set_nodeattr("io_chrc_in", save_tav_npy(self, "io_chrc_in", save))
 
     def get_weight_mem_bytes(self):
         """Return (size, offs) in bytes for one layer's weight matrix.
