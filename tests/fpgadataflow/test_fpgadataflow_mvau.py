@@ -66,7 +66,7 @@ from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODep
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.general import ApplyConfig
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import is_versal
+from finn.util.basic import decompress_string_to_numpy, is_versal
 from finn.util.test import (
     make_runtime_weight_stream,
     tree_model_test,
@@ -1136,16 +1136,18 @@ def test_fpgadataflow_analytical_characterization_mvau_tiled(mw_pe_simd_th, mem_
     ), "tiled MVAU characterized TAV does not match RTLsim'd one!"
 
 
-@pytest.mark.parametrize("mem_mode", ["external_mem", "dynamic"])
+@pytest.mark.parametrize("mem_mode,simd", [("external_mem", 1), ("dynamic", 32)])
 @pytest.mark.fpgadataflow
-def test_mvau_tree_model_declines_unmodelled_mem_modes(mem_mode):
-    """``external_mem`` and ``dynamic`` change when weights arrive.
+def test_mvau_tree_model_declines_unmodelled_mem_modes(mem_mode, simd):
+    """``external_mem`` changes when weights arrive, and so does ``dynamic``
+    when its ``dynamic_load`` cannot refill a matrix while the other one is
+    replayed (``numInputVectors[-1] < SIMD``).
 
     ``get_tree_model`` must decline them and let the node fall back to rtlsim
     rather than hand out the internal_decoupled shape. No Vivado: this only asks
     what the tree model returns.
     """
-    mw, mh, pe, simd = 32, 18, 9, 1
+    mw, mh, pe = 32, 18, 9
     idt = wdt = DataType["INT4"]
     W = gen_finn_dt_tensor(wdt, (mw, mh))
     model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, DataType["INT32"], None, None)
@@ -1153,6 +1155,71 @@ def test_mvau_tree_model_declines_unmodelled_mem_modes(mem_mode):
     inst.set_nodeattr("numInputVectors", [18])
     inst.set_nodeattr("mem_mode", mem_mode)
     assert inst.get_tree_model() is None
+
+
+def make_dynamic_mvau_model(heads, n_vec, mw, mh, pe, simd, impl_style):
+    """A ``[1, heads, n_vec, mw] x [1, heads, mw, mh]`` dynamic MVAU, the shape of
+    an attention matmul."""
+    ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, heads, n_vec, mw])
+    wfm = helper.make_tensor_value_info("wfm", TensorProto.FLOAT, [1, heads, mw, mh])
+    ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, [1, heads, n_vec, mh])
+    model = make_dynamic_matmul_modelwrapper(ifm, wfm, ofm, DataType["INT8"], DataType["INT8"])
+    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
+    model = model.transform(GiveUniqueNodeNames())
+    inst = getCustomOp(model.graph.node[0])
+    assert inst.get_nodeattr("mem_mode") == "dynamic"
+    inst.set_nodeattr("PE", pe)
+    inst.set_nodeattr("SIMD", simd)
+    inst.set_nodeattr("preferred_impl_style", impl_style)
+    return model
+
+
+@pytest.mark.fpgadataflow
+def test_mvau_dynamic_tav_streams():
+    """A dynamic MVAU's TAV has one row per streamed input, with exact counts.
+
+    in1 (the second operand, fed to ``dynamic_load``) moves one folded frame of
+    its own per period, which is not in0's count; a shared row would hand the
+    sizer the wrong number of tokens on that edge. No Vivado: tree model only.
+    """
+    heads, n_vec, mw, mh, pe, simd = 3, 16, 32, 16, 4, 8
+    model = make_dynamic_mvau_model(heads, n_vec, mw, mh, pe, simd, "rtl")
+    model = model.transform(SpecializeLayers("xcvc1902-vsva2197-2MP-e-S"))
+    node = model.graph.node[0]
+    inst = getCustomOp(node)
+    assert inst.get_tree_model() is not None
+    inst.derive_token_access_vectors(model, 0, "tree_model", None, None, node.op_type)
+    rows = np.atleast_2d(decompress_string_to_numpy(inst.get_nodeattr("io_chrc_in")))
+    period = inst.get_nodeattr("io_chrc_period")
+    assert rows.shape == (2, 2 * period)
+    for ind, row in enumerate(rows):
+        per_frame = int(np.prod(inst.get_folded_input_shape(ind)[:-1]))
+        assert row[period - 1] == per_frame and row[-1] == 2 * per_frame, ind
+    # in1 arrives as one back-to-back burst of a matrix per head
+    inc = np.diff(rows[1], prepend=0)[:period]
+    assert inc.max() == 1
+    assert np.count_nonzero((inc == 1) & (np.roll(inc, 1) == 0)) == heads
+
+
+@pytest.mark.parametrize("pe,simd", [(8, 8), (4, 16), (16, 4)])
+@pytest.mark.parametrize("impl_style", ["rtl", "hls"])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_mvau_dynamic(pe, simd, impl_style):
+    """The dynamic MVAU's in0/out0 schedule against rtlsim.
+
+    The node's rtlsim is the bare MVU, without its ``dynamic_load``, so this
+    checks the claim the tree model rests on: once a matrix is loaded the MVU
+    runs exactly as with internal weights. bert's attention matmuls are the
+    reference shapes, scaled down.
+    """
+    heads, n_vec, mw, mh = 2, 32, 32, 64
+    model = make_dynamic_mvau_model(heads, n_vec, mw, mh, pe, simd, impl_style)
+    node_details = ("MVAU_dynamic", heads, n_vec, mw, mh, pe, simd, impl_style)
+    assert tree_model_test(
+        model, node_details, "xcvc1902-vsva2197-2MP-e-S", 5, 0.05, 0.05, 20, 26
+    ), "characterized TAV does not match RTLsim'd one!"
 
 
 @pytest.mark.fpgadataflow
