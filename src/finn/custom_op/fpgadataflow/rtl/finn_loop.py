@@ -259,9 +259,11 @@ class FINNLoop(HWCustomOp, RTLBackend):
         iteration = self.get_nodeattr("iteration")
         perf = loop_body.analysis(dataflow_performance)
         body_latency = perf["critical_path_cycles"]
-        body_throughput = perf["max_cycles"]
-        overhead_per_iter = 40
-        return body_latency + (iteration - 1) * body_throughput + overhead_per_iter * iteration
+        # For a single input the iterations run serially: an intermediate frame
+        # can only be read back once it has been fully written. body_latency is
+        # an overlap-free sum of node cycles, so this is a conservative estimate.
+        overhead_between_iter = 40
+        return body_latency * iteration + overhead_between_iter * (iteration - 1)
 
     def get_outstream_width(self, ind=0):
         loop_body = self.get_nodeattr("body")

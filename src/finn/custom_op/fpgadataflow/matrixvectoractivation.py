@@ -498,18 +498,56 @@ class MVAU(HWCustomOp):
             )
 
     def get_exp_cycles(self):
+        # with external_mem, the weight fetch can be slower than the compute;
+        # fetch and compute overlap, so the slower of the two sets the rate
+        exp_cycles = max(self.get_exp_compute_cycles(), self.get_exp_weight_fetch_cycles())
+        return int(exp_cycles)
+
+    def get_exp_compute_cycles(self):
+        """Expected cycles per frame of the MVU compute core alone, assuming the
+        weight stream never stalls it."""
         pe = self.get_nodeattr("PE")
         simd = self.get_nodeattr("SIMD")
-        th = self.get_nodeattr("TH")
         num_inp_vec = self.get_nodeattr("numInputVectors")
         mh = self.get_nodeattr("MH")
         mw = self.get_nodeattr("MW")
         # since mmv != 1 is not supported yet, we set mmv for now to 1
         mmv = 1
-        # Tiling/systolic reduces throughput
-        # TH>1 (tiling) reduces throughput by factor TH (tinner = PE*SIMD/TH)
-        exp_cycles = (mh / pe) * (mw / simd) * np.prod(num_inp_vec) * th / mmv
+        # TH>1 (tiling) does not change the compute cycles: the tiled MVU still
+        # consumes one PE x SIMD weight tile per cycle, but reuses each tile for TH
+        # input vectors, so the weight stream only needs PE*SIMD/TH weights per cycle
+        exp_cycles = (mh / pe) * (mw / simd) * np.prod(num_inp_vec) / mmv
         return int(exp_cycles)
+
+    def get_exp_weight_fetch_cycles(self):
+        """Expected cycles per frame for fetch_weights to deliver the weights in
+        mem_mode external_mem, 0 for all other mem_modes.
+
+        The weight matrix is fetched from external memory once per frame for TH=1
+        (local_weight_buffer replays it numInputVectors times) and
+        numInputVectors/TH times per frame for TH>1. Each fetch is limited by the
+        slower of two stages that each move one transfer per cycle:
+          - the AXI bus: ceil(MH*MW / (DATA_BITS // wbits)) bus words
+          - the VPC into the weight buffer: MH*MW / IWSIMD weight groups,
+            with IWSIMD = SIMD for TH=1 and PE*SIMD/TH for TH>1
+        For TH=1 this is slower than the compute whenever PE > numInputVectors,
+        for TH>1 whenever PE*SIMD*wbits/TH > DATA_BITS.
+        This is a best case: one AXI beat per cycle, no memory latency."""
+        if self.get_nodeattr("mem_mode") != "external_mem":
+            return 0
+        pe = self.get_nodeattr("PE")
+        simd = self.get_nodeattr("SIMD")
+        th = self.get_nodeattr("TH")
+        n_vec = np.prod(self.get_nodeattr("numInputVectors"))
+        mh = self.get_nodeattr("MH")
+        mw = self.get_nodeattr("MW")
+        wbits = self.get_input_datatype(1).bitwidth()
+        data_bits = 256  # DATA_BITS in fetch_weights.sv (AXI bus width)
+        iwsimd = (pe * simd) // th if th > 1 else simd
+        fetches_per_frame = n_vec // th if th > 1 else 1
+        bus_words = math.ceil(mh * mw / (data_bits // wbits))
+        weight_groups = (mh * mw) // iwsimd
+        return int(fetches_per_frame * max(bus_words, weight_groups))
 
     def minimize_accumulator_width(self, model, datatype_only=False):
         """Minimize the accumulator bit width according to the weight values,
