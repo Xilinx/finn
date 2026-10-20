@@ -59,6 +59,44 @@ from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_
 # the ... here can be any shape (representing groups of vectors)
 
 
+def tiled_mvau_group_stall(sf, nf, th):
+    """Stall cycles of the tiled MVU (finn-rtllib/mvu_tiled, TH>1) per group of TH
+    input vectors. A group takes NF*SF*TH compute cycles plus this stall, which is
+    the larger of two buffer effects at the group boundary (they overlap):
+
+    * activation replay: input_gen holds the group's SF*TH input words in a
+      2^ceil(log2(SF*TH+2))-word circular buffer and replays them NF times with
+      the TH vectors interleaved innermost, so the TH-th beat already needs word
+      (TH-1)*SF. The words are only freed after the last replay, so only the
+      buffer's spare slots prefetch the next group; what its interleaved start
+      needs beyond that (plus 3 cycles) arrives one word per cycle.
+    * output reorder: the accumulator emits TH consecutive words per output fold,
+      input_gen transposes them to the stream order and holds all NF*TH words of
+      a group in a 2^ceil(log2((NF-1)*TH+3))-word buffer until the last fold
+      arrives; then the remaining R = NF*TH-(NF-1) words drain back to back while
+      the next group already produces outputs. If those do not fit the spare
+      slots (plus TH-4 words of slack), the pipeline freezes until the drain is
+      done.
+
+    Exact for power-of-two TH (and the replay part for any TH), within ~10 % of a
+    group otherwise; verified against rtlsim for SF 1..64, NF 1..48, TH 2..16 and
+    bert's foldings."""
+    fm = sf * th
+    buf_in = 1 << math.ceil(math.log2(fm + 2))
+    in_stall = max(0, (th - 1) * (sf - 1) + 3 - (buf_in - fm))
+    if nf < 2:
+        return in_stall
+    buf_out = 1 << math.ceil(math.log2((nf - 1) * th + 3))
+    spare = buf_out - nf * th
+    run = nf * th - (nf - 1)
+    # cycle (from the drain start) at which the first non-fitting word of the
+    # next group arrives: its outputs come in bursts of TH every fm cycles
+    w = max(0, spare + th - 4)
+    t_block = fm * (w // th + 1) + w % th
+    out_stall = max(0, run - t_block, -spare)
+    return max(in_stall, out_stall)
+
+
 class MVAU(HWCustomOp):
     """Abstraction layer for HW implementation of MatrixVectorActivation layers."""
 
@@ -508,7 +546,8 @@ class MVAU(HWCustomOp):
         weight stream never stalls it."""
         pe = self.get_nodeattr("PE")
         simd = self.get_nodeattr("SIMD")
-        num_inp_vec = self.get_nodeattr("numInputVectors")
+        th = self.get_nodeattr("TH")
+        n_vec = int(np.prod(self.get_nodeattr("numInputVectors")))
         mh = self.get_nodeattr("MH")
         mw = self.get_nodeattr("MW")
         # since mmv != 1 is not supported yet, we set mmv for now to 1
@@ -516,8 +555,22 @@ class MVAU(HWCustomOp):
         # TH>1 (tiling) does not change the compute cycles: the tiled MVU still
         # consumes one PE x SIMD weight tile per cycle, but reuses each tile for TH
         # input vectors, so the weight stream only needs PE*SIMD/TH weights per cycle
-        exp_cycles = (mh / pe) * (mw / simd) * np.prod(num_inp_vec) / mmv
+        exp_cycles = (mh / pe) * (mw / simd) * n_vec / mmv
+        if th > 1:
+            # the tiled MVU can stall once per group of TH input vectors (see
+            # get_tiled_group_stall_cycles); the stall is 0 for most foldings
+            exp_cycles += (n_vec // th) * self.get_tiled_group_stall_cycles()
         return int(exp_cycles)
+
+    def get_tiled_group_stall_cycles(self):
+        """Stall cycles of the tiled MVU (TH>1) per group of TH input vectors, 0
+        for TH=1; see tiled_mvau_group_stall()."""
+        th = self.get_nodeattr("TH")
+        if th <= 1:
+            return 0
+        sf = self.get_nodeattr("MW") // self.get_nodeattr("SIMD")
+        nf = self.get_nodeattr("MH") // self.get_nodeattr("PE")
+        return tiled_mvau_group_stall(sf, nf, th)
 
     def get_exp_weight_fetch_cycles(self):
         """Expected cycles per frame for fetch_weights to deliver the weights in
