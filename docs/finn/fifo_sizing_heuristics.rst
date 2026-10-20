@@ -150,6 +150,32 @@ total depth 362655 against 355475. Whether those seven depths are needed has
 not been measured (no resnet50 rtlsim is available here), which is why both
 passes are kept.
 
+Phase lead
+----------
+
+*What:* in the causal pass, the output tokens a node's TAV writes before its
+first read (``phase_lead``) are taken to belong to the previous frame: the
+node's output tokens are renumbered past them, in every frame. Not applied to
+nodes that write more words than they read per frame, which may legitimately
+write first (``FMPadding`` emits its padding rows before it reads).
+
+*Why:* the stored window can start inside a frame. An ``MVAU_rtl`` emits a
+feature map's ``MH / PE`` outputs during the next feature map's window, after it
+prefetched the inputs, so its TAV opens with those writes and its read burst
+wraps to the end of the window. Taken as they are, the outputs precede the
+inputs that carry them and every ``MVAU_rtl`` in a branch looks one feature map
+faster than it is; ``causal_writes`` alone only holds the first frame of
+compacting nodes, and to the next input token, not the next feature map.
+
+*Example:* transformer_benchmark on ZCU104, committed folding (pacer
+``MVAU_rtl`` MW = MH = 32, SIMD = PE = 1, 65536 cycles). The residual shortcut
+``Thresholding_rtl_1 -> ElementwiseAdd_hls_0`` waits for the attention branch
+(phase lead 31 on three of its ``MVAU_rtl``; the fourth, ``Q K^T``, writes
+more words than it reads and is left alone) and was sized 1985;
+rtlsim reaches 65536 cycles per frame with it at 2077 or more, 67415 at 2048
+and 2064, 67895 at 1985-2020. With the rule it is 2077. On resnet50 (V80) the
+rule changes one edge of the causal pass by 10 tokens and no final depth.
+
 Two-frame split
 ---------------
 

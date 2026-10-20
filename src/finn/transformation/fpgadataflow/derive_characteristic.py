@@ -343,7 +343,23 @@ def peak_occupancy(write_times, read_times, period, per_frame, fill_only):
     return periodic_peak(w, r, period)
 
 
-def causal_writes(write_times, in_scheds):
+def phase_lead(out_curve, in_curves):
+    """Output tokens a TAV writes before its first read on any streamed input.
+
+    The stored window can begin inside a frame: an MVAU_rtl emits a feature
+    map's outputs during the next feature map's window, after it prefetched the
+    inputs, so its TAV opens with ``MH / PE`` writes whose reads lie before the
+    window. Those tokens belong to the previous frame.
+    """
+    firsts = [int(np.argmax(np.asarray(c) > 0)) for c in in_curves if int(c[-1]) > 0]
+    if not firsts or min(firsts) == 0:
+        return 0
+    if frame_tokens(out_curve) > sum(frame_tokens(c) for c in in_curves):
+        return 0  # an expanding node may write before reading (e.g. FMPadding)
+    return int(out_curve[min(firsts) - 1])
+
+
+def causal_writes(write_times, in_scheds, lead=0):
     """Hold each output token of the first frame until the inputs that carry it
     have arrived.
 
@@ -353,6 +369,10 @@ def causal_writes(write_times, in_scheds):
     *j* cannot precede input ``ceil((j+1) * N_in / N_out)``. Only applied over
     the first frame (where the pipeline starts empty) and only to compacting
     nodes (``N_in > N_out``).
+
+    The ``lead`` tokens written before the first read (``phase_lead``) belong
+    to the previous frame: the output tokens are renumbered past them, in every
+    frame, and the last ``lead`` are placed one frame after the first ones.
     """
     if not in_scheds:
         return write_times
@@ -361,6 +381,9 @@ def causal_writes(write_times, in_scheds):
         return write_times
     out = np.array(write_times, dtype=np.int64, copy=True)
     fill = max(1, n_out // 2)  # a TAV stores two frames
+    if 0 < lead < fill and n_out > fill:
+        span = out[n_out - 1] - out[n_out - 1 - fill]
+        out = np.concatenate([out[lead:], out[fill : fill + lead] + span])
     idx = np.arange(1, fill + 1, dtype=np.int64)
     for sched, _ in in_scheds.values():
         n_in = len(sched)
@@ -747,7 +770,8 @@ def derive_chained_tav_depths(model, global_period, causal=True):
                 continue
             writes = token_times(clock, curve)
             if causal:
-                writes = causal_writes(writes, in_scheds)
+                lead = phase_lead(curve, [c for _, c in in_scheds.values()])
+                writes = causal_writes(writes, in_scheds, lead)
             edges[t] = Edge(writes, max(1, frame_tokens(curve)), t_up, t_prop, t_full)
 
     return depths

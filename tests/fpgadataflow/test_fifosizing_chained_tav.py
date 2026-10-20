@@ -54,6 +54,7 @@ from finn.transformation.fpgadataflow.derive_characteristic import (
     local_clock,
     peak_occupancy,
     periodic_peak,
+    phase_lead,
     refill_floor,
 )
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
@@ -159,15 +160,15 @@ def make_residual(nvec, ch, simd, pe):
     return finish(model, ["inp", "outp", "short", "l0", "l1"], {"w": (ch, ch)})
 
 
-def size_fifos(model):
+def size_fifos(model, part=PART):
     """The sizing part of step_set_fifo_depths with tree-model TAVs. Returns
     ``{"producer -> consumer": depth}``."""
     model = model.transform(InsertDWC())
-    model = model.transform(SpecializeLayers(PART))
+    model = model.transform(SpecializeLayers(part))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(AnnotateCycles())
     period = int(model.analysis(dataflow_performance)["max_cycles"])
-    model = model.transform(DeriveTokenAccessVectors(model, period, "tree_model", PART, 10.0))
+    model = model.transform(DeriveTokenAccessVectors(model, period, "tree_model", part, 10.0))
     period = int(
         model.analysis(partial(dataflow_performance, use_characterized=True))["max_cycles"]
     )
@@ -212,6 +213,74 @@ def test_chained_tav_residual():
     }
 
 
+def make_residual_rtl(nvec, ch, n_mvau):
+    """MVAU -> fork -> (shortcut | n_mvau MVAU_rtl at SIMD = PE = 1) -> join."""
+    shape = [1, nvec, ch]
+    names = ["x", "short"] + ["l%d" % i for i in range(n_mvau + 1)]
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape)
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, shape)
+    vi = [helper.make_tensor_value_info(n, TensorProto.FLOAT, shape) for n in names]
+    nodes = [
+        mvau_node("inp", "x", "wp", ch, ch, ch, 1, nvec),
+        helper.make_node(
+            "DuplicateStreams",
+            ["x"],
+            ["short", "l0"],
+            domain="finn.custom_op.fpgadataflow",
+            backend="fpgadataflow",
+            NumChannels=ch,
+            NumOutputStreams=2,
+            PE=1,
+            inputDataType=IDT.name,
+            numInputVectors=[1, nvec],
+        ),
+    ]
+    for i in range(n_mvau):
+        node = mvau_node("l%d" % i, "l%d" % (i + 1), "w%d" % i, ch, ch, 1, 1, nvec)
+        node.attribute.append(helper.make_attribute("preferred_impl_style", "rtl"))
+        nodes.append(node)
+    nodes.append(
+        helper.make_node(
+            "ElementwiseAdd",
+            ["short", "l%d" % n_mvau],
+            ["outp"],
+            domain="finn.custom_op.fpgadataflow",
+            backend="fpgadataflow",
+            lhs_shape=shape,
+            rhs_shape=shape,
+            out_shape=shape,
+            lhs_dtype=IDT.name,
+            rhs_dtype=IDT.name,
+            out_dtype=IDT.name,
+            lhs_style="input",
+            rhs_style="input",
+            PE=1,
+        )
+    )
+    model = ModelWrapper(
+        qonnx_make_model(helper.make_graph(nodes, "residual_rtl", [inp], [outp], value_info=vi))
+    )
+    weights = {"w%d" % i: (ch, ch) for i in range(n_mvau)}
+    weights["wp"] = (ch, ch)
+    return finish(model, ["inp", "outp"] + names, weights)
+
+
+@pytest.mark.fpgadataflow
+def test_chained_tav_residual_mvau_rtl():
+    # An MVAU_rtl TAV writes a feature map's MH outputs before its first read
+    # (the read burst wraps to the end of the window). Taken at face value, each
+    # MVAU_rtl in the long branch looks one feature map (32 tokens) faster and
+    # the shortcut came out at 27; the tokens are renumbered past that phase lead.
+    depths = size_fifos(make_residual_rtl(nvec=16, ch=32, n_mvau=2), "xczu7ev-ffvc1156-2-e")
+    assert depths == {
+        "MVAU_rtl_0 -> DuplicateStreams_hls_0": 2,
+        "DuplicateStreams_hls_0 -> ElementwiseAdd_hls_0": 88,
+        "DuplicateStreams_hls_0 -> MVAU_rtl_1": 31,
+        "MVAU_rtl_1 -> MVAU_rtl_2": 31,
+        "MVAU_rtl_2 -> ElementwiseAdd_hls_0": 7,
+    }
+
+
 @pytest.mark.fpgadataflow
 def test_periodic_peak_and_floors():
     # one write per cycle, one read per cycle 10 cycles later: 10 in flight
@@ -231,6 +300,15 @@ def test_periodic_peak_and_floors():
     in_times = np.arange(0, 16) * 10
     held = causal_writes(np.zeros(4, dtype=np.int64), {"x": (in_times, None)})
     assert list(held[:2]) == [in_times[3], in_times[7]]
+    # phase lead: a one-to-one node whose TAV writes 2 tokens before its first
+    # read; an expanding node (padding) may write before reading
+    one_to_one = np.array([1, 2, 2, 2, 3, 3, 4, 5, 5, 5, 6, 6])
+    reads = np.array([0, 0, 1, 2, 3, 3, 3, 3, 4, 5, 6, 6])
+    assert phase_lead(one_to_one, [reads]) == 2
+    assert phase_lead(one_to_one * 2, [reads]) == 0
+    # the lead tokens belong to the previous frame: renumbered past them
+    held = causal_writes(np.arange(8) * 10, {"x": (np.arange(8) * 10, None)}, lead=2)
+    assert list(held) == [20, 30, 40, 50, 60, 70, 80, 90]
     # the max-plus clock: a node stalls as long as its latest input is late
     curve = np.array([1, 2, 3, 4])
     clock = local_clock(4, {"x": (np.array([0, 0, 10, 10]), curve)})
