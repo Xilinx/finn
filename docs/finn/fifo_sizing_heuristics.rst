@@ -132,10 +132,10 @@ node's latency: a 64:1 width converter measures as writing one cycle after its
 first read, which would let the consumer's schedule start before the tokens it
 needs can exist.
 
-``DeriveFIFOSizes`` runs the pass twice, with and without the rule, and keeps
-the larger depth per edge: each is a lower bound (without the rule a
-producer's run-ahead survives, with it a compacting node shows its real
-latency).
+``DeriveFIFOSizes`` runs the pass with and without the rule (and each with
+and without `node latency`_) and keeps the largest depth per edge: each is a
+lower bound (without the rule a producer's run-ahead survives, with it a
+compacting node shows its real latency).
 
 *Example:* on the linear models the causal pass is the larger one, by one
 token on one edge: ``Pool_hls_1 -> ConvolutionInputGenerator_rtl_6`` in
@@ -175,6 +175,46 @@ more words than it reads and is left alone) and was sized 1985;
 rtlsim reaches 65536 cycles per frame with it at 2077 or more, 67415 at 2048
 and 2064, 67895 at 1985-2020. With the rule it is 2077. On resnet50 (V80) the
 rule changes one edge of the causal pass by 10 tokens and no final depth.
+
+.. _node latency:
+
+Node latency
+------------
+
+*What:* every characterized node's write times are delayed by
+``TAV_PIPELINE_LATENCY`` (32 cycles) plus its ``get_tav_extra_latency()``
+(``node_latency``; ``InnerShuffle``: one page, ``I * J / SIMD`` cycles, since no
+word of a page leaves before the whole page is in its bank). In the causal pass
+a node's writes are also held to the input blocks of
+``get_tav_input_blocks()`` (``block_writes``; a dynamic ``MVAU`` computes on the
+whole matrix ``dynamic_load`` buffered from in1, while its TAV reads in1 alongside
+the compute); held words leave at most one per cycle. ``DeriveFIFOSizes`` keeps
+the passes without latency too, so no edge gets smaller than without the rule.
+
+*Why:* a TAV records the steady state at an arbitrary phase, so no latency is in
+it. In a chain that does not matter (producer and consumer move together), but
+where two paths meet (a join, a residual shortcut, the two operands of a dynamic
+``MVAU``) the slower path's latency is what the early input has to buffer. At
+slow foldings it is negligible against the period; at fast ones it is hundreds
+of tokens. 32 cycles is deliberately above the typical pipeline latency
+(single-node rtlsim of transformer_benchmark, first output against the tree
+model: width converters 1, ``HWSoftmax`` 7, ``ElementwiseMul`` 11, ``StreamingSplit``
+16, ``Thresholding_rtl`` 18, ``MVAU_rtl`` 4 to 69): an over-sized shortcut costs
+memory, an under-sized one throughput.
+
+*Example:* transformer_benchmark on ZCU104, folding ``maximize`` (1280 cycles a
+frame). The residual shortcut ``Thresholding_rtl_1 -> ElementwiseAdd_hls_0`` was
+sized 1232 (1755 cycles a frame in rtlsim); it needs 1501 to 1550 for 1280.
+With the rule it is 2004 (pipeline latency alone 1769, plus the dynamic
+``MVAU`` hold 1799, plus the ``InnerShuffle`` page 2004). The feature test
+reaches 1280 cycles a frame in rtlsim, with 246 kbit of FIFO storage against
+210. The committed folding (65536 cycles) moves
+from 2077 (needs 2065 to 2077) to 2140, 91.7 kbit against 89.7. On the linear
+models (bnn-pynq, cybersecurity-mlp, gtsrb, kws, mobilenet_v1, vgg10-radioml,
+espcn) no depth changes; total FIFO storage grows by 0.1 to 0.7 % on resnet50,
+resnet18 and yolov8, 1.2 % on bert, 7 to 16 % on transformer_vision, _language
+and _radioml (offline re-sizing of the same TAVs). The sizing pass takes twice
+as long (four passes instead of two; 210 s against 108 s on resnet50).
 
 Two-frame split
 ---------------
