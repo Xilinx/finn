@@ -35,13 +35,13 @@ from qonnx.util.basic import get_by_name
 
 
 class InsertTLastMarker(Transformation):
-    """Ensure that the graph is started/terminated with a TLastMarker_hls node, inserting
+    """Ensure that the graph is started/terminated with a TLastMarker node, inserting
     one if necessary.
     Use constructor args to determine type of TLastMarker to be inserted.
     More information available on the TLastMarker documentation.
     """
 
-    def __init__(self, both=False, external=True, dynamic=True):
+    def __init__(self, both=False, external=True, dynamic=False):
         super().__init__()
         self.dyniters = dynamic
         self.external = external
@@ -52,7 +52,7 @@ class InsertTLastMarker(Transformation):
         graph_out_name = model.get_first_global_out()
         final_node = model.find_producer(graph_out_name)
         graph_modified = False
-        if final_node.op_type != "TLastMarker_hls" and not (
+        if final_node.op_type not in ("TLastMarker_hls", "TLastMarker_rtl") and not (
             final_node.op_type == "IODMA_hls"
             and get_by_name(final_node.attribute, "direction").s.decode("UTF-8") == "out"
         ):
@@ -71,7 +71,7 @@ class InsertTLastMarker(Transformation):
             # reroute final node output to final_node_out_name
             final_node.output[0] = final_node_out.name
             tlast_node = oh.make_node(
-                "TLastMarker_hls",
+                "TLastMarker_rtl",
                 [final_node_out.name],
                 [graph_out_name],
                 NumIters=num_iters,
@@ -80,7 +80,7 @@ class InsertTLastMarker(Transformation):
                 DynIters=(1 if self.dyniters else 0),
                 Direction="out",
                 Protocol=("external" if self.external else "internal"),
-                domain="finn.custom_op.fpgadataflow.hls",
+                domain="finn.custom_op.fpgadataflow.rtl",
                 backend="fpgadataflow",
             )
             model.graph.node.append(tlast_node)
@@ -109,7 +109,7 @@ class InsertTLastMarker(Transformation):
                 ):
                     continue
                 # 2. node is either a TLastMarker or an input IODMA
-                if first_node.op_type != "TLastMarker_hls" and not (
+                if first_node.op_type not in ("TLastMarker_hls", "TLastMarker_rtl") and not (
                     first_node.op_type == "IODMA_hls"
                     and get_by_name(first_node.attribute, "direction").s.decode("UTF-8") == "in"
                 ):
@@ -147,7 +147,7 @@ class InsertTLastMarker(Transformation):
                     # reroute final node output to first_node_in_name
                     first_node.input[inp_idx] = first_node_in.name
                     tlast_node = oh.make_node(
-                        "TLastMarker_hls",
+                        "TLastMarker_rtl",
                         [graph_in_name],
                         [first_node_in.name],
                         NumIters=num_iters,
@@ -156,7 +156,7 @@ class InsertTLastMarker(Transformation):
                         DynIters=(1 if self.dyniters else 0),
                         Direction="in",
                         Protocol=("external" if self.external else "internal"),
-                        domain="finn.custom_op.fpgadataflow.hls",
+                        domain="finn.custom_op.fpgadataflow.rtl",
                         backend="fpgadataflow",
                     )
                     model.graph.node.insert(insert_idx, tlast_node)
