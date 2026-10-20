@@ -333,6 +333,20 @@ class HWCustomOp(CustomOp):
         Default: none."""
         return {}
 
+    def get_tav_input_window(self, ind=0):
+        """For the FIFO sizer's join floor: ``(in_words, out_words)``, output
+        block *b* of ``out_words`` words needs the first ``(b + 1) * in_words``
+        words of input ``ind``. Default: the blocks of ``get_tav_input_blocks``,
+        else the ratio of the folded frame sizes in lowest terms (a 48:1 width
+        converter needs 48 words a word, a one-to-one node one)."""
+        blocks = self.get_tav_input_blocks()
+        if ind in blocks:
+            return blocks[ind]
+        n_in = int(np.prod(self.get_folded_input_shape(ind)[:-1]))
+        n_out = int(np.prod(self.get_folded_output_shape()[:-1]))
+        g = np.gcd(n_in, n_out)
+        return n_in // g, n_out // g
+
     def derive_token_access_vectors(
         self,
         model,

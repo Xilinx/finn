@@ -1754,6 +1754,13 @@ class MVAU(HWCustomOp):
         burst = self.get_nodeattr("MW") * self.get_nodeattr("MH") // self.get_nodeattr("PE")
         return {1: (burst, n_reps * nf)}
 
+    def get_tav_input_window(self, ind=0):
+        """The ``MH / PE`` outputs of a vector need all ``MW / SIMD`` words of it."""
+        if ind == 0:
+            sf = self.get_nodeattr("MW") // self.get_nodeattr("SIMD")
+            return sf, self.get_nodeattr("MH") // self.get_nodeattr("PE")
+        return super().get_tav_input_window(ind)
+
     def derive_token_access_vectors(
         self, model, period, strategy, fpga_part, clk_period, op_type, override_dict=None
     ):

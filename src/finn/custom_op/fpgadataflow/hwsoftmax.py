@@ -135,3 +135,9 @@ class HWSoftmax(HWCustomOp):
         fold = int(normal_ishape[-1] / simd)
         folded_ishape = normal_ishape[:-1] + [fold, simd]
         return tuple(folded_ishape)
+
+    def get_tav_input_window(self, ind=0):
+        """A vector is normalized by its maximum and sum: none of its outputs
+        leaves before all of it is in."""
+        fold = self.get_folded_input_shape()[-2]
+        return fold, fold

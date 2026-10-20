@@ -833,6 +833,105 @@ def derive_chained_tav_depths(model, global_period, causal=True, latency=True):
     return depths
 
 
+# ---------------------------------------------------------------------------
+# Stage 5: deadlock floor at joins
+# ---------------------------------------------------------------------------
+
+#: Headroom of a join floor (``join_window_floors``) over the structural
+#: requirement, as a fraction of it: the requirement counts only the
+#: input windows, not a node that reads ahead of its window.
+JOIN_FLOOR_MARGIN = 0.25
+
+
+def _frame_words(inst, ind, output=False):
+    shape = inst.get_folded_output_shape(ind) if output else inst.get_folded_input_shape(ind)
+    return int(np.prod(shape[:-1]))
+
+
+def join_window_floors(model, nodes):
+    """Deadlock floor for the inputs of every join that reconverges a fork.
+
+    A fork writes all its outputs together, so it stalls as soon as one
+    branch's FIFOs are full. A branch with large input windows (a 48:1 width
+    converter, an MVAU vector of ``MW / SIMD`` words, a softmax row) reads many
+    fork words before its first output reaches the join, and the other
+    branches have to buffer what the fork writes meanwhile. The timeline pass
+    cannot see this when a TAV writes before it reads (MVAU tree models) or a
+    fork is transparent, and a shortcut sized below it deadlocks.
+
+    Walking back from the join to the fork through ``get_tav_input_window``
+    gives ``need_i(k)``, the fork words input *i* needs for its first *k*
+    tokens. To deliver token *k* on every input the fork has to write
+    ``W(k) = max_i need_i(k)`` words, so input *i* holds the tokens it makes of
+    the first ``W(k) - 1`` words minus the ``k - 1`` the join took. The
+    floor is the largest such backlog over a frame, plus ``JOIN_FLOOR_MARGIN``.
+    Returns ``{tensor: depth}`` for the join inputs.
+    """
+    names = {n.name for n in nodes}
+    order = {n.name: i for i, n in enumerate(model.graph.node)}
+
+    def producer(t):
+        p = model.find_producer(t)
+        return p if p is not None and p.name in names else None
+
+    def ancestors(tensors):
+        seen, stack = set(), [producer(t) for t in tensors]
+        while stack:
+            n = stack.pop()
+            if n is None or n.name in seen:
+                continue
+            seen.add(n.name)
+            stack.extend(producer(t) for t in n.input)
+        return seen
+
+    floors = {}
+    for join in nodes:
+        if not is_stream_join(join):
+            continue
+        ins = [t for t in join.input if producer(t) is not None]
+        if len(ins) < 2:
+            continue
+        common = set.intersection(*[ancestors([t]) for t in ins])
+        if not common:
+            continue
+        fork = model.get_node_from_name(max(common, key=order.get))
+        above = ancestors(fork.input)
+
+        def need(t, k):
+            # fork input words for the first k tokens on t; None off the fork
+            p = producer(t)
+            if p is None or p.name in above:
+                return None
+            inst = registry.getCustomOp(p)
+            if p.name == fork.name:
+                n_in = _frame_words(inst, 0)
+                n_out = _frame_words(inst, list(p.output).index(t), output=True)
+                return -(-k * n_in // n_out)
+            res = None
+            for i, x in enumerate(p.input):
+                if producer(x) is None:
+                    continue
+                in_words, out_words = inst.get_tav_input_window(i)
+                r = need(x, -(-k // out_words) * in_words)
+                if r is not None:
+                    res = r if res is None else np.maximum(res, r)
+            return res
+
+        try:
+            k = np.arange(1, _frame_words(registry.getCustomOp(join), 0) + 1, dtype=np.int64)
+            needs = [need(t, k) for t in ins]
+        except Exception:
+            continue
+        if any(n is None for n in needs):
+            continue
+        total = np.max(np.stack(needs), axis=0)
+        for t, n in zip(ins, needs):
+            backlog = int(np.max(np.searchsorted(n, total - 1, side="right") - (k - 1)))
+            if backlog > 0:
+                floors[t] = int(np.ceil(backlog * (1 + JOIN_FLOOR_MARGIN)))
+    return floors
+
+
 class DeriveFIFOSizes(Transformation):
     """Prerequisite: DeriveTokenAccessVectors already called on the graph.
 
@@ -864,11 +963,15 @@ class DeriveFIFOSizes(Transformation):
                 for tensor, depth in found.items():
                     if depth > depths.get(tensor, 0):
                         depths[tensor] = depth
+        # no join input below what the fork has to write before the join can start
+        hw_nodes = [n for n in model.graph.node if is_hls_node(n) or is_rtl_node(n)]
+        for tensor, depth in join_window_floors(model, hw_nodes).items():
+            if depth > depths.get(tensor, 0):
+                depths[tensor] = depth
 
         # InsertFIFO takes max(producer.outFIFODepths, consumer.inFIFODepths),
         # so depths already on the nodes (e.g. from a folding config) would
         # override the sizer. Reset both, then write both.
-        hw_nodes = [n for n in model.graph.node if is_hls_node(n) or is_rtl_node(n)]
         for node in hw_nodes:
             inst = registry.getCustomOp(node)
             inst.set_nodeattr("inFIFODepths", [self.minimum_size] * len(node.input))

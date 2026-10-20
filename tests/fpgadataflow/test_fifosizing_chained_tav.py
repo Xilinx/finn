@@ -54,6 +54,7 @@ from finn.transformation.fpgadataflow.derive_characteristic import (
     burst_above_rate,
     causal_writes,
     derive_chained_tav_depths,
+    join_window_floors,
     local_clock,
     node_latency,
     peak_occupancy,
@@ -399,3 +400,29 @@ def test_node_latency_and_block_writes():
     assert list(held) == [70, 71, 72, 73, 74, 75, 150, 151, 152, 153, 154, 155]
     # an input without a schedule (weights) holds nothing
     assert list(block_writes(writes, mvau, {})) == list(writes)
+
+
+@pytest.mark.fpgadataflow
+def test_join_window_floor():
+    # Fork (PE = 1) -> (shortcut | MVAU at SIMD = PE = 1) -> join. The MVAU
+    # reads a whole 64-word vector before its first output, the fork writes
+    # both outputs together: the shortcut has to take 63 words before the join
+    # can start, or the fork stalls and the graph deadlocks. The tree-model
+    # TAVs miss it (the shortcut came out at 2); the floor is 63 plus 25 %.
+    model, _ = characterize(make_residual(nvec=16, ch=64, simd=1, pe=1))
+    mvau = getCustomOp(model.graph.node[1])
+    assert mvau.get_tav_input_window(0) == (64, 64)
+    assert join_window_floors(model, list(model.graph.node)) == {"short": 79}
+    depths = size_fifos(make_residual(nvec=16, ch=64, simd=1, pe=1))
+    assert depths == {
+        "DuplicateStreams_hls_0 -> ElementwiseAdd_hls_0": 79,
+        "DuplicateStreams_hls_0 -> MVAU_hls_0": 2,
+        "MVAU_hls_0 -> ElementwiseAdd_hls_0": 2,
+    }
+    # fork at PE = 64, MVAU at SIMD = 64: the MVAU needs one fork word a
+    # vector, the 1:64 width converter in the shortcut makes 64 join words of
+    # it. Nothing to buffer beyond what the TAVs give.
+    model, _ = characterize(make_residual(nvec=16, ch=64, simd=64, pe=1))
+    dwc = getCustomOp(model.graph.node[1])
+    assert dwc.get_tav_input_window(0) == (1, 64)
+    assert join_window_floors(model, list(model.graph.node)) == {}

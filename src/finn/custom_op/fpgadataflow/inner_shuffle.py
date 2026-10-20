@@ -122,6 +122,11 @@ class InnerShuffle(HWCustomOp):
         in_shape = self.get_nodeattr("transpose_in_shape")
         return int(in_shape[-2]) * int(in_shape[-1]) // self.get_nodeattr("SIMD")
 
+    def get_tav_input_window(self, ind=0):
+        """A page leaves only once all of it is in."""
+        page = self.get_tav_extra_latency()
+        return page, page
+
     def get_tree_model(self):
         """A page in at one word per cycle, a word out every two.
 
