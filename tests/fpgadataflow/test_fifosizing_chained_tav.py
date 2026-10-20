@@ -408,14 +408,16 @@ def test_join_window_floor():
     # reads a whole 64-word vector before its first output, the fork writes
     # both outputs together: the shortcut has to take 63 words before the join
     # can start, or the fork stalls and the graph deadlocks. The tree-model
-    # TAVs miss it (the shortcut came out at 2); the floor is 63 plus 25 %.
+    # TAVs miss it (the shortcut came out at 2). Paced, the MVAU emits a
+    # vector's 64 outputs while the fork writes the next vector: backlog 64,
+    # floor 64 plus 25 %.
     model, _ = characterize(make_residual(nvec=16, ch=64, simd=1, pe=1))
     mvau = getCustomOp(model.graph.node[1])
     assert mvau.get_tav_input_window(0) == (64, 64)
-    assert join_window_floors(model, list(model.graph.node)) == {"short": 79}
+    assert join_window_floors(model, list(model.graph.node)) == {"short": 80}
     depths = size_fifos(make_residual(nvec=16, ch=64, simd=1, pe=1))
     assert depths == {
-        "DuplicateStreams_hls_0 -> ElementwiseAdd_hls_0": 79,
+        "DuplicateStreams_hls_0 -> ElementwiseAdd_hls_0": 80,
         "DuplicateStreams_hls_0 -> MVAU_hls_0": 2,
         "MVAU_hls_0 -> ElementwiseAdd_hls_0": 2,
     }
@@ -426,3 +428,9 @@ def test_join_window_floor():
     dwc = getCustomOp(model.graph.node[1])
     assert dwc.get_tav_input_window(0) == (1, 64)
     assert join_window_floors(model, list(model.graph.node)) == {}
+    # two MVAU_rtl (SIMD = PE = 1, 1024 cycles a vector) in series: the second
+    # only starts a vector once the first has emitted all of it, so paced the
+    # shortcut holds two vectors (63) where the deadlock bound is one (31);
+    # floor 79, below the 90 the TAVs give (test_chained_tav_residual_mvau_rtl)
+    model, _ = characterize(make_residual_rtl(nvec=16, ch=32, n_mvau=2), "xczu7ev-ffvc1156-2-e")
+    assert join_window_floors(model, list(model.graph.node)) == {"short": 79}

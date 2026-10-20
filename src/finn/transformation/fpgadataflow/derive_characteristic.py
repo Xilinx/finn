@@ -848,27 +848,43 @@ def _frame_words(inst, ind, output=False):
     return int(np.prod(shape[:-1]))
 
 
-def join_window_floors(model, nodes):
-    """Deadlock floor for the inputs of every join that reconverges a fork.
+def join_window_floors(model, nodes, period=None):
+    """Floor for the inputs of every join that reconverges a fork.
 
     A fork writes all its outputs together, so it stalls as soon as one
     branch's FIFOs are full. A branch with large input windows (a 48:1 width
     converter, an MVAU vector of ``MW / SIMD`` words, a softmax row) reads many
     fork words before its first output reaches the join, and the other
     branches have to buffer what the fork writes meanwhile. The timeline pass
-    cannot see this when a TAV writes before it reads (MVAU tree models) or a
-    fork is transparent, and a shortcut sized below it deadlocks.
+    cannot see this when a TAV writes before it reads (MVAU tree models) and
+    the fork is transparent.
 
     Walking back from the join to the fork through ``get_tav_input_window``
     gives ``need_i(k)``, the fork words input *i* needs for its first *k*
-    tokens. To deliver token *k* on every input the fork has to write
-    ``W(k) = max_i need_i(k)`` words, so input *i* holds the tokens it makes of
-    the first ``W(k) - 1`` words minus the ``k - 1`` the join took. The
-    floor is the largest such backlog over a frame, plus ``JOIN_FLOOR_MARGIN``.
-    Returns ``{tensor: depth}`` for the join inputs.
+    tokens. Two backlogs are taken over two frames, the larger counts:
+
+    * deadlock: to deliver join token *k* on every input the fork has to write
+      ``W(k) = max_i need_i(k)`` words, so input *i* holds the tokens it makes
+      of the first ``W(k) - 1`` words minus the ``k - 1`` the join took;
+    * throughput: the fork writes at the graph's period, and every node emits
+      word *j* once its window is in and no faster than its own
+      ``get_exp_cycles()`` allows, ``T(j) = max(T_in(need(j)), T(j - 1) + r)``.
+      Input *i* holds what has arrived when the join takes token *k* minus
+      ``k - 1``. A window node at the pacer's rate keeps the shortcut a window
+      plus its own output time ahead.
+
+    The floor is the larger backlog plus ``JOIN_FLOOR_MARGIN``. Returns
+    ``{tensor: depth}`` for the join inputs.
     """
     names = {n.name for n in nodes}
     order = {n.name: i for i, n in enumerate(model.graph.node)}
+    if not period:
+        period = 0
+        for n in nodes:
+            try:
+                period = max(period, int(registry.getCustomOp(n).get_exp_cycles()))
+            except Exception:
+                pass
 
     def producer(t):
         p = model.find_producer(t)
@@ -884,6 +900,9 @@ def join_window_floors(model, nodes):
             stack.extend(producer(t) for t in n.input)
         return seen
 
+    def ceil_div(a, b):
+        return -(-a // b)
+
     floors = {}
     for join in nodes:
         if not is_stream_join(join):
@@ -896,38 +915,67 @@ def join_window_floors(model, nodes):
             continue
         fork = model.get_node_from_name(max(common, key=order.get))
         above = ancestors(fork.input)
+        memo = {}
 
-        def need(t, k):
-            # fork input words for the first k tokens on t; None off the fork
+        def walk(t, m):
+            """``(need, times)`` of the first ``m`` tokens on ``t``: the fork
+            input words they need and their arrival times. None off the fork."""
+            if t in memo and len(memo[t][0]) >= m:
+                return memo[t][0][:m], memo[t][1][:m]
             p = producer(t)
             if p is None or p.name in above:
                 return None
             inst = registry.getCustomOp(p)
+            k = np.arange(1, m + 1, dtype=np.int64)
+            o = list(p.output).index(t)
+            n_out = _frame_words(inst, o, output=True)
             if p.name == fork.name:
                 n_in = _frame_words(inst, 0)
-                n_out = _frame_words(inst, list(p.output).index(t), output=True)
-                return -(-k * n_in // n_out)
-            res = None
-            for i, x in enumerate(p.input):
-                if producer(x) is None:
-                    continue
-                in_words, out_words = inst.get_tav_input_window(i)
-                r = need(x, -(-k // out_words) * in_words)
-                if r is not None:
-                    res = r if res is None else np.maximum(res, r)
+                need = ceil_div(k * n_in, n_out)
+                res = need, need * float(period) / n_in
+            else:
+                need, ready = None, None
+                for i, x in enumerate(p.input):
+                    if producer(x) is None:
+                        continue
+                    in_words, out_words = inst.get_tav_input_window(i)
+                    idx = ceil_div(k, out_words) * in_words
+                    up = walk(x, int(idx[-1]))
+                    if up is None:
+                        continue
+                    n_i, t_i = up[0][idx - 1], up[1][idx - 1]
+                    need = n_i if need is None else np.maximum(need, n_i)
+                    ready = t_i if ready is None else np.maximum(ready, t_i)
+                if need is None:
+                    return None
+                try:
+                    rate = float(inst.get_exp_cycles()) / n_out
+                except Exception:
+                    rate = 0.0
+                res = need, rate * k + np.maximum.accumulate(ready - rate * k)
+            memo[t] = res
             return res
 
         try:
-            k = np.arange(1, _frame_words(registry.getCustomOp(join), 0) + 1, dtype=np.int64)
-            needs = [need(t, k) for t in ins]
+            n_join = _frame_words(registry.getCustomOp(join), 0)
+            k = np.arange(1, 2 * n_join + 1, dtype=np.int64)
+            walks = [walk(t, len(k)) for t in ins]
         except Exception:
             continue
-        if any(n is None for n in needs):
+        if any(w is None for w in walks):
             continue
-        total = np.max(np.stack(needs), axis=0)
-        for t, n in zip(ins, needs):
-            backlog = int(np.max(np.searchsorted(n, total - 1, side="right") - (k - 1)))
-            if backlog > 0:
+        total = np.max(np.stack([w[0] for w in walks]), axis=0)
+        taken = np.max(np.stack([w[1] for w in walks]), axis=0)
+        try:
+            rate = float(registry.getCustomOp(join).get_exp_cycles()) / n_join
+        except Exception:
+            rate = 0.0
+        taken = rate * k + np.maximum.accumulate(taken - rate * k)
+        for t, (need, times) in zip(ins, walks):
+            deadlock = np.searchsorted(need, total - 1, side="right") - (k - 1)
+            paced = np.searchsorted(times, taken, side="right") - (k - 1)
+            backlog = int(max(deadlock.max(), paced.max()))
+            if backlog > 1:
                 floors[t] = int(np.ceil(backlog * (1 + JOIN_FLOOR_MARGIN)))
     return floors
 
@@ -965,7 +1013,7 @@ class DeriveFIFOSizes(Transformation):
                         depths[tensor] = depth
         # no join input below what the fork has to write before the join can start
         hw_nodes = [n for n in model.graph.node if is_hls_node(n) or is_rtl_node(n)]
-        for tensor, depth in join_window_floors(model, hw_nodes).items():
+        for tensor, depth in join_window_floors(model, hw_nodes, self.period).items():
             if depth > depths.get(tensor, 0):
                 depths[tensor] = depth
 
