@@ -50,7 +50,7 @@ if __name__ == "__main__":
         "--batchsize", help="number of samples for inference", type=int, default=1000
     )
     parser.add_argument(
-        "--platform", help="Target platform: zynq-iodma alveo", default="zynq-iodma"
+        "--platform", help="Target platform: pynq-iodma alveo", default="pynq-iodma"
     )
     parser.add_argument(
         "--bitfile",

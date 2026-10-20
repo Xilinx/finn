@@ -16,6 +16,7 @@ import time
 
 import finn.builder.build_dataflow_config as build_cfg
 from finn.util.basic import (
+    is_versal,
     make_build_dir,
     pynq_part_map,
     slash_part_map,
@@ -65,8 +66,8 @@ def bitfile_output_files(board):
     """Bitfile + synthesis-report artifacts produced by ``step_synthesize_bitfile``.
 
     The artifacts differ by shell flow (resolved from the ``board`` via FINN's
-    part maps): Vivado/Zynq emits a ``.bit`` plus a ``.hwh`` and a post-route
-    timing report, Vitis/Alveo emits a ``.xclbin``, and SLASH (V80) emits a
+    part maps): Vivado/Zynq emits a ``.bit`` (``.pdi`` on Versal) plus a ``.hwh``
+    and a post-route timing report, Vitis/Alveo emits a ``.xclbin``, and SLASH (V80) emits a
     ``.vbin`` plus a ``slash_report.xml``.
     """
     common = [
@@ -74,8 +75,10 @@ def bitfile_output_files(board):
         "report/post_synth_resources.json",
     ]
     if board in pynq_part_map:
+        # Versal boards (e.g. VCK190) emit a .pdi instead of a .bit
+        accel_ext = "pdi" if is_versal(pynq_part_map[board]) else "bit"
         return [
-            "bitfile/finn-accel.bit",
+            "bitfile/finn-accel.%s" % accel_ext,
             "bitfile/finn-accel.hwh",
             "report/post_route_timing.rpt",
         ] + common

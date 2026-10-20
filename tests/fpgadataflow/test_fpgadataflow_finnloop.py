@@ -1,5 +1,6 @@
 import pytest
 
+import glob
 import numpy as np
 import os
 import re
@@ -20,7 +21,12 @@ import finn.core.onnx_exec as oxe
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.util.basic import make_build_dir
+from finn.util.basic import (
+    get_pynq_golden_dir,
+    get_vivado_version,
+    make_build_dir,
+    pynq_golden_files,
+)
 
 verif_steps = [
     "folded_hls_cppsim",
@@ -619,12 +625,9 @@ def test_finnloop_end2end_mlo(
         and not (eltw_param_dtype == "FLOAT32" and non_mlo_nodes)
     ):
         pytest.skip("Tiled MVAU only exercised on selected elementwise configs")
-    # Check vivado version
-    vivado_path = os.environ.get("XILINX_VIVADO")
-    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
-    year, minor = int(match.group(1)), int(match.group(2))
-    if (year, minor) < (2024, 2):
-        pytest.skip("""At least Vivado version 2024.2 needed for MLO.""")
+    vivado_version = get_vivado_version()
+    if vivado_version is None or vivado_version < (2024, 2):
+        pytest.skip("At least Vivado version 2024.2 needed for MLO.")
     loop_body_models = create_chained_loop_bodies(
         dim,
         dim,
@@ -905,14 +908,26 @@ def test_finnloop_end2end_mlo(
 
 
 @pytest.mark.parametrize(
-    "dim, simd, pe, bitwidth, weight_bitwidth",
+    "board, dim, simd, pe, mvau_th, helper_pe, bitwidth, weight_bitwidth",
     [
         # Coverage matrix over {folding} x {256-divisibility of the element widths}.
-        (16, 1, 1, 8, 8),  # unfolded, divisor (8|256): baseline PASS
-        (8, 8, 4, 4, 4),  # folded, divisor (4|256, DMA_PE=64): guards word-aligned image
-        #   stays byte-identical for divisors at the real folding
-        (8, 8, 4, 3, 3),  # folded, non-divisor (3 wasted bits/word): exercises the
-        #   DMA-word-aligned fix on both the activation and weight paths
+        ("AUP-ZU3_8GB", 16, 1, 1, 1, 2, 8, 8),  # unfolded, divisor (8|256): baseline PASS
+        ("AUP-ZU3_8GB", 8, 8, 4, 1, 2, 4, 4),  # folded, divisor (4|256, DMA_PE=64): guards
+        #   word-aligned image stays byte-identical for divisors at the real folding
+        ("AUP-ZU3_8GB", 8, 8, 4, 1, 2, 3, 3),  # folded, non-divisor (3 wasted bits/word):
+        #   exercises the DMA-word-aligned fix on both the activation and weight paths
+        pytest.param(
+            "AUP-ZU3_8GB",
+            12,
+            3,
+            6,
+            1,
+            6,
+            8,
+            8,
+            marks=pytest.mark.xfail(reason="Known bug in the expected cycle count"),
+        ),  # folded, helper PE > 2: VCK190 folding on ZynqMP
+        ("VCK190", 12, 3, 6, 3, 6, 8, 8),  # embedded Versal, tiled MVAU (DSP58)
     ],
 )
 # iteration count, number of models chained together
@@ -927,9 +942,12 @@ def test_finnloop_end2end_mlo(
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_finnloop_end2end_mlo_ddr(
+    board,
     dim,
     simd,
     pe,
+    mvau_th,
+    helper_pe,
     iteration,
     elemwise_optype,
     rhs_shape,
@@ -938,18 +956,26 @@ def test_finnloop_end2end_mlo_ddr(
     tail_node,
     request,
 ):
-    # End-to-end MLO+DDR flow parametrized by data/weight bitwidth and MVAU folding.
+    # End-to-end MLO+DDR flow parametrized by board, data/weight bitwidth and MVAU
+    # folding. The shell flow (VIVADO_ZYNQ / VIVADO_VERSAL) is resolved from the board.
     data_dtype = DataType[f"INT{bitwidth}"]
     eltw_param_dtype = data_dtype.name
     # output dtype of adding two `data_dtype` values needs one extra bit
     add_out_dtype = DataType[f"INT{data_dtype.bitwidth() + 1}"]
 
-    # Check vivado version
-    vivado_path = os.environ.get("XILINX_VIVADO")
-    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
-    year, minor = int(match.group(1)), int(match.group(2))
-    if (year, minor) < (2024, 2):
-        pytest.skip("""At least Vivado version 2024.2 needed for MLO.""")
+    vivado_version = get_vivado_version()
+    if vivado_version is None or vivado_version < (2024, 2):
+        pytest.skip("At least Vivado version 2024.2 needed for MLO.")
+    if board == "VCK190":
+        if vivado_version != (2025, 2):
+            pytest.skip("Vivado version 2025.2 required for the VIVADO_VERSAL flow.")
+        golden_dir = get_pynq_golden_dir(board)
+        missing = [f for f in pynq_golden_files if not os.path.isfile(os.path.join(golden_dir, f))]
+        if missing:
+            pytest.skip(
+                f"VCK190 golden reference files missing from {golden_dir}: "
+                f"{', '.join(missing)}. Build them with FINN_VCK190_GOLDEN=1 ./run-docker.sh"
+            )
     loop_body_models = create_chained_loop_bodies(
         dim,
         dim,
@@ -960,6 +986,8 @@ def test_finnloop_end2end_mlo_ddr(
         dtype=data_dtype,
         mvau_simd=simd,
         mvau_pe=pe,
+        mvau_th=mvau_th,
+        helper_pe=helper_pe,
         weight_bitwidth=weight_bitwidth,
     )
     nodes_per_body = len(loop_body_models[0].graph.node)
@@ -1027,8 +1055,7 @@ def test_finnloop_end2end_mlo_ddr(
         output_dir=tmp_output_dir,
         steps=steps,
         synth_clk_period_ns=10.0,
-        board="AUP-ZU3_8GB",
-        shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
+        board=board,
         rtlsim_batch_size=100,
         standalone_thresholds=True,
         mlo=True,
@@ -1052,6 +1079,11 @@ def test_finnloop_end2end_mlo_ddr(
         ],
     )
     build.build_dataflow_cfg(tmp_output_dir + "/mlo_model.onnx", cfg)
+
+    verify_fails = glob.glob(tmp_output_dir + "/verification_output/*FAIL*")
+    if verify_fails:
+        names = ", ".join(sorted(os.path.basename(p) for p in verify_fails))
+        pytest.fail(f"verification mismatch in build output: {names}")
 
     # check if expected files are there
     assert os.path.isfile(tmp_output_dir + "/loop-body-template.onnx")
