@@ -437,7 +437,9 @@ node's ``get_tav_input_window()``: output block *b* of ``out_words`` words
 needs the first ``(b + 1) * in_words`` words of the input (default: the ratio
 of the folded frame sizes in lowest terms, so a 48:1 width converter needs 48
 words a word; ``MVAU`` in0 ``(MW / SIMD, MH / PE)``, a vector; ``HWSoftmax`` a
-row; ``InnerShuffle`` a page; a dynamic ``MVAU``'s in1 the whole matrix). That
+row; ``InnerShuffle`` a page; a dynamic ``MVAU``'s in1 the whole matrix; a node
+that reorders a frame gives the need of every output word instead,
+``get_tav_input_need()``, e.g. ``OuterShuffle`` from its permutation). That
 gives ``need_i(k)``, the fork words input *i* needs for its first *k* tokens,
 and two backlogs over two frames:
 
@@ -478,12 +480,18 @@ backlog 191, floor 239. transformer_vision: the MLP shortcuts were 8
 (optimizer folding at the target), 92 / 108 deadlocked (512 completes);
 floor 419 (paced backlog 335). The attention shortcuts take the floor too
 (radioml 7680 against 6449 from the timeline: the dynamic ``MVAU`` needs the
-whole matrix and two ``InnerShuffle`` pages lie in front of it). Total FIFO
-storage (offline re-sizing of the same TAVs): transformer_benchmark +4.7 %
-(attention shortcut 2140 -> 2698; it needs 2065 to 2077), transformer_radioml,
-_vision and _language +2.5 to 2.6 %, resnet50 +0.2 %; bnn-pynq,
-cybersecurity-mlp, gtsrb, kws, mobilenet_v1, vgg10-radioml, espcn, resnet18,
-yolov8 and bert unchanged (their joins are above the floor).
+whole matrix and two ``InnerShuffle`` pages lie in front of it). bert, small
+optimizer folding: the attention shortcut (its fork is fed by the graph input,
+so the timeline pass leaves it at 2) got 6785 with ``OuterShuffle`` taken as
+one-to-one and hung (no output in 9.5 M cycles); at 98304 it runs at the
+estimate (786432 cycles a frame); with the ``OuterShuffle`` need the floor is
+118545. Total FIFO storage (offline re-sizing of the same TAVs):
+transformer_benchmark +4.7 % (attention shortcut 2140 -> 2698; it needs 2065
+to 2077), transformer_radioml, _vision and _language +2.5 to 2.6 %, bert
++17 % (attention shortcut 21338 -> 29798, 128 bit wide; 21338 passes),
+resnet50 +0.2 %; bnn-pynq, cybersecurity-mlp, gtsrb, kws, mobilenet_v1,
+vgg10-radioml, espcn, resnet18 and yolov8 unchanged (their joins are above
+the floor).
 
 Idle-window floor
 -----------------
