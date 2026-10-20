@@ -9,7 +9,7 @@ from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
-from qonnx.transformation.general import RemoveUnusedTensors
+from qonnx.transformation.general import GiveUniqueNodeNames, RemoveUnusedTensors
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.merge_onnx_models import MergeONNXModels
@@ -903,6 +903,168 @@ def test_finnloop_end2end_mlo(
         assert os.path.isfile(
             tmp_output_dir + "/stitched_ip/finn_design.dcp"
         ), f"Check vivado.log in {tmp_output_dir}/stitched_ip"
+
+
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_finnloop_end2end_mlo_batched_verification():
+    """verify_batch_size: 5 distinct frames go through the FINNLoop in one stitched-IP
+    rtlsim run, while the non-HW parent Transpose runs per frame."""
+    model, *bodies = create_chained_loop_bodies(16, 16, 3)
+    nodes_per_body = len(model.graph.node)
+    for body in bodies:
+        model = model.transform(MergeONNXModels(body))
+    # as the first node, the Transpose stays non-HW and lands in dataflow_parent.onnx
+    inp, outp = model.graph.input[0].name, model.graph.output[0].name
+    model.find_consumer(inp).input[0] = "tr_out"
+    model.graph.node.insert(0, helper.make_node("Transpose", [inp], ["tr_out"], perm=[0, 2, 1, 3]))
+    model = model.transform(InferShapes()).transform(InferDataTypes())
+
+    x = gen_finn_dt_tensor(DataType["INT8"], (5, 3, 3, 16))
+    ref = model.transform(PrepareCppSim()).transform(CompileCppSim())
+    ref = ref.transform(SetExecMode("cppsim"))
+    y_ref = np.concatenate([oxe.execute_onnx(ref, {inp: x[i : i + 1]})[outp] for i in range(5)])
+
+    out_dir = make_build_dir("build_mlo_batched_verification_")
+    np.save(out_dir + "/input.npy", x)
+    np.save(out_dir + "/expected_output.npy", y_ref)
+    model.save(out_dir + "/mlo_model.onnx")
+    cfg = build_cfg.DataflowBuildConfig(
+        output_dir=out_dir,
+        steps=build_cfg.default_build_dataflow_steps[2:],  # already HW, skip model phases
+        synth_clk_period_ns=10.0,
+        board="V80",
+        mlo=True,
+        loop_body_hierarchy=[["", "layers.0"]],
+        loop_body_range=(model.graph.node[1], model.graph.node[nodes_per_body]),
+        verify_steps=["stitched_ip_rtlsim"],
+        verify_input_npy=out_dir + "/input.npy",
+        verify_expected_output_npy=out_dir + "/expected_output.npy",
+        verify_batch_size=5,
+        verify_save_full_context=True,
+        mute_config_assertions=True,  # folding is pinned on the nodes
+        generate_outputs=[build_cfg.DataflowOutputType.STITCHED_IP],
+    )
+    assert build.build_dataflow_cfg(out_dir + "/mlo_model.onnx", cfg) == 0
+
+    parent = ModelWrapper(out_dir + "/intermediate_models/dataflow_parent.onnx")
+    assert parent.get_nodes_by_op_type("Transpose")
+    # a single SUCCESS file: all 5 frames were checked in one stitched-IP rtlsim run
+    results = os.listdir(out_dir + "/verification_output")
+    assert results == ["verify_stitched_ip_rtlsim_0_SUCCESS.npz"], results
+
+
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_finnloop_end2end_mlo_index_deadlock():
+    """Run a batch of frames through a FINNLoop in one stitched-IP rtlsim run.
+    With several frames in flight, the loop control interleaves fresh input frames
+    with frames coming back from the intermediate frames in external memory.
+    This test guards against a deadlock where the mux has committed to a fresh input
+    frame that can only enter once the body makes room, while the intermediate frames
+    do not write the frame leaving the body to external memory until the mux takes its
+    next-iteration index.
+    """
+    nodes = []
+    for i in range(3):
+        nodes += [
+            helper.make_node(
+                "ElementwiseAdd_rtl",
+                [f"act{i}", f"bias{i}"],
+                [f"sum{i}"],
+                domain="finn.custom_op.fpgadataflow.rtl",
+                backend="fpgadataflow",
+                lhs_shape=[1, 2, 16, 16],
+                rhs_shape=[16],
+                out_shape=[1, 2, 16, 16],
+                lhs_dtype="INT8",
+                rhs_dtype="INT8",
+                out_dtype="INT9",
+                PE=4,
+            ),
+            helper.make_node(
+                "InnerShuffle_rtl",
+                [f"sum{i}"],
+                [f"transposed{i}"],
+                domain="finn.custom_op.fpgadataflow.rtl",
+                backend="fpgadataflow",
+                data_type="INT9",
+                in_shape=[1, 2, 16, 16],
+                transpose_in_shape=[1, 2, 16, 16],
+                SIMD=4,
+            ),
+            helper.make_node(
+                "Thresholding_rtl",
+                [f"transposed{i}", f"thresh{i}"],
+                [f"act{i + 1}"],
+                domain="finn.custom_op.fpgadataflow.rtl",
+                backend="fpgadataflow",
+                NumChannels=16,
+                PE=1,
+                numInputVectors=[1, 2, 16],
+                inputDataType="INT9",
+                weightDataType="INT10",
+                outputDataType="INT8",
+                ActVal=-128,
+                numSteps=255,
+            ),
+        ]
+    graph = helper.make_graph(
+        nodes,
+        "finnloop_index_deadlock",
+        [helper.make_tensor_value_info("act0", TensorProto.FLOAT, [1, 2, 16, 16])],
+        [helper.make_tensor_value_info("act3", TensorProto.FLOAT, [1, 2, 16, 16])],
+        value_info=[
+            helper.make_tensor_value_info(node.output[0], TensorProto.FLOAT, [1, 2, 16, 16])
+            for node in nodes[:-1]
+        ],
+    )
+    model = ModelWrapper(qonnx_make_model(graph))
+    model.set_tensor_datatype("act0", DataType["INT8"])
+    for i in range(3):
+        model.set_initializer(f"bias{i}", gen_finn_dt_tensor(DataType["INT8"], [16]))
+        model.set_tensor_datatype(f"bias{i}", DataType["INT8"])
+        model.set_initializer(f"thresh{i}", np.sort(gen_finn_dt_tensor(DataType["INT9"], [1, 255])))
+        model.set_tensor_datatype(f"thresh{i}", DataType["INT9"])
+    model = model.transform(GiveUniqueNodeNames()).transform(InferDataTypes())
+
+    x = gen_finn_dt_tensor(DataType["INT8"], [10, 2, 16, 16])
+    ref = model.transform(SetExecMode("cppsim"))
+    y = np.concatenate([oxe.execute_onnx(ref, {"act0": f[np.newaxis]})["act3"] for f in x])
+
+    output_dir = make_build_dir("build_mlo_index_deadlock_")
+    np.save(output_dir + "/input.npy", x)
+    np.save(output_dir + "/expected_output.npy", y)
+    model.save(output_dir + "/model.onnx")
+    cfg = build_cfg.DataflowBuildConfig(
+        output_dir=output_dir,
+        steps=[
+            "phase_convert_to_hardware",
+            "phase_optimize_hardware",
+            "phase_build_hardware",
+            "phase_generate_outputs",
+        ],
+        synth_clk_period_ns=10.0,
+        board="V80",
+        mlo=True,
+        loop_body_hierarchy=[["", "layers.0"]],
+        loop_body_range=(model.graph.node[0], model.graph.node[2]),
+        auto_fifo_depths=False,
+        mute_config_assertions=True,
+        verify_steps=["stitched_ip_rtlsim"],
+        verify_input_npy=output_dir + "/input.npy",
+        verify_expected_output_npy=output_dir + "/expected_output.npy",
+        verify_batch_size=10,
+        enable_build_pdb_debug=False,
+        generate_outputs=[build_cfg.DataflowOutputType.STITCHED_IP],
+    )
+    assert build.build_dataflow_cfg(output_dir + "/model.onnx", cfg) == 0
+    # a single result file: all frames were checked in one stitched-IP rtlsim run
+    assert os.listdir(output_dir + "/verification_output") == [
+        "verify_stitched_ip_rtlsim_0_SUCCESS.npy"
+    ]
 
 
 @pytest.mark.parametrize(
