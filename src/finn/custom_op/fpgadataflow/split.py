@@ -156,31 +156,52 @@ class StreamingSplit(HWCustomOp):
         in_width = self.get_instream_width()
         return roundup_to_integer_multiple(in_width, 8)
 
+    def derive_token_access_vectors(
+        self, model, period, strategy, fpga_part, clk_period, op_type, override_dict=None
+    ):
+        # rtlsim has to drain every output: the round-robin stalls on the first
+        # one that is not read
+        n_inps = np.prod(self.get_folded_input_shape()[:-1])
+        io_dict = {
+            "inputs": {"in0": [0 for i in range(n_inps)]},
+            "outputs": {"out%d" % i: [] for i in range(self.get_n_outputs())},
+        }
+        super().derive_token_access_vectors(
+            model, period, strategy, fpga_part, clk_period, op_type, override_dict=io_dict
+        )
+
+    def get_tree_model_timing(self):
+        """``(interval, first read, first write)`` of the schedule drawn by
+        ``get_tree_model``, in cycles: one word every ``interval`` cycles, input
+        word 0 read and ``out0`` word 0 written at the two given cycles. The
+        default is the free-running HLS top without a dataflow region; see
+        ``StreamingSplit_hls`` for the one with."""
+        return 5, 1, 7
+
     def get_tree_model(self):
-        """The schedule of the freerunning HLS splitter: one word every five cycles.
+        """The schedule of the free-running HLS splitter.
 
-        Neither a passthrough nor II=1. ``csynth.rpt`` for the generated top level
-        reports Latency 4, **Interval 5**, ``Pipelined: no``,
-        ``hls_style: freerunning``; the inner ``StreamingSplit`` in
-        finn-hlslib/split.hpp is ``#pragma HLS pipeline II=1``, so it is the
-        freerunning wrapper around it that admits one word every five cycles.
+        One word every ``ii`` cycles (``get_tree_model_timing``), round-robin
+        over the destinations in ``ChannelsPerStream`` order, so destination *i*
+        receives one contiguous burst of ``C[i]`` words per input vector rather
+        than a share of every word:
 
-        Round-robin over the destinations in ``ChannelsPerStream`` order, so
-        destination *i* receives one contiguous burst of ``C[i]`` words per input
-        vector rather than a share of every word:
-
-            input word k        at cycle 1 + 5k
-            output i, word j    at cycle 7 + 5*(offset_i + j)
+            input word k        at cycle r0 + ii*k
+            output i, word j    at cycle w0 + ii*(offset_i + j)
 
         with ``offset_i = sum(C[:i])``. Row 0 -- the only row a tree model emits,
         and the only one the sizer reads -- is ``out0``, so the schedule here is
         the first destination's.
 
-        The interval of 5 is validated only for four equal streams at SIMD 1,
-        which is every configuration that occurs here. The HLS source makes it a
-        property of the freerunning wrapper rather than of the stream count, but
-        that is an inference and this model does not restrict itself to the
-        validated shape.
+        Two tops, both measured by node rtlsim (equal and unequal
+        ``ChannelsPerStream``, SIMD 1/2/4, several ``numInputVectors``):
+
+        * no dataflow region: csynth Latency 4, **Interval 5**, ``Pipelined:
+          no``; the inner ``StreamingSplit`` in finn-hlslib/split.hpp is
+          ``#pragma HLS pipeline II=1``, and it is the free-running wrapper
+          around it that admits one word every five cycles. ``ii, r0, w0 =
+          5, 1, 7``.
+        * ``#pragma HLS dataflow`` top: Interval 1, ``ii, r0, w0 = 1, 1, 4``.
         """
         simd = self.get_nodeattr("SIMD")
         chans = list(self.get_nodeattr("ChannelsPerStream"))
@@ -191,14 +212,14 @@ class StreamingSplit(HWCustomOp):
         total = int(sum(folds))
         if total < 1:
             return None
-        ii = 5
+        ii, r0, w0 = self.get_tree_model_timing()
         span = ii * total  # cycles per input vector
         period = n_vec * span
         rd = np.zeros(period, dtype=np.int8)
         wr = np.zeros(period, dtype=np.int8)
-        rd[(1 + ii * np.arange(n_vec * total)) % period] = 1
+        rd[(r0 + ii * np.arange(n_vec * total)) % period] = 1
         # row 0 is the schedule the FIFO sizer reads, and that is out0
         starts = span * np.arange(n_vec)
-        first = (7 + ii * np.arange(folds[0]))[None, :] + starts[:, None]
+        first = (w0 + ii * np.arange(folds[0]))[None, :] + starts[:, None]
         wr[first.ravel() % period] = 1
         return flat_characteristic_leaf(rd, wr, "StreamingSplit_hls schedule")

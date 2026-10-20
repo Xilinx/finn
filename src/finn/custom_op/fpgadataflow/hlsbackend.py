@@ -616,6 +616,20 @@ compilation transformations?
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out0_V")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
+    def has_dataflow_top(self):
+        """True if ``pragmas()`` makes the generated top function a dataflow region.
+        For tree models whose schedule depends on it."""
+        saved = self.code_gen_dict.get("$PRAGMAS$")
+        self.pragmas()
+        found = any(
+            p.split()[:3] == ["#pragma", "HLS", "dataflow"] for p in self.code_gen_dict["$PRAGMAS$"]
+        )
+        if saved is None:
+            del self.code_gen_dict["$PRAGMAS$"]
+        else:
+            self.code_gen_dict["$PRAGMAS$"] = saved
+        return found
+
     def get_ap_int_max_w(self):
         """Return the maximum width of any ap_int used in this module. Used to set the
         AP_INT_MAX_W definition for HLS."""

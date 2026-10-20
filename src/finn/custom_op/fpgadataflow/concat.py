@@ -154,27 +154,54 @@ class StreamingConcat(HWCustomOp):
         result = np.concatenate(inp_values, axis=-1)
         context[node.output[0]] = result
 
-    def get_tree_model(self):
-        """The schedule of the freerunning HLS concatenator.
+    def derive_token_access_vectors(
+        self, model, period, strategy, fpga_part, clk_period, op_type, override_dict=None
+    ):
+        # rtlsim has to feed every input: the round-robin stalls on the first
+        # one that runs dry
+        io_dict = {
+            "inputs": {
+                "in%d" % i: [0 for j in range(np.prod(self.get_folded_input_shape(i)[:-1]))]
+                for i in range(self.get_n_inputs())
+            },
+            "outputs": {"out0": []},
+        }
+        super().derive_token_access_vectors(
+            model, period, strategy, fpga_part, clk_period, op_type, override_dict=io_dict
+        )
 
-        The mirror image of ``StreamingSplit``: same ``hls_style: freerunning``
-        wrapper, same Interval 5, and the inputs are consumed in **staggered
+    def get_tree_model_timing(self):
+        """``(interval, first read, first write)`` of the schedule drawn by
+        ``get_tree_model``, in cycles: one word every ``interval`` cycles, ``in0``
+        word 0 read and output word 0 written at the two given cycles. The
+        default is the free-running HLS top without a dataflow region; see
+        ``StreamingConcat_hls`` for the one with."""
+        return 5, 6, 2
+
+    def get_tree_model(self):
+        """The schedule of the free-running HLS concatenator.
+
+        The mirror image of ``StreamingSplit``: one word every ``ii`` cycles
+        (``get_tree_model_timing``), and the inputs are consumed in **staggered
         contiguous bursts** in ``ChannelsPerStream`` order, not concurrently.
         That matters for sizing: an imbalance between the inputs accumulates as a
         prefix sum along the stream order, not as a max over the streams.
 
-            input i, word j     at cycle 6 + 5*(offset_i + j)
-            output word k       at cycle 2 + 5k
+            input i, word j     at cycle r0 + ii*(offset_i + j)
+            output word k       at cycle w0 + ii*k
 
         with ``offset_i = sum(C[:i])``.
 
         Row 0 -- the only row a tree model can emit, and the only one the sizer
         reads -- is ``in0``, so the schedule here is the *first* input's. The
-        later inputs are read up to ``5 * offset_i`` cycles after it; that offset
+        later inputs are read up to ``ii * offset_i`` cycles after it; that offset
         is a consequence of the single-row representation in
         ``derive_token_access_vectors_using_tree_model``, not of this model.
 
-        Validated for four equal streams at SIMD 1, as for the splitter.
+        Two tops, both measured by node rtlsim (equal and unequal
+        ``ChannelsPerStream``, SIMD 1/2/4, several ``numInputVectors``): no
+        dataflow region (csynth Interval 5, ``Pipelined: no``), ``ii, r0, w0 =
+        5, 6, 2``; ``#pragma HLS dataflow`` top (Interval 1), ``1, 3, 4``.
         """
         simd = self.get_nodeattr("SIMD")
         chans = list(self.get_nodeattr("ChannelsPerStream"))
@@ -185,13 +212,13 @@ class StreamingConcat(HWCustomOp):
         total = int(sum(folds))
         if total < 1:
             return None
-        ii = 5
+        ii, r0, w0 = self.get_tree_model_timing()
         span = ii * total
         period = n_vec * span
         rd = np.zeros(period, dtype=np.int8)
         wr = np.zeros(period, dtype=np.int8)
-        wr[(2 + ii * np.arange(n_vec * total)) % period] = 1
+        wr[(w0 + ii * np.arange(n_vec * total)) % period] = 1
         starts = span * np.arange(n_vec)
-        first = (6 + ii * np.arange(folds[0]))[None, :] + starts[:, None]
+        first = (r0 + ii * np.arange(folds[0]))[None, :] + starts[:, None]
         rd[first.ravel() % period] = 1
         return flat_characteristic_leaf(rd, wr, "StreamingConcat_hls schedule")
