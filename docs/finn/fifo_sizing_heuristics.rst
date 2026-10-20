@@ -75,7 +75,8 @@ every node's local schedule into wall-clock time:
    period (``periodic_peak``), and ``edge_depth`` turns that peak into the
    FIFO depth using the rules below.
 
-``DeriveFIFOSizes`` writes the result into ``inFIFODepths`` /
+``DeriveFIFOSizes`` raises the inputs of every join to the `Join window floor`_
+and writes the result into ``inFIFODepths`` /
 ``outFIFODepths`` with a minimum of 2 and ``io_fifo_depth`` (5) on the graph
 input and output; ``InsertFIFO`` then creates the FIFOs.
 
@@ -425,6 +426,64 @@ computes it; a shallower one deadlocks. Taking both frames instead of the fill
 frame alone (`Two-frame split`_) would instead *grow* the branch edges
 (``FMPadding_rtl_15 -> ConvolutionInputGenerator_rtl_18`` 1791 to 3578, total
 378030). Neither variant has been simulated (no resnet50 rtlsim here).
+
+Join window floor
+-----------------
+
+*What:* ``join_window_floors`` gives every input of a two-stream join
+(``ElementwiseAdd`` / ``AddStreams``) a floor that does not come from any TAV.
+From the join it walks back to the fork its inputs share, composing each
+node's ``get_tav_input_window()``: output block *b* of ``out_words`` words
+needs the first ``(b + 1) * in_words`` words of the input (default: the ratio
+of the folded frame sizes in lowest terms, so a 48:1 width converter needs 48
+words a word; ``MVAU`` in0 ``(MW / SIMD, MH / PE)``, a vector; ``HWSoftmax`` a
+row; ``InnerShuffle`` a page; a dynamic ``MVAU``'s in1 the whole matrix). That
+gives ``need_i(k)``, the fork words input *i* needs for its first *k* tokens,
+and two backlogs over two frames:
+
+* deadlock: to deliver join token *k* on every input the fork has to write
+  ``W(k) = max_i need_i(k)`` words, so input *i* holds the tokens it makes of
+  the first ``W(k) - 1`` words minus the ``k - 1`` the join has taken;
+* paced: the fork writes at the graph's period and every node emits word *j*
+  once its window is in and no faster than its own ``get_exp_cycles()``,
+  ``T(j) = max(T_in(need(j)), T(j - 1) + r)``; input *i* holds what has arrived
+  when the join takes token *k*, minus ``k - 1``.
+
+The floor is the larger backlog plus ``JOIN_FLOOR_MARGIN`` (25 %).
+
+*Why:* a fork writes all its outputs together, so it stalls as soon as one
+branch is full. If the long branch reads many fork words before its first
+output reaches the join, the shortcut has to buffer all of them, or the fork
+stalls, the long branch never completes its window and the graph deadlocks.
+For full throughput it also has to buffer what the fork writes while a window
+node at the pacer's rate emits its block. The timeline pass misses both where
+a TAV writes before it reads (an ``MVAU`` tree model places the first output 44
+to 953 cycles before the first input) and the fork is transparent. The
+backlogs ignore the storage inside the nodes and in the other FIFOs of the
+shortcut, which only helps; the margin covers a node that reads ahead of its
+window or an upstream that delivers in bursts.
+
+*Example:* transformer_radioml (ZCU104). Committed folding: the MLP shortcut
+``Thresholding_rtl_13 -> ElementwiseAdd_hls_4`` was sized 20 before the
+`Node latency`_ rule and deadlocked (no output in 1.71 M cycles; 128 completes
+a frame); the ``StreamingDataWidthConverter`` 8 -> 384 bit in the long branch
+needs all 48 fork words of a token: deadlock backlog 47, paced 90, floor 113
+(the timeline now gives 172). Small folding: shortcut 122, deadlock backlog 95;
+rtlsim 1912 frames/s against an estimate of 3052 (0.63x). Raising only that FIFO
+to 190 runs at the estimate (32768 cycles a frame): the long branch's
+``MVAU_rtl_11`` (SIMD 24, PE 3, the pacer) emits a token's 128 words over a
+token period after the token is in, so the shortcut holds two tokens; paced
+backlog 191, floor 239. transformer_vision: the MLP shortcuts were 8
+(committed folding, before this rule; 134 with the node latency) and 92 / 108
+(optimizer folding at the target), 92 / 108 deadlocked (512 completes);
+floor 419 (paced backlog 335). The attention shortcuts take the floor too
+(radioml 7680 against 6449 from the timeline: the dynamic ``MVAU`` needs the
+whole matrix and two ``InnerShuffle`` pages lie in front of it). Total FIFO
+storage (offline re-sizing of the same TAVs): transformer_benchmark +4.7 %
+(attention shortcut 2140 -> 2698; it needs 2065 to 2077), transformer_radioml,
+_vision and _language +2.5 to 2.6 %, resnet50 +0.2 %; bnn-pynq,
+cybersecurity-mlp, gtsrb, kws, mobilenet_v1, vgg10-radioml, espcn, resnet18,
+yolov8 and bert unchanged (their joins are above the floor).
 
 Idle-window floor
 -----------------
