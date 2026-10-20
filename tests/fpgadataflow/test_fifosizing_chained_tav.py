@@ -434,3 +434,21 @@ def test_join_window_floor():
     # floor 79, below the 90 the TAVs give (test_chained_tav_residual_mvau_rtl)
     model, _ = characterize(make_residual_rtl(nvec=16, ch=32, n_mvau=2), "xczu7ev-ffvc1156-2-e")
     assert join_window_floors(model, list(model.graph.node)) == {"short": 79}
+    # an OuterShuffle (tokens x heads -> heads x tokens) emits word j once the
+    # input word it reads, and every one before it in the frame, is in: head 0
+    # of the second token is input word 6
+    shuffle = helper.make_node(
+        "OuterShuffle",
+        ["x"],
+        ["y"],
+        domain="finn.custom_op.fpgadataflow",
+        backend="fpgadataflow",
+        data_type="INT8",
+        in_shape=[1, 4, 3, 2],
+        out_shape=[1, 3, 4, 2],
+        transpose_in_shape=[1, 4, 3, 2],
+        perm=[0, 2, 1, 3],
+        SIMD=1,
+    )
+    need = getCustomOp(shuffle).get_tav_input_need(0)
+    assert list(need[:4]) == [1, 2, 7, 8] and need[-1] == 24 and len(need) == 24

@@ -137,6 +137,18 @@ class OuterShuffle(HWCustomOp):
         folded_oshape = normal_oshape[:-1] + [fold, simd]
         return tuple(folded_oshape)
 
+    def get_tav_input_need(self, ind=0):
+        """Output word *j* is input word ``src[j]`` of the transposed frame, so
+        it needs the first ``max(src[:j + 1]) + 1`` words (the innermost
+        dimension, folded by SIMD, stays innermost)."""
+        perm = list(self.get_nodeattr("perm"))
+        shape = list(self.get_nodeattr("transpose_in_shape"))
+        if perm[-1] != len(perm) - 1:
+            return None
+        shape[-1] //= self.get_nodeattr("SIMD")
+        src = np.arange(int(np.prod(shape))).reshape(shape).transpose(perm).reshape(-1)
+        return np.maximum.accumulate(src) + 1
+
     def get_folded_input_shape(self, ind=0):
         normal_ishape = list(self.get_normal_input_shape())
         simd = self.get_nodeattr("SIMD")

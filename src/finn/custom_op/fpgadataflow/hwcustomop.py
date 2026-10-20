@@ -347,6 +347,12 @@ class HWCustomOp(CustomOp):
         g = np.gcd(n_in, n_out)
         return n_in // g, n_out // g
 
+    def get_tav_input_need(self, ind=0):
+        """For the FIFO sizer's join floor, nodes that reorder a frame: an array
+        over one frame's output words, entry *j* the number of words of input
+        ``ind`` output word *j* needs. None (default): ``get_tav_input_window``."""
+        return None
+
     def derive_token_access_vectors(
         self,
         model,

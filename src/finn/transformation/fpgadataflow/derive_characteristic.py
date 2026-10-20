@@ -860,8 +860,9 @@ def join_window_floors(model, nodes, period=None):
     the fork is transparent.
 
     Walking back from the join to the fork through ``get_tav_input_window``
-    gives ``need_i(k)``, the fork words input *i* needs for its first *k*
-    tokens. Two backlogs are taken over two frames, the larger counts:
+    (``get_tav_input_need`` for a node that reorders a frame) gives
+    ``need_i(k)``, the fork words input *i* needs for its first *k* tokens.
+    Two backlogs are taken over two frames, the larger counts:
 
     * deadlock: to deliver join token *k* on every input the fork has to write
       ``W(k) = max_i need_i(k)`` words, so input *i* holds the tokens it makes
@@ -903,6 +904,15 @@ def join_window_floors(model, nodes, period=None):
     def ceil_div(a, b):
         return -(-a // b)
 
+    def input_need(inst, i, k):
+        # input words of input i the first k output words need
+        table = inst.get_tav_input_need(i)
+        if table is not None:
+            frames, j = np.divmod(k - 1, len(table))
+            return table[j] + frames * _frame_words(inst, i)
+        in_words, out_words = inst.get_tav_input_window(i)
+        return ceil_div(k, out_words) * in_words
+
     floors = {}
     for join in nodes:
         if not is_stream_join(join):
@@ -938,8 +948,7 @@ def join_window_floors(model, nodes, period=None):
                 for i, x in enumerate(p.input):
                     if producer(x) is None:
                         continue
-                    in_words, out_words = inst.get_tav_input_window(i)
-                    idx = ceil_div(k, out_words) * in_words
+                    idx = input_need(inst, i, k)
                     up = walk(x, int(idx[-1]))
                     if up is None:
                         continue
