@@ -912,7 +912,10 @@ def test_fpgadataflow_rtl_mvau(
 @pytest.mark.parametrize("mh", [32])
 @pytest.mark.parametrize("mw", [16])
 @pytest.mark.parametrize("n_vectors", [32])
-@pytest.mark.parametrize("pe", [1, 16, 32])
+# leading dims of both operands: [1, 1] gives 4D (batch, heads) inputs, [1] gives 3D
+# inputs as in per-head attention matmuls
+@pytest.mark.parametrize("lead_dims", [[1, 1], [1]])
+@pytest.mark.parametrize("pe", [1, 32])
 @pytest.mark.parametrize("simd", [1, 8, 16])
 @pytest.mark.parametrize(
     "idt_wdt", [[DataType["INT8"], DataType["INT8"]], [DataType["INT4"], DataType["INT4"]]]
@@ -925,7 +928,9 @@ def test_fpgadataflow_rtl_mvau(
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_rtl_dynamic_mvau(mh, mw, n_vectors, pe, simd, idt_wdt, part, impl_style):
+def test_fpgadataflow_rtl_dynamic_mvau(
+    mh, mw, n_vectors, lead_dims, pe, simd, idt_wdt, part, impl_style
+):
     # if 7 series and rtl selected, skip because narrow range can't be ensured for the second input
     if part == "xc7z020clg400-1" and impl_style == "rtl":
         pytest.skip("Skip test because narrow range can't be ensured for the second input")
@@ -934,9 +939,9 @@ def test_fpgadataflow_rtl_dynamic_mvau(mh, mw, n_vectors, pe, simd, idt_wdt, par
 
     idt, wdt = idt_wdt
     # Create test input vector (produced by SWG)
-    ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, 1, n_vectors, mw])
-    wfm = helper.make_tensor_value_info("wfm", TensorProto.FLOAT, [1, 1, mw, mh])
-    ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, (1, 1, n_vectors, mh))
+    ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, lead_dims + [n_vectors, mw])
+    wfm = helper.make_tensor_value_info("wfm", TensorProto.FLOAT, lead_dims + [mw, mh])
+    ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, lead_dims + [n_vectors, mh])
 
     model = make_dynamic_matmul_modelwrapper(ifm, wfm, ofm, idt, wdt)
     model = model.transform(GiveUniqueNodeNames())

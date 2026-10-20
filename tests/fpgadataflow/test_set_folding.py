@@ -34,13 +34,17 @@ from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
-from qonnx.util.basic import qonnx_make_model
+from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
+import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
 from finn.transformation.fpgadataflow.set_folding import SetFolding
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.test import load_test_checkpoint_or_skip
 
 
@@ -135,3 +139,53 @@ def test_set_folding(target_fps, platform):
     assert achieved_cycles_per_frame <= max(
         min_cycles[platform], target_cycles_per_frame
     ), "Folding target not met"
+
+
+# Versal: RTL Requant/ElementwiseMul/HWSoftmax, Zynq UltraScale+: HLS variants
+@pytest.mark.parametrize("part", ["xcvc1902-vsva2197-2MP-e-S", "xczu7ev-ffvc1156-2-e"])
+@pytest.mark.fpgadataflow
+def test_set_folding_requant_elementwise_softmax(part):
+    # Quant (8-bit) -> Mul (float per-channel scale) -> Softmax
+    ishape = [1, 8, 64]
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, ishape)
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, ishape)
+    nodes = [
+        helper.make_node(
+            "Quant",
+            ["inp", "scale", "zeropt", "bitwidth"],
+            ["quant_out"],
+            domain="qonnx.custom_op.general",
+            signed=1,
+            narrow=0,
+            rounding_mode="ROUND",
+        ),
+        helper.make_node("Mul", ["quant_out", "mul_param"], ["mul_out"]),
+        helper.make_node("Softmax", ["mul_out"], ["outp"], axis=-1),
+    ]
+    model = ModelWrapper(qonnx_make_model(helper.make_graph(nodes, "rq_mul_sm", [inp], [outp])))
+    model.set_initializer("scale", np.array(1.0, dtype=np.float32))
+    model.set_initializer("zeropt", np.array(0.0, dtype=np.float32))
+    model.set_initializer("bitwidth", np.array(8.0, dtype=np.float32))
+    model.set_initializer("mul_param", gen_finn_dt_tensor(DataType["FLOAT32"], [ishape[-1]]))
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+
+    model = model.transform(to_hw.InferRequantLayer())
+    model = model.transform(to_hw.InferElementwiseBinaryOperation())
+    model = model.transform(to_hw.InferHWSoftmax())
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(GiveUniqueNodeNames())
+    impl = "rtl" if part.startswith("xcvc") else "hls"
+    op_types = ["Requant_" + impl, "ElementwiseMul_" + impl, "HWSoftmax_" + impl]
+    assert sorted(n.op_type for n in model.graph.node) == sorted(op_types)
+
+    # target below the unfolded cycle count, so all layers have to be parallelized
+    target_cycles = min(getCustomOp(n).get_exp_cycles() for n in model.graph.node) // 4
+    model = model.transform(
+        SetFolding(target_cycles_per_frame=target_cycles, two_pass_relaxation=False)
+    )
+    for node in model.graph.node:
+        inst = getCustomOp(node)
+        attr = "SIMD" if node.op_type.startswith("HWSoftmax") else "PE"
+        fold = inst.get_nodeattr(attr)
+        assert fold > 1 and ishape[-1] % fold == 0, f"{node.name}: {attr}={fold}"
