@@ -617,6 +617,11 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
             "shuffle/transpose layers",
         )
 
+    # Flatten/reshape removal once more, now that all neighbouring layers have been
+    # converted (e.g. the image->token reshape of vision transformers feeding a
+    # shuffle layer)
+    model = apply_if_relevant(model, ["Flatten", "Reshape"], RemoveCNVtoFCFlatten(), "Flatten")
+
     # Validate that conversion succeeded: all layers must be fpgadataflow layers
     # or form a contiguous dataflow block. This runs here (rather than later) so a
     # failed conversion is reported clearly, before step_create_dataflow_partition
