@@ -1398,6 +1398,10 @@ def test_mvau_tiled_tree_model_token_counts():
     assert mvau.mvau_tiled_tree(32, 2, 18, 1, 4) is None
     # TH == 1 is the untiled module and is not this function's business
     assert mvau.mvau_tiled_tree(32, 2, 18, 1, 1) is None
+    # the output reorder buffer stalls these (SF=1, NF=18: 37 and 63 cycles per
+    # group), which the schedule does not model: left to rtlsim
+    assert mvau.mvau_tiled_tree(1, 18, 18, 9, 9) is None
+    assert mvau.mvau_tiled_tree(1, 18, 18, 6, 6) is None
 
 
 @pytest.mark.fpgadataflow

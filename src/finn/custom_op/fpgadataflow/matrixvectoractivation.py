@@ -1508,19 +1508,19 @@ class MVAU(HWCustomOp):
 
         ``TH`` therefore does not multiply the cycle count: a group costs
         ``NF*SF*TH`` cycles and covers ``TH`` vectors, i.e. ``NF*SF`` per vector,
-        the same as the untiled MVAU. (``get_exp_cycles`` still multiplies by
-        ``TH``; it is left alone because the characterization uses it only as a
-        simulation budget, where over-estimating is harmless.)
+        the same as the untiled MVAU (``get_exp_cycles`` agrees).
 
         The three terms:
 
         ``stall``
-            A group cannot start replaying until the buffer holds the word the
-            interleaved nest reaches first, ``(TH-1)*SF + 4 - TH`` words in, and it
-            could only prefetch ``BUF_SIZE - SF*TH`` of them while the previous
-            group ran. ``BUF_SIZE`` is the ``input_gen`` circular buffer, which
-            rounds up to a power of two -- which is why the overhead is not smooth
-            in ``SF``. This is what makes the span ``NF*SF*TH + stall``.
+            The cycles a group waits at its start, ``tiled_mvau_group_stall``:
+            for the activation replay buffer to hold the word the interleaved
+            nest reaches first (it could only prefetch ``BUF_SIZE - SF*TH`` of
+            the group while the previous one ran). ``BUF_SIZE`` rounds up to a
+            power of two -- which is why the overhead is not smooth in ``SF``.
+            This is what makes the span ``NF*SF*TH + stall``. The same function
+            also knows the output reorder buffer's stall; ``mvau_tiled_tree``
+            declines the foldings where that one dominates.
         ``d``
             The first output of a group, as an offset from that group's first read.
         ``tree_depth``
@@ -1533,8 +1533,7 @@ class MVAU(HWCustomOp):
         Returns ``(fm, stall, span, d)``.
         """
         fm = SF * TH
-        buf = 1 << int(math.ceil(math.log2(fm + 2)))
-        stall = max(0, ((TH - 1) * SF + 4 - TH) - (buf - fm))
+        stall = tiled_mvau_group_stall(SF, NF, TH)
         span = NF * fm + stall
         chainlen = (SIMD + 2) // 3
         tree_depth = int(math.ceil(math.log2(chainlen))) if chainlen > 1 else 0
@@ -1572,6 +1571,14 @@ class MVAU(HWCustomOp):
             # this, so a graph that reaches here with it violated is malformed
             return None
         fm, stall, span, d = self.mvau_tiled_params(SF, NF, SIMD, TH)
+        spare = (1 << math.ceil(math.log2((NF - 1) * TH + 3))) - NF * TH
+        if stall > max(tiled_mvau_group_stall(SF, 1, TH), -spare):
+            # the output reorder buffer stalls the group (NF*TH just under a
+            # power of two with few compute cycles per fold): its run then drains
+            # while the next group's first folds queue up behind it, a shape the
+            # schedule below does not have. Leave the node to rtlsim. (A buffer a
+            # few words too small for the group, spare < 0, only trickles.)
+            return None
         G = n_vec // TH
         period = G * span
         if period < 1:
