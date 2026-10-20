@@ -319,6 +319,20 @@ class HWCustomOp(CustomOp):
         Implemented in each node, potentially overriding between rtl and hls"""
         return None
 
+    def get_tav_extra_latency(self):
+        """For the FIFO sizer: cycles from the arrival of an input word to the
+        first output word that depends on it, beyond the pipeline latency the
+        sizer assumes for every node (``TAV_PIPELINE_LATENCY``). A TAV records
+        the steady state at an arbitrary phase and cannot show it. Default 0."""
+        return 0
+
+    def get_tav_input_blocks(self):
+        """For the FIFO sizer: ``{input index: (in_words, out_words)}`` for the
+        inputs a node consumes in whole blocks, block *b* of ``out_words`` output
+        words needing block *b* of ``in_words`` words of that input complete.
+        Default: none."""
+        return {}
+
     def derive_token_access_vectors(
         self,
         model,

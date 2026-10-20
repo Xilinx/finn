@@ -1743,6 +1743,17 @@ class MVAU(HWCustomOp):
 
         return flat_characteristic_leaf(rd, wr, "MVAU burst schedule")
 
+    def get_tav_input_blocks(self):
+        """A dynamic node computes on the matrix its ``dynamic_load`` buffered
+        from in1: the ``numInputVectors[-1] * MH / PE`` outputs of a matrix need
+        all ``MW * MH / PE`` words of it."""
+        if self.get_nodeattr("mem_mode") != "dynamic":
+            return {}
+        n_reps = self.get_nodeattr("numInputVectors")[-1]
+        nf = self.get_nodeattr("MH") // self.get_nodeattr("PE")
+        burst = self.get_nodeattr("MW") * self.get_nodeattr("MH") // self.get_nodeattr("PE")
+        return {1: (burst, n_reps * nf)}
+
     def derive_token_access_vectors(
         self, model, period, strategy, fpga_part, clk_period, op_type, override_dict=None
     ):

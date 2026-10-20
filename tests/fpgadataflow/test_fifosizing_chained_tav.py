@@ -47,11 +47,15 @@ from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.derive_characteristic import (
+    TAV_PIPELINE_LATENCY,
     DeriveFIFOSizes,
     DeriveTokenAccessVectors,
+    block_writes,
     burst_above_rate,
     causal_writes,
+    derive_chained_tav_depths,
     local_clock,
+    node_latency,
     peak_occupancy,
     periodic_peak,
     phase_lead,
@@ -160,9 +164,9 @@ def make_residual(nvec, ch, simd, pe):
     return finish(model, ["inp", "outp", "short", "l0", "l1"], {"w": (ch, ch)})
 
 
-def size_fifos(model, part=PART):
-    """The sizing part of step_set_fifo_depths with tree-model TAVs. Returns
-    ``{"producer -> consumer": depth}``."""
+def characterize(model, part=PART):
+    """The TAV part of step_set_fifo_depths with tree models. Returns the model
+    and the sizing period."""
     model = model.transform(InsertDWC())
     model = model.transform(SpecializeLayers(part))
     model = model.transform(GiveUniqueNodeNames())
@@ -172,6 +176,13 @@ def size_fifos(model, part=PART):
     period = int(
         model.analysis(partial(dataflow_performance, use_characterized=True))["max_cycles"]
     )
+    return model, period
+
+
+def size_fifos(model, part=PART):
+    """The sizing part of step_set_fifo_depths with tree-model TAVs. Returns
+    ``{"producer -> consumer": depth}``."""
+    model, period = characterize(model, part)
     model = model.transform(DeriveFIFOSizes(period=period))
     depths = {}
     for node in model.graph.node:
@@ -270,11 +281,13 @@ def test_chained_tav_residual_mvau_rtl():
     # An MVAU_rtl TAV writes a feature map's MH outputs before its first read
     # (the read burst wraps to the end of the window). Taken at face value, each
     # MVAU_rtl in the long branch looks one feature map (32 tokens) faster and
-    # the shortcut came out at 27; the tokens are renumbered past that phase lead.
+    # the shortcut came out at 27; the tokens are renumbered past that phase lead
+    # (88). The two MVAU_rtl's pipeline latency, 2 x 32 cycles at 1/32 token per
+    # cycle, adds 2.
     depths = size_fifos(make_residual_rtl(nvec=16, ch=32, n_mvau=2), "xczu7ev-ffvc1156-2-e")
     assert depths == {
         "MVAU_rtl_0 -> DuplicateStreams_hls_0": 2,
-        "DuplicateStreams_hls_0 -> ElementwiseAdd_hls_0": 88,
+        "DuplicateStreams_hls_0 -> ElementwiseAdd_hls_0": 90,
         "DuplicateStreams_hls_0 -> MVAU_rtl_1": 31,
         "MVAU_rtl_1 -> MVAU_rtl_2": 31,
         "MVAU_rtl_2 -> ElementwiseAdd_hls_0": 7,
@@ -319,3 +332,70 @@ def test_periodic_peak_and_floors():
     r_gap = np.arange(40) * 4 + 2
     assert refill_floor(w_gap, r_gap, 0) == 25
     assert refill_floor(w_gap, r_gap, 40) == 15
+
+
+@pytest.mark.fpgadataflow
+def test_chained_tav_residual_latency():
+    # A fast branch (four MVAU_rtl at SIMD = PE = 32 between two width
+    # converters) under the pacer in front (SIMD = 32, PE = 1: 512 cycles for
+    # 512 tokens). Its six nodes' pipeline latency, 6 x 32 cycles at about one
+    # token per cycle, is what the shortcut has to buffer on top.
+    model = make_residual_rtl(nvec=16, ch=32, n_mvau=4)
+    for node in model.graph.node[2:6]:
+        getCustomOp(node).set_nodeattr("SIMD", 32)
+        getCustomOp(node).set_nodeattr("PE", 32)
+    model, period = characterize(model, "xczu7ev-ffvc1156-2-e")
+    short = model.graph.node[1].output[0]
+    assert model.find_consumer(short).op_type.startswith("ElementwiseAdd")
+    without = derive_chained_tav_depths(model, period, causal=True, latency=False)
+    with_lat = derive_chained_tav_depths(model, period, causal=True, latency=True)
+    assert (without[short], with_lat[short]) == (262, 449)
+    added = 6 * TAV_PIPELINE_LATENCY * 512.0 / period
+    assert 0.95 * added <= with_lat[short] - without[short] <= added + 2
+    # the chain edges inside the branch keep their depth
+    for t, depth in without.items():
+        if t != short:
+            assert with_lat.get(t, 0) == depth
+
+
+@pytest.mark.fpgadataflow
+def test_node_latency_and_block_writes():
+    # every node gets the pipeline latency; an InnerShuffle also its page fill
+    shuffle = helper.make_node(
+        "InnerShuffle_rtl",
+        ["x"],
+        ["y"],
+        domain="finn.custom_op.fpgadataflow.rtl",
+        backend="fpgadataflow",
+        data_type="INT8",
+        in_shape=[1, 16, 8],
+        transpose_in_shape=[1, 16, 8],
+        SIMD=2,
+    )
+    assert node_latency(shuffle) == TAV_PIPELINE_LATENCY + 16 * 8 // 2
+    # a dynamic MVAU (MW = 4, MH = 2, PE = 1: an 8-word matrix, 2 outputs a
+    # vector, 3 vectors a matrix) cannot write before its matrix is complete
+    mvau = helper.make_node(
+        "MVAU_rtl",
+        ["a", "b"],
+        ["c"],
+        domain="finn.custom_op.fpgadataflow.rtl",
+        backend="fpgadataflow",
+        MW=4,
+        MH=2,
+        SIMD=1,
+        PE=1,
+        numInputVectors=[1, 3],
+        mem_mode="dynamic",
+        inputDataType="INT4",
+        weightDataType="INT4",
+        outputDataType="INT4",
+    )
+    assert node_latency(mvau) == TAV_PIPELINE_LATENCY
+    matrix = np.arange(16) * 10  # two matrices, one word every 10 cycles
+    writes = np.arange(12, dtype=np.int64)  # two frames of 6 outputs
+    held = block_writes(writes, mvau, {"b": (matrix, None)})
+    # held to the matrix's last word, then one a cycle
+    assert list(held) == [70, 71, 72, 73, 74, 75, 150, 151, 152, 153, 154, 155]
+    # an input without a schedule (weights) holds nothing
+    assert list(block_writes(writes, mvau, {})) == list(writes)

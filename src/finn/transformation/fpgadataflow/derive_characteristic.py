@@ -43,7 +43,8 @@ The flow, as ``step_set_fifo_depths`` runs it:
 
 The pass is a sequence of named steps (``read_node_tavs``, ``node_periods``,
 ``pacer_drivers``, ``reconvergent_branch_nodes``, ``local_clock`` /
-``token_times`` per node, ``peak_occupancy`` and ``edge_depth`` per edge).
+``token_times`` / ``node_latency`` per node, ``peak_occupancy`` and
+``edge_depth`` per edge).
 Every rule that is more than "depth = peak occupancy" is documented with a
 measured example in ``docs/finn/fifo_sizing_heuristics.rst``.
 """
@@ -394,6 +395,46 @@ def causal_writes(write_times, in_scheds, lead=0):
     return np.maximum.accumulate(out)
 
 
+def block_writes(write_times, node, in_scheds):
+    """Hold output word *j* until the input block it belongs to is complete,
+    for the inputs a node consumes in whole blocks (``get_tav_input_blocks``):
+    word *j* needs the first ``(j // out_words + 1) * in_words`` words of that
+    input. Applied over both frames; held words leave at most one per cycle.
+
+    A dynamic ``MVAU`` computes on the matrix ``dynamic_load`` buffered from
+    in1, but its TAV reads in1 alongside the compute.
+    """
+    try:
+        blocks = registry.getCustomOp(node).get_tav_input_blocks()
+    except Exception:
+        return write_times
+    out = np.array(write_times, dtype=np.int64, copy=True)
+    j = np.arange(len(out), dtype=np.int64)
+    held = False
+    for idx, (in_words, out_words) in blocks.items():
+        if idx >= len(node.input) or node.input[idx] not in in_scheds:
+            continue
+        sched = in_scheds[node.input[idx]][0]
+        if len(sched) == 0 or in_words < 1 or out_words < 1:
+            continue
+        need = np.minimum((j // out_words + 1) * in_words, len(sched))
+        out = np.maximum(out, sched[need - 1])
+        held = True
+    if not held:
+        return write_times
+    return np.maximum.accumulate(out - j) + j
+
+
+def node_latency(node):
+    """Cycles a node's writes trail its TAV: ``TAV_PIPELINE_LATENCY`` plus the
+    node's own ``get_tav_extra_latency`` (e.g. an ``InnerShuffle`` page)."""
+    try:
+        extra = int(registry.getCustomOp(node).get_tav_extra_latency())
+    except Exception:
+        extra = 0
+    return TAV_PIPELINE_LATENCY + max(0, extra)
+
+
 def burst_above_rate(read_times, rate):
     """Largest excursion of demand above a constant supply ``rate``:
     ``max over t1 < t2 of C(t2) - C(t1) - rate * (t2 - t1)``."""
@@ -419,6 +460,14 @@ THROTTLED_CAP = 256
 #: peak by this factor; an allowance that only just covers the peak is a
 #: first-order estimate that cannot be trusted.
 CAP_MARGIN = 1.25
+
+#: Pipeline latency in cycles assumed for every characterized node, added to
+#: its write times. A TAV records the steady state at an arbitrary phase, so a
+#: node's latency is in no TAV; it only matters where paths of different
+#: latency meet (joins, reconvergent shortcuts), where under-estimating it
+#: starves the join. Conservative: rtlsim measures 1 to 69 cycles (DWC 1,
+#: ElementwiseMul 11, Split 16, Thresholding_rtl 18, MVAU_rtl 22 to 69).
+TAV_PIPELINE_LATENCY = 32
 
 #: What the pass knows about an edge once its producer has been scheduled:
 #: ``writes`` are the per-token wall-clock write times, ``per_frame`` the tokens
@@ -643,7 +692,7 @@ def edge_depth(
     return max(after_slack, floor)
 
 
-def derive_chained_tav_depths(model, global_period, causal=True):
+def derive_chained_tav_depths(model, global_period, causal=True, latency=True):
     """Per-edge FIFO depths from token arrival times on the dataflow DAG.
 
     Returns ``{tensor_name: depth}``. Edges not in the dict get the minimum.
@@ -656,6 +705,9 @@ def derive_chained_tav_depths(model, global_period, causal=True):
     ``edge_depth``.
 
     ``causal`` applies ``causal_writes`` to every node's output schedule.
+    ``latency`` delays every characterized node's writes by ``node_latency``
+    and, with ``causal``, holds them to the input blocks they need
+    (``block_writes``).
     """
     nodes = [n for n in model.graph.node if is_hls_node(n) or is_rtl_node(n)]
     tavs = read_node_tavs(model, nodes)
@@ -752,6 +804,7 @@ def derive_chained_tav_depths(model, global_period, causal=True):
             if len(sched) > 0:
                 in_scheds[t] = (sched, curve)
         clock = local_clock(len(tin), in_scheds)
+        delay = node_latency(node) if latency else 0
 
         for t, (sched, curve) in in_scheds.items():
             if t not in edges:
@@ -772,6 +825,9 @@ def derive_chained_tav_depths(model, global_period, causal=True):
             if causal:
                 lead = phase_lead(curve, [c for _, c in in_scheds.values()])
                 writes = causal_writes(writes, in_scheds, lead)
+                if latency:
+                    writes = block_writes(writes, node, in_scheds)
+            writes = writes + delay
             edges[t] = Edge(writes, max(1, frame_tokens(curve)), t_up, t_prop, t_full)
 
     return depths
@@ -794,16 +850,20 @@ class DeriveFIFOSizes(Transformation):
         self.minimum_size = 2
 
     def apply(self, model):
-        # Two derivations of the same requirement, differing only in whether
-        # a node's first-frame writes are held to the inputs that carry them
-        # (``causal_writes``). Without it a producer's run-ahead survives; with
-        # it a compacting node shows its real latency. Each is a lower bound, so
-        # the larger is taken per edge.
-        phased = derive_chained_tav_depths(model, self.period, causal=False)
-        depths = derive_chained_tav_depths(model, self.period, causal=True)
-        for tensor, depth in phased.items():
-            if depth > depths.get(tensor, 0):
-                depths[tensor] = depth
+        # Derivations of the same requirement, differing in whether a node's
+        # first-frame writes are held to the inputs that carry them
+        # (``causal_writes``) and in whether nodes have a pipeline latency.
+        # Without the hold a producer's run-ahead survives; with it a compacting
+        # node shows its real latency. The latency lengthens the slower path
+        # into a join, but can also smooth a pacer's read bursts. Each is a
+        # lower bound, so the largest is taken per edge.
+        depths = {}
+        for causal in (False, True):
+            for latency in (False, True):
+                found = derive_chained_tav_depths(model, self.period, causal, latency)
+                for tensor, depth in found.items():
+                    if depth > depths.get(tensor, 0):
+                        depths[tensor] = depth
 
         # InsertFIFO takes max(producer.outFIFODepths, consumer.inFIFODepths),
         # so depths already on the nodes (e.g. from a folding config) would

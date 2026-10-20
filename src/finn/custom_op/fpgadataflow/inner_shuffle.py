@@ -116,6 +116,12 @@ class InnerShuffle(HWCustomOp):
         total_elems = int(np.prod(in_shape)) // simd
         return 2 * total_elems + page_size
 
+    def get_tav_extra_latency(self):
+        """A page is transposed in a bank: none of its words leaves before all
+        ``I * J / SIMD`` of them are in, at most one per cycle."""
+        in_shape = self.get_nodeattr("transpose_in_shape")
+        return int(in_shape[-2]) * int(in_shape[-1]) // self.get_nodeattr("SIMD")
+
     def get_tree_model(self):
         """A page in at one word per cycle, a word out every two.
 
