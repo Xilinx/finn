@@ -315,10 +315,7 @@ module vpc #(
 					OTrn <= 1-TRNO;
 				end
 				else begin
-					// V+1's first beat (itrn while idone) is only counted
-					// on nxt, either concurrent or parked earlier (ipre):
-					// yields 1-TRNI (cold) or 2-TRNI (warm).
-					ITrn <= ITrn + (nxt? int'(ipre) - int'(TRNI) : 0) + (itrn && (nxt || !idone));
+					ITrn <= ITrn + (nxt? (itrn? 1-TRNI : -TRNI) : int'(itrn && !idone)) + (nxt && ipre);
 					OTrn <= OTrn + (nxt? -TRNO : 0) + otrn;
 				end
 			end
