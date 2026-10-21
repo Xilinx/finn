@@ -469,10 +469,12 @@ def test_decoupled_chain_floor():
     edge = Edge(None, 100, 500, 500, 1000)
     gp, pacer = 1000, 995
     assert edge_depth(90, reads, edge, False, True, gp, pacer) == 90
-    # the consumer and the nodes below it take at most 0.6 of the period: no floor
+    # the slowest node at or below the consumer takes 0.6 of the period: no floor
     assert edge_depth(90, reads, edge, False, True, gp, pacer, 0, 0, 500, 600) == 40
-    # ... but not if they are within CAP_MARGIN of the period
+    # ... but not if the slowest nodes above the producer and below the consumer
+    # take more than CAP_MARGIN periods together (they would have to take turns)
     assert edge_depth(90, reads, edge, False, True, gp, pacer, 0, 0, 500, 850) == 90
+    assert edge_depth(90, reads, edge, False, True, gp, pacer, 0, 0, 700, 700) == 90
     # ... nor if the producer is fed just in time by the pacer (fast chain above it)
     assert edge_depth(90, reads, edge, False, True, gp, pacer, 0, 0, 100, 600) == 90
     # a consumer that drives the pacer keeps its floor

@@ -694,9 +694,9 @@ def edge_depth(
     * Decoupled chain: no floor when the consumer can be throttled, a node
       between the pacer and the producer takes at least ``1 - 1 / CAP_MARGIN``
       of the period (``t_above``, the slowest of them), so the producer is not
-      fed just in time by the pacer, and the consumer and the nodes below it
-      have slack to wait (``t_below``, their slowest period, is ``CAP_MARGIN``
-      below the period).
+      fed just in time by the pacer, and that node and the slowest one at or
+      below the consumer (``t_below``) together take at most ``CAP_MARGIN``
+      periods, so the two can take turns without slowing the graph much.
     """
     if fill_only:
         return max(int(peak), int(idle_floor))
@@ -715,8 +715,8 @@ def edge_depth(
     if (
         throttleable
         and t_below is not None
-        and CAP_MARGIN * t_below <= global_period
         and CAP_MARGIN * t_above >= (CAP_MARGIN - 1) * global_period
+        and t_above + t_below <= CAP_MARGIN * global_period
     ):
         floor = 0
     return max(after_slack, floor)
