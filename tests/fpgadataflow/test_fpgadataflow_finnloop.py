@@ -29,7 +29,7 @@ from finn.util.basic import (
     make_build_dir,
     pynq_golden_files,
 )
-from finn.util.rtlsim import fifo_log_is_consistent, read_fifo_log_snapshot
+from finn.util.rtlsim import check_fifo_log_consistency, read_fifo_log_snapshot
 
 verif_steps = [
     "folded_hls_cppsim",
@@ -590,13 +590,7 @@ def _read_fifo_log_dir(log_dir, expect_verbose=True):
     """Parse one debug_fifo snapshot directory, checking its format and consistency."""
     assert os.path.isdir(log_dir), f"missing fifo debug dir {log_dir}"
     logs = read_fifo_log_snapshot(log_dir)
-    assert logs, f"no non-empty per-FIFO debug logs in {log_dir}"
-    empty = [
-        f
-        for f in sorted(os.listdir(log_dir))
-        if f.endswith(".log") and os.path.getsize(os.path.join(log_dir, f)) == 0
-    ]
-    assert empty == [], f"empty FIFO logs in {log_dir}: {empty}"
+    assert logs, f"no per-FIFO debug logs in {log_dir}"
     wrong_format = {
         n: log["verbose"] for n, log in logs.items() if log["verbose"] != expect_verbose
     }
@@ -605,21 +599,8 @@ def _read_fifo_log_dir(log_dir, expect_verbose=True):
         f"otherwise: {wrong_format}"
     )
     for log in logs.values():
-        fifo_log_is_consistent(log)
+        check_fifo_log_consistency(log)
     return logs
-
-
-def _logs_by_instance(logs, scope):
-    """Re-key a snapshot by the FIFO instance name the gauge itself reported."""
-    by_inst = {}
-    for fname, log in logs.items():
-        # e.g. "..._wrapper.finn_design_i.FINNLoop_0.<...>.<node name>.inst.fifo"
-        inst = log["name"].split(".")[-3]
-        assert inst not in by_inst, (
-            f"{scope}: {fname}.log and {by_inst[inst]['path']} both report on " f"instance {inst}"
-        )
-        by_inst[inst] = log
-    return by_inst
 
 
 def assert_mlo_fifo_logs(build_dir, loop_name):
@@ -630,10 +611,18 @@ def assert_mlo_fifo_logs(build_dir, loop_name):
     sizing_logs = _read_fifo_log_dir(f"{log_root}/fifo_sizing/{loop_name}")
     stitched_body_logs = _read_fifo_log_dir(f"{log_root}/stitched_ip_rtlsim/{loop_name}")
 
-    body_pre_fifosim = (
+    # every sizing log has to name a FIFO in the loop body it was simulated with;
+    # the body's nodes carry no loop prefix, the log names do
+    body_pre_fifosim = ModelWrapper(
         f"{log_root}/fifo_sizing/{loop_name}/intermediate_models/{body_prefix}pre_fifosim.onnx"
     )
-    assert os.path.isfile(body_pre_fifosim), f"no pre-FIFO-sim model snapshot at {body_pre_fifosim}"
+    sim_fifos = {
+        body_prefix + n.name for n in body_pre_fifosim.get_nodes_by_op_type("StreamingFIFO_rtl")
+    }
+    assert set(sizing_logs) == sim_fifos, (
+        f"fifo_sizing/{loop_name}: logs {sorted(sizing_logs)} do not match the "
+        f"simulated FIFOs {sorted(sim_fifos)}"
+    )
     for scope, logs in [("fifo_sizing", sizing_logs), ("stitched_ip_rtlsim", stitched_body_logs)]:
         untagged = sorted(n for n in logs if not n.startswith(body_prefix))
         assert not untagged, (
@@ -650,13 +639,12 @@ def assert_mlo_fifo_logs(build_dir, loop_name):
     assert main_counts, "expected top-level FIFOs around the FINNLoop"
 
     # The stitched-ip rtlsim runs the whole design once, so every FIFO in the final
-    # graph must have reported, in the scope it belongs to and only there.
-    body_by_inst = _logs_by_instance(stitched_body_logs, f"stitched_ip_rtlsim/{loop_name}")
-    _assert_logs_cover_fifos(body_by_inst, body_counts, f"stitched_ip_rtlsim/{loop_name}")
+    # graph must have reported, in the scope it belongs to and only there. Logs are
+    # matched by file name, which has to be the FIFO's final node name.
+    _assert_logs_cover_fifos(stitched_body_logs, body_counts, f"stitched_ip_rtlsim/{loop_name}")
     main_logs = _read_fifo_log_dir(f"{log_root}/stitched_ip_rtlsim/main")
-    main_by_inst = _logs_by_instance(main_logs, "stitched_ip_rtlsim/main")
-    _assert_logs_cover_fifos(main_by_inst, main_counts, "stitched_ip_rtlsim/main")
-    body_in_main = sorted(n for n in main_by_inst if n.startswith(body_prefix))
+    _assert_logs_cover_fifos(main_logs, main_counts, "stitched_ip_rtlsim/main")
+    body_in_main = sorted(n for n in main_logs if n.startswith(body_prefix))
     assert not body_in_main, (
         f"stitched_ip_rtlsim/main: loop-body log(s) {body_in_main} leaked into the "
         f"top-level snapshot"
@@ -667,13 +655,13 @@ def assert_mlo_fifo_logs(build_dir, loop_name):
         f"up with {len(body_counts)} FIFO(s)"
     )
 
-    for name, log in body_by_inst.items():
+    for name, log in stitched_body_logs.items():
         assert log["in"] == body_counts[name], "%s: logged in=%d, expected %d" % (
             log["path"],
             log["in"],
             body_counts[name],
         )
-    for name, log in main_by_inst.items():
+    for name, log in main_logs.items():
         assert log["in"] == main_counts[name], "%s: logged in=%d, expected %d" % (
             log["path"],
             log["in"],

@@ -66,14 +66,28 @@ Debug logging is enabled and parameterized by the following fields in
 Log outputs are located under ``<output_dir>/debug/fifo_logs/<phase>/<scope>/``:
 
 - ``<phase>``: phase of the build, i.e. ``fifo_sizing`` or ``stitched_ip_rtlsim``.
-- ``<scope>``: Applies to the FIFO sizing sim:
+- ``<scope>``: the graph the FIFOs belong to:
+
   - ``main`` for the top-level graph,
-  - ``FINNLoop_0`` for FIFOs inside FINNLoop 0.
-- Each FIFO's ONNX node contains attribute
-  `debug_log_path <https://github.com/Xilinx/finn/blob/38c42bf95abbdad493db0b0f5053060074698908/src/finn/custom_op/fpgadataflow/streamingfifo.py#L67>`,
-  - This is the path of the *live* log.
-  - It is then re-written to the appropriate <phase>/<scope> structure, with the
-    same log number.
+  - ``FINNLoop_0`` for FIFOs inside the body of FINNLoop 0.
+
+Each log is named after its FIFO's node, ``<node name>.log``. Logs of FIFOs
+inside a loop body always start with the loop name, e.g.
+``FINNLoop_0_StreamingFIFO_rtl_3.log``. During a simulation, each FIFO writes
+its log to the path in its ``debug_log_path`` node attribute, which points to
+``<output_dir>/debug/fifo_logs/_live/``. Once the simulation has finished, the
+logs are moved to ``<phase>/<scope>/``, replacing the logs of any previous build
+into the same output directory.
+
+FIFO sizing inserts a FIFO on every edge, simulates the design, and then
+removes the shallow FIFOs and renumbers the remaining ones. The node names in
+``fifo_sizing`` logs therefore refer to the graph *as simulated during sizing*,
+not to the final graph. This graph is saved next to the logs as
+``fifo_sizing/<scope>/intermediate_models/<prefix>pre_fifosim.onnx`` (the
+``FINNLoop_0_`` prefix applies to loop bodies only, whose node names in that
+model carry no loop prefix). Use it to look up which edge each sizing log
+belongs to. The ``stitched_ip_rtlsim`` logs are named after the final graph,
+``intermediate_models/step_create_stitched_ip.onnx``.
 
 Log Verbosity
 ~~~~~~~~~~~~~

@@ -54,7 +54,7 @@ from finn.transformation.fpgadataflow.set_fifo_depths import (
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import make_build_dir, robust_rmtree
 from finn.util.rtlsim import (
-    fifo_log_is_consistent,
+    check_fifo_log_consistency,
     parse_fifo_log,
     read_fifo_log_snapshot,
 )
@@ -342,7 +342,7 @@ def test_parse_fifo_log(tmp_path):
     assert verbose["txns"] == [(255, format_dict["dir_in"], 3), (255, format_dict["dir_out"], 5)]
     assert (verbose["in"], verbose["out"]) == (1, 1)
     assert (verbose["cycles"], verbose["maxfill"]) == (10, 1)
-    fifo_log_is_consistent(verbose)
+    check_fifo_log_consistency(verbose)
 
     # a plain log records inputs only, so the direction and cycle columns are absent
     plain = parse_fifo_log(
@@ -354,7 +354,7 @@ def test_parse_fifo_log(tmp_path):
     )
     assert plain["verbose"] is False
     assert plain["txns"] == [(255, None, None)]
-    fifo_log_is_consistent(plain)
+    check_fifo_log_consistency(plain)
 
     # a word the simulation logged as undriven parses, but without a value
     xz = parse_fifo_log(
@@ -366,12 +366,16 @@ def test_parse_fifo_log(tmp_path):
     )
     assert xz["txns"] == [(None, None, None)]
 
-    # a snapshot reads every log in the directory and skips the empty ones, which
-    # is how a FIFO that never saw a transaction shows up
-    (tmp_path / "empty.log").write_text("")
+    # a snapshot reads every log in the directory, keyed by file name
     snapshot = read_fifo_log_snapshot(str(tmp_path))
     assert set(snapshot) == {"verbose", "plain", "xz"}
     assert snapshot["verbose"]["txns"] == verbose["txns"]
+
+    # even a FIFO that never saw a transaction writes a header and a summary, so an
+    # empty log means the simulation never finished it and must not be skipped
+    (tmp_path / "empty.log").write_text("")
+    with pytest.raises(ValueError):
+        read_fifo_log_snapshot(str(tmp_path))
 
     malformed = {
         # an unrecognized header is a parse error, not a silently mis-parsed log
@@ -405,11 +409,26 @@ def test_parse_fifo_log(tmp_path):
             "ff 1 5",
             format_dict["gauge_summary"],
         ],
+        # more words out than went in
+        "out_exceeds_in": [
+            format_dict["verbose_header"],
+            "ff 0 3",
+            "ff 1 5",
+            "ff 1 6",
+            "# [tb.dut.fifo @100] Cycles: 10; MaxFill: 1; Transactions: in=1 out=2",
+        ],
+        # an undriven input word that comes out as a driven one
+        "x_reordered": [
+            format_dict["verbose_header"],
+            "xx 0 3",
+            "ff 1 5",
+            format_dict["gauge_summary"],
+        ],
     }
     for name, lines in inconsistent.items():
         log = parse_fifo_log(write_fifo_log(tmp_path, name, lines))
         with pytest.raises(ValueError):
-            fifo_log_is_consistent(log)
+            check_fifo_log_consistency(log)
 
 
 @pytest.mark.fpgadataflow
@@ -559,23 +578,23 @@ def test_fifo_log_build(fifo_log_verbose):
         output_dir + "/verification_output/verify_stitched_ip_rtlsim_0_SUCCESS.npy"
     ), "stitched-ip rtlsim did not reproduce the expected output"
 
+    # every sizing log has to name a FIFO in the model it was simulated with
     sizing_dir = output_dir + "/debug/fifo_logs/fifo_sizing/main"
-    assert os.path.isfile(sizing_dir + "/intermediate_models/pre_fifosim.onnx"), (
-        "no pre-FIFO-sim model snapshot in " + sizing_dir
+    pre_fifosim = ModelWrapper(sizing_dir + "/intermediate_models/pre_fifosim.onnx")
+    sim_fifos = {n.name for n in pre_fifosim.get_nodes_by_op_type("StreamingFIFO_rtl")}
+    sizing_logs = set(read_fifo_log_snapshot(sizing_dir))
+    assert sizing_logs == sim_fifos, "%s: logs %s do not match the simulated FIFOs %s" % (
+        sizing_dir,
+        sorted(sizing_logs),
+        sorted(sim_fifos),
     )
 
     log_dir = output_dir + "/debug/fifo_logs/stitched_ip_rtlsim/main"
     logs = read_fifo_log_snapshot(log_dir)
     assert logs, "debug_fifo was on but no FIFO log in " + log_dir
 
-    # read_fifo_log_snapshot() detects the format per log and skips empty files;
-    # this build asked for one specific format and expects every FIFO to report
-    empty = [
-        f
-        for f in sorted(os.listdir(log_dir))
-        if f.endswith(".log") and os.path.getsize(os.path.join(log_dir, f)) == 0
-    ]
-    assert empty == [], "empty FIFO logs in %s: %s" % (log_dir, empty)
+    # read_fifo_log_snapshot() detects the format per log; this build asked for
+    # one specific format
     wrong_format = {
         n: log["verbose"] for n, log in logs.items() if log["verbose"] != fifo_log_verbose
     }
@@ -596,7 +615,7 @@ def test_fifo_log_build(fifo_log_verbose):
 
     for name, log in logs.items():
         # the body has to agree with the gauge's own end-of-run counters
-        fifo_log_is_consistent(log)
+        check_fifo_log_consistency(log)
         # ...and those counters have to agree with the graph the FIFO sits in
         assert log["in"] == expected_counts[name], "%s: logged in=%d, expected %d" % (
             log["path"],

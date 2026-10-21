@@ -208,14 +208,15 @@ def _attach_fifo_debug_logs(model, cfg, prefix=""):
     return model
 
 
-def snapshot_fifo_logs(cfg, phase_name, loop_context=None, exclude_prefixes=()):
+def snapshot_fifo_logs(cfg, phase_name, loop_context=None):
     """
     Move the live fifo logs, located in
     `<output>/debug/fifo_logs/_live`,
     into a "snapshotted" directory, located in
     `<output>/debug/fifo_logs/<phase_name>/<loop_context>`.
 
-    Should only be called after a simulation is finished.
+    Should only be called after a simulation is finished. Without a loop_context,
+    all remaining live logs are moved to `main`, so snapshot the loop bodies first.
     """
     # Determine live directories
     live_dir = _fifo_debug_live_dir(cfg)
@@ -228,6 +229,10 @@ def snapshot_fifo_logs(cfg, phase_name, loop_context=None, exclude_prefixes=()):
     subdir = loop_context or "main"
     dest_dir = os.path.join(cfg.output_dir, "debug", "fifo_logs", phase_name, subdir)
     dest_onnx_dir = os.path.join(dest_dir, "intermediate_models")
+    # Drop the previous snapshot of this phase/scope, so a rebuild into the same
+    # output_dir with fewer FIFOs doesn't leave stale logs behind.
+    if os.path.isdir(dest_dir):
+        shutil.rmtree(dest_dir)
     os.makedirs(dest_dir, exist_ok=True)
     if os.path.isdir(live_onnx_dir):
         os.makedirs(dest_onnx_dir, exist_ok=True)
@@ -236,18 +241,14 @@ def snapshot_fifo_logs(cfg, phase_name, loop_context=None, exclude_prefixes=()):
     log_files = [
         log_file
         for log_file in os.listdir(live_dir)
-        if log_file.endswith(".log")
-        and (prefix is None or log_file.startswith(prefix))
-        and not any(log_file.startswith(p) for p in exclude_prefixes)
+        if log_file.endswith(".log") and (prefix is None or log_file.startswith(prefix))
     ]
 
     # Identify relevant ONNX files
     onnx_files = [
         onnx_file
         for onnx_file in (os.listdir(live_onnx_dir) if os.path.isdir(live_onnx_dir) else [])
-        if onnx_file.endswith(".onnx")
-        and (prefix is None or onnx_file.startswith(prefix))
-        and not any(onnx_file.startswith(p) for p in exclude_prefixes)
+        if onnx_file.endswith(".onnx") and (prefix is None or onnx_file.startswith(prefix))
     ]
 
     # Move relevant log files to snapshot directory
@@ -1258,15 +1259,10 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
                 "stitched_ip_rtlsim",
                 need_parent=True,
             )
-            loop_names = [n.name for n in verify_model.get_nodes_by_op_type("FINNLoop")]
-            for loop_name in loop_names:
-                snapshot_fifo_logs(cfg, "stitched_ip_rtlsim", loop_context=loop_name)
-
-            snapshot_fifo_logs(
-                cfg,
-                "stitched_ip_rtlsim",
-                exclude_prefixes=tuple(n + "_" for n in loop_names),
-            )
+            # loop bodies first, the main snapshot takes whatever is left
+            for loop_node in verify_model.get_nodes_by_op_type("FINNLoop"):
+                snapshot_fifo_logs(cfg, "stitched_ip_rtlsim", loop_context=loop_node.name)
+            snapshot_fifo_logs(cfg, "stitched_ip_rtlsim")
     return model
 
 
@@ -1593,6 +1589,9 @@ def step_loop_body_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig
         GiveUniqueNodeNames(prefix=(loop_context + "_") if loop_context else "")
     )
     model = model.transform(GiveReadableTensorNames())
+    # The renaming above renumbered the FIFOs, so point the surviving ones at logs
+    # named after their final node names (which already carry the loop prefix).
+    model = _attach_fifo_debug_logs(model, cfg)
 
     return model
 

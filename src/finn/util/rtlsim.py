@@ -34,27 +34,11 @@ import numpy as np
 import os
 import re
 from qonnx.custom_op.registry import getCustomOp
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Tuple
 
 from finn import xsi
 
 SimEngine = xsi.SimEngine if xsi.is_available() else None
-
-
-def parse_fifo_log_name(fname: str) -> Optional[Tuple[str, str]]:
-    """
-    Given a FIFO log name, either split it into
-    (ONNX Node Name, Vivado build hash)
-    or return None.
-    """
-    node_hash_regex = re.compile(
-        r"^(?P<node>(?:FINNLoop_\d+_)*StreamingFIFO_rtl_\d+)_(?P<hash>[a-z0-9_]{8})\.log$"
-    )
-    m = node_hash_regex.match(fname)
-    if m is None:
-        return None
-    else:
-        return m.group("node"), m.group("hash")
 
 
 def parse_fifo_log(path: str) -> Dict[str, Any]:
@@ -153,9 +137,17 @@ def parse_fifo_log(path: str) -> Dict[str, Any]:
 
 
 def read_fifo_log_snapshot(log_dir: str) -> Dict[str, Dict[str, Any]]:
-    """Parse every FIFO gauge log in one snapshot directory."
-    Args - log_dir: str path
-    Return - Map FIFO Name -> parse_fifo_log() dictionary.
+    """Parse every FIFO gauge log in one snapshot directory.
+
+    Every FIFO writes at least a header and a summary line, even without any
+    transactions, so an empty or truncated log raises instead of being skipped.
+
+    Args:
+        log_dir: Path to a ``<phase>/<scope>`` snapshot directory.
+
+    Returns:
+        A dict mapping each log's file name (without ``.log``) to its
+        parse_fifo_log() dict.
     """
     if not os.path.isdir(log_dir):
         raise ValueError("no FIFO log directory at " + log_dir)
@@ -163,17 +155,16 @@ def read_fifo_log_snapshot(log_dir: str) -> Dict[str, Dict[str, Any]]:
     for fname in sorted(os.listdir(log_dir)):
         if not fname.endswith(".log"):
             continue
-        path = os.path.join(log_dir, fname)
-        if os.path.getsize(path) == 0:
-            continue
-        logs[os.path.splitext(fname)[0]] = parse_fifo_log(path)
+        logs[os.path.splitext(fname)[0]] = parse_fifo_log(os.path.join(log_dir, fname))
     return logs
 
 
-def fifo_log_is_consistent(log: Dict[str, Any]) -> None:
-    """Validate number of transactions = reported summary.
+def check_fifo_log_consistency(log: Dict[str, Any]) -> None:
+    """Check that a FIFO log's body agrees with its own summary line.
+
     Args:
         log: parse_fifo_log() dict
+
     Raises:
         ValueError: on the first inconsistency found.
     """
@@ -182,12 +173,18 @@ def fifo_log_is_consistent(log: Dict[str, Any]) -> None:
     def fail(msg, *args):
         raise ValueError("%s: %s" % (path, msg % args))
 
+    def fmt(data):
+        # X/Z words are parsed as None
+        return "x" if data is None else "%#x" % data
+
     # <direction> 0 means input, 1 means output
     ins = [t for t in log["txns"] if t[1] in [0, None]]
     outs = [t for t in log["txns"] if t[1] == 1]
 
     if len(ins) != log["in"]:
         fail("%d input lines but summary says in=%d", len(ins), log["in"])
+    if log["out"] > log["in"]:
+        fail("summary says out=%d, more than in=%d", log["out"], log["in"])
     if log["maxfill"] > log["in"]:
         fail("MaxFill %d exceeds the %d words written", log["maxfill"], log["in"])
 
@@ -201,7 +198,7 @@ def fifo_log_is_consistent(log: Dict[str, Any]) -> None:
         fail("%d output lines but summary says out=%d", len(outs), log["out"])
     for i, out in enumerate(outs):
         if out[0] != ins[i][0]:
-            fail("output #%d is %#x, but input #%d was %#x", i, out[0], i, ins[i][0])
+            fail("output #%d is %s, but input #%d was %s", i, fmt(out[0]), i, fmt(ins[i][0]))
         if out[2] <= ins[i][2]:
             fail("output #%d at cycle %d precedes its input", i, out[2])
     cycles = [t[2] for t in log["txns"]]
