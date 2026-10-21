@@ -50,16 +50,21 @@ from finn.transformation.fpgadataflow.derive_characteristic import (
     TAV_PIPELINE_LATENCY,
     DeriveFIFOSizes,
     DeriveTokenAccessVectors,
+    Edge,
     block_writes,
     burst_above_rate,
     causal_writes,
     derive_chained_tav_depths,
+    downstream_periods,
+    edge_depth,
     join_window_floors,
     local_clock,
     node_latency,
+    node_periods,
     peak_occupancy,
     periodic_peak,
     phase_lead,
+    read_node_tavs,
     refill_floor,
 )
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
@@ -452,3 +457,31 @@ def test_join_window_floor():
     )
     need = getCustomOp(shuffle).get_tav_input_need(0)
     assert list(need[:4]) == [1, 2, 7, 8] and need[-1] == 24 and len(need) == 24
+
+
+@pytest.mark.fpgadataflow
+def test_decoupled_chain_floor():
+    # A consumer that can be throttled reads 100 tokens in 100 cycles against a
+    # frame rate of 0.1 token per cycle: burst floor 90 = the peak. Its producer's
+    # chain since the pacer takes half the period: the slack relaxation leaves 40.
+    # t_above: slowest node between the pacer and the producer.
+    reads = np.arange(100)
+    edge = Edge(None, 100, 500, 500, 1000)
+    gp, pacer = 1000, 995
+    assert edge_depth(90, reads, edge, False, True, gp, pacer) == 90
+    # the consumer and the nodes below it take at most 0.6 of the period: no floor
+    assert edge_depth(90, reads, edge, False, True, gp, pacer, 0, 0, 500, 600) == 40
+    # ... but not if they are within CAP_MARGIN of the period
+    assert edge_depth(90, reads, edge, False, True, gp, pacer, 0, 0, 500, 850) == 90
+    # ... nor if the producer is fed just in time by the pacer (fast chain above it)
+    assert edge_depth(90, reads, edge, False, True, gp, pacer, 0, 0, 100, 600) == 90
+    # a consumer that drives the pacer keeps its floor
+    assert edge_depth(90, reads, edge, False, False, gp, pacer, 0, 0, 500, 600) == 90
+    # slowest period at or below each node of the mlp chain (pacer MVAU_hls_0)
+    model, _ = characterize(make_mlp([(64, 64, 8, 8), (64, 64, 2, 64), (64, 64, 64, 64)], 16))
+    nodes = list(model.graph.node)
+    own = node_periods(nodes, read_node_tavs(model, nodes))
+    below = downstream_periods(model, nodes, own)
+    assert below["MVAU_hls_0"] == own["MVAU_hls_0"] > own["MVAU_hls_1"]
+    assert below["StreamingDataWidthConverter_rtl_0"] == own["MVAU_hls_1"]
+    assert below["MVAU_hls_2"] == own["MVAU_hls_2"] < own["MVAU_hls_1"]

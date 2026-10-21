@@ -397,12 +397,57 @@ been measured (its ZCU104 stitched-IP rtlsim is not available in the
 benchmark), so the cap is the one rule on this page without a throughput
 example.
 
-The cap only fires when the producer's blocking allowance exceeds the peak by
-``CAP_MARGIN`` (1.25): the allowance is first-order average-rate arithmetic,
+Where the chain is decoupled (`Decoupled chain`_) the floor is dropped
+altogether. The cap only fires when the producer's blocking allowance exceeds
+the peak by ``CAP_MARGIN`` (1.25): the allowance is first-order average-rate arithmetic,
 and an edge whose allowance only just covers its peak is one the estimate
 cannot be trusted about. The margin changes one depth on the regression set,
 ``Pool_hls_1 -> MVAU_rtl_0`` in resnet50 (272 with the margin, 256 without),
 on no other model.
+
+Decoupled chain
+---------------
+
+*What:* no burst floor (and no throttled cap) for an edge whose consumer can be
+throttled, when two more conditions hold: a node between the last pacer and the
+producer (the producer excluded) takes at least ``1 - 1 / CAP_MARGIN`` (20 %) of
+the period, and the slowest node at or below the consumer
+(``downstream_periods``) is at least ``CAP_MARGIN`` below the period. The depth
+is then what the slack relaxation leaves, at least 2.
+
+*Why:* the peak occupancy is the depth at which the producer never waits. The
+burst floor puts that peak back wherever the consumer's reads are bursty against
+the frame rate, which on a chain of fast nodes between slow ones is every edge:
+each fast producer runs a row ahead of the slow node below it, and the same
+backlog shows up again at every such edge down the chain. Where the consumer and
+everything below it have slack, a consumer that waits for its producer costs
+nothing, and where a slower node sits above the producer, the producer is not
+fed just in time by the pacer, so blocking it does not stall the pacer at once.
+The two exceptions are where the floor is needed: a producer right below the
+pacer (only fast nodes in between) holds the pacer's continuous output while the
+nodes below pause (padding rows, a sliding window generator's first rows), and a
+consumer at or near the pacer's period has no slack to wait with.
+
+*Example:* mobilenet_v1, committed U55C folding (pacer the ``Thresholding_rtl``
+with one channel per cycle below ``MVAU_hls_1``, 788544 cycles; the nodes below
+take at most 0.51 of the period). The sizer put 97.2 kB into 141 FIFOs, 76 % of
+it on wide edges with a burst floor equal to the peak (``VVAU_hls -> DWC`` 640 /
+352 / 176 bit at 77-223, ``FMPadding_rtl -> ConvolutionInputGenerator_rtl`` at
+202-256, ``MVAU_hls -> DWC`` at 176-226). Stitched-IP rtlsim (2 frames,
+interval) with depths changed against the sized design: every FIFO into a
+consumer that can be throttled at 2: 794807 (-0.8 %, 9.5 kB); the same except the
+three below the pacer (``DWC -> FMPadding_rtl_1`` 14, ``FMPadding_rtl_1 ->
+ConvolutionInputGenerator_rtl_2`` 256, ``VVAU_hls_1 -> DWC`` 80): 788544, 17.0
+kB, which is what the rule gives. Each of those three alone at 2 loses 0.1 to 0.4
+%; all ``VVAU_hls -> DWC`` edges below them at 2: 788544, all
+``FMPadding -> ConvolutionInputGenerator`` below them at 2: 788544. Small
+folding (``MVAU_hls`` at 0.90 of the period, so the consumer-side condition
+fails): every ``DWC -> MVAU_hls`` at 2 loses 29 %, every FIFO into a throttleable
+consumer at 2 loses 40 %; the rule changes one 4-bit edge there (17 to 2). Other
+models (offline re-sizing): cnv-w1a1 11.8 to 11.0 kbit (two ``-> ConvolutionInputGenerator``
+edges 52 to 28 and 72 to 66; rtlsim 8160 cycles either way), vgg10-radioml 15.6 to
+15.3, resnet18 2237.7 to 2225.2, transformer_radioml / _vision 387.0 / 1291.1 to
+386.2 / 1290.9, espcn and bert by less than 0.1 %, the others unchanged.
 
 Joins and reconvergent branches
 -------------------------------

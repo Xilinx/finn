@@ -521,6 +521,21 @@ def pacer_drivers(model, nodes, own_period, pacer_period):
     return drives_pacer
 
 
+def downstream_periods(model, nodes, own_period):
+    """``{node name: period}``: the slowest own period of the node and of
+    everything below it. A stall of the node delays all of them; the slack the
+    slowest one has left bounds how long the node may wait."""
+    slowest = {}
+    for node in reversed(nodes):
+        below = [
+            slowest.get(cons.name, 0)
+            for cons in (model.find_consumer(t) for t in node.output)
+            if cons is not None
+        ]
+        slowest[node.name] = max([own_period.get(node.name, 0)] + below)
+    return slowest
+
+
 def reconvergent_branch_nodes(model, nodes):
     """Step 4: the nodes between a fork and the node its branches reconverge
     at. Their deadline is the join, not the frame, so their edges are never
@@ -652,6 +667,8 @@ def edge_depth(
     pacer_period,
     idle_floor=0,
     refill=0,
+    t_above=0,
+    t_below=None,
 ):
     """Step 6: turn an edge's peak occupancy into its depth.
 
@@ -674,6 +691,12 @@ def edge_depth(
     * Throttled cap: bounds the floor when the consumer can be throttled, the
       producer can be blocked (its chain is not at the pacer) and the blocking
       budget is not marginal (``CAP_MARGIN``).
+    * Decoupled chain: no floor when the consumer can be throttled, a node
+      between the pacer and the producer takes at least ``1 - 1 / CAP_MARGIN``
+      of the period (``t_above``, the slowest of them), so the producer is not
+      fed just in time by the pacer, and the consumer and the nodes below it
+      have slack to wait (``t_below``, their slowest period, is ``CAP_MARGIN``
+      below the period).
     """
     if fill_only:
         return max(int(peak), int(idle_floor))
@@ -689,6 +712,13 @@ def edge_depth(
         and not (peak > 0 and allowance < CAP_MARGIN * peak)
     ):
         floor = min(floor, THROTTLED_CAP)
+    if (
+        throttleable
+        and t_below is not None
+        and CAP_MARGIN * t_below <= global_period
+        and CAP_MARGIN * t_above >= (CAP_MARGIN - 1) * global_period
+    ):
+        floor = 0
     return max(after_slack, floor)
 
 
@@ -718,6 +748,7 @@ def derive_chained_tav_depths(model, global_period, causal=True, latency=True):
     global_period = max(int(global_period or 0), max(own_period.values(), default=0), 1)
     pacer_period = global_period * PACER_TOLERANCE
     drives_pacer = pacer_drivers(model, nodes, own_period, pacer_period)
+    t_down = downstream_periods(model, nodes, own_period)
     in_branch = reconvergent_branch_nodes(model, nodes)
     graph_inputs = {x.name for x in model.graph.input}
 
@@ -747,6 +778,12 @@ def derive_chained_tav_depths(model, global_period, causal=True, latency=True):
             node = model.find_producer(t)
         return int(cover)
 
+    def chain_above(tensor):
+        """Slowest period between the last pacer and ``tensor``'s producer
+        (the producer excluded)."""
+        producer = model.find_producer(tensor)
+        return max([edges[t].t_prop for t in producer.input if t in edges], default=0)
+
     def size_edge(tensor, peak, read_times, consumer, fill_only, idle_floor=0):
         # a write gap is harmless for as long as the consumer's own slack and
         # the supply buffered above the producer last
@@ -762,6 +799,8 @@ def derive_chained_tav_depths(model, global_period, causal=True, latency=True):
             pacer_period,
             idle_floor,
             refill_floor(edges[tensor].writes, read_times, slack),
+            chain_above(tensor),
+            t_down.get(consumer.name, global_period),
         )
 
     for node in nodes:
