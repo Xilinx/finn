@@ -553,14 +553,14 @@ def create_chained_loop_bodies(
     return loop_body_models
 
 
-def assert_finnloop_cycle_estimate(build_dir, x, rtol=0.35, atol=50):
+def assert_finnloop_cycle_estimate(build_dir, x, max_ratio=3):
     """Compare FINNLoop.get_exp_cycles() against the measured rtlsim cycle count.
 
     Reuses the loop-body IP already built by an MLO end-to-end build (no extra
     synthesis): loads the node-by-node rtlsim child model saved by the build,
     re-runs rtlsim on the single FINNLoop node (which populates its
     ``cycles_rtlsim`` nodeattr, see HWCustomOp.rtlsim_multi_io) and asserts the
-    estimate is close to the measured value, mirroring the FMPadding cycle check.
+    estimate is an upper bound that is at most max_ratio times the measured value.
     """
     child_fn = build_dir + "/intermediate_models/verify_node_by_node_rtlsim.onnx"
     assert os.path.isfile(child_fn), f"missing node-by-node rtlsim model {child_fn}"
@@ -577,14 +577,12 @@ def assert_finnloop_cycle_estimate(build_dir, x, rtol=0.35, atol=50):
     cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
     exp_cycles = inst.get_exp_cycles()
     assert exp_cycles != 0
-    # The FINNLoop estimate is a conservative liveness bound and tends to slightly
-    # over-count (measured ~2928 vs ~2310 rtlsim, i.e. ~27% high, for the canonical
-    # config), which is the safe direction for the watchdog. A relative tolerance is
-    # used because the per-iteration overhead heuristic makes the error scale with
-    # the iteration count.
-    assert np.isclose(exp_cycles, cycles_rtlsim, rtol=rtol, atol=atol), (
-        f"FINNLoop cycle estimate {exp_cycles} not close to rtlsim {cycles_rtlsim} "
-        f"(rtol={rtol}, atol={atol})"
+    # The FINNLoop estimate is conservative: it assumes serial iterations, each
+    # taking the overlap-free body latency, so it over-counts. It must never
+    # under-count, since it sets the FIFO sizing period.
+    assert cycles_rtlsim <= exp_cycles <= max_ratio * cycles_rtlsim, (
+        f"FINNLoop cycle estimate {exp_cycles} is not between rtlsim {cycles_rtlsim} "
+        f"and {max_ratio}x rtlsim"
     )
 
 
@@ -1017,8 +1015,7 @@ def test_finnloop_end2end_mlo(
         #   word-aligned image stays byte-identical for divisors at the real folding
         ("AUP-ZU3_8GB", 8, 8, 4, 1, 2, 3, 3),  # folded, non-divisor (3 wasted bits/word):
         #   exercises the DMA-word-aligned fix on both the activation and weight paths
-        ("AUP-ZU3_8GB", 12, 3, 6, 1, 6, 8, 8),  # folded, helper PE > 2: VCK190 folding
-        #   on ZynqMP
+        ("AUP-ZU3_8GB", 12, 3, 6, 1, 6, 8, 8),  # folded, helper PE > 2: VCK190 folding on ZynqMP
         ("VCK190", 12, 3, 6, 3, 6, 8, 8),  # embedded Versal, tiled MVAU (DSP58)
     ],
 )

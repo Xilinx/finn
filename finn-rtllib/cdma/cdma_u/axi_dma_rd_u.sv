@@ -223,8 +223,12 @@ if(PACED) begin : genPaced
     uwire  ar_accept  = m_axi_arvalid & m_axi_arready;
     uwire  credit_in = r_valid & r_ready;
     always_ff @(posedge aclk) begin
+        // Sign-extend the burst debit to the full Credit width up front: the unsigned
+        // credit_in makes the sum below unsigned, which would otherwise zero-extend it.
+        // Keeping credit_in a 1-bit operand lets it map onto the adder's carry-in.
+        automatic type(Credit)  take = $signed({1'b1, ~m_axi_arlen});
         if (~aresetn)  Credit <= CREDIT_INIT;
-        else           Credit <= Credit + (ar_accept? $signed({1'b1, ~m_axi_arlen}) : 0) + credit_in;
+        else           Credit <= Credit + (ar_accept? take : 0) + credit_in;
     end
     assign  credit_ok = !Credit[$left(Credit)];
 

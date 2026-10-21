@@ -602,7 +602,9 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     )
 
     # Upsampling and resizing
-    model = apply_if_relevant(model, ["Upsample"], to_hw.InferUpsample(), "upsample layers")
+    model = apply_if_relevant(
+        model, ["Upsample", "Resize"], to_hw.InferUpsample(), "upsample layers"
+    )
 
     # Global pooling
     model = apply_if_relevant(

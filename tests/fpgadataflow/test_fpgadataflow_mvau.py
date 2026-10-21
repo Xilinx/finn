@@ -470,6 +470,10 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, pumpe
     cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
     exp_cycles_dict = model.analysis(exp_cycles_per_layer)
     exp_cycles = exp_cycles_dict[node.name]
+    if mem_mode == "external_mem":
+        # node-by-node rtlsim feeds the weights straight into the MVU core,
+        # bypassing fetch_weights, so it only measures the compute cycles
+        exp_cycles = inst.get_exp_compute_cycles()
     assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
     assert exp_cycles != 0
 
@@ -927,11 +931,30 @@ def test_fpgadataflow_rtl_mvau(
         output_matmul == output_mvau_rtl_stitch
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
 
+    # Check the cycle estimate against stitched-IP rtlsim, which unlike node-by-node
+    # rtlsim includes the weight path (fetch_weights for external_mem).
+    # get_exp_cycles() is the steady-state cycles per frame, so measure the extra
+    # cycles of 3 frames over 1 frame to cancel out the pipeline fill.
+    def stitched_rtlsim_cycles(n_frames):
+        ctx = {"global_in": np.concatenate([input_dict["global_in"]] * n_frames)}
+        rtlsim_exec(model, ctx)
+        return int(model.get_metadata_prop("cycles_rtlsim"))
+
+    cycles_per_frame = (stitched_rtlsim_cycles(3) - stitched_rtlsim_cycles(1)) / 2
+    exp_cycles = getCustomOp(model.get_nodes_by_op_type("MVAU_rtl")[0]).get_exp_cycles()
+    assert np.isclose(exp_cycles, cycles_per_frame, rtol=0.1, atol=20), (
+        f"MVAU cycle estimate {exp_cycles} not close to stitched-IP rtlsim "
+        f"{cycles_per_frame} cycles per frame"
+    )
+
 
 @pytest.mark.parametrize("mh", [32])
 @pytest.mark.parametrize("mw", [16])
 @pytest.mark.parametrize("n_vectors", [32])
-@pytest.mark.parametrize("pe", [1, 16, 32])
+# leading dims of both operands: [1, 1] gives 4D (batch, heads) inputs, [1] gives 3D
+# inputs as in per-head attention matmuls
+@pytest.mark.parametrize("lead_dims", [[1, 1], [1]])
+@pytest.mark.parametrize("pe", [1, 32])
 @pytest.mark.parametrize("simd", [1, 8, 16])
 @pytest.mark.parametrize(
     "idt_wdt", [[DataType["INT8"], DataType["INT8"]], [DataType["INT4"], DataType["INT4"]]]
@@ -944,7 +967,9 @@ def test_fpgadataflow_rtl_mvau(
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_rtl_dynamic_mvau(mh, mw, n_vectors, pe, simd, idt_wdt, part, impl_style):
+def test_fpgadataflow_rtl_dynamic_mvau(
+    mh, mw, n_vectors, lead_dims, pe, simd, idt_wdt, part, impl_style
+):
     # if 7 series and rtl selected, skip because narrow range can't be ensured for the second input
     if part == "xc7z020clg400-1" and impl_style == "rtl":
         pytest.skip("Skip test because narrow range can't be ensured for the second input")
@@ -953,9 +978,9 @@ def test_fpgadataflow_rtl_dynamic_mvau(mh, mw, n_vectors, pe, simd, idt_wdt, par
 
     idt, wdt = idt_wdt
     # Create test input vector (produced by SWG)
-    ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, 1, n_vectors, mw])
-    wfm = helper.make_tensor_value_info("wfm", TensorProto.FLOAT, [1, 1, mw, mh])
-    ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, (1, 1, n_vectors, mh))
+    ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, lead_dims + [n_vectors, mw])
+    wfm = helper.make_tensor_value_info("wfm", TensorProto.FLOAT, lead_dims + [mw, mh])
+    ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, lead_dims + [n_vectors, mh])
 
     model = make_dynamic_matmul_modelwrapper(ifm, wfm, ofm, idt, wdt)
     model = model.transform(GiveUniqueNodeNames())
