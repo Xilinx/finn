@@ -1755,10 +1755,12 @@ class MVAU(HWCustomOp):
         return {1: (burst, n_reps * nf)}
 
     def get_tav_input_window(self, ind=0):
-        """The ``MH / PE`` outputs of a vector need all ``MW / SIMD`` words of it."""
+        """The ``MH / PE`` outputs of a vector need all ``MW / SIMD`` words of it;
+        the tiled MVU (TH > 1) computes a group of TH vectors together."""
         if ind == 0:
+            th = self.get_nodeattr("TH")
             sf = self.get_nodeattr("MW") // self.get_nodeattr("SIMD")
-            return sf, self.get_nodeattr("MH") // self.get_nodeattr("PE")
+            return sf * th, self.get_nodeattr("MH") // self.get_nodeattr("PE") * th
         return super().get_tav_input_window(ind)
 
     def derive_token_access_vectors(
