@@ -8,8 +8,7 @@ import os
 import subprocess
 
 import finn.builder.build_dataflow_config as build_cfg
-from finn.platform import is_versal
-from finn.util.basic import pynq_part_map, slash_part_map, vitis_part_map
+from finn.platform import get_board
 
 
 def benchmark_root():
@@ -53,28 +52,29 @@ def get_verify_steps(steps, env_var="VERIFICATION_EN", board_enabled=True):
 def bitfile_output_files(board):
     """Bitfile + synthesis-report artifacts produced by ``step_synthesize_bitfile``.
 
-    The artifacts differ by shell flow (resolved from the ``board`` via FINN's
-    part maps): Vivado/Zynq emits a ``.bit`` (``.pdi`` on Versal) plus a ``.hwh``
-    and a post-route timing report, Vitis/Alveo emits a ``.xclbin``, and SLASH (V80) emits a
-    ``.vbin`` plus a ``slash_report.xml``.
+    The artifacts differ by the shell flow of the ``board``'s row (finn.platform):
+    Vivado/Zynq emits a ``.bit`` and Vivado/Versal a ``.pdi``, each plus a ``.hwh``
+    and a post-route timing report, Vitis/Alveo emits a ``.xclbin``, and SLASH
+    (V80) emits a ``.vbin`` plus a ``slash_report.xml``.
     """
     common = [
         "report/post_synth_resources.xml",
         "report/post_synth_resources.json",
     ]
-    if board in pynq_part_map:
+    shell = get_board(board).shell
+    if shell in ("VIVADO_ZYNQ", "VIVADO_VERSAL"):
         # Versal boards (e.g. VCK190) emit a .pdi instead of a .bit
-        accel_ext = "pdi" if is_versal(pynq_part_map[board]) else "bit"
+        accel_ext = "pdi" if shell == "VIVADO_VERSAL" else "bit"
         return [
             "bitfile/finn-accel.%s" % accel_ext,
             "bitfile/finn-accel.hwh",
             "report/post_route_timing.rpt",
         ] + common
-    elif board in vitis_part_map:
+    elif shell == "VITIS_ALVEO":
         return [
             "bitfile/finn-accel.xclbin",
         ] + common
-    elif board in slash_part_map:
+    elif shell == "SLASH_ALVEO":
         # The SLASH link writes the report straight into bitfile/ and only emits
         # the JSON resource report (no post_synth_resources.xml).
         return [

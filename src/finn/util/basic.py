@@ -41,36 +41,6 @@ from typing import Dict, Optional, Tuple
 
 from finn.util.data_packing import finnpy_to_packed_bytearray
 
-# mapping from PYNQ board names to FPGA part names
-pynq_part_map = dict()
-pynq_part_map["Ultra96"] = "xczu3eg-sbva484-1-e"
-pynq_part_map["Ultra96-V2"] = "xczu3eg-sbva484-1-i"
-pynq_part_map["Pynq-Z1"] = "xc7z020clg400-1"
-pynq_part_map["Pynq-Z2"] = "xc7z020clg400-1"
-pynq_part_map["ZCU102"] = "xczu9eg-ffvb1156-2-e"
-pynq_part_map["ZCU104"] = "xczu7ev-ffvc1156-2-e"
-pynq_part_map["ZCU111"] = "xczu28dr-ffvg1517-2-e"
-pynq_part_map["RFSoC2x2"] = "xczu28dr-ffvg1517-2-e"
-pynq_part_map["RFSoC4x2"] = "xczu48dr-ffvg1517-2-e"
-pynq_part_map["KV260_SOM"] = "xck26-sfvc784-2LV-c"
-pynq_part_map["AUP-ZU3_8GB"] = "xczu3eg-sfvc784-2-e"
-pynq_part_map["VCK190"] = "xcvc1902-vsva2197-2MP-e-S"
-
-# Vitis device and platform mappings
-vitis_part_map = dict()
-vitis_part_map["U50"] = "xcu50-fsvh2104-2L-e"
-vitis_part_map["U200"] = "xcu200-fsgd2104-2-e"
-vitis_part_map["U250"] = "xcu250-figd2104-2L-e"
-vitis_part_map["U55C"] = "xcu55c-fsvh2892-2L-e"
-
-# Slash device mappings
-slash_part_map = dict()
-slash_part_map["V80"] = "xcv80-lsva4737-2MHP-e-s"
-
-# Create a joint part map, encompassing other boards too
-part_map = {**pynq_part_map, **vitis_part_map, **slash_part_map}
-part_map["VEK280"] = "xcve2802-vsvh1760-2MP-e-S"
-
 
 def get_rtlsim_trace_depth():
     """Return the trace depth for rtlsim. Controllable
@@ -102,17 +72,6 @@ def get_finn_root():
         correctly. Please ensure you have launched the Docker contaier correctly.
         """
         )
-
-
-# Golden reference design files the Versal PYNQ shell is built against
-pynq_golden_files = ["golden_ref.tcl", "golden_noc.ncr", "golden_routed.dcp"]
-
-
-def get_pynq_golden_dir(board):
-    """Return the directory holding the golden reference design for a Versal PYNQ
-    board."""
-
-    return os.path.join(get_finn_root(), "deps", "pynq_golden", board.lower())
 
 
 def fifo_rtl_files(abspath=True, gauge=False):
