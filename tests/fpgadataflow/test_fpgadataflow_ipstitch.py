@@ -40,6 +40,7 @@ from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 from finn.core.onnx_exec import execute_onnx
+from finn.platform import get_board
 from finn.transformation.fpgadataflow.alveo_build import PrepareForLinking, VitisLink
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
@@ -51,18 +52,12 @@ from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
 from finn.transformation.fpgadataflow.make_pynq_proj import PYNQBuild
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.util.basic import (
-    make_build_dir,
-    pynq_part_map,
-    robust_rmtree,
-    vitis_default_platform,
-    vitis_part_map,
-)
+from finn.util.basic import make_build_dir, robust_rmtree
 from finn.util.test import load_test_checkpoint_or_skip
 from finn.util.vivado import parse_ooc_synth_results
 
 test_pynq_board = "AUP-ZU3_8GB"
-test_fpga_part = pynq_part_map[test_pynq_board]
+test_fpga_part = get_board(test_pynq_board).part
 
 ip_stitch_model_dir = os.environ["FINN_BUILD_DIR"]
 
@@ -315,8 +310,8 @@ def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
     if "VITIS_PATH" not in os.environ:
         pytest.skip("VITIS_PATH not set")
     test_dir = make_build_dir("test_fpgadataflow_ipstitch_vitis_")
-    platform = vitis_default_platform[board]
-    fpga_part = vitis_part_map[board]
+    platform = get_board(board).vitis_platform
+    fpga_part = get_board(board).part
     model = create_two_fc_model("external" if extw else "internal_decoupled")
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
         sdp_node = getCustomOp(model.graph.node[0])
@@ -327,7 +322,7 @@ def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
     model = model.transform(PrepareIP(fpga_part, period_ns))
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareForLinking(fpga_part, period_ns, "vitis-xrt"))
-    model = model.transform(VitisLink(platform, period_ns))
+    model = model.transform(VitisLink(platform, period_ns, mem_port=get_board(board).mem_port))
     model.save(os.path.join(test_dir, "test_fpgadataflow_ipstitch_vitis.onnx"))
     assert model.get_metadata_prop("platform") == "vitis-xrt"
     assert os.path.isdir(model.get_metadata_prop("vitis_link_proj"))

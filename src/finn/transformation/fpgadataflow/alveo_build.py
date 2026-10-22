@@ -41,6 +41,8 @@ from qonnx.transformation.general import (
     RemoveUnusedTensors,
 )
 
+from finn.platform import PlatformError
+from finn.platform.target import SHELL_AXI_PORT_WIDTH, ShellFlowType
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
@@ -230,7 +232,13 @@ class PrepareForLinking(Transformation):
             raise Exception(f"Unknown platform {self.platform}")
 
         # prepare at global level, then break up into kernels
-        prep_transforms = [InsertIODMA(512), InsertDWC(), SpecializeLayers(self.fpga_part)]
+        shell = {"vitis-xrt": ShellFlowType.VITIS_ALVEO, "slash-vrt": ShellFlowType.SLASH_ALVEO}
+        axi_port_width = SHELL_AXI_PORT_WIDTH[shell[self.platform]]
+        prep_transforms = [
+            InsertIODMA(axi_port_width),
+            InsertDWC(),
+            SpecializeLayers(self.fpga_part),
+        ]
         for trn in prep_transforms:
             model = model.transform(trn)
             model = model.transform(GiveUniqueNodeNames())
@@ -275,6 +283,10 @@ class PrepareForLinking(Transformation):
 class VitisLink(Transformation):
     """Create an XCLBIN with Vitis.
 
+    A DMA's memory port is its partition's mem_port attribute, or else mem_port: the
+    board's default (its row's mem_port in finn.platform, for example "HBM[0]"), in
+    which "{slr}" stands for the DMA's SLR (0 if it has none).
+
     Outcome if successful: sets the "bitfile" and "vivado_synth_rpt" attribute in the ONNX
     ModelProto's metadata_props field with the XCLBIN's and Vivado synthesis report's
     full path as value.
@@ -286,12 +298,14 @@ class VitisLink(Transformation):
         period_ns,
         strategy=VitisOptStrategy.PERFORMANCE,
         enable_debug=False,
+        mem_port=None,
     ):
         super().__init__()
         self.vitis_platform = vitis_platform
         self.f_mhz = round(1000 / period_ns)
         self.strategy = strategy
         self.enable_debug = enable_debug
+        self.mem_port = mem_port
 
     def apply(self, model):
         _check_vitis_envvars()
@@ -300,7 +314,6 @@ class VitisLink(Transformation):
         object_files = []
         idma_idx = 0
         odma_idx = 0
-        mem_idx = 0
         instance_names = {}
         for node in model.graph.node:
             assert node.op_type == "StreamingDataflowPartition", "Invalid link graph"
@@ -344,29 +357,14 @@ class VitisLink(Transformation):
             if producer is None or consumer is None or consumer == []:
                 node_mem_port = sdp_node.get_nodeattr("mem_port")
                 if node_mem_port == "":
-                    # configure good defaults based on board
-                    if "u50" in self.vitis_platform or "u55c" in self.vitis_platform:
-                        # Use HBM where available (also U50 does not have DDR)
-                        mem_type = "HBM"
-                        node_mem_port = "%s[%d]" % (mem_type, mem_idx)
-                        # mem_idx += 1
-                    elif "u200" in self.vitis_platform:
-                        # Use DDR controller in static region of U200
-                        mem_type = "DDR"
-                        mem_idx = 1
-                        node_mem_port = "%s[%d]" % (mem_type, mem_idx)
-                    elif "u250" in self.vitis_platform:
-                        # Use DDR controller on the node's SLR if set, otherwise 0
-                        mem_type = "DDR"
-                        if node_slr == -1:
-                            mem_idx = 0
-                        else:
-                            mem_idx = node_slr
-                        node_mem_port = "%s[%d]" % (mem_type, mem_idx)
-                    else:
-                        mem_type = "DDR"
-                        mem_idx = 1
-                        node_mem_port = "%s[%d]" % (mem_type, mem_idx)
+                    if self.mem_port is None:
+                        raise PlatformError(
+                            "memory-unstated",
+                            "No memory port for %s: set its mem_port attribute, or give "
+                            "VitisLink a mem_port (a board's default; set board in a "
+                            "build)" % node.name,
+                        )
+                    node_mem_port = self.mem_port.format(slr=max(node_slr, 0))
                 config.append("sp=%s.m_axi_gmem0:%s" % (instance_names[node.name], node_mem_port))
             # connect streams
             if producer is not None:
