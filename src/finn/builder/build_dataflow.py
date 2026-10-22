@@ -192,10 +192,13 @@ def _run_build_steps(model, cfg, build_dataflow_steps, log, step_log):
                     os.makedirs(intermediate_model_dir)
                 model.save("%s/%s" % (intermediate_model_dir, chkpt_name))
             step_num += 1
-        except:  # noqa
+        except BaseException as e:
             # restore stdout/stderr
             sys.stdout = stdout_orig
             sys.stderr = stderr_orig
+            # an interrupt or an exit request is not a failed step: let it through
+            if not isinstance(e, Exception):
+                raise
             # print exception info and traceback
             extype, value, tb = sys.exc_info()
             traceback.print_exc()
