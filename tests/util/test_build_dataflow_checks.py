@@ -16,7 +16,11 @@ from finn.builder.build_dataflow import (
     build_makes_driver,
     build_reads_part,
 )
-from finn.builder.build_dataflow_checks import _build_runs_tools
+from finn.builder.build_dataflow_checks import (
+    Severity,
+    _build_runs_tools,
+    run_all_config_checks,
+)
 from finn.builder.build_dataflow_config import (
     DataflowBuildConfig,
     DataflowOutputType,
@@ -716,3 +720,17 @@ class TestConfigCheckIntegration:
                 generate_outputs=[DataflowOutputType.CPP_DRIVER],
             )
         )
+
+
+@pytest.mark.util
+@pytest.mark.parametrize("xilinx_vivado", ["", None, "/tools/Vivado/current"])
+def test_the_mlo_version_check_reports_an_unknown_version(xilinx_vivado):
+    with patch.dict("os.environ"):
+        os.environ.pop("XILINX_VIVADO", None)
+        if xilinx_vivado is not None:
+            os.environ["XILINX_VIVADO"] = xilinx_vivado
+        report = run_all_config_checks(cfg("unused_output_dir", mlo=True))
+    failed = [c for c in report.checks if c.name == "mlo_vivado" and not c.passed]
+    assert len(failed) == 1
+    assert failed[0].severity == Severity.ERROR
+    assert "found unknown" in failed[0].message

@@ -100,12 +100,13 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
 
     # === Vivado Version Checks ===
     if cfg.mlo:
+        found = f"{v[0]}.{v[1]}" if v else "unknown"
         checks.append(
             _check(
                 "mlo_vivado",
                 Severity.ERROR,
                 v and v >= (2024, 2),
-                "MLO requires Vivado 2024.2 or later, " f"found {v[0]}.{v[1] if v else 'unknown'}",
+                f"MLO requires Vivado 2024.2 or later, found {found}",
                 "Upgrade to Vivado 2024.2 or later for MLO support",
             )
         )
