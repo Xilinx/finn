@@ -64,22 +64,6 @@ pynq_part_map["VCK190"] = "xcvc1902-vsva2197-2MP-e-S"
 retired_pynq_boards = {"Pynq-Z1", "Pynq-Z2"}
 
 
-# native AXI HP port width (in bits) for PYNQ boards
-pynq_native_port_width = dict()
-pynq_native_port_width["Pynq-Z1"] = 64
-pynq_native_port_width["Pynq-Z2"] = 64
-pynq_native_port_width["Ultra96"] = 128
-pynq_native_port_width["Ultra96-V2"] = 128
-pynq_native_port_width["ZCU102"] = 128
-pynq_native_port_width["ZCU104"] = 128
-pynq_native_port_width["ZCU111"] = 128
-pynq_native_port_width["RFSoC2x2"] = 128
-pynq_native_port_width["RFSoC4x2"] = 128
-pynq_native_port_width["KV260_SOM"] = 128
-pynq_native_port_width["AUP-ZU3_8GB"] = 128
-# native AXI port width (in bits) for the PL NoC slave ports on Versal
-pynq_native_port_width["VCK190"] = 512
-
 # Vitis device and platform mappings
 vitis_part_map = dict()
 vitis_part_map["U50"] = "xcu50-fsvh2104-2L-e"

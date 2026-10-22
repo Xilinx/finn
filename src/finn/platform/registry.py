@@ -488,6 +488,8 @@ def _board_problem(row) -> Optional[str]:
             return f"{key} applies to boards of the {' or '.join(shells)} shell only"
     if port and port[1] not in memory:
         return f"mem_port {port[0]} is on {port[1]}, which is not one of its memory {memory!r}"
+    if shell == "VIVADO_VERSAL" and not row.get("golden"):
+        return "the VIVADO_VERSAL shell builds on a golden reference design: golden is true"
     return None
 
 

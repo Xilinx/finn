@@ -38,7 +38,14 @@ from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.util.basic import get_num_default_workers
 from shutil import copy
 
-from finn.platform import is_versal
+from finn.platform import (
+    PlatformError,
+    get_board,
+    get_part_architecture,
+    golden_dir,
+    missing_golden_files,
+)
+from finn.platform.target import BOARD_SHELLS, ZYNQ_TYPES
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
@@ -50,16 +57,44 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.basic import (
-    get_pynq_golden_dir,
-    make_build_dir,
-    pynq_golden_files,
-    pynq_native_port_width,
-    pynq_part_map,
-    resolve_xilinx_tool,
-)
+from finn.util.basic import make_build_dir, resolve_xilinx_tool
 
 from . import templates
+
+
+def pynq_board(name):
+    """The row of the board ``name`` (finn.platform), refused unless the Zynq or the
+    Versal shell builds for it on a Vivado board preset."""
+    board = get_board(name)
+    if board.shell not in [each.name for each in BOARD_SHELLS]:
+        raise PlatformError(
+            "board-shell-mismatch",
+            f"Board {name!r} is not built with the VIVADO_ZYNQ or VIVADO_VERSAL shell flow",
+        )
+    if board.board_part is None:
+        raise PlatformError(
+            "no-board-preset",
+            f"Board {name!r} states no Vivado board preset (board_part), which the "
+            f"{board.shell} shell flow needs",
+        )
+    return board
+
+
+def board_template_values(name):
+    """The board's substitutions in the Zynq and Versal shell templates: its name,
+    part, Vivado board preset, Zynq type and PS settings, from its row."""
+    board = pynq_board(name)
+    ps_config = "\n".join(
+        "    set_property -dict [list CONFIG.%s {%s}] [get_bd_cells zynq_ps]" % (key, value)
+        for key, value in board.ps_config.items()
+    )
+    return {
+        "@BOARD@": name,
+        "@FPGA_PART@": board.part,
+        "@BOARD_PART@": board.board_part,
+        "@ZYNQ_TYPE@": ZYNQ_TYPES.get(get_part_architecture(board.part).class_, ""),
+        "@PS_CONFIG@": ps_config,
+    }
 
 
 def collect_ip_dirs(model, ipstitch_path):
@@ -108,24 +143,25 @@ class MakePYNQProject(Transformation):
     def __init__(self, platform, period_ns, enable_debug=False):
         super().__init__()
         self.platform = platform
-        self.fpga_part = pynq_part_map[platform]
+        self.board = pynq_board(platform)
+        self.fpga_part = self.board.part
         self.period_ns = period_ns
         self.enable_debug = 1 if enable_debug else 0
 
     def apply(self, model):
-        versal = is_versal(self.fpga_part)
-        golden_dir = None
+        versal = self.board.shell == "VIVADO_VERSAL"
+        board_golden_dir = None
+        if self.board.golden:
+            board_golden_dir = golden_dir(self.platform)
+            missing = missing_golden_files(self.platform)
+            if missing:
+                raise Exception(
+                    "Golden reference files missing from %s: %s."
+                    % (board_golden_dir, ", ".join(missing))
+                )
         if versal:
             clk_pin = "versal_cips_0/pl0_ref_clk"
             rst_pin = "rst_pl0/peripheral_aresetn"
-            golden_dir = get_pynq_golden_dir(self.platform)
-            missing = [
-                f for f in pynq_golden_files if not os.path.isfile(os.path.join(golden_dir, f))
-            ]
-            if missing:
-                raise Exception(
-                    "Golden reference files missing from %s: %s." % (golden_dir, ", ".join(missing))
-                )
             template = templates.custom_versal_shell_template
         else:
             clk_pin = "smartconnect_0/aclk"
@@ -277,12 +313,11 @@ class MakePYNQProject(Transformation):
             "@FREQ_MHZ@": fclk_mhz,
             "@NUM_AXILITE@": axilite_idx,
             "@NUM_AXIMM@": aximm_idx,
-            "@BOARD@": self.platform,
-            "@FPGA_PART@": self.fpga_part,
+            **board_template_values(self.platform),
             "@CONFIG@": config,
             "@ENABLE_DEBUG@": self.enable_debug,
             "@NUM_WORKERS@": num_workers,
-            "@GOLDEN_DIR@": golden_dir,
+            "@GOLDEN_DIR@": board_golden_dir,
         }
         for key, val in template_repl.items():
             if val is not None:
@@ -358,8 +393,9 @@ class PYNQBuild(Transformation):
         partition_model_dir=None,
     ):
         super().__init__()
-        self.fpga_part = pynq_part_map[platform]
-        self.axi_port_width = pynq_native_port_width[platform]
+        board = pynq_board(platform)
+        self.fpga_part = board.part
+        self.axi_port_width = board.axi_port_width
         self.period_ns = period_ns
         self.platform = platform
         self.enable_debug = enable_debug
