@@ -93,6 +93,14 @@ finn.custom\_op.fpgadataflow.thresholding\_rtl
    :undoc-members:
    :show-inheritance:
 
+finn.custom\_op.fpgadataflow.tlastmarker\_rtl
+-----------------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.rtl.tlastmarker_rtl
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.custom\_op.fpgadataflow.vectorvectoractivation\_rtl
 ---------------------------------------------------------------
 
