@@ -115,3 +115,19 @@ def test_a_successful_build_writes_time_per_step():
     cfg = make_cfg(output_dir, [passing_step])
     assert build.build_dataflow_cfg(make_test_model(build_dir), cfg) == 0
     assert os.path.isfile(os.path.join(output_dir, "time_per_step.json"))
+
+
+@pytest.mark.util
+def test_build_dataflow_directory_restores_the_working_directory_on_error():
+    build_dir = make_build_dir("test_runner_cwd_")
+    make_test_model(build_dir)
+    cfg = make_cfg(os.path.join(build_dir, "output"), None, board="nope")
+    with open(os.path.join(build_dir, "dataflow_build_config.json"), "w") as f:
+        f.write(cfg.to_json())
+    cwd = os.getcwd()
+    try:
+        with pytest.raises(AssertionError, match="Configuration check failed"):
+            build.build_dataflow_directory(build_dir)
+        assert os.getcwd() == cwd
+    finally:
+        os.chdir(cwd)

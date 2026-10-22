@@ -333,9 +333,10 @@ def build_dataflow_directory(path_to_cfg_dir: str):
     old_wd = os.getcwd()
     # change into build dir to resolve relative paths
     os.chdir(path_to_cfg_dir)
-    ret = build_dataflow_cfg(onnx_filename, build_cfg)
-    os.chdir(old_wd)
-    return ret
+    try:
+        return build_dataflow_cfg(onnx_filename, build_cfg)
+    finally:
+        os.chdir(old_wd)
 
 
 def main():
