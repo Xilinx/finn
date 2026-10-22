@@ -1,0 +1,17 @@
+{
+  "artix7": {"dsp": "DSP48E1", "class": null, "uram": false},
+  "kintex7": {"dsp": "DSP48E1", "class": null, "uram": false},
+  "kintexu": {"dsp": "DSP48E2", "class": null, "uram": false},
+  "kintexuplus": {"dsp": "DSP48E2", "class": null, "uram": true},
+  "spartan7": {"dsp": "DSP48E1", "class": null, "uram": false},
+  "spartanuplus": {"dsp": "DSP48E2", "class": null, "uram": false},
+  "versal": {"dsp": "DSP58", "class": "versal", "uram": true},
+  "virtex7": {"dsp": "DSP48E1", "class": null, "uram": false},
+  "virtexu": {"dsp": "DSP48E2", "class": null, "uram": false},
+  "virtexuplus": {"dsp": "DSP48E2", "class": null, "uram": true},
+  "virtexuplus58g": {"dsp": "DSP48E2", "class": null, "uram": true},
+  "virtexuplusHBM": {"dsp": "DSP48E2", "class": null, "uram": true},
+  "zynq": {"dsp": "DSP48E1", "class": "zynq7000", "uram": false},
+  "zynquplus": {"dsp": "DSP48E2", "class": "zynquplus", "uram": true},
+  "zynquplusRFSOC": {"dsp": "DSP48E2", "class": "zynquplus", "uram": true}
+}

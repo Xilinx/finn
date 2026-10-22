@@ -384,6 +384,27 @@ if [ -n "$VERIFICATION_IO" ]; then
   DOCKER_EXEC+="-e VERIFICATION_IO=$VERIFICATION_IO "
 fi
 
+# Forward FINN_PLATFORM_PATH, the user's platform data directories (see the docs:
+# Targets, parts, and platform data), and mount each listed directory at its own
+# absolute path.
+if [ -n "$FINN_PLATFORM_PATH" ]; then
+  FINN_PLATFORM_DIRS=""
+  IFS=":" read -r -a FINN_PLATFORM_LISTED <<< "$FINN_PLATFORM_PATH"
+  for FINN_PLATFORM_DIR in "${FINN_PLATFORM_LISTED[@]}"; do
+    if [ -z "$FINN_PLATFORM_DIR" ]; then
+      continue
+    fi
+    if [ -d "$FINN_PLATFORM_DIR" ]; then
+      FINN_PLATFORM_DIR=$(readlink -f "$FINN_PLATFORM_DIR")
+      DOCKER_EXEC+="-v $FINN_PLATFORM_DIR:$FINN_PLATFORM_DIR "
+    else
+      recho "FINN_PLATFORM_PATH lists $FINN_PLATFORM_DIR, which is not a directory"
+    fi
+    FINN_PLATFORM_DIRS+="${FINN_PLATFORM_DIRS:+:}$FINN_PLATFORM_DIR"
+  done
+  DOCKER_EXEC+="-e FINN_PLATFORM_PATH=$FINN_PLATFORM_DIRS "
+fi
+
 
 DOCKER_EXEC+="$FINN_DOCKER_EXTRA "
 
