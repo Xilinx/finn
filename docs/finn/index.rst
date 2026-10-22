@@ -43,6 +43,7 @@ More FINN Resources
    tutorials
    end_to_end_flow
    command_line
+   platform
    example_networks
    developers
    concepts
