@@ -8,7 +8,8 @@ import os
 import subprocess
 
 import finn.builder.build_dataflow_config as build_cfg
-from finn.util.basic import is_versal, pynq_part_map, slash_part_map, vitis_part_map
+from finn.platform import is_versal
+from finn.util.basic import pynq_part_map, slash_part_map, vitis_part_map
 
 
 def benchmark_root():

@@ -38,6 +38,7 @@ from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.util.basic import get_num_default_workers
 from shutil import copy
 
+from finn.platform import is_versal
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
@@ -51,7 +52,6 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import (
     get_pynq_golden_dir,
-    is_versal,
     make_build_dir,
     pynq_golden_files,
     pynq_native_port_width,

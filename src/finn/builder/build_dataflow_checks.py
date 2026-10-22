@@ -17,10 +17,10 @@ from finn.builder.build_dataflow_config import (
     ShellFlowType,
     verify_step_prereqs,
 )
+from finn.platform import is_versal
 from finn.util.basic import (
     get_pynq_golden_dir,
     get_vivado_version,
-    is_versal,
     part_map,
     pynq_golden_files,
     pynq_part_map,

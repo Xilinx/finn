@@ -34,10 +34,10 @@ from dataclasses_json import dataclass_json
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
+from finn.platform import is_versal
 from finn.transformation.fpgadataflow.alveo_build import VitisOptStrategy
 from finn.util.basic import (
     hbm_boards,
-    is_versal,
     part_map,
     pynq_part_map,
     slash_part_map,

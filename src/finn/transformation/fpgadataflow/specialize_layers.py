@@ -32,9 +32,10 @@ from onnx import helper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 
+import finn.platform
 from finn.custom_op.fpgadataflow.hls import custom_op as hls_variants
 from finn.custom_op.fpgadataflow.rtl import custom_op as rtl_variants
-from finn.util.basic import get_dsp_block, get_dsp_datapath_limits, is_versal
+from finn.platform import dsp_datapath_limits, is_versal
 
 
 def _determine_impl_style(node, fpgapart, model):
@@ -249,7 +250,7 @@ def _mvu_rtl_possible(n, fpgapart, model):
         return False
 
     # check which dsp block is available on fpga
-    dsp_block = get_dsp_block(fpgapart)
+    dsp_block = finn.platform.dsp_block(fpgapart)
     # check if weights are narrow
     weights = model.get_initializer(n.input[1])
     # if dynamic input, set minimum of weights to wdt.min()
@@ -273,7 +274,7 @@ def _mvu_rtl_possible(n, fpgapart, model):
     # the DSP-based RTL MVU also has an upper bound on the activation, weight and
     # accumulator widths given by the target DSP datapath; widths beyond that would
     # be silently truncated, so fall back to the (unbounded) HLS MVU instead
-    max_act, max_weight, max_acc = get_dsp_datapath_limits(dsp_block)
+    max_act, max_weight, max_acc = dsp_datapath_limits(dsp_block)
     acc_width = node_inst.get_output_datatype().bitwidth()
     # activations sit in the signed B datapath; unsigned activations cost one extra
     # bit, so the effective width must stay strictly below the B datapath width

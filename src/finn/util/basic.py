@@ -442,14 +442,6 @@ def memutil(req_mem_spec, primitive_spec):
     return (count, eff, waste)
 
 
-def is_versal(fpgapart):
-    """Returns whether board is part of the Versal family"""
-    return fpgapart[0:4] in ["xcvc", "xcve", "xcvp", "xcvm", "xqvc", "xqvm"] or fpgapart[0:5] in [
-        "xqrvc",
-        "xcv80",
-    ]
-
-
 def least_divisor_at_most(n, max_quotient):
     """Smallest divisor d of n such that n/d <= max_quotient.
 
@@ -460,29 +452,6 @@ def least_divisor_at_most(n, max_quotient):
         if n % d == 0:
             return d
     return n  # n always divides itself
-
-
-def get_dsp_block(fpgapart):
-    if is_versal(fpgapart):
-        return "DSP58"
-    elif fpgapart[2] == "7":
-        return "DSP48E1"
-    else:
-        return "DSP48E2"
-
-
-def get_dsp_datapath_limits(dsp_block):
-    """Return the maximum (activation, weight, accumulator) operand widths in bits
-    that fit the datapath of the given DSP block. These correspond to the DSP B, A
-    and P ports respectively. Widths exceeding these limits would be silently
-    truncated (or fail synthesis) if mapped onto the DSP-based RTL MVU."""
-    if dsp_block == "DSP58":
-        max_act_width, max_weight_width, max_acc_width = 24, 27, 58
-    elif dsp_block == "DSP48E2":
-        max_act_width, max_weight_width, max_acc_width = 18, 27, 48
-    else:  # DSP48E1
-        max_act_width, max_weight_width, max_acc_width = 18, 25, 48
-    return max_act_width, max_weight_width, max_acc_width
 
 
 def get_driver_shapes(model: ModelWrapper) -> Dict:

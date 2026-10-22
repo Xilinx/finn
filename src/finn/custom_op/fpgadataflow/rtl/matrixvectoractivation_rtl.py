@@ -29,9 +29,10 @@
 import numpy as np
 import os
 
+import finn.platform
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.util.basic import get_dsp_block, get_dsp_datapath_limits
+from finn.platform import dsp_datapath_limits
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation_rtl:
@@ -164,7 +165,7 @@ class MVAU_rtl(MVAU, RTLBackend):
         # multiplication
         P = self.get_nodeattr("PE")
         Q = self.get_nodeattr("SIMD")
-        dsp_block = get_dsp_block(fpgapart)
+        dsp_block = finn.platform.dsp_block(fpgapart)
         if dsp_block == "DSP58":
             mult_dsp = P * np.ceil(Q / 3)
         else:
@@ -383,12 +384,12 @@ class MVAU_rtl(MVAU, RTLBackend):
                     % (self.onnx_node.name, theight, num_inp_vec, valid_th)
                 )
 
-        dsp_block = get_dsp_block(fpgapart)
+        dsp_block = finn.platform.dsp_block(fpgapart)
 
         # the operand and accumulator widths must fit the target DSP datapath
         # (activation->B, weight->A, accumulator->P); wider values would be
         # silently truncated or fail synthesis on the DSP-based RTL MVU
-        max_act, max_weight, max_acc = get_dsp_datapath_limits(dsp_block)
+        max_act, max_weight, max_acc = dsp_datapath_limits(dsp_block)
         idt = self.get_input_datatype(0)
         signed_act = 1 if idt.signed() else 0
         act_width = idt.bitwidth()
