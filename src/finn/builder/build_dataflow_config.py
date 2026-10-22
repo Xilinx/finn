@@ -34,17 +34,9 @@ from dataclasses_json import dataclass_json
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
-from finn.platform import is_versal
-from finn.platform.target import ShellFlowType
+from finn.platform.target import ShellFlowType, Target, resolve_target
 from finn.transformation.fpgadataflow.alveo_build import VitisOptStrategy
-from finn.util.basic import (
-    hbm_boards,
-    part_map,
-    pynq_part_map,
-    slash_part_map,
-    vitis_default_platform,
-    vitis_part_map,
-)
+from finn.util.basic import get_vivado_version
 
 
 class AutoFIFOSizingMethod(str, Enum):
@@ -257,16 +249,19 @@ class DataflowBuildConfig:
     infer_shuffle_skip_first: Optional[bool] = True
 
     #: Target board, only needed for generating full bitfiles where the FINN
-    #: design is integrated into a shell.
+    #: design is integrated into a shell. A board of FINN's platform data
+    #: (``finn-platform show <board>``), which states its part and shell flow.
     #: e.g. "AUP-ZU3_8GB" or "U55C"
     board: Optional[str] = None
 
     #: Target shell flow, only needed for generating full bitfiles where the FINN
     #: design is integrated into a shell. See documentation of ShellFlowType
-    #: for options.
+    #: for options. If not specified, the board's shell flow is used; if both
+    #: are specified, they must agree.
     shell_flow_type: Optional[ShellFlowType] = None
 
-    #: Target Xilinx FPGA part. Only needed when board is not specified.
+    #: Target Xilinx FPGA part. Only needed when board is not specified; if both
+    #: are specified, they must name the same part.
     #: e.g. "xc7z020clg400-1"
     fpga_part: Optional[str] = None
 
@@ -437,34 +432,24 @@ class DataflowBuildConfig:
         else:
             return self.hls_clk_period_ns
 
-    def _resolve_driver_platform(self):
-        shell_flow_type = self._resolve_shell_flow_type()
-        if shell_flow_type in (ShellFlowType.VIVADO_ZYNQ, ShellFlowType.VIVADO_VERSAL):
-            return "pynq-iodma"
-        elif shell_flow_type == ShellFlowType.VITIS_ALVEO:
-            return "vitis-xrt"
-        elif shell_flow_type == ShellFlowType.SLASH_ALVEO:
-            return "slash-vrt"
-        else:
-            raise Exception("Couldn't resolve driver platform for " + str(shell_flow_type))
+    def _resolve_target(self, need_shell=False, need_bitfile=False, need_tools=False) -> Target:
+        """Resolve the build's target (finn.platform.resolve_target). Raises
+        finn.platform.PlatformError for what cannot be resolved."""
+        return resolve_target(
+            board=self.board,
+            fpga_part=self.fpga_part,
+            shell_flow_type=self.shell_flow_type,
+            vitis_platform=self.vitis_platform,
+            need_shell=need_shell,
+            need_bitfile=need_bitfile,
+            need_tools=need_tools,
+            vivado_release=get_vivado_version(),
+        )
 
     def _resolve_fpga_part(self):
-        if self.fpga_part is None:
-            # lookup from part map if not specified
-            try:
-                fpga_part = part_map[self.board]
-                return fpga_part
-            except KeyError:
-                raise Exception("Couldn't resolve fpga_part for " + self.board)
-        else:
-            # return as-is when explicitly specified
-            return self.fpga_part
-
-    def _resolve_mem_type(self):
-        """Resolve the memory type used to stream weights from the memories
-        available on the target board. When a board exposes more than one memory
-        type, HBM takes precedence over DDR."""
-        return "HBM" if self.board in hbm_boards else "DDR"
+        """The FPGA part: fpga_part, or the board's part. Asks for no tools, so it
+        needs no Vivado."""
+        return self._resolve_target().part
 
     def _resolve_cycles_per_frame(self):
         if self.target_fps is None:
@@ -485,39 +470,6 @@ class DataflowBuildConfig:
             VitisOptStrategyCfg.BUILD_SPEED: VitisOptStrategy.BUILD_SPEED,
         }
         return name_to_strategy[self.vitis_opt_strategy]
-
-    def _resolve_vitis_platform(self):
-        if self.vitis_platform is not None:
-            return self.vitis_platform
-        elif (self.vitis_platform is None) and (self.board is not None):
-            return vitis_default_platform[self.board]
-        else:
-            raise Exception(
-                "Could not resolve Vitis platform:" " need either board or vitis_platform specified"
-            )
-
-    def _resolve_shell_flow_type(self):
-        """Resolve the shell flow from an explicit setting, else from the board.
-
-        When shell_flow_type is unset, infer it from the board's membership in
-        FINN's part maps (Alveo -> VITIS_ALVEO, Zynq PYNQ -> VIVADO_ZYNQ,
-        Versal PYNQ -> VIVADO_VERSAL, V80 -> SLASH_ALVEO), mirroring
-        _resolve_fpga_part/_resolve_vitis_platform. An explicit shell_flow_type
-        always wins.
-        """
-        if self.shell_flow_type is not None:
-            return self.shell_flow_type
-        if self.board in vitis_part_map:
-            return ShellFlowType.VITIS_ALVEO
-        elif self.board in pynq_part_map:
-            if is_versal(pynq_part_map[self.board]):
-                return ShellFlowType.VIVADO_VERSAL
-            return ShellFlowType.VIVADO_ZYNQ
-        elif self.board in slash_part_map:
-            return ShellFlowType.SLASH_ALVEO
-        raise Exception(
-            "Could not resolve shell_flow_type: need either board or shell_flow_type specified"
-        )
 
     def _resolve_verification_steps(self):
         if self.verify_steps is None:
