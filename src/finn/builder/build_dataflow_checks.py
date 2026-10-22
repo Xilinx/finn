@@ -175,8 +175,7 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                 "some boards (e.g. U280) was dropped with the move to Vitis 2024.2",
                 f"Valid Alveo boards: {', '.join(sorted(alveo_boards))}. To keep using a "
                 "dropped board (e.g. U280) you can build with Vitis 2022.2 and re-add its "
-                "part/platform entries to vitis_part_map/vitis_default_platform (and the "
-                "matching Platform class in util/platforms.py).",
+                "part/platform entries to vitis_part_map/vitis_default_platform.",
             )
         )
 
