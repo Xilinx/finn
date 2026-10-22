@@ -311,7 +311,10 @@ class MVAU(HWCustomOp):
         elif ind == 1:
             match mem_mode:
                 case "dynamic":
-                    folded_input_shape = tuple(vecs[:2] + [mw] + [nf, pe])
+                    # one (MW x MH) operand per leading dim except the row dim, e.g.
+                    # per (batch, head) for [batch, heads, rows, MW] inputs and per
+                    # batch for [batch, rows, MW] inputs
+                    folded_input_shape = tuple(vecs[:-1] + [mw] + [nf, pe])
                 case "external" | "external_mem" | "internal_decoupled":
                     folded_input_shape = (
                         n_vecs,
@@ -492,18 +495,56 @@ class MVAU(HWCustomOp):
             )
 
     def get_exp_cycles(self):
+        # with external_mem, the weight fetch can be slower than the compute;
+        # fetch and compute overlap, so the slower of the two sets the rate
+        exp_cycles = max(self.get_exp_compute_cycles(), self.get_exp_weight_fetch_cycles())
+        return int(exp_cycles)
+
+    def get_exp_compute_cycles(self):
+        """Expected cycles per frame of the MVU compute core alone, assuming the
+        weight stream never stalls it."""
         pe = self.get_nodeattr("PE")
         simd = self.get_nodeattr("SIMD")
-        th = self.get_nodeattr("TH")
         num_inp_vec = self.get_nodeattr("numInputVectors")
         mh = self.get_nodeattr("MH")
         mw = self.get_nodeattr("MW")
         # since mmv != 1 is not supported yet, we set mmv for now to 1
         mmv = 1
-        # Tiling/systolic reduces throughput
-        # TH>1 (tiling) reduces throughput by factor TH (tinner = PE*SIMD/TH)
-        exp_cycles = (mh / pe) * (mw / simd) * np.prod(num_inp_vec) * th / mmv
+        # TH>1 (tiling) does not change the compute cycles: the tiled MVU still
+        # consumes one PE x SIMD weight tile per cycle, but reuses each tile for TH
+        # input vectors, so the weight stream only needs PE*SIMD/TH weights per cycle
+        exp_cycles = (mh / pe) * (mw / simd) * np.prod(num_inp_vec) / mmv
         return int(exp_cycles)
+
+    def get_exp_weight_fetch_cycles(self):
+        """Expected cycles per frame for fetch_weights to deliver the weights in
+        mem_mode external_mem, 0 for all other mem_modes.
+
+        The weight matrix is fetched from external memory once per frame for TH=1
+        (local_weight_buffer replays it numInputVectors times) and
+        numInputVectors/TH times per frame for TH>1. Each fetch is limited by the
+        slower of two stages that each move one transfer per cycle:
+          - the AXI bus: ceil(MH*MW / (DATA_BITS // wbits)) bus words
+          - the VPC into the weight buffer: MH*MW / IWSIMD weight groups,
+            with IWSIMD = SIMD for TH=1 and PE*SIMD/TH for TH>1
+        For TH=1 this is slower than the compute whenever PE > numInputVectors,
+        for TH>1 whenever PE*SIMD*wbits/TH > DATA_BITS.
+        This is a best case: one AXI beat per cycle, no memory latency."""
+        if self.get_nodeattr("mem_mode") != "external_mem":
+            return 0
+        pe = self.get_nodeattr("PE")
+        simd = self.get_nodeattr("SIMD")
+        th = self.get_nodeattr("TH")
+        n_vec = np.prod(self.get_nodeattr("numInputVectors"))
+        mh = self.get_nodeattr("MH")
+        mw = self.get_nodeattr("MW")
+        wbits = self.get_input_datatype(1).bitwidth()
+        data_bits = 256  # DATA_BITS in fetch_weights.sv (AXI bus width)
+        iwsimd = (pe * simd) // th if th > 1 else simd
+        fetches_per_frame = n_vec // th if th > 1 else 1
+        bus_words = math.ceil(mh * mw / (data_bits // wbits))
+        weight_groups = (mh * mw) // iwsimd
+        return int(fetches_per_frame * max(bus_words, weight_groups))
 
     def minimize_accumulator_width(self, model, datatype_only=False):
         """Minimize the accumulator bit width according to the weight values,
@@ -522,13 +563,21 @@ class MVAU(HWCustomOp):
 
         idt = self.get_input_datatype(0)
 
-        # if datatype_only, runtime-writeable weights, mem_mode=external, or
-        # weights are absent (MLO), then we use worst-case values from datatypes
+        # if datatype_only, runtime-writeable weights, mem_mode=external,
+        # weights are absent (MLO), or this is a binary-XNOR node, then we use
+        # worst-case values from datatypes.
+        # binaryXnorMode is special: the hardware replaces the bipolar MAC with
+        # XNOR + popcount, so its accumulator is an unsigned popcount in [0, MW],
+        # not the signed bipolar dot-product. The value-based branch reinterprets
+        # only the weights as bipolar and would describe a signed accumulator
+        # that doesn't match the XNOR hardware (and is no tighter than [0, MW]
+        # anyway), so XNOR nodes use the datatype-bound unsigned range.
         if (
             datatype_only
             or self.get_nodeattr("runtime_writeable_weights")
             or self.get_nodeattr("mem_mode") in ["external", "external_mem", "dynamic"]
             or weights is None
+            or self.get_nodeattr("binaryXnorMode")
         ):
             mw = self.get_nodeattr("MW")
             mh = self.get_nodeattr("MH")
@@ -628,8 +677,18 @@ class MVAU(HWCustomOp):
         inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
         wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
         if inp_is_bipolar and wt_is_bipolar:
-            # ensure all thresholds are nonnegative
-            assert (orig_thres_matrix >= 0).all()
+            # Bipolar-XNOR nodes accumulate an unsigned popcount, so thresholds
+            # reaching HW codegen must be non-negative (a negative threshold means
+            # "always fire" and should already have been clipped to 0 by
+            # RoundAndClipThresholds). A negative here means the accumulator was
+            # minimized as signed (see minimize_accumulator_width) or
+            # RoundAndClipThresholds did not run.
+            assert (orig_thres_matrix >= 0).all(), (
+                "Negative threshold on a bipolar-XNOR node reaching HW codegen; "
+                "expected non-negative (unsigned popcount) thresholds. Check that "
+                "the accumulator was minimized as unsigned and that "
+                "RoundAndClipThresholds ran."
+            )
             # ensure all thresholds are integer
             assert (orig_thres_matrix.astype(np.int32) == orig_thres_matrix).all()
         ret = orig_thres_matrix

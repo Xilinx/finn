@@ -43,6 +43,11 @@ from finn.transformation.qonnx.quant_act_to_multithreshold import (
     default_filter_function_generator,
 )
 
+#: Op types of the QONNX quantization nodes, i.e. the nodes that mark a model as
+#: QONNX rather than FINN-ONNX. IntQuant is the current name of the integer
+#: quantizer and Quant the name Brevitas exports, which QONNX keeps as an alias.
+QONNX_QUANT_OP_TYPES = ["IntQuant", "Quant", "BipolarQuant", "FloatQuant", "Trunc"]
+
 
 class ConvertQONNXtoFINN(Transformation):
     """Converts QONNX dialect to FINN ONNX dialect.
@@ -56,7 +61,7 @@ class ConvertQONNXtoFINN(Transformation):
     are converted to MultiThreshold nodes. A warning will be emitted when a Quant node
     is not converted to a MultiThreshold node.
 
-    :param filter_function: Each candidate Quant and BinaryQant node is first evaluated
+    :param filter_function: Each candidate Quant and BipolarQuant node is first evaluated
         by this function. If the function returns False,
         then the node is not converted to a MultiTrheshold node.
         The function is given the model and candidate node as parameters.

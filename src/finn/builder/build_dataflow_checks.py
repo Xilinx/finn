@@ -6,7 +6,7 @@
 import importlib
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional, Tuple
@@ -18,8 +18,11 @@ from finn.builder.build_dataflow_config import (
     verify_step_prereqs,
 )
 from finn.util.basic import (
+    get_pynq_golden_dir,
     get_vivado_version,
+    is_versal,
     part_map,
+    pynq_golden_files,
     pynq_part_map,
     retired_pynq_boards,
     vitis_part_map,
@@ -56,6 +59,15 @@ def _check(name, severity, condition, msg_fail, suggestion=None):
     if condition:
         return Check(name, severity, True, "OK")
     return Check(name, severity, False, msg_fail, suggestion)
+
+
+def _cfg_default(field_name):
+    """The declared default of a DataflowBuildConfig field, so checks that compare
+    against "unset" track the dataclass rather than a hard-coded copy of it."""
+    for f in fields(DataflowBuildConfig):
+        if f.name == field_name:
+            return f.default
+    raise AttributeError("DataflowBuildConfig has no field %r" % field_name)
 
 
 def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
@@ -168,9 +180,22 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
             )
         )
 
+    # Resolve the shell the build will actually use for the bitfile-consistency
+    # checks below: an unset shell_flow_type is inferred from the board. A board
+    # with no shell is only an error when a bitfile is requested, so leave resolved_shell
+    # as None here and let the has_bitfile-gated checks below report it.
+    try:
+        resolved_shell = (
+            cfg._resolve_shell_flow_type()
+            if (cfg.shell_flow_type is not None or cfg.board is not None)
+            else None
+        )
+    except Exception:
+        resolved_shell = None
+
     if has_bitfile:
         is_v80 = cfg.board == "V80" or (cfg.fpga_part and cfg.fpga_part.startswith("xcv80"))
-        is_slash = cfg.shell_flow_type == ShellFlowType.SLASH_ALVEO
+        is_slash = resolved_shell == ShellFlowType.SLASH_ALVEO
         if is_v80 or is_slash:  # Only check if V80 or SLASH is involved
             checks.append(
                 _check(
@@ -178,53 +203,64 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                     Severity.ERROR,
                     is_v80 == is_slash,  # Pass if both match (both true or both false)
                     "V80 board and SLASH_ALVEO shell flow must be used together. "
-                    f"Got board={cfg.board}, shell_flow_type={cfg.shell_flow_type}",
+                    f"Got board={cfg.board}, shell_flow_type={resolved_shell}",
                     "Use board='V80' with shell_flow_type=SLASH_ALVEO, or use a different "
                     "board with VITIS_ALVEO/VIVADO_ZYNQ",
                 )
             )
 
-    if (
-        has_bitfile
-        and cfg.board in alveo_boards
-        and cfg.shell_flow_type != ShellFlowType.VITIS_ALVEO
-    ):
+    if has_bitfile and cfg.board in alveo_boards and resolved_shell != ShellFlowType.VITIS_ALVEO:
         checks.append(
             _check(
                 "alveo_shell",
                 Severity.ERROR,
                 False,
                 f"Alveo board '{cfg.board}' requires VITIS_ALVEO shell flow, "
-                f"but {cfg.shell_flow_type} was specified",
+                f"but {resolved_shell} was specified",
                 "Set shell_flow_type=ShellFlowType.VITIS_ALVEO for Alveo U* boards",
             )
         )
 
-    if (
-        has_bitfile
-        and cfg.board in pynq_boards
-        and cfg.shell_flow_type != ShellFlowType.VIVADO_ZYNQ
-    ):
+    if has_bitfile and cfg.board in pynq_boards:
+        expected_flow = (
+            ShellFlowType.VIVADO_VERSAL
+            if is_versal(pynq_part_map[cfg.board])
+            else ShellFlowType.VIVADO_ZYNQ
+        )
         checks.append(
             _check(
                 "pynq_shell",
                 Severity.ERROR,
-                False,
-                f"Zynq board '{cfg.board}' requires VIVADO_ZYNQ shell flow, "
-                f"but {cfg.shell_flow_type} was specified",
-                "Set shell_flow_type=ShellFlowType.VIVADO_ZYNQ for Zynq/PYNQ boards",
+                resolved_shell == expected_flow,
+                f"PYNQ board '{cfg.board}' requires {expected_flow.name} shell flow, "
+                f"but {resolved_shell} was specified",
+                f"Set shell_flow_type=ShellFlowType.{expected_flow.name} for this board",
             )
         )
 
-    if cfg.board in ("VEK280", "VCK190") and has_bitfile:
+    if cfg.board == "VEK280" and has_bitfile:
         checks.append(
             _check(
                 "versal_deploy",
                 Severity.ERROR,
                 False,
                 f"Versal board '{cfg.board}' does not yet support bitfile generation. "
-                "System deployment is not available for Versal devices",
-                "Remove BITFILE from generate_outputs, or use a non-Versal board",
+                "System deployment is not available for this Versal device",
+                "Remove BITFILE from generate_outputs, or use a different board",
+            )
+        )
+
+    if has_bitfile and cfg.board == "VCK190":
+        golden_dir = get_pynq_golden_dir(cfg.board)
+        missing = [f for f in pynq_golden_files if not os.path.isfile(os.path.join(golden_dir, f))]
+        checks.append(
+            _check(
+                "vck190_golden",
+                Severity.ERROR,
+                not missing,
+                f"VCK190 golden reference files missing from {golden_dir}: {', '.join(missing)}",
+                "Launch the container with FINN_VCK190_GOLDEN=1 ./run-docker.sh to build them "
+                "(needs Vivado, takes a while on first launch)",
             )
         )
 
@@ -241,16 +277,23 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
             )
         )
 
-    if has_bitfile and cfg.shell_flow_type == ShellFlowType.VIVADO_ZYNQ and cfg.board is None:
+    if (
+        has_bitfile
+        and cfg.shell_flow_type in (ShellFlowType.VIVADO_ZYNQ, ShellFlowType.VIVADO_VERSAL)
+        and cfg.board is None
+    ):
+        flow_name = (
+            "VIVADO_VERSAL" if cfg.shell_flow_type == ShellFlowType.VIVADO_VERSAL else "VIVADO_ZYNQ"
+        )
         checks.append(
             _check(
-                "zynq_board",
+                "pynq_board",
                 Severity.ERROR,
                 False,
-                "BITFILE generation with VIVADO_ZYNQ requires 'board' to be set. "
-                "ZynqBuild needs the board name and will fail in step_synthesize_bitfile "
+                f"BITFILE generation with {flow_name} requires 'board' to be set. "
+                "PYNQBuild needs the board name and will fail in step_synthesize_bitfile "
                 "if missing",
-                "Set board to a valid Zynq board name (e.g., 'AUP-ZU3_8GB', 'ZCU104')",
+                f"Set board to a valid {flow_name} board name",
             )
         )
 
@@ -371,12 +414,15 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                 phase_missing = phase_name and phase_name not in resolved_names
                 step_missing = step_name not in resolved_names
                 if phase_missing and step_missing:
+                    # verify_steps entries may be VerificationStepType enum members
+                    # or plain strings; normalize to the string form for the message
+                    vstep_name = getattr(vstep, "value", vstep)
                     checks.append(
                         _check(
                             "verify_step_prereq",
                             Severity.WARNING,
                             False,
-                            f"verify_steps includes {vstep.value}, but neither "
+                            f"verify_steps includes {vstep_name}, but neither "
                             f"{phase_name} nor {step_name} is in the resolved "
                             "build steps (steps/start_step/stop_step). That "
                             "verification would silently never run",
@@ -385,6 +431,53 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                             "this entry from verify_steps",
                         )
                     )
+
+    # === FIFO Debug Logging ===
+    # fifo_log_flush_cycles reaches the RTL via int() in _attach_fifo_debug_logs and
+    # InsertAndSetFIFODepths; None or a negative value only fails there, partway into
+    # the build, so catch it here instead. 0 is legal: it disables periodic flushing.
+    if cfg.debug_fifo and not isinstance(cfg.fifo_log_flush_cycles, int):
+        checks.append(
+            _check(
+                "fifo_log_flush_cycles",
+                Severity.ERROR,
+                False,
+                "debug_fifo=True but fifo_log_flush_cycles="
+                f"{cfg.fifo_log_flush_cycles!r} is not an integer",
+                "Set fifo_log_flush_cycles to a non-negative integer number of cycles, "
+                "or 0 to only flush the logs when the simulation ends",
+            )
+        )
+    elif cfg.debug_fifo and cfg.fifo_log_flush_cycles < 0:
+        checks.append(
+            _check(
+                "fifo_log_flush_cycles",
+                Severity.ERROR,
+                False,
+                f"fifo_log_flush_cycles={cfg.fifo_log_flush_cycles} is negative",
+                "Set fifo_log_flush_cycles to a non-negative integer number of cycles, "
+                "or 0 to only flush the logs when the simulation ends",
+            )
+        )
+
+    if not cfg.debug_fifo:
+        fifo_log_opts = [
+            (name, getattr(cfg, name), _cfg_default(name))
+            for name in ["fifo_log_verbose", "fifo_log_flush_cycles"]
+        ]
+        customized = [(n, val) for n, val, default in fifo_log_opts if val != default]
+        if customized:
+            checks.append(
+                _check(
+                    "fifo_log_without_debug",
+                    Severity.WARNING,
+                    False,
+                    ", ".join(f"{n}={v!r}" for n, v in customized)
+                    + " differs from the default but debug_fifo=False, so no FIFO logs "
+                    "are written and the setting has no effect",
+                    "Set debug_fifo=True to enable FIFO logging, or drop these settings",
+                )
+            )
 
     # === Warnings ===
     if cfg.shell_flow_type is not None and not has_bitfile:

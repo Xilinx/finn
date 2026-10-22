@@ -36,6 +36,8 @@ module cdma_top #(
     int unsigned                        LEN_BITS,
     int unsigned                        ID_BITS = 2,
     int unsigned                        BURST_LEN = 16,
+    bit                                 PACED = 1,
+    int unsigned                        N_OUTSTANDING = 2,
     int unsigned                        CDMA_TYPE = 1, // (0: Aligned, 1: Unaglined, 2: Datamover IP)
     int unsigned                        CDMA_RD = 1,
     int unsigned                        CDMA_WR = 1
@@ -189,44 +191,52 @@ case (CDMA_TYPE)
   1: begin
     // Non-aligned
     if(CDMA_RD == 1) begin
-        cdma_u_rd #(
-            .DATA_BITS(DATA_BITS),
-            .ADDR_BITS(ADDR_BITS),
-            .ID_BITS(ID_BITS),
-            .LEN_BITS(LEN_BITS),
-            .BURST_LEN(BURST_LEN)
+        axi_dma_rd_u #(
+            .AXI_DATA_WIDTH(DATA_BITS),
+            .AXI_ADDR_WIDTH(ADDR_BITS),
+            .AXI_STRB_WIDTH(DATA_BITS/8),
+            .AXI_MAX_BURST_LEN(BURST_LEN),
+            .AXIS_DATA_WIDTH(DATA_BITS),
+            .AXIS_KEEP_ENABLE(1),
+            .AXIS_KEEP_WIDTH(DATA_BITS/8),
+            .AXIS_LAST_ENABLE(1),
+            .LEN_WIDTH(LEN_BITS),
+            .AXI_ID_BITS(ID_BITS),
+            .PACED(PACED),
+            .N_OUTSTANDING(N_OUTSTANDING)
         ) inst_cdma_u_rd (
             .aclk(aclk),
             .aresetn(aresetn),
 
-            .rd_valid(rd_valid),
-            .rd_ready(rd_ready),
-            .rd_paddr(rd_paddr),
-            .rd_len(rd_len),
-            .rd_done(rd_done),
+            .s_axis_read_desc_addr(rd_paddr),
+            .s_axis_read_desc_len(rd_len),
+            .s_axis_read_desc_valid(rd_valid),
+            .s_axis_read_desc_ready(rd_ready),
 
-            .m_axi_ddr_arvalid(m_axi_ddr.arvalid),
-            .m_axi_ddr_arready(m_axi_ddr.arready),
-            .m_axi_ddr_araddr(m_axi_ddr.araddr),
-            .m_axi_ddr_arid(m_axi_ddr.arid),
-            .m_axi_ddr_arlen(m_axi_ddr.arlen),
-            .m_axi_ddr_arsize(m_axi_ddr.arsize),
-            .m_axi_ddr_arburst(m_axi_ddr.arburst),
-            .m_axi_ddr_arlock(m_axi_ddr.arlock),
-            .m_axi_ddr_arcache(m_axi_ddr.arcache),
-            .m_axi_ddr_arprot(m_axi_ddr.arprot),
-            .m_axi_ddr_rvalid(m_axi_ddr.rvalid),
-            .m_axi_ddr_rready(m_axi_ddr.rready),
-            .m_axi_ddr_rdata(m_axi_ddr.rdata),
-            .m_axi_ddr_rlast(m_axi_ddr.rlast),
-            .m_axi_ddr_rid(m_axi_ddr.rid),
-            .m_axi_ddr_rresp(m_axi_ddr.rresp),
+            .m_axis_read_desc_status_valid(rd_done),
 
-            .m_axis_ddr_tvalid(m_axis_ddr.tvalid),
-            .m_axis_ddr_tready(m_axis_ddr.tready),
-            .m_axis_ddr_tdata(m_axis_ddr.tdata),
-            .m_axis_ddr_tkeep(m_axis_ddr.tkeep),
-            .m_axis_ddr_tlast(m_axis_ddr.tlast)
+            .m_axis_read_data_tdata(m_axis_ddr.tdata),
+            .m_axis_read_data_tkeep(m_axis_ddr.tkeep),
+            .m_axis_read_data_tvalid(m_axis_ddr.tvalid),
+            .m_axis_read_data_tready(m_axis_ddr.tready),
+            .m_axis_read_data_tlast(m_axis_ddr.tlast),
+
+            .m_axi_arvalid(m_axi_ddr.arvalid),
+            .m_axi_arready(m_axi_ddr.arready),
+            .m_axi_araddr(m_axi_ddr.araddr),
+            .m_axi_arid(m_axi_ddr.arid),
+            .m_axi_arlen(m_axi_ddr.arlen),
+            .m_axi_arsize(m_axi_ddr.arsize),
+            .m_axi_arburst(m_axi_ddr.arburst),
+            .m_axi_arlock(m_axi_ddr.arlock),
+            .m_axi_arcache(m_axi_ddr.arcache),
+            .m_axi_arprot(m_axi_ddr.arprot),
+            .m_axi_rvalid(m_axi_ddr.rvalid),
+            .m_axi_rready(m_axi_ddr.rready),
+            .m_axi_rdata(m_axi_ddr.rdata),
+            .m_axi_rlast(m_axi_ddr.rlast),
+            .m_axi_rid(m_axi_ddr.rid),
+            .m_axi_rresp(m_axi_ddr.rresp)
         );
     end
     else begin

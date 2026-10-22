@@ -146,12 +146,13 @@ pipeline {
     // between this list and the Python source is caught by
     // test_jenkinsfile_stage_choices_match_python_source.
     choice(name: 'STAGES',
-           choices: ['sanity', 'full', 'fpgadataflow', 'end2end'],
+           choices: ['sanity', 'full', 'fpgadataflow', 'end2end', 'benchmark'],
            description: 'Which CI rows to run. ' +
                         'sanity (default) = sanity rows only, ~per-PR quick check. ' +
-                        'full = every CI row, ~nightly. ' +
+                        'full = every CI row (excluding benchmark), ~nightly. ' +
                         'fpgadataflow / end2end = just that one family, ' +
-                        'useful for debugging a single slice without STAGE_FILTER.')
+                        'useful for debugging a single slice without STAGE_FILTER. ' +
+                        'benchmark = finn-examples build suite, manual/opt-in only.')
     booleanParam(name: 'local_setup',  defaultValue: false,
                  description: 'Run the non-Docker Vivado setup test on the finn-local-build host. ' +
                               'Slow and orthogonal to STAGES. Leave off unless you are working ' +
@@ -601,12 +602,21 @@ void runPytest(Map opts) {
   if (opts.coverageFile) {
     envLines << "export COVERAGE_FILE=${shellQuote(opts.coverageFile as String)}"
   }
+  // The finn-examples benchmark suite reads its ONNX models from
+  // tests/benchmark/models/, which are deliberately not committed to git. Fetch
+  // them inside the container (needs the brevitas+finn runtime) before pytest.
+  // Every shard provisions its own @N workspace, so each downloads once.
+  def preCmds = []
+  if ((opts.marker as String).contains('finn_examples')) {
+    preCmds << 'bash tests/benchmark/models/download_models.sh'
+  }
+  def scriptLines = (envLines + preCmds + [cmd]).join('\n')
   // run-tests.sh sits at workspace root. Each parallel branch gets its own
   // @N workspace from Jenkins so two shards on the same agent never race.
   // set -e so a non-zero export line fails fast rather than silently
   // running pytest with the wrong env.
   writeFile file: 'run-tests.sh', text:
-      "#!/bin/bash\nset -eo pipefail\n${envLines.join('\n')}\n${cmd}\n"
+      "#!/bin/bash\nset -eo pipefail\n${scriptLines}\n"
   // invoke via bash so we do not depend on the workspace file having the
   // execute bit set (writeFile creates 0644 by default).
   runDockerCommand('./run-docker.sh bash run-tests.sh')

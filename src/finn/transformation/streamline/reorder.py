@@ -1,5 +1,5 @@
 # Copyright (C) 2020-2022, Xilinx, Inc.
-# Copyright (C) 2022-2024, Advanced Micro Devices, Inc.
+# Copyright Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -638,7 +638,19 @@ class MakeMaxPoolNHWC(Transformation):
             if n.op_type == "MaxPool":
                 consumer = model.find_consumer(n.output[0])
                 producer = model.find_producer(n.input[0])
-                if consumer is not None and consumer.op_type == "Transpose":
+                # Case A (consumer path) rewires a single consumer transpose above
+                # the pool. If the pool output is a fork, find_consumer only returns
+                # the first consumer, so Case A would strand the pool on one branch
+                # and leave the other branch reading the un-pooled tensor. Skip it in
+                # that case and let the producer path (Case B) handle it: Case B only
+                # rewires the producer transpose + pool and keeps both fork consumers
+                # intact, after which MoveTransposePastFork duplicates the transpose
+                # onto both branches so they cancel symmetrically.
+                if (
+                    consumer is not None
+                    and consumer.op_type == "Transpose"
+                    and not model.is_fork_node(n)
+                ):
                     perms = list(get_by_name(consumer.attribute, "perm").ints)
                     if perms == [0, 2, 3, 1]:
                         ceil_mode = get_by_name(n.attribute, "ceil_mode")
@@ -868,6 +880,67 @@ class MoveLinearPastFork(MoveOpPastFork):
 class MoveTransposePastFork(MoveOpPastFork):
     def __init__(self):
         super().__init__(["Transpose"])
+
+
+# Ported from finn-plus (originally authored by Christoph Berganski).
+class MoveTransposePastEltwise(Transformation):
+    """Move a Transpose past a following elementwise Add/Mul whose other input is
+    a constant initializer: y = transpose(x) (op) a  <=>  y = transpose(x (op) a^T),
+    where a^T is a transposed by the inverse permutation (scalar/effectively-scalar
+    constants are left untouched). This lets NHWC<->NCHW transposes slide past the
+    per-channel bias/scale ops between convolutions so that opposite transposes end
+    up adjacent and cancel via AbsorbConsecutiveTransposes. Only handles plain
+    (non-fork, non-join) transposes feeding a non-join Add/Mul."""
+
+    def apply(self, model):
+        graph = model.graph
+        graph_modified = False
+        for node in graph.node:
+            if node.op_type != "Transpose":
+                continue
+            # only plain transposes are handled here (forks/joins are covered by
+            # dedicated MoveTransposePastFork / MoveTransposePastJoinAdd passes)
+            if model.is_fork_node(node) or model.is_join_node(node):
+                continue
+            successor = model.find_direct_successors(node)
+            if successor is None:
+                continue
+            successor = successor[0]
+            if successor.op_type not in {"Add", "Mul"}:
+                continue
+            inp = node.input[0]
+            mid = node.output[0]
+            out = successor.output[0]
+            # identify which eltwise input is the transpose output vs. the addend
+            xt, a = successor.input
+            if xt != mid:
+                xt, a = a, xt
+            assert xt == mid, f"Unexpected graph pattern at {node.name}"
+            # only applies when the other eltwise input is a constant initializer
+            value = model.get_initializer(a)
+            if value is None:
+                continue
+            perm = get_by_name(node.attribute, "perm")
+            perm = list(perm.ints) if perm is not None else None
+            inverse_perm = None if not perm else [perm.index(i) for i in range(len(perm))]
+            # transpose the constant so it still lines up post-move, unless it is
+            # scalar / effectively scalar (broadcasts either way)
+            if not (value.shape is None or all(x == 1 for x in value.shape)):
+                model.set_initializer(a, value.transpose(inverse_perm))
+            # rewire so the elementwise op runs first, then the transpose
+            successor.input[:] = [inp, a]
+            successor.output[0] = mid
+            node.input[0] = mid
+            node.output[0] = out
+            # only the middle tensor changes shape (it now holds the elementwise
+            # result before transposing); drop its stale annotation and re-infer.
+            # inp/out are unchanged and must not be cleared -- clearing a graph
+            # input's shape here cannot be recovered by InferShapes.
+            model.set_tensor_shape(mid, None)
+            graph_modified = True
+            break
+        model = model.transform(InferShapes())
+        return model, graph_modified
 
 
 def permute_shape(shape, perm):
@@ -1346,7 +1419,7 @@ class MoveTransposePastJoinAdd(MoveIdenticalOpPastJoinOp):
         first_perm = get_by_name(producers[0].attribute, "perm").ints
         for producer in producers:
             if first_perm != get_by_name(producer.attribute, "perm").ints:
-                False
+                return False
         return True
 
 
@@ -1432,7 +1505,7 @@ class MoveTransposePastJoinConcat(MoveIdenticalOpPastJoinOp):
         first_perm = get_by_name(producers[0].attribute, "perm").ints
         for producer in producers:
             if first_perm != get_by_name(producer.attribute, "perm").ints:
-                False
+                return False
         return True
 
     def move_node(self, model, n, producers):

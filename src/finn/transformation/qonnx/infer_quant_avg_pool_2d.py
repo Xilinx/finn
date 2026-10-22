@@ -31,11 +31,74 @@ import math
 import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
+from qonnx.custom_op.general.quant import max_int, min_int
+from qonnx.custom_op.general.trunc import trunc_v2
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import get_by_name
+
+# Largest window-sum width for which a non-FLOOR Trunc is expressed as thresholds:
+# the thresholds are stored as float32, which represents every integer exactly
+# only up to 2**24.
+MAX_TRUNC_THRESHOLD_SUM_BITS = 24
+
+
+def _get_trunc_v2_thresholds(model, trunc_node, sum_dt):
+    """
+    Compute MultiThreshold thresholds that reproduce a Trunc (v2) node applied
+    to the integer sum of an average pooling window.
+
+    The Trunc output is a monotonically non-decreasing function of the window
+    sum for every rounding mode, so it can be expressed exactly by thresholding
+    the sum. The threshold of each output level is the smallest window sum in
+    sum_dt that reaches it, found with a binary search (run for all levels at
+    once) that evaluates the QONNX reference implementation.
+
+    Returns the thresholds (shape (1, n_levels - 1), shared by all channels) and
+    the lowest output level, to be used as the MultiThreshold out_bias.
+    """
+    scale, zeropt, in_bits, out_scale, out_bits = [
+        model.get_initializer(inp) for inp in trunc_node.input[1:]
+    ]
+    rounding_mode = get_by_name(trunc_node.attribute, "rounding_mode")
+    rounding_mode = rounding_mode.s.decode() if rounding_mode is not None else "FLOOR"
+    narrow = get_by_name(trunc_node.attribute, "narrow")
+    narrow = narrow.i if narrow is not None else 0
+    signed = get_by_name(trunc_node.attribute, "signed")
+    signed = signed.i if signed is not None else 1
+
+    def trunc_level(window_sums):
+        # The Trunc input is the window average, i.e. the window sum times the
+        # Trunc input scale
+        out = trunc_v2(
+            window_sums.astype(np.float64) * scale,
+            scale,
+            zeropt,
+            in_bits,
+            narrow,
+            signed,
+            out_scale,
+            out_bits,
+            rounding_mode,
+        )
+        return np.round(out / out_scale)
+
+    min_level = int(min_int(signed, narrow, out_bits))
+    max_level = int(max_int(signed, narrow, out_bits))
+    levels = np.arange(min_level + 1, max_level + 1)
+    # Binary search for the smallest window sum reaching each level in [lo, hi),
+    # hi = sum_dt.max() + 1 marks levels that are never reached
+    lo = np.full(levels.shape, sum_dt.min(), dtype=np.int64)
+    hi = np.full(levels.shape, sum_dt.max() + 1, dtype=np.int64)
+    while np.any(lo < hi):
+        active = lo < hi
+        mid = (lo + hi) // 2
+        reached = trunc_level(np.minimum(mid, sum_dt.max())) >= levels
+        hi = np.where(active & reached, mid, hi)
+        lo = np.where(active & ~reached, mid + 1, lo)
+    return lo.astype(np.float32).reshape(1, -1), min_level
 
 
 def _get_signed_from_upstream(model, trunc_node):
@@ -229,6 +292,10 @@ class AvgPoolAndTruncv1ToQuantAvgPool(Transformation):
                         # https://github.com/Xilinx/finn-base/blob/
                         # 7c2603a95e90e4de2575020e575c24eab6a15889/src/finn/custom_op/
                         # general/quantavgpool2d.py#L94
+                        # TODO: This underestimates ibits by one bit for small input bit
+                        #  widths with non-power-of-two windows (e.g. 3 bit and 3x3), so
+                        #  the QuantAvgPool2d shift no longer matches the Trunc. Use the
+                        #  same derivation as AvgPoolAndTruncv2ToQuantAvgPool.
                         ibits = math.floor(math.log(2**trunc_in_bits / (k_s * k_s), 2))
                         # Get sign
                         signed = _get_signed_from_upstream(model, t_node)
@@ -318,6 +385,11 @@ class AvgPoolAndTruncv2ToQuantAvgPool(Transformation):
     Convert a section of nodes of the pattern:
     AveragePool -> Trunc (v2)
     To the FINN op: Div -> QuantAvgPool2d -> Mul
+
+    QuantAvgPool2d truncates with a right shift, i.e. FLOOR rounding. For other
+    rounding modes the QuantAvgPool2d outputs the full window sum instead and a
+    MultiThreshold with thresholds shared by all channels applies the exact
+    Trunc rounding: Div -> QuantAvgPool2d -> MultiThreshold -> Mul
     """
 
     def apply(self, model):
@@ -352,11 +424,9 @@ class AvgPoolAndTruncv2ToQuantAvgPool(Transformation):
 
                     # Trunc node
                     rounding_mode = get_by_name(t_node.attribute, "rounding_mode")
-                    normalized_mode_string = rounding_mode.s.upper()
-                    if rounding_mode is None or normalized_mode_string != b"FLOOR":
-                        raise ValueError(
-                            "The Trunc node must have the rounding_mode " "set to 'FLOOR'."
-                        )
+                    rounding_mode = (
+                        rounding_mode.s.upper() if rounding_mode is not None else b"FLOOR"
+                    )
                     for inp in t_node.input[1:]:
                         if model.get_initializer(inp) is None:
                             raise ValueError(
@@ -393,16 +463,44 @@ class AvgPoolAndTruncv2ToQuantAvgPool(Transformation):
                         )
 
                     # Calculate parameters for the QuantAvgPool2d node,
-                    # Calculate input bit width. Basically this backwards:
-                    # https://github.com/Xilinx/finn-base/blob/
-                    # 7c2603a95e90e4de2575020e575c24eab6a15889/src/finn/custom_op/
-                    # general/quantavgpool2d.py#L94
-                    ibits = math.floor(math.log(2**trunc_in_bits / (k_s * k_s), 2))
+                    # Calculate input bit width. The Trunc input bit width is sized
+                    # for the largest window sum, (2**ibits - 1) * k_s**2, so take
+                    # the largest ibits whose window sum still fits. This makes the
+                    # QuantAvgPool2d accumulator match the Trunc input bit width,
+                    # see get_accum_size() in qonnx's QuantAvgPool2d.
+                    ibits = 1
+                    while ((2 ** (ibits + 1) - 1) * k_s * k_s).bit_length() <= trunc_in_bits:
+                        ibits += 1
                     # Get sign
                     signed = _get_signed_from_upstream(model, t_node)
                     # ToDo: Change this to NHWC,
                     #  when the channels last layout comes around.
                     data_layout = "NCHW"
+                    # Range of the window sum. For signed inputs it can exceed the
+                    # Trunc input range, since that is sized for the largest unsigned
+                    # window sum.
+                    k2 = k_s * k_s
+                    if signed:
+                        sum_min = -(2 ** (ibits - 1)) * k2
+                        sum_max = (2 ** (ibits - 1) - 1) * k2
+                    else:
+                        sum_min, sum_max = 0, (2**ibits - 1) * k2
+                    # The right shift of the QuantAvgPool2d reproduces the Trunc only
+                    # for FLOOR rounding and if the shifted sum stays within the Trunc
+                    # output range, since the Trunc clamps its result. Otherwise the
+                    # full window sum is thresholded, which covers any rounding mode
+                    # and the clamping.
+                    trunc_signed = get_by_name(t_node.attribute, "signed")
+                    trunc_signed = trunc_signed.i if trunc_signed is not None else 1
+                    trunc_narrow = get_by_name(t_node.attribute, "narrow")
+                    trunc_narrow = trunc_narrow.i if trunc_narrow is not None else 0
+                    shift = max(trunc_in_bits - trunc_out_bits, 0)
+                    shift_clamps = (sum_min >> shift) < min_int(
+                        trunc_signed, trunc_narrow, trunc_out_bits
+                    ) or (sum_max >> shift) > max_int(trunc_signed, trunc_narrow, trunc_out_bits)
+                    round_with_thresholds = shift_clamps or (
+                        rounding_mode != b"FLOOR" and trunc_in_bits != trunc_out_bits
+                    )
 
                     # Insert scale nodes, QuantAvgPool2d node and required tensors
                     scale = model.get_initializer(t_node.input[1])
@@ -449,8 +547,57 @@ class AvgPoolAndTruncv2ToQuantAvgPool(Transformation):
                         signed=int(signed),
                         data_layout=data_layout,
                     )
+                    if round_with_thresholds:
+                        # Output the full window sum (no shift) and round it with a
+                        # MultiThreshold. The sum is sized for its actual range, and at
+                        # least the QuantAvgPool2d accumulator so its shift is zero.
+                        pool_inst = getCustomOp(QuantAvgPool2d_node)
+                        sum_bits = max(
+                            int(sum_max).bit_length(), int(-sum_min - 1).bit_length()
+                        ) + int(signed)
+                        sum_bits = max(sum_bits, pool_inst.get_accum_size())
+                        if sum_bits > MAX_TRUNC_THRESHOLD_SUM_BITS:
+                            raise ValueError(
+                                f"The Trunc node (rounding_mode {rounding_mode.decode()}) "
+                                f"can not be implemented as a right shift and thresholding "
+                                f"is only supported for window sums of up to "
+                                f"{MAX_TRUNC_THRESHOLD_SUM_BITS} bits (float32 thresholds), "
+                                f"but the sum has {sum_bits} bits."
+                            )
+                        pool_inst.set_nodeattr("obits", sum_bits)
                     graph.node.insert(running_node_index, QuantAvgPool2d_node)
                     running_node_index += 1
+
+                    if round_with_thresholds:
+                        sum_dt = DataType[("INT" if signed else "UINT") + str(sum_bits)]
+                        thresholds, min_level = _get_trunc_v2_thresholds(model, t_node, sum_dt)
+                        thres_tensor = helper.make_tensor_value_info(
+                            model.make_new_valueinfo_name(),
+                            TensorProto.FLOAT,
+                            None,
+                        )
+                        graph.value_info.append(thres_tensor)
+                        model.set_initializer(thres_tensor.name, thresholds)
+
+                        act_thres_tensor = helper.make_tensor_value_info(
+                            model.make_new_valueinfo_name(),
+                            TensorProto.FLOAT,
+                            None,
+                        )
+                        graph.value_info.append(act_thres_tensor)
+                        out_dt = ("INT" if min_level < 0 else "UINT") + str(trunc_out_bits)
+                        thres_node = helper.make_node(
+                            "MultiThreshold",
+                            [act_scale_mul_tensor.name, thres_tensor.name],
+                            [act_thres_tensor.name],
+                            domain="qonnx.custom_op.general",
+                            out_dtype=out_dt,
+                            out_bias=float(min_level),
+                            data_layout=data_layout,
+                        )
+                        graph.node.insert(running_node_index, thres_node)
+                        running_node_index += 1
+                        act_scale_mul_tensor = act_thres_tensor
 
                     scale_mul_tensor = helper.make_tensor_value_info(
                         model.make_new_valueinfo_name(),
