@@ -337,8 +337,23 @@ def build_dataflow_directory(path_to_cfg_dir: str):
 
 def main():
     """Entry point for dataflow builds. Invokes `build_dataflow_directory` using
-    command line arguments"""
-    clize.run(build_dataflow_directory)
+    command line arguments. Exits with a nonzero status if the build failed."""
+
+    def cli(path_to_cfg_dir: str):
+        """Best-effort build a dataflow accelerator from the specified directory.
+
+        :param path_to_cfg_dir: Directory containing the model and build config
+
+        The specified directory path_to_cfg_dir must contain the following files:
+
+        * model.onnx : ONNX model to be converted to dataflow accelerator
+        * dataflow_build_config.json : JSON file with build configuration
+
+        """
+        if build_dataflow_directory(path_to_cfg_dir):
+            raise SystemExit(1)
+
+    clize.run(cli)
 
 
 if __name__ == "__main__":
