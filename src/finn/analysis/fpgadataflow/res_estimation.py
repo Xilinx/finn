@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import qonnx.custom_op.registry as registry
+import warnings
 from itertools import product
 
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
@@ -49,9 +50,25 @@ def res_estimation(model, fpgapart):
     for node in model.graph.node:
         if is_hls_node(node) or is_rtl_node(node):
             inst = registry.getCustomOp(node)
+            _prepare_da_solution(inst, model)
             res_dict[node.name] = inst.node_res_estimation(fpgapart)
 
     return res_dict
+
+
+def _prepare_da_solution(inst, model):
+    """The LUT estimate of the distributed-arithmetic MVAU (MVAU_rtl with embedded
+    weights) is derived from the adder graph of its weights, which only the model
+    holds: run the solver here if it has not run yet for this node."""
+    is_da = getattr(inst, "_is_da_mode", None)
+    if is_da is None or not is_da() or inst.get_nodeattr("da_cost") > 0:
+        return
+    try:
+        inst.prepare_da_solution(model)
+    except ValueError as e:
+        # constraint violations are reported by the code generation, the
+        # estimate falls back to the coarse per-weight figure
+        warnings.warn(f"{inst.onnx_node.name}: DA solver skipped for the estimate: {e}")
 
 
 def _resource_attr_variants(inst):
