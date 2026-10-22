@@ -10,6 +10,7 @@ documentation: Targets, parts, and platform data.
 import functools
 import json
 import os
+import re
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -21,6 +22,17 @@ DSP_BLOCKS = ("DSP48E1", "DSP48E2", "DSP58")
 ARCHITECTURE_CLASSES = ("versal", "zynq7000", "zynquplus")
 RESOURCE_NAMES = ("lut", "ff", "bram18", "uram", "dsp")
 SOURCE_KINDS = ("vivado", "hand-written")
+SHELLS = ("VIVADO_ZYNQ", "VIVADO_VERSAL", "VITIS_ALVEO", "SLASH_ALVEO")
+MEMORIES = ("DDR", "HBM")
+SHELL_ARCHITECTURES = {
+    "VIVADO_ZYNQ": ("zynq", "zynquplus", "zynquplusRFSOC"),
+    "VIVADO_VERSAL": ("versal",),
+    "VITIS_ALVEO": ("virtexuplus", "virtexuplusHBM", "virtexuplus58g"),
+    "SLASH_ALVEO": ("versal",),
+}
+#: the devices a shell flow builds for, where it builds for some devices of its
+#: architectures only: SLASH links against the V80's platform
+SHELL_DEVICES = {"SLASH_ALVEO": ("xcv80",)}
 
 
 class PlatformError(ValueError):
@@ -72,6 +84,24 @@ class Device:
 
 
 @dataclass(frozen=True)
+class Board:
+    """A board's row in ``boards.json``. ``vivado_min`` is a (year, minor) tuple."""
+
+    name: str
+    part: str
+    shell: Optional[str] = None
+    board_part: Optional[str] = None
+    vitis_platform: Optional[str] = None
+    axi_port_width: Optional[int] = None
+    memory: Tuple[str, ...] = ()
+    mem_port: Optional[str] = None
+    vivado_min: Optional[Tuple[int, int]] = None
+    golden: bool = False
+    retired: Optional[str] = None
+    ps_config: Dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class PlatformSource:
     """One loaded directory of platform data: its name, path, origin (the manifest's
     ``source``) and facts. ``devices`` are keyed by their lower-cased names."""
@@ -82,6 +112,7 @@ class PlatformSource:
     counts: dict
     architectures: Dict[str, Architecture]
     devices: Dict[str, Device]
+    boards: Dict[str, Board] = field(default_factory=dict)
 
     def describe(self) -> str:
         """The name and origin, for example ``built-in [Vivado 2025.2]``."""
@@ -100,6 +131,7 @@ class PlatformData:
     architectures: Dict[str, Architecture]
     devices: Dict[str, Device]
     defined_in: Dict[Tuple[str, str], Tuple[str, ...]]
+    boards: Dict[str, Board] = field(default_factory=dict)
     _found: dict = field(default_factory=dict, init=False, repr=False, compare=False)
 
     def find_device(self, part: str) -> Optional[Device]:
@@ -385,6 +417,113 @@ def _read_devices(directory: Path, problems: _Problems, records: dict) -> Dict[s
     return devices
 
 
+_BOARD_KEYS = (
+    "shell",
+    "board_part",
+    "vitis_platform",
+    "axi_port_width",
+    "memory",
+    "mem_port",
+    "vivado_min",
+    "golden",
+    "retired",
+    "ps_config",
+    "note",
+)
+_RELEASE = re.compile(r"^(20\d\d)\.(\d)$")
+_MEM_PORT = re.compile(r"^(DDR|HBM)\[(\d+|\{slr\})\]$")
+_BOARD_PART = re.compile(r"^[^:\s]+:[^:\s]+:[^:\s]+:[^:\s]+$")
+
+
+def _board_problem(row) -> Optional[str]:
+    """Why a board row breaks the schema or its own rules, or ``None``."""
+    why = _keys(row, ("part",), _BOARD_KEYS)
+    if why is not None:
+        return why
+    strings = ("part", "board_part", "vitis_platform", "mem_port", "retired", "note")
+    for key in strings:
+        if key in row and not (isinstance(row[key], str) and row[key]):
+            return f"{key} is {row[key]!r}, not a string"
+    shell = row.get("shell")
+    if shell is not None and shell not in SHELLS:
+        return f"shell is {shell!r}, not one of {list(SHELLS)} or null"
+    width = row.get("axi_port_width")
+    if width is not None and not (type(width) is int and width > 0 and width % 8 == 0):
+        return f"axi_port_width is {width!r}, not a width in bits"
+    memory = row.get("memory", [])
+    if not isinstance(memory, list) or not all(each in MEMORIES for each in memory):
+        return f"memory is {memory!r}, not a list of {list(MEMORIES)}"
+    port = _MEM_PORT.match(row.get("mem_port", ""))
+    if "mem_port" in row and not port:
+        return f"mem_port is {row['mem_port']!r}, not like HBM[0] or DDR[{{slr}}]"
+    if "board_part" in row and not _BOARD_PART.match(row["board_part"]):
+        return (
+            f"board_part is {row['board_part']!r}, not a Vivado board preset like "
+            "vendor:name:part0:version"
+        )
+    if "vivado_min" in row and not (
+        isinstance(row["vivado_min"], str) and _RELEASE.match(row["vivado_min"])
+    ):
+        return f"vivado_min is {row['vivado_min']!r}, not a release like \"2024.1\""
+    if not isinstance(row.get("golden", False), bool):
+        return f"golden is {row['golden']!r}, not true or false"
+    config = row.get("ps_config", {})
+    if not isinstance(config, dict) or not all(
+        isinstance(key, str) and isinstance(value, str) for key, value in config.items()
+    ):
+        return f"ps_config is {config!r}, not an object of strings"
+    if shell in ("VIVADO_ZYNQ", "VIVADO_VERSAL") and width is None:
+        return f"a board of the {shell} shell states its axi_port_width"
+    if shell in ("VITIS_ALVEO", "SLASH_ALVEO") and width is not None:
+        return f"the {shell} shell states the axi_port_width, not its boards"
+    only = {
+        "vitis_platform": ("VITIS_ALVEO",),
+        "mem_port": ("VITIS_ALVEO",),
+        "golden": ("VIVADO_VERSAL",),
+        "board_part": ("VIVADO_ZYNQ", "VIVADO_VERSAL"),
+        "ps_config": ("VIVADO_ZYNQ",),
+    }
+    for key, shells in only.items():
+        if row.get(key) and shell not in shells:
+            return f"{key} applies to boards of the {' or '.join(shells)} shell only"
+    if port and port[1] not in memory:
+        return f"mem_port {port[0]} is on {port[1]}, which is not one of its memory {memory!r}"
+    return None
+
+
+def _read_boards(directory: Path, problems: _Problems) -> Dict[str, Board]:
+    path = directory / "boards.json"
+    if not path.is_file():
+        return {}
+    rows, text = _read_json(path, problems)
+    if not isinstance(rows, dict):
+        if rows is not None:
+            problems.add(path.name, 1, "schema", "expected an object keyed by board name")
+        return {}
+    found = {}
+    for name, row in rows.items():
+        why = _board_problem(row)
+        if why is not None:
+            problems.add(path.name, _key_line(text, name), "schema", f"board {name!r}: {why}")
+            continue
+        release = _RELEASE.match(row.get("vivado_min", ""))
+        found[name] = Board(
+            name=name,
+            part=row["part"],
+            shell=row.get("shell"),
+            board_part=row.get("board_part"),
+            vitis_platform=row.get("vitis_platform"),
+            axi_port_width=row.get("axi_port_width"),
+            memory=tuple(row.get("memory", ())),
+            mem_port=row.get("mem_port"),
+            vivado_min=(int(release[1]), int(release[2])) if release else None,
+            golden=row.get("golden", False),
+            retired=row.get("retired"),
+            ps_config=dict(row.get("ps_config", {})),
+        )
+    return found
+
+
 def read_source(directory) -> PlatformSource:
     """The platform data in ``directory``, validated on its own. Raises
     ``PlatformError`` (``invalid-platform-data``) naming each problem's file, line and
@@ -398,8 +537,9 @@ def read_source(directory) -> PlatformSource:
     architectures = _read_architectures(directory, problems)
     records = _read_resources(directory, problems)
     devices = _read_devices(directory, problems, records)
+    boards = _read_boards(directory, problems)
     problems.raise_any()
-    return PlatformSource(name, directory, origin, counts, architectures, devices)
+    return PlatformSource(name, directory, origin, counts, architectures, devices, boards)
 
 
 def _differing(first, second) -> str:
@@ -409,10 +549,11 @@ def _differing(first, second) -> str:
 def union(sources) -> PlatformData:
     """The union of ``sources``, in order. Refuses (``PlatformError``,
     ``invalid-platform-data``) a fact defined differently in two sources, a device
-    whose architecture no source defines, and a device with UltraRAM on an
-    architecture without it."""
+    whose architecture no source defines, a device with UltraRAM on an architecture
+    without it, a board whose part no source holds, and a board whose shell does not
+    build on its part's architecture or device."""
     sources = tuple(sources)
-    architectures, devices, defined_in, first = {}, {}, {}, {}
+    architectures, devices, boards, defined_in, first = {}, {}, {}, {}, {}
     problems = []
 
     def add(kind, key, fact, source, into, file):
@@ -435,6 +576,8 @@ def union(sources) -> PlatformData:
             add("architecture", name, each, source, architectures, "architectures.json")
         for name, each in source.devices.items():
             add("device", name, each, source, devices, "devices.jsonl")
+        for name, each in source.boards.items():
+            add("board", name, each, source, boards, "boards.json")
     for source in sources:
         for name, each in source.devices.items():
             found = architectures.get(each.architecture)
@@ -450,9 +593,39 @@ def union(sources) -> PlatformData:
                     f"{source.name!r} ({source.path}), devices.jsonl: uram: device "
                     f"{each.name} has UltraRAM, but architecture {found.name!r} states none"
                 )
+    data = PlatformData(sources, architectures, devices, defined_in, boards)
+    for source in sources:
+        for name, each in source.boards.items():
+            where = f"{source.name!r} ({source.path}), boards.json"
+            device = data.find_device(each.part)
+            if device is None:
+                problems.append(
+                    f"{where}: part-undefined: board {name}'s part {each.part} is of no "
+                    "device any platform data holds"
+                )
+                continue
+            found = architectures.get(device.architecture)
+            builds = SHELL_ARCHITECTURES.get(each.shell)
+            if found is not None and builds is not None and found.name not in builds:
+                problems.append(
+                    f"{where}: shell-architecture: board {name}'s shell {each.shell} does "
+                    f"not build for its part's architecture {found.name}"
+                )
+            devices = SHELL_DEVICES.get(each.shell)
+            if devices is not None and device.name.lower() not in devices:
+                problems.append(
+                    f"{where}: shell-device: board {name}'s shell {each.shell} builds for "
+                    f"the device {', '.join(devices)} only, but its part is on device "
+                    f"{device.name}"
+                )
+            if found is not None and each.ps_config and found.class_ != "zynquplus":
+                problems.append(
+                    f"{where}: ps-config: board {name}'s ps_config sets Zynq UltraScale+ "
+                    f"PS properties, but its part is of architecture {found.name}"
+                )
     if problems:
         raise PlatformError("invalid-platform-data", "\n".join(problems))
-    return PlatformData(sources, architectures, devices, defined_in)
+    return data
 
 
 def source_paths() -> List[Path]:

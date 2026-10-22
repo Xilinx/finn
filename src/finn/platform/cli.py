@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 from finn.platform import extract as extraction
+from finn.platform.boards import board_file_roots, compare_board_files
 from finn.platform.catalog import get_part_device
 from finn.platform.registry import (
     DATA,
@@ -25,7 +26,10 @@ def _same(first, second) -> bool:
 
 
 def _size(source) -> str:
-    return f"{len(source.architectures)} architectures, {len(source.devices)} devices"
+    return (
+        f"{len(source.architectures)} architectures, {len(source.devices)} devices, "
+        f"{len(source.boards)} boards"
+    )
 
 
 def _resources(each) -> str:
@@ -57,25 +61,54 @@ def show_part(data, part):
             print(f"    SLR{index}        {_resources(slr)}")
 
 
+def show_board(data, board):
+    print(f"board {board.name} (from {_defined_in(data, 'board', board.name)})")
+    for key, value in vars(board).items():
+        if key == "name" or value in (None, False, (), {}):
+            continue
+        if isinstance(value, dict):
+            value = ", ".join(f"{name}={each}" for name, each in value.items())
+        elif isinstance(value, tuple):
+            value = ".".join(map(str, value)) if key == "vivado_min" else ", ".join(value)
+        print(f"  {key:<15} {value}")
+
+
 def show(name) -> int:
-    show_part(platform_data(), name)
+    data = platform_data()
+    if name in data.boards:
+        show_board(data, data.boards[name])
+        name = data.boards[name].part
+    show_part(data, name)
     return 0
 
 
 def check(directories) -> int:
-    """Validate each platform data directory alone, then all of them together with FINN's
-    built-in platform data, in the given order, as a build loads them."""
+    """Validate each platform data directory alone, and compare its board rows with their
+    board files where present; then validate all of them together with FINN's built-in
+    platform data, in the given order, as a build loads them."""
     builtin = read_source(DATA)
+    roots = board_file_roots()
+    failed = False
     together = []
     for directory in directories:
         source = read_source(directory)
         if not _same(directory, DATA):
             together.append(source)
         print(f"OK: {source.describe()} in {directory}: {_size(source)}")
+        if not source.boards:
+            continue
+        if not roots:
+            print("  board files: none found ($FINN_ROOT/deps/board_files, $XILINX_VIVADO)")
+        for board, status, detail in compare_board_files(source.boards, roots) if roots else ():
+            failed |= status == "mismatch"
+            print(f"  board {board}: {status}: {detail}")
     union([builtin] + together)
     if together:
         names = ", ".join(each.name for each in together)
         print(f"OK: together with the built-in platform data, in this order: {names}")
+    if failed:
+        print("finn-platform: board-file-mismatch: a board row and its board.xml differ")
+        return 1
     return 0
 
 
@@ -136,7 +169,7 @@ def main(argv=None) -> int:
         help="validate platform data directories, each and together, as a build loads them",
     )
     checking.add_argument("directories", nargs="+", type=Path)
-    showing = commands.add_parser("show", help="what FINN resolves for a part")
+    showing = commands.add_parser("show", help="what FINN resolves for a part or a board")
     showing.add_argument("name")
     commands.add_parser("sources", help="where the loaded platform data comes from")
     options = parser.parse_args(argv)

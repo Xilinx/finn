@@ -35,6 +35,7 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
 from finn.platform import is_versal
+from finn.platform.target import ShellFlowType
 from finn.transformation.fpgadataflow.alveo_build import VitisOptStrategy
 from finn.util.basic import (
     hbm_boards,
@@ -51,16 +52,6 @@ class AutoFIFOSizingMethod(str, Enum):
 
     CHARACTERIZE = "characterize"
     LARGEFIFO_RTLSIM = "largefifo_rtlsim"
-
-
-class ShellFlowType(str, Enum):
-    """For builds that produce a bitfile, select the shell flow that will integrate
-    the FINN-generated accelerator."""
-
-    VIVADO_ZYNQ = "vivado_zynq"
-    VIVADO_VERSAL = "vivado_versal"
-    VITIS_ALVEO = "vitis_alveo"
-    SLASH_ALVEO = "slash_alveo"
 
 
 class DataflowOutputType(str, Enum):
