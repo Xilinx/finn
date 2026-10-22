@@ -108,6 +108,7 @@ def test_end2end_ext_weights_build(topology):
     output_dir = make_build_dir("test_end2end_" + topology + "_ext_weights_build")
     cfg = build.DataflowBuildConfig(
         output_dir=output_dir,
+        enable_build_pdb_debug=False,
         verbose=True,
         standalone_thresholds=True,
         folding_config_file=folding_config_file,

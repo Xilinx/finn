@@ -680,12 +680,16 @@ def _assert_logs_cover_fifos(logs, expected_counts, scope):
 # MVAU folding as a jointly-valid tuple (dim, mvau_pe, mvau_simd, mvau_th, helper_pe).
 # TH=1 selects the standard MVAU; TH>1 selects the tiled MVAU (Versal DSP58).
 # The dimensions must satisfy the tiling constraints: MW % SIMD == 0, MH % PE == 0
-# and (PE * SIMD) % TH == 0, so pe/simd/th cannot be stacked independently.
+# and TH must divide the number of input vectors, so pe/simd/th cannot be stacked
+# independently. TH need not divide PE*SIMD: the weight stream then carries WSIMD,
+# the smallest divisor of PE*SIMD with NW = PE*SIMD/WSIMD <= TH.
 @pytest.mark.parametrize(
     "mvau_cfg",
     [
         (16, 2, 2, 1, 2),
         (12, 6, 3, 3, 6),
+        (12, 4, 4, 3, 4),  # PE*SIMD=16, TH=3: WSIMD=8, NW=2 < TH
+        (12, 2, 2, 9, 2),  # TH > PE*SIMD=4: WSIMD=1, NW=4 < TH
     ],
 )
 # iteration count, number of models chained together
@@ -874,6 +878,7 @@ def test_finnloop_end2end_mlo(
 
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
+        enable_build_pdb_debug=False,
         steps=steps,
         synth_clk_period_ns=10.0,
         board="V80",
@@ -1130,6 +1135,7 @@ def test_finnloop_end2end_mlo_ddr(
 
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
+        enable_build_pdb_debug=False,
         steps=steps,
         synth_clk_period_ns=10.0,
         board=board,

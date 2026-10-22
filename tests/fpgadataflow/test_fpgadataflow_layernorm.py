@@ -465,6 +465,7 @@ def test_hls_rtl_dsp_conflict_detection():
 
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
+        enable_build_pdb_debug=False,
         steps=steps,
         target_fps=1000,
         synth_clk_period_ns=target_clk_ns,
@@ -674,6 +675,7 @@ def test_integer_hls_elementwise_no_dsp_conflict():
 
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
+        enable_build_pdb_debug=False,
         steps=steps,
         target_fps=1000,
         synth_clk_period_ns=target_clk_ns,

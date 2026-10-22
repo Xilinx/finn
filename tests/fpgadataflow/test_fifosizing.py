@@ -80,6 +80,7 @@ def test_fifosizing_linear(method, topology):
     tmp_output_dir = fetch_test_model(topology)
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
+        enable_build_pdb_debug=False,
         auto_fifo_depths=True,
         auto_fifo_strategy=method,
         target_fps=10000 if topology == "tfc" else 1000,
@@ -550,6 +551,7 @@ def test_fifo_log_build(fifo_log_verbose):
 
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=output_dir,
+        enable_build_pdb_debug=False,
         synth_clk_period_ns=10.0,
         fpga_part=FPGAPART,
         # the model is already built from hw ops, so the import/streamline phases

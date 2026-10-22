@@ -19,8 +19,9 @@
  *  interface sustains 1.0 cyc/beat in steady state. No combinatorial
  *  path from ordy to irdy. When both PI0>1 and PO0>1 and N is not
  *  an exact multiple of lcm(PI0,PO0), individual vectors are framed
- *  by a per-vector reset (genTrn). V+1's first input beat overlaps
- *  V's final drain, eliminating fill latency overhead.
+ *  by a per-vector reset (genTrn). V+1's first input beat is accepted
+ *  as soon as V's final output beat is pending, eliminating fill
+ *  latency overhead.
  *
  *  RELAX_THROUGHPUT=1: compact implementation with a smaller buffer
  *  (PI0+PO0 vs PI0+PO0+min-1). Allows idle recovery cycles between
@@ -280,6 +281,7 @@ module vpc #(
 		uwire  idone;
 		uwire  odone;
 		uwire  olast;
+		uwire  ipre;	// V+1's first beat parked while V's final beat drains
 		if(TRNI * PI0 == TRNO * PO0) begin : genSimple
 			assign  nxt   = 0;
 			assign  idone = 0;
@@ -313,9 +315,7 @@ module vpc #(
 					OTrn <= 1-TRNO;
 				end
 				else begin
-					// On nxt, itrn may overlap as V+1's first beat:
-					// -TRNI+itrn yields 1-TRNI (cold) or 2-TRNI (warm).
-					ITrn <= ITrn + (nxt? -TRNI : 0) + itrn;
+					ITrn <= ITrn + (nxt? (itrn? 1-TRNI : -TRNI) : int'(itrn && !idone)) + (nxt && ipre);
 					OTrn <= OTrn + (nxt? -TRNO : 0) + otrn;
 				end
 			end
@@ -352,9 +352,13 @@ module vpc #(
 				end
 			end : genIRotDyn
 
-			// During nxt overlap, V+1's first deposit uses V+1's
-			// initial rotation, not the stale end-of-V value.
-			uwire signed [IROT_W:0]  sirot_eff = nxt? signed'(SIROT_INIT) : SIRot;
+			// V+1's first deposit uses V+1's initial rotation, not the
+			// stale end-of-V value. Parked ahead of V's final drain, it
+			// lands PO0 positions higher, i.e. one drain step earlier.
+			localparam int  SIROT_PRE = -int'(NO_OTR_OFS);
+			uwire signed [IROT_W:0]  sirot_eff =
+				nxt?   signed'(SIROT_INIT) :
+				idone? signed'(SIROT_PRE) : SIRot;
 
 			for(genvar  i = 0; i < PI0; i++) begin : genRot
 				localparam int  LUT_LO = -(1 << IROT_W);
@@ -385,6 +389,8 @@ module vpc #(
 				if(rst)  ICap <= PO0;
 				else     ICap <= (nxt? 0 : ICap) + cap_t'(nxt? PO0 : otrn? (itrn? PO0-PI0 : PO0) : itrn? -PI0 : 0);
 			end
+
+			assign	ipre = 0;
 
 			uwire  icap_positive = !ICap[$left(ICap)] && (|ICap[$left(ICap)-1:0]);
 			assign	irdy = !idone && !ICap[$left(ICap)];
@@ -432,8 +438,9 @@ module vpc #(
 			//   ICap = fill - ICAP_INIT:  negative ↔ room for input
 			//   OCap = (PO0-1) - fill:    negative ↔ output available
 			// On nxt, the counter resets to the cold-start value.
-			// A concurrent itrn (overlap of V+1's first beat with V's
-			// last drain) is folded into the reset via the +itrn term.
+			// V+1's first beat, whether concurrent with V's last drain
+			// or parked before it (Pre), is folded into the reset via
+			// icnt. While parked, it does not affect V's counters.
 			localparam int unsigned  P0MIN = (PI0 < PO0)? PI0 : PO0;
 			localparam int unsigned  CAP   = PI0 + PO0 + P0MIN - 1;
 
@@ -446,19 +453,34 @@ module vpc #(
 			icap_t  ICap = -ICAP_INIT;
 			ocap_t  OCap = PO0 - 1;
 
+			// Pre: V+1's first beat was accepted while V's final
+			// output beat was still pending. It is parked at
+			// [PO0+PI0-1:PO0] and shifted into place by V's final drain.
+			logic  Pre = 0;
+			always_ff @(posedge clk) begin
+				if(rst)  Pre <= 0;
+				else     Pre <= !nxt && (Pre || (itrn && idone));
+			end
+			assign	ipre = Pre;
+
 			uwire  oadj = otrn && !nxt;
+			uwire  icnt = nxt? (itrn || Pre) : (itrn && !idone);
 			always_ff @(posedge clk) begin
 				if(rst) begin
 					ICap <= -ICAP_INIT;
 					OCap <= PO0 - 1;
 				end
 				else begin
-					ICap <= (nxt? icap_t'(-ICAP_INIT) : ICap) + icap_t'(oadj? (itrn? PI0-PO0-1 : -PO0) : (itrn? PI0-1 : 0)) + itrn;
-					OCap <= (nxt? ocap_t'( PO0 - 1)   : OCap) + ocap_t'(itrn? (oadj? PO0-PI0-1 : -PI0) : (oadj? PO0-1 : 0)) + oadj;
+					ICap <= (nxt? icap_t'(-ICAP_INIT) : ICap) + icap_t'(oadj? (icnt? PI0-PO0-1 : -PO0) : (icnt? PI0-1 : 0)) + icnt;
+					OCap <= (nxt? ocap_t'( PO0 - 1)   : OCap) + ocap_t'(icnt? (oadj? PO0-PI0-1 : -PI0) : (oadj? PO0-1 : 0)) + oadj;
 				end
 			end
 
-			assign	irdy = (!idone || nxt) && ICap[$left(ICap)];
+			// Registered state only: no combinatorial path from ivld
+			// or ordy to irdy. Once V's input is complete, V+1's first
+			// beat is accepted as soon as V's final output beat is
+			// pending; its residue fits in [PO0-1:0].
+			assign	irdy = idone? olast && !Pre : ICap[$left(ICap)];
 			assign	ovld = !odone && (OCap[$left(OCap)] || idone);
 
 			//-----------------------------------------------------------
@@ -466,10 +488,11 @@ module vpc #(
 			// The mask wraps around CAP only at fill levels where
 			// irdy is deasserted, so dep_eff (shift, not rotation)
 			// is correct whenever itrn fires.
-			// On nxt, warm-start: advance by one itrn step if an
-			// overlap itrn fires alongside V's final drain.
+			// On nxt, warm-start: advance by one itrn step if V+1's
+			// first beat fires alongside V's final drain or is parked.
 			localparam bit [CAP-1:0]  DEPMASK_INIT = {(PI0){1'b1}};
 			localparam bit [CAP-1:0]  DEPMASK_WARM = {DEPMASK_INIT[CAP-1-PI0:0], DEPMASK_INIT[CAP-1:CAP-PI0]};
+			localparam bit [CAP-1:0]  DEPMASK_PRE  = DEPMASK_INIT << PO0;
 			logic [CAP-1:0]  DepMask = DEPMASK_INIT;
 
 			uwire [CAP-1:0]  dep_rotl = {DepMask[CAP-1-PI0:0], DepMask[CAP-1:CAP-PI0]};
@@ -483,7 +506,7 @@ module vpc #(
 				if(rst)  DepMask <= DEPMASK_INIT;
 				else begin
 					DepMask <=
-						nxt?          (itrn? DEPMASK_WARM : DEPMASK_INIT) :
+						nxt?          (itrn || Pre? DEPMASK_WARM : DEPMASK_INIT) :
 						itrn && otrn? dep_both :
 						itrn?         dep_rotl :
 						otrn?         dep_rotr :
@@ -491,9 +514,13 @@ module vpc #(
 				end
 			end
 
-			// During nxt overlap, deposit targets V+1's initial
-			// positions [PI0-1:0] in the post-shift buffer frame.
-			uwire [CAP-1:0]  dep_eff = nxt? DEPMASK_INIT : (otrn? (DepMask >> PO0) : DepMask);
+			// V+1's first deposit targets its initial positions
+			// [PI0-1:0] in the post-shift buffer frame on nxt, or
+			// [PO0+PI0-1:PO0] in the pre-shift frame when parked.
+			uwire [CAP-1:0]  dep_eff =
+				nxt?   DEPMASK_INIT :
+				idone? DEPMASK_PRE  :
+				otrn?  (DepMask >> PO0) : DepMask;
 
 			//-----------------------------------------------------------
 			// Structural per-position buffer.
