@@ -878,6 +878,7 @@ def test_finnloop_end2end_mlo(
 
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
+        enable_build_pdb_debug=False,
         steps=steps,
         synth_clk_period_ns=10.0,
         board="V80",
@@ -1134,6 +1135,7 @@ def test_finnloop_end2end_mlo_ddr(
 
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
+        enable_build_pdb_debug=False,
         steps=steps,
         synth_clk_period_ns=10.0,
         board=board,

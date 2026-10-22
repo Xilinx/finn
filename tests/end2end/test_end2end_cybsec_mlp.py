@@ -166,6 +166,7 @@ def test_end2end_cybsec_mlp_build(build_board):
 
     cfg = build.DataflowBuildConfig(
         output_dir=output_dir,
+        enable_build_pdb_debug=False,
         target_fps=1000000,
         synth_clk_period_ns=target_clk_ns,
         board=build_board,

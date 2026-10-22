@@ -37,6 +37,7 @@ def cfg(output_dir, **kw):
     """Create config that stops immediately after first phase."""
     return DataflowBuildConfig(
         output_dir=output_dir,
+        enable_build_pdb_debug=False,
         synth_clk_period_ns=5.0,
         stop_step=kw.pop("stop_step", "phase_prepare_model"),
         generate_outputs=kw.pop("generate_outputs", [DataflowOutputType.ESTIMATE_REPORTS]),

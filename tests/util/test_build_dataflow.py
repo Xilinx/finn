@@ -47,6 +47,13 @@ def test_end2end_build_dataflow_directory():
     target_dir = test_dir + "/build_dataflow"
     example_data_dir = os.environ["FINN_ROOT"] + "/src/finn/qnn-data/build_dataflow"
     copytree(example_data_dir, target_dir)
+    # disable pdb postmortem on the copy only, the shipped example keeps the default
+    cfg_file = target_dir + "/dataflow_build_config.json"
+    with open(cfg_file) as f:
+        cfg_json = json.load(f)
+    cfg_json["enable_build_pdb_debug"] = False
+    with open(cfg_file, "w") as f:
+        json.dump(cfg_json, f, indent=2)
     build_dataflow_directory(target_dir)
     # check the generated files
     output_dir = target_dir + "/output_tfc_w1a1_AUP-ZU3_8GB"

@@ -110,6 +110,7 @@ def test_estimate_only_flow_produces_reports():
 
     cfg = build.DataflowBuildConfig(
         output_dir=output_dir,
+        enable_build_pdb_debug=False,
         synth_clk_period_ns=10.0,
         fpga_part="xc7z020clg400-1",
         steps=build_cfg.estimate_only_dataflow_steps,
