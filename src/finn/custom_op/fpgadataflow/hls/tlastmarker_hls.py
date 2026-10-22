@@ -110,10 +110,10 @@ class TLastMarker_hls(HWCustomOp, HLSBackend):
             raise Exception("Unrecognized Direction in TLastMarker")
 
         self.code_gen_dict["$DEFINES$"] = [
-            "#define StreamWidth %d" % stream_width,
-            "#define OutDType %s" % out_stream_dtype,
-            "#define InDType %s" % in_stream_dtype,
-            "#define NumItersPerImg %d" % self.get_nodeattr("NumIters"),
+            "static constexpr unsigned StreamWidth = %d;" % stream_width,
+            "using OutDType = %s;" % out_stream_dtype,
+            "using InDType = %s;" % in_stream_dtype,
+            "static constexpr unsigned NumItersPerImg = %d;" % self.get_nodeattr("NumIters"),
         ]
 
     def read_npy_data(self):

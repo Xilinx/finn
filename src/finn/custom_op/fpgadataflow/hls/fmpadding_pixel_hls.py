@@ -41,19 +41,19 @@ class FMPadding_Pixel_hls(FMPadding_Pixel, HLSBackend):
         return my_attrs
 
     def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "streamtools.h"']
+        self.code_gen_dict["$GLOBALS$"] = ['#include "deconv.hpp"']
 
     def defines(self, var):
         odim_h, odim_w = self.get_padded_odim()
         stride_h, stride_w = self.get_nodeattr("Stride")
         self.code_gen_dict["$DEFINES$"] = [
             """
-            #define OutputDim_x {}\n
-            #define OutputDim_y {}\n
-            #define Stride_x {}\n
-            #define Stride_y {}\n
-            #define NumChannels {}\n
-            #define SIMD {}\n
+            static constexpr unsigned OutputDim_x = {};
+            static constexpr unsigned OutputDim_y = {};
+            static constexpr unsigned Stride_x = {};
+            static constexpr unsigned Stride_y = {};
+            static constexpr unsigned NumChannels = {};
+            static constexpr unsigned SIMD = {};
             """.format(
                 odim_w,
                 odim_h,
@@ -75,6 +75,15 @@ class FMPadding_Pixel_hls(FMPadding_Pixel, HLSBackend):
                 hls_call, in_t
             )
         ]
+
+    def pragmas(self):
+        self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0_V"]
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out0_V")
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
+
+    def ipgen_extra_directives(self):
+        "Return a list of extra tcl directives for HLS synthesis."
+        return ["config_compile -pipeline_style flp"]
 
     def blackboxfunction(self):
         packed_bits = self.get_instream_width()

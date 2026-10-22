@@ -63,12 +63,13 @@ class StreamingSplit_hls(StreamingSplit, HLSBackend):
 
     def blackboxfunction(self):
         input_elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
-        simd = self.get_nodeattr("SIMD")
-        in_stream = "hls::stream<hls::vector<%s, %d>> &in0_V" % (input_elem_hls_type, simd)
+        n_elems = self.get_folded_input_shape()[-1]
+        in_stream = "hls::stream<tensor<%s,%d>> &in0_V" % (input_elem_hls_type, n_elems)
         out_streams = []
         for i in range(self.get_n_outputs()):
+            o_n_elems = self.get_folded_output_shape(i)[-1]
             out_streams.append(
-                "hls::stream<hls::vector<%s, %d>> &out%d_V" % (input_elem_hls_type, simd, i)
+                "hls::stream<tensor<%s,%d>> &out%d_V" % (input_elem_hls_type, o_n_elems, i)
             )
         out_streams = ", ".join(out_streams)
         blackbox_hls = "void %s(%s, %s)" % (self.onnx_node.name, in_stream, out_streams)

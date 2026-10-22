@@ -62,7 +62,6 @@ class OuterShuffle_hls(OuterShuffle, HLSBackend):
         self.code_gen_dict["$GLOBALS$"] = [
             '#include "input_gen.hpp"',
             "#include <ap_int.h>",
-            "#include <hls_vector.h>",
             "#include <hls_stream.h>",
         ]
 
@@ -73,7 +72,7 @@ class OuterShuffle_hls(OuterShuffle, HLSBackend):
             f"""
             constexpr unsigned  SIMD = {simd};
             using  TE = {dtype.get_hls_datatype_str()};
-            using  TV = hls::vector<TE, SIMD>;
+            using  TV = tensor<TE, SIMD>;
             """
         ]
 

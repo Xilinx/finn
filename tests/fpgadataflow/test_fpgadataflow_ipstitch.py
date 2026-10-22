@@ -75,7 +75,7 @@ def create_one_fc_model(mem_mode="internal_embedded"):
     odt = DataType["INT32"]
     m = 4
     no_act = 1
-    binary_xnor_mode = 0
+
     actval = 0
     simd = 4
     pe = 4
@@ -97,7 +97,6 @@ def create_one_fc_model(mem_mode="internal_embedded"):
         weightDataType=wdt.name,
         outputDataType=odt.name,
         ActVal=actval,
-        binaryXnorMode=binary_xnor_mode,
         noActivation=no_act,
         mem_mode=mem_mode,
     )
@@ -127,7 +126,7 @@ def create_two_fc_model(mem_mode="internal_decoupled"):
     m = 4
     actval = 0
     no_act = 1
-    binary_xnor_mode = 0
+
     pe = 2
     simd = 2
 
@@ -149,7 +148,6 @@ def create_two_fc_model(mem_mode="internal_decoupled"):
         weightDataType=wdt.name,
         outputDataType=odt.name,
         ActVal=actval,
-        binaryXnorMode=binary_xnor_mode,
         noActivation=no_act,
         mem_mode=mem_mode,
     )
@@ -168,7 +166,6 @@ def create_two_fc_model(mem_mode="internal_decoupled"):
         weightDataType=wdt.name,
         outputDataType=odt.name,
         ActVal=actval,
-        binaryXnorMode=binary_xnor_mode,
         noActivation=no_act,
         mem_mode=mem_mode,
     )

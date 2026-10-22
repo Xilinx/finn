@@ -41,7 +41,7 @@ class Crop_hls(Crop, HLSBackend):
             constexpr unsigned  CROP_E = {self.get_nodeattr("CropEast")};
             constexpr unsigned  CROP_S = {self.get_nodeattr("CropSouth")};
             constexpr unsigned  CROP_W = {self.get_nodeattr("CropWest")};
-            using  TV = hls::vector<{dtype.get_hls_datatype_str()}, SIMD>;
+            using  TV = tensor<{dtype.get_hls_datatype_str()}, SIMD>;
             """
         ]
 

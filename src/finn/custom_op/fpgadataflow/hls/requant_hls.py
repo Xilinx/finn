@@ -19,12 +19,8 @@ class Requant_hls(Requant, HLSBackend):
 
     Computes: clip(round(x * scale + bias), min, max)
 
-    Scale and bias are embedded as constants in the generated HLS code.
-    Per-channel scale and bias are supported. When scale=1 and bias=0,
-    the generated code skips the unnecessary multiply/add operations.
-
-    Note: This backend is primarily for FLOAT32 inputs. For integer inputs,
-    prefer Requant_rtl which is more efficient.
+    Delegates to Requant_Batch from finn-hlslib (function-pipelined).
+    Scale and bias are embedded as RequantParams in a generated header file.
     """
 
     def __init__(self, onnx_node, **kwargs):
@@ -45,19 +41,14 @@ class Requant_hls(Requant, HLSBackend):
         return Requant.get_exp_cycles(self) + hls_overhead
 
     def generate_params(self, model, path):
-        """Generate scale and bias parameter arrays as HLS header file."""
+        """Generate RequantParams header with [PE][NF] layout."""
         code_gen_dir = path
         scale = self.get_scale(model)
         bias = self.get_bias(model)
 
         num_channels = self.get_nodeattr("NumChannels")
         pe = self.get_nodeattr("PE")
-        cf = num_channels // pe
-
-        # Check scale/bias for optimization and store as instance attributes
-        # (not in code_gen_dict which expects lists for template substitution)
-        self._scale_is_one = np.allclose(scale, 1.0)
-        self._bias_is_zero = np.allclose(bias, 0.0)
+        nf = num_channels // pe
 
         # Broadcast scalar values to all channels if needed
         if scale.size == 1:
@@ -65,190 +56,84 @@ class Requant_hls(Requant, HLSBackend):
         if bias.size == 1:
             bias = np.full(num_channels, bias.item(), dtype=np.float32)
 
-        # Reshape for PE interleaving: [CF][PE]
-        scale_reshaped = scale.reshape(cf, pe)
-        bias_reshaped = bias.reshape(cf, pe)
+        # Reshape for PE interleaving: channel order is
+        #   ch0=(nf=0,pe=0), ch1=(nf=0,pe=1), ..., ch_{PE-1}=(nf=0,pe=PE-1),
+        #   ch_{PE}=(nf=1,pe=0), ...
+        # Python arrays are [NF][PE], RequantParams needs [PE][NF] → transpose
+        scale_nf_pe = scale.reshape(nf, pe)
+        bias_nf_pe = bias.reshape(nf, pe)
 
-        # Write to header file
         with open(os.path.join(code_gen_dir, "params.h"), "w") as f:
-            f.write(f"static const float scales[{cf}][{pe}] = {{\n")
-            for c in range(cf):
-                f.write("    {" + ", ".join(f"{v:.10f}f" for v in scale_reshaped[c]) + "},\n")
-            f.write("};\n\n")
-            f.write(f"static const float biases[{cf}][{pe}] = {{\n")
-            for c in range(cf):
-                f.write("    {" + ", ".join(f"{v:.10f}f" for v in bias_reshaped[c]) + "},\n")
+            f.write('#include "requant.hpp"\n\n')
+            f.write(f"static RequantParams<{nf}, {pe}> const rq_params = {{\n")
+            # scales[PE][NF]
+            f.write("    .scales = {\n")
+            for p in range(pe):
+                vals = ", ".join(f"{scale_nf_pe[n, p]:.10f}f" for n in range(nf))
+                f.write(f"        {{{vals}}},\n")
+            f.write("    },\n")
+            # biases[PE][NF]
+            f.write("    .biases = {\n")
+            for p in range(pe):
+                vals = ", ".join(f"{bias_nf_pe[n, p]:.10f}f" for n in range(nf))
+                f.write(f"        {{{vals}}},\n")
+            f.write("    }\n")
             f.write("};\n")
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = [
-            "#include <hls_math.h>",
-            "#include <hls_stream.h>",
-            "#include <ap_int.h>",
-            '#include "flatten.hpp"',
+            '#include "requant.hpp"',
             '#include "params.h"',
         ]
 
     def defines(self, var):
         pe = self.get_nodeattr("PE")
         num_channels = self.get_nodeattr("NumChannels")
-        cf = num_channels // pe
 
         idt = self.get_input_datatype(0)
         odt = self.get_output_datatype()
 
-        # Get output range from output datatype
         narrow = self.get_nodeattr("narrow")
         signed = 1 if odt.signed() else 0
         bitwidth = odt.bitwidth()
         min_val = min_int(signed, narrow, bitwidth)
         max_val = max_int(signed, narrow, bitwidth)
 
-        num_input_vecs = self.get_nodeattr("numInputVectors")
-        total_fold = int(np.prod(num_input_vecs)) * cf
-
-        # Use explicit width constants instead of TI::width which doesn't work for float
-        in_width = idt.bitwidth()
-        out_width = odt.bitwidth()
-
         self.code_gen_dict["$DEFINES$"] = [
-            f"constexpr unsigned PE = {pe};",
-            f"constexpr unsigned CF = {cf};",
-            f"constexpr unsigned TOTAL_FOLD = {total_fold};",
+            f"constexpr unsigned NumChannels1 = {num_channels};",
+            f"constexpr unsigned PE1 = {pe};",
             f"constexpr int MIN_VAL = {min_val};",
             f"constexpr int MAX_VAL = {max_val};",
-            # Element types
             f"using TI = {idt.get_hls_datatype_str()};",
             f"using TO = {odt.get_hls_datatype_str()};",
-            # Explicit width constants (float doesn't have ::width)
-            f"static constexpr auto TI_WIDTH = {in_width};",
-            f"static constexpr auto TO_WIDTH = {out_width};",
-            # Packed types for stream interface
-            f"using InPacked = ap_uint<{self.get_instream_width(0)}>;",
-            f"using OutPacked = ap_uint<{self.get_outstream_width(0)}>;",
-            """
-template<typename T, typename TLo, typename THi>
-static inline T clip(T const x, TLo const lo, THi const hi) {
-#pragma HLS inline
-    if(x < lo) return lo;
-    if(x > hi) return hi;
-    return x;
-}
-            """,
         ]
 
     def docompute(self):
-        # Get optimization flags (set during generate_params)
-        scale_is_one = getattr(self, "_scale_is_one", False)
-        bias_is_zero = getattr(self, "_bias_is_zero", False)
-
-        # Build the computation expression based on what's needed
-        if scale_is_one and bias_is_zero:
-            # Just round and clip
-            compute_expr = "float(in_val)"
-        elif scale_is_one:
-            # No scale, just bias
-            compute_expr = "float(in_val) + biases[cf_idx][p]"
-        elif bias_is_zero:
-            # No bias, just scale
-            compute_expr = "float(in_val) * scales[cf_idx][p]"
-        else:
-            # Full computation
-            compute_expr = "float(in_val) * scales[cf_idx][p] + biases[cf_idx][p]"
-
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            f"""
-            // Buffer for PE parallel outputs
-            TO out_buf[PE];
-            #pragma HLS ARRAY_PARTITION variable=out_buf complete dim=1
-
-            for (unsigned fold = 0; fold < TOTAL_FOLD; fold++) {{
-                #pragma HLS PIPELINE II=1 style=flp
-
-                // Read packed input and unpack using Slice
-                InPacked in_packed = in0_V.read();
-                auto in_slice = Slice<TI>{{}}(in_packed);
-
-                unsigned cf_idx = fold % CF;
-
-                for (unsigned p = 0; p < PE; p++) {{
-                    #pragma HLS UNROLL
-                    #pragma HLS INLINE recursive
-                    // Get input value from slice
-                    TI in_val = in_slice(p, 0);
-
-                    // Compute scaled value
-                    float scaled = {compute_expr};
-
-                    // Round to nearest integer and clip
-                    int rounded = clip((int)hls::lrint(scaled), MIN_VAL, MAX_VAL);
-
-                    // Store output
-                    out_buf[p] = TO(rounded);
-                }}
-
-                // Pack and write output
-                out0_V.write(flatten(out_buf));
-            }}
-            """
+            "Requant_Batch<NumChannels1, PE1, MIN_VAL, MAX_VAL>" "(in0_V, out0_V, rq_params);"
         ]
 
     def blackboxfunction(self):
+        pe = self.get_nodeattr("PE")
+        idt = self.get_input_datatype(0).get_hls_datatype_str()
+        odt = self.get_output_datatype().get_hls_datatype_str()
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            f"""
-            void {self.onnx_node.name}(
-                hls::stream<InPacked> &in0_V,
-                hls::stream<OutPacked> &out0_V
-            )
-            """
+            "void {}(hls::stream<tensor<{}, {}>> &in0_V, "
+            "hls::stream<tensor<{}, {}>> &out0_V)".format(self.onnx_node.name, idt, pe, odt, pe)
         ]
-
-    def read_npy_data(self):
-        """Generate code for reading input data from .npy file."""
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_input_datatype(0)
-        elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "half" if elem_hls_type == "half" else "float"
-
-        self.code_gen_dict["$READNPYDATA$"] = [
-            f"npy2apintstream<InPacked, TI, {npy_type}>(",
-            f'"{code_gen_dir}/input_0.npy", in0_V, false',
-            ");",
-        ]
-
-    def strm_decl(self):
-        """Generate stream declarations for C++ simulation."""
-        self.code_gen_dict["$STREAMDECLARATIONS$"] = [
-            'hls::stream<InPacked> in0_V ("in0_V");',
-            'hls::stream<OutPacked> out0_V ("out0_V");',
-        ]
-
-    def dataoutstrm(self):
-        """Generate code for writing output data to .npy file."""
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        shape = f"{{{','.join((str(i) for i in self.get_folded_output_shape(0)))}}}"
-        odt = self.get_output_datatype()
-        elem_hls_type = odt.get_hls_datatype_str()
-        npy_type = "half" if elem_hls_type == "half" else "float"
-
-        self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            f"apintstream2npy<OutPacked, TO, {npy_type}>(",
-            f'out0_V, {shape}, "{code_gen_dir}/output_0.npy", false',
-            ");",
-        ]
-
-    def save_as_npy(self):
-        """Empty - output saving is handled in dataoutstrm."""
-        self.code_gen_dict["$SAVEASCNPY$"] = []
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = [
-            """
-            #pragma HLS interface AXIS port=in0_V
-            #pragma HLS interface AXIS port=out0_V
-            #pragma HLS interface ap_ctrl_none port=return
-            """
+            "#pragma HLS INTERFACE axis port=in0_V",
+            "#pragma HLS INTERFACE axis port=out0_V",
+            "#pragma HLS INTERFACE ap_ctrl_none port=return",
+            "#pragma HLS ARRAY_PARTITION variable=rq_params.scales complete dim=1",
+            "#pragma HLS ARRAY_PARTITION variable=rq_params.biases complete dim=1",
         ]
+
+    def ipgen_extra_directives(self):
+        """Return a list of extra tcl directives for HLS synthesis."""
+        return ["config_compile -pipeline_style flp"]
 
     def execute_node(self, context, graph):
         """Execute the node using cppsim or rtlsim.
@@ -282,10 +167,6 @@ static inline T clip(T const x, TLo const lo, THi const hi) {
 
         assert inp_val.shape == exp_ishape, "Input shape doesn't match expected shape."
         export_idt = self.get_input_datatype(0)
-
-        if export_idt == DataType["BIPOLAR"]:
-            inp_val = (inp_val + 1) / 2
-            export_idt = DataType["BINARY"]
 
         reshaped_input = inp_val.reshape(folded_ishape)
         reshaped_input = reshaped_input.copy()

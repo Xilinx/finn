@@ -51,34 +51,31 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
         self.code_gen_dict["$GLOBALS$"] = ['#include "concat.hpp"']
 
     def defines(self, var):
-        self.code_gen_dict["$DEFINES$"] = ["#define SIMD {}".format(self.get_nodeattr("SIMD"))]
+        self.code_gen_dict["$DEFINES$"] = []
 
     def docompute(self):
-        self.code_gen_dict["$DOCOMPUTE$"] = []
         n_inputs = self.get_n_inputs()
         input_folds = [str(self.get_folded_input_shape(i)[-2]) for i in range(n_inputs)]
-        in_streams = []
-        for i in range(n_inputs):
-            in_streams.append("in%d_V" % i)
-        in_stream_names = ", ".join(in_streams)
+        in_stream_names = ", ".join("in%d_V" % i for i in range(n_inputs))
         in_stream_folds = ", ".join(input_folds)
-        comp_call = "StreamingConcat<{}>(out0_V, {});".format(in_stream_folds, in_stream_names)
-        self.code_gen_dict["$DOCOMPUTE$"] = [comp_call]
+        self.code_gen_dict["$DOCOMPUTE$"] = [
+            "StreamingConcat<{}>(out0_V, {});".format(in_stream_folds, in_stream_names)
+        ]
 
     def blackboxfunction(self):
         n_inputs = self.get_n_inputs()
         in_streams = []
         for i in range(n_inputs):
-            input_elem_hls_type = self.get_input_datatype(i).get_hls_datatype_str()
-            in_streams.append(
-                "hls::stream<hls::vector<%s, SIMD>> &in%d_V" % (input_elem_hls_type, i)
-            )
+            elem = self.get_input_datatype(i).get_hls_datatype_str()
+            n_elems = self.get_folded_input_shape(i)[-1]
+            in_streams.append("hls::stream<tensor<{},{}>> &in{}_V".format(elem, n_elems, i))
         in_streams = ", ".join(in_streams)
-        out_stream = "hls::stream<hls::vector<%s, SIMD>> &out0_V" % (
-            self.get_output_datatype().get_hls_datatype_str(),
-        )
-        blackbox_hls = "void %s(%s, %s)" % (self.onnx_node.name, in_streams, out_stream)
-        self.code_gen_dict["$BLACKBOXFUNCTION$"] = [blackbox_hls]
+        o_elem = self.get_output_datatype().get_hls_datatype_str()
+        o_n_elems = self.get_folded_output_shape()[-1]
+        out_stream = "hls::stream<tensor<{},{}>> &out0_V".format(o_elem, o_n_elems)
+        self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
+            "void {}({}, {})".format(self.onnx_node.name, in_streams, out_stream)
+        ]
 
     def pragmas(self):
         n_inputs = self.get_n_inputs()

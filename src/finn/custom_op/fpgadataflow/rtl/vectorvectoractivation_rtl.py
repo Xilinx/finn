@@ -28,7 +28,6 @@
 
 import numpy as np
 import os
-from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.custom_op.fpgadataflow.vectorvectoractivation import VVAU
@@ -70,12 +69,7 @@ class VVAU_rtl(VVAU, RTLBackend):
                     not float32 as expected."""
                     expected_inp_shape = self.get_folded_input_shape()
                     reshaped_input = context[inputs].reshape(expected_inp_shape)
-                    if self.get_input_datatype(0) == DataType["BIPOLAR"]:
-                        # store bipolar activations as binary
-                        reshaped_input = (reshaped_input + 1) / 2
-                        export_idt = DataType["BINARY"]
-                    else:
-                        export_idt = self.get_input_datatype(0)
+                    export_idt = self.get_input_datatype(0)
                     # make copy before saving the array
                     reshaped_input = reshaped_input.copy()
                     np.save(
@@ -94,10 +88,6 @@ class VVAU_rtl(VVAU, RTLBackend):
                 if mem_mode in ["external", "internal_decoupled"]:
                     wnbits = self.get_instream_width(1)
                     export_wdt = self.get_input_datatype(1)
-                    # we have converted bipolar weights to binary for export,
-                    # so use it as such for weight generation
-                    if self.get_input_datatype(1) == DataType["BIPOLAR"]:
-                        export_wdt = DataType["BINARY"]
                     wei = npy_to_rtlsim_input(
                         "{}/weights.npy".format(code_gen_dir), export_wdt, wnbits
                     )

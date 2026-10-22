@@ -144,7 +144,7 @@ class ElementwiseBinaryOperation_hls(
     # code
     def global_includes(self):
         # Currently nothing to include
-        self.code_gen_dict["$GLOBALS$"] = ['#include "flatten.hpp"']
+        self.code_gen_dict["$GLOBALS$"] = []
 
     # Generates C++ parameters file, i.e., constant initializer inputs
     def generate_params(self, model: ModelWrapper, path: str):
@@ -294,19 +294,25 @@ class ElementwiseBinaryOperation_hls(
             f"static constexpr auto LhsWidth = {self.lhs_dtype.bitwidth()};",
             f"static constexpr auto RhsWidth = {self.rhs_dtype.bitwidth()};",
             f"static constexpr auto OutWidth = {self.out_dtype.bitwidth()};",
-            # Datatype of elements packed into the input stream
-            f"using LhsPacked = ap_uint<{self.get_instream_width(ind=0)}>;",
-            f"using RhsPacked = ap_uint<{self.get_instream_width(ind=1)}>;",
-            # Datatype of elements packed into the output stream
-            f"using OutPacked = ap_uint<{self.get_outstream_width(ind=0)}>;",
+            # Number of elements packed into each stream word
+            "static constexpr unsigned LhsFold = "
+            f"{self.get_instream_width(ind=0) // self.lhs_dtype.bitwidth()};",
+            "static constexpr unsigned RhsFold = "
+            f"{self.get_instream_width(ind=1) // self.rhs_dtype.bitwidth()};",
+            "static constexpr unsigned OutFold = "
+            f"{self.get_outstream_width(ind=0) // self.out_dtype.bitwidth()};",
+            # Tensor types for stream elements
+            "using LhsTensor = tensor<LhsType, LhsFold>;",
+            "using RhsTensor = tensor<RhsType, RhsFold>;",
+            "using OutTensor = tensor<OutType, OutFold>;",
             # Include the activation function type definitions and parameters
             #   Note: The typedefs in this header require the typedefs above,
             #   thus adding this to the global includes is not possible.
             '#include "params.hpp"',
             # Input and output HLS stream datatypes
-            "using LhsStream = hls::stream<LhsPacked>;",
-            "using RhsStream = hls::stream<RhsPacked>;",
-            "using OutStream = hls::stream<OutPacked>;",
+            "using LhsStream = hls::stream<LhsTensor>;",
+            "using RhsStream = hls::stream<RhsTensor>;",
+            "using OutStream = hls::stream<OutTensor>;",
         ]
 
     # Generates C++ code for reading data from .npy (numpy format) for testing
@@ -327,8 +333,8 @@ class ElementwiseBinaryOperation_hls(
             self.code_gen_dict["$READNPYDATA$"] += [
                 # Generate function call reading from file into the input stream
                 #   Note: Inputs can be represented as numpy floats or halfs
-                f"npy2apintstream<LhsPacked, LhsType, {npy_type}>(",
-                f'"{code_gen_dir}/input_0.npy", in0_V, false',
+                f"npy2tensorstream<{npy_type}>(",
+                f'"{code_gen_dir}/input_0.npy", in0_V',
                 ");",
             ]
         # If the right-hand-side is provided as runtime input or internal decoupled const,
@@ -341,18 +347,20 @@ class ElementwiseBinaryOperation_hls(
             self.code_gen_dict["$READNPYDATA$"] += [
                 # Generate function call reading from file into the input stream
                 #   Note: Inputs can be represented as numpy floats or halfs
-                f"npy2apintstream<RhsPacked, RhsType, {npy_type}>(",
-                f'"{code_gen_dir}/input_1.npy", in1_V, false',
+                f"npy2tensorstream<{npy_type}>(",
+                f'"{code_gen_dir}/input_1.npy", in1_V',
                 ");",
             ]
 
     # Generates C++ code for declaring all streams involved in C++ simulation
     # for testing
     def strm_decl(self):
-        # Allways add the output stream to the declarations
+        # Always add the output stream and timeout buffer stream
         self.code_gen_dict["$STREAMDECLARATIONS$"] = [
             # Note: Assumes stream type aliases to be set in defines
-            "OutStream out0_V;"
+            "OutStream out0_V;",
+            # Buffer stream for freerunning timeout template
+            "OutStream strm0;",
         ]
         # If the left-hand-side is provided as runtime input or internal decoupled const,
         # read code needs to be generated
@@ -429,140 +437,128 @@ class ElementwiseBinaryOperation_hls(
         }[rhs_key]
 
         # Generate C++ code for declaring an array of the buffer shapes
-        lhs_buffer_shape = "".join([f"[{size}]" for size in lhs_buffer_shape])
-        rhs_buffer_shape = "".join([f"[{size}]" for size in rhs_buffer_shape])
+        lhs_buffer_shape_str = "".join([f"[{size}]" for size in lhs_buffer_shape])
+        rhs_buffer_shape_str = "".join([f"[{size}]" for size in rhs_buffer_shape])
 
         # Number of dimensions of the (broadcast) output. All shapes will be
         # aligned to this number of dimensions.
         # Note: +1 for the PE dimension
         ndim = len(out_shape) + 1
 
-        # For-Loop template for nested loops over arbitrary many levels
-        def for_loop(level, size):
-            return f"for(std::size_t i{level} = 0; i{level}<{size}; ++i{level})"
-
         # Generate code testing for the condition when the next element needs to
         # be read from the input stream according to broadcasting semantics
         def read_stream_condition(shape):
-            # Start with the assumption that none of the dimensions is
-            # broadcast, meaning each individual element needs to be read from
-            # the stream
             condition = "true"
-            # Search for the dimensions which are broadcast
             for dim, size in enumerate(shape):
-                # If this dimension has a size of 1 in the input but not in the
-                # output, it is broadcast and contributes to the conjunctive
-                # reading condition if this index wraps around
                 if size == 1 and out_shape[dim] != 1:
-                    # Add testing for index wrap-around to the condition
                     condition += f" && (i{dim} == 0)"
-            # Return the composed reading condition
             return condition
 
         # Generate code for unpacking elements read from the stream into the PE-
         # parallel buffer according to broadcasting semantics
         def unpack_buffer(shape):
-            # Unpacking behavior depends on whether the last, i.e., folded PE
-            # dimension is broadcast
             if shape[-1] == 1 and self.pe != self.out_shape[-1]:
-                # PE axis is broadcast, i.e., slice yields just one element
-                # which needs to be replicated
-                return "buffer(0, 0)"
-            # PE axis is not broadcast, i.e., slice actually yields parallel
-            # elements to be unpacked
-            return "buffer(pe, 0)"
+                return "buffer[0]"
+            return "buffer[pe]"
 
         # Type of memory to use for storing constant parameters
         ram_style = RAM_STYLES[self.get_nodeattr("ram_style")]
 
-        # Write the body of the top-level function
+        # Determine which streams are runtime inputs
+        lhs_is_stream = self.lhs_style == "input" or lhs_decoupled
+        rhs_is_stream = self.rhs_style == "input" or rhs_decoupled
+
+        # Build the non-blocking empty-check guard: only proceed when all
+        # needed streams have data available
+        lhs_read_cond = read_stream_condition(lhs_shape)
+        rhs_read_cond = read_stream_condition(rhs_shape)
+
+        guard_parts = []
+        if lhs_is_stream:
+            guard_parts.append(f"(!({lhs_read_cond}) || !in0_V.empty())")
+        if rhs_is_stream:
+            guard_parts.append(f"(!({rhs_read_cond}) || !in1_V.empty())")
+        guard_expr = " && ".join(guard_parts) if guard_parts else "true"
+
+        # Generate static counter declarations with reset pragmas
+        counter_decls = []
+        for dim, size in enumerate(out_shape):
+            counter_decls.append(f"static unsigned i{dim} = 0;")
+            counter_decls.append(f"#pragma HLS reset variable=i{dim}")
+
+        # Generate counter advancement code (innermost-first ripple carry)
+        counter_advance = []
+        for dim in reversed(range(len(out_shape))):
+            size = out_shape[dim]
+            if dim == len(out_shape) - 1:
+                counter_advance.append(f"if(++i{dim} == {size}) {{ i{dim} = 0;")
+            else:
+                counter_advance.append(f"if(++i{dim} == {size}) {{ i{dim} = 0;")
+        # Close all the nested ifs
+        counter_advance.append("}" * len(out_shape))
+
+        # Write the body of the top-level function (free-running, one element per call)
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            # @formatter:off  Disable formatter for mixed Python and C++
-            # For streamed inputs, generate local buffer of non-broadcast size
-            # but broadcasts dimensions un-squeezed to size 1. For constant
-            # inputs, use the generated parameters of the same name.
-            # For streamed inputs, implement a simple dual-port RAM partitioned
-            # on the last, i.e., the PE, axis for parallel access.
+            "#pragma HLS pipeline II=1 style=flp",
+            # Static counters for each output dimension
+            *counter_decls,
+            # For streamed inputs, generate static buffer of non-broadcast size
             f"""
-            LhsType lhs{lhs_buffer_shape}[{self.pe}];
-            #pragma HLS ARRAY_PARTITION variable=lhs complete dim={ndim}
-            #pragma HLS BIND_STORAGE variable=lhs type=RAM_S2P impl={ram_style}
-            """
-            if self.lhs_style == "input" or lhs_decoupled
-            else """""",
+static LhsType lhs{lhs_buffer_shape_str}[{self.pe}];
+#pragma HLS ARRAY_PARTITION variable=lhs complete dim={ndim}
+#pragma HLS BIND_STORAGE variable=lhs type=RAM_S2P impl={ram_style}
+"""
+            if lhs_is_stream
+            else "",
             f"""
-            RhsType rhs{rhs_buffer_shape}[{self.pe}];
-            #pragma HLS ARRAY_PARTITION variable=rhs complete dim={ndim}
-            #pragma HLS BIND_STORAGE variable=rhs type=RAM_S2P impl={ram_style}
-            """
-            if self.rhs_style == "input" or rhs_decoupled
-            else """""",
-            # Buffer to hold the parallel output elements: Implement a simple
-            # dual-port RAM for the output buffer, partitioned on the last,
-            # i.e., the PE, axis for parallel access.
-            # Note: The PE output should be rather small, force this into
-            # distributed memory here.
-            # TODO: Maybe reconsider this later?
+static RhsType rhs{rhs_buffer_shape_str}[{self.pe}];
+#pragma HLS ARRAY_PARTITION variable=rhs complete dim={ndim}
+#pragma HLS BIND_STORAGE variable=rhs type=RAM_S2P impl={ram_style}
+"""
+            if rhs_is_stream
+            else "",
+            # Non-blocking guard: only process when needed streams have data
+            f"if({guard_expr}) {{",
+            # Read from the left-hand-side input stream if needed
             f"""
-            OutType out[{self.pe}];
-            #pragma HLS ARRAY_PARTITION variable=out complete dim=1
-            #pragma HLS BIND_STORAGE variable=out type=RAM_S2P impl=LUTRAM
-            """,
-            # Perfect loop nest over all folded output dimensions
-            *[for_loop(dim, size) + " {" for dim, size in enumerate(out_shape)],
-            # Pipeline the loops. This should be possible as there is no code
-            # between the loop levels, i.e., this is a perfect loop nest.
-            """
-            #pragma HLS pipeline II=1 style=flp
-            """,
-            # Read from the left-hand-side input stream if new elements are
-            # needed according to broadcasting semantics
+if({lhs_read_cond}) {{
+    const auto buffer = in0_V.read();
+    for(std::size_t pe = 0; pe < {self.pe}; ++pe) {{
+    #pragma HLS unroll
+        lhs{lhs_index}[pe] = {unpack_buffer(lhs_shape)};
+    }}
+}}
+"""
+            if lhs_is_stream
+            else "",
+            # Read from the right-hand-side input stream if needed
             f"""
-            if({read_stream_condition(lhs_shape)}) {{
-                const auto buffer = Slice<LhsType>{{}}(
-                    in0_V.read()
-                );
-                for(std::size_t pe = 0; pe < {self.pe}; ++pe) {{
-                #pragma HLS unroll
-                    lhs{lhs_index}[pe] = {unpack_buffer(lhs_shape)};
-                }}
-            }}
-            """
-            if self.lhs_style == "input" or lhs_decoupled
-            else """""",
-            # Read from the right-hand-side input stream if new elements are
-            # needed according to broadcasting semantics
+if({rhs_read_cond}) {{
+    const auto buffer = in1_V.read();
+    for(std::size_t pe = 0; pe < {self.pe}; ++pe) {{
+    #pragma HLS unroll
+        rhs{rhs_index}[pe] = {unpack_buffer(rhs_shape)};
+    }}
+}}
+"""
+            if rhs_is_stream
+            else "",
+            # Compute and write output using direct tensor indexing
             f"""
-            if({read_stream_condition(rhs_shape)}) {{
-                const auto buffer = Slice<RhsType>{{}}(
-                    in1_V.read()
-                );
-                for(std::size_t pe = 0; pe < {self.pe}; ++pe) {{
-                #pragma HLS unroll
-                    rhs{rhs_index}[pe] = {unpack_buffer(rhs_shape)};
-                }}
-            }}
-            """
-            if self.rhs_style == "input" or rhs_decoupled
-            else """""",
-            # Apply PE parallel elementwise operations by filling the operation
-            # template. Use recursive inline to ensure flushable pipeline is possible.
-            f"""
-            for(std::size_t pe = 0; pe < {self.pe}; ++pe) {{
-            #pragma HLS unroll
-            #pragma HLS INLINE recursive
-                out[pe] = {self.cpp_op.format(
-                    f"lhs{lhs_index}[pe]", f"rhs{rhs_index}[pe]"
-                )};
-            }}
-            """,
-            # Write the PE group into the output stream
-            """
-            out0_V.write(flatten(out));
-            """,
-            # Close all for-loop bodies of the generated nest
-            *["}" for _ in enumerate(out_shape)]
-            # @formatter:on  End of code generation
+OutTensor out_t;
+for(std::size_t pe = 0; pe < {self.pe}; ++pe) {{
+#pragma HLS unroll
+#pragma HLS INLINE recursive
+    out_t[pe] = {self.cpp_op.format(
+        f"lhs{lhs_index}[pe]", f"rhs{rhs_index}[pe]"
+    )};
+}}
+out0_V.write(out_t);
+""",
+            # Advance counters (innermost-first)
+            *counter_advance,
+            # Close the guard if
+            "}",
         ]
 
         # Post-process the generated code to remove unnecessary white space
@@ -570,37 +566,9 @@ class ElementwiseBinaryOperation_hls(
             textwrap.dedent(code) for code in self.code_gen_dict["$DOCOMPUTE$"]
         ]
 
-    # Generates C++ code for reading the output stream and converting back to
-    # numpy format for testing in C** simulation
-    def dataoutstrm(self):
-        # Output data will be stored in numpy files in the code generation
-        # dictionary
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        # Get the expected shape of the folded output array formatted as a C++
-        # vector initializer
-        # Note: Valid formatting relies on correct placement of curly braces
-        # and line breaks: Open/close all three braces on the same line of code
-        # to avoid '\n' to be inserted into the string
-        shape = f"""{{{
-        ','.join((str(i) for i in self.get_folded_output_shape(ind=0)))
-        }}}"""
-        # Generate function call for reading from the output stream into the
-        # output file
-        npy_type = "half" if self.out_dtype.get_hls_datatype_str() == "half" else "float"
-        self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            # Generate function call reading from stream into the output file
-            #   Note: Outputs can be numpy floats or halfs
-            f"apintstream2npy<OutPacked, OutType, {npy_type}>(",
-            f'out0_V, {shape}, "{code_gen_dir}/output_0.npy", false',
-            ");",
-        ]
-
-    # Generates C++ code for saving the output of C++ simulation to a file in
-    # numpy format
-    def save_as_npy(self):
-        # Note: This seems to be empty in ALL HLSBackends. Probably it was used
-        # for something before, which is now integrated into dataoutstrm()?
-        self.code_gen_dict["$SAVEASCNPY$"] = []
+    def ipgen_extra_directives(self):
+        """Return a list of extra tcl directives for HLS synthesis."""
+        return ["config_compile -pipeline_style flp"]
 
     # Generates essentially the head of the C++ function from which the IP block
     # will be generated during ipgen, i.e. actual synthesis

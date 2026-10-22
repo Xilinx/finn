@@ -86,13 +86,13 @@ class DuplicateStreams_hls(DuplicateStreams, HLSBackend):
 
     def blackboxfunction(self):
         input_elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
-        pe = self.get_nodeattr("PE")
-        in_stream = "hls::stream<hls::vector<%s, %d>> &in0_V" % (input_elem_hls_type, pe)
+        n_elems = self.get_folded_input_shape()[-1]
+        in_stream = "hls::stream<tensor<%s,%d>> &in0_V" % (input_elem_hls_type, n_elems)
         out_streams = []
         n_outputs = self.get_nodeattr("NumOutputStreams")
         for i in range(n_outputs):
             out_streams.append(
-                "hls::stream<hls::vector<%s, %d>> &out%d_V" % (input_elem_hls_type, pe, i)
+                "hls::stream<tensor<%s,%d>> &out%d_V" % (input_elem_hls_type, n_elems, i)
             )
         out_streams = ", ".join(out_streams)
         blackbox_hls = "void %s(%s, %s)" % (self.onnx_node.name, in_stream, out_streams)

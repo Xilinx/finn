@@ -20,17 +20,10 @@ class LayerNorm_hls(LayerNorm, HLSBackend):
         my_attrs = {}
         my_attrs.update(LayerNorm.get_nodeattr_types(self))
         my_attrs.update(HLSBackend.get_nodeattr_types(self))
-        my_attrs.update(
-            {
-                "cpp_interface": ("s", False, "hls_vector"),
-                "hls_style": ("s", False, "freerunning"),
-            }
-        )
         return my_attrs
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = [
-            "#include <hls_vector.h>",
             '#include "layernorm.hpp"',
         ]
 
@@ -54,8 +47,8 @@ class LayerNorm_hls(LayerNorm, HLSBackend):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             f"""
             void {self.onnx_node.name}(
-                hls::stream<hls::vector<TI,SIMD>> &in0_V,
-                hls::stream<hls::vector<TO,SIMD>> &out0_V
+                hls::stream<tensor<TI,SIMD>> &in0_V,
+                hls::stream<tensor<TO,SIMD>> &out0_V
                 )
             """
         ]

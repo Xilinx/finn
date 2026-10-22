@@ -79,21 +79,6 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
     assert mh % pe == 0
     assert mw % simd == 0
 
-    # there are two ways to implement bipolar weights and inputs for
-    # MatrixVectorActivation:
-    # - specify their datatypes as such
-    # - specify their datatypes as BINARY as use binaryXnorMode
-    if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
-        # we'll internally convert weights/inputs to binary and specify the
-        # datatypes as such, and also set the binaryXnorMode attribute to 1
-        export_wdt = DataType["BINARY"]
-        export_idt = DataType["BINARY"]
-        binary_xnor_mode = 1
-    else:
-        export_wdt = wdt
-        export_idt = idt
-        binary_xnor_mode = 0
-
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, mw])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, mh])
     if T is not None:
@@ -118,11 +103,10 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
         MH=mh,
         SIMD=simd,
         PE=pe,
-        inputDataType=export_idt.name,
-        weightDataType=export_wdt.name,
+        inputDataType=idt.name,
+        weightDataType=wdt.name,
         outputDataType=odt.name,
         ActVal=actval,
-        binaryXnorMode=binary_xnor_mode,
         noActivation=no_act,
     )
     graph = helper.make_graph(
@@ -135,11 +119,7 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
     model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("outp", odt)
     model.set_tensor_datatype("weights", wdt)
-    if binary_xnor_mode:
-        # convert bipolar to binary
-        model.set_initializer("weights", (W + 1) / 2)
-    else:
-        model.set_initializer("weights", W)
+    model.set_initializer("weights", W)
     if T is not None:
         model.set_tensor_datatype("thresh", tdt)
         model.set_initializer("thresh", T)
@@ -183,11 +163,7 @@ def make_dynamic_matmul_modelwrapper(ifm, wfm, ofm, idt, wdt):
 
 
 def prepare_inputs(input_tensor, idt, wdt, inp_name="inp"):
-    if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
-        # convert bipolar to binary
-        return {inp_name: (input_tensor + 1) / 2}
-    else:
-        return {inp_name: input_tensor}
+    return {inp_name: input_tensor}
 
 
 # activation: None or DataType
