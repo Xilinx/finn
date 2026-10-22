@@ -131,3 +131,16 @@ def test_build_dataflow_directory_restores_the_working_directory_on_error():
         assert os.getcwd() == cwd
     finally:
         os.chdir(cwd)
+
+
+@pytest.mark.util
+@pytest.mark.parametrize("option", ["start_step", "stop_step"])
+def test_an_unknown_step_name_is_reported_with_the_valid_names(option):
+    build_dir = make_build_dir("test_runner_unknown_step_")
+    output_dir = os.path.join(build_dir, "output")
+    cfg = make_cfg(output_dir, [passing_step], **{option: "step_foo"})
+    with pytest.raises(ValueError) as exc:
+        build.build_dataflow_cfg(make_test_model(build_dir), cfg)
+    message = str(exc.value)
+    assert option in message and "'step_foo'" in message
+    assert "passing_step" in message
