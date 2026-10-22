@@ -775,7 +775,8 @@ def test_mvau_fifocharacterize_rtlsim(
 #   - WSIMD:                 the =1 edge (1 weight/cycle) up to 192
 #   - CHAINLEN = (SIMD+2)/3: 1, 2, 3, 6, 11
 #   - TH:                    3 and 9 (high tiling)
-#   - NW < TH (slack):       non-dividing TH cases (NW=2 < TH=3, etc.)
+#   - NW < TH (slack):       non-dividing TH cases (NW=2 < TH=3, etc.),
+#                            including TH > PE*SIMD (WSIMD=1)
 #   - mem_mode:              external_mem and internal_decoupled (tiling is
 #                            decoupled from the weight memory mode)
 @pytest.mark.parametrize(
@@ -800,6 +801,10 @@ def test_mvau_fifocharacterize_rtlsim(
         # NW < TH (non-dividing): WSIMD chosen as smallest divisor of PE*SIMD >= ceil(PE*SIMD/TH)
         (2, 4, 3, "internal_decoupled"),  # PE*SIMD=8, TH=3: WSIMD=4, NW=2, slack=1
         (6, 16, 9, "external_mem"),  # PE*SIMD=96, TH=9: WSIMD=12, NW=8, slack=1
+        # external_mem with non-dividing TH: the weight fetch estimate must use WSIMD,
+        # (PE*SIMD)//TH would overestimate get_exp_cycles() beyond the rtlsim tolerance
+        (2, 4, 3, "external_mem"),  # PE*SIMD=8, TH=3: WSIMD=4, NW=2, slack=1
+        (2, 4, 9, "external_mem"),  # TH > PE*SIMD=8: WSIMD=1, NW=8, slack=1
         # external_mem + TH=1: standard MVAU fed by fetch_weights from external memory
         # (PE>1 catches PE-lane swaps, SIMD=1 covers the sub-word byte-packing edge).
         (9, 16, 1, "external_mem"),
