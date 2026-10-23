@@ -93,6 +93,7 @@ from finn.builder.build_dataflow_config import (
     VerificationStepType,
 )
 from finn.core.onnx_exec import execute_onnx
+from finn.platform import PlatformError
 from finn.transformation.fpgadataflow.absorb_into_requant import (
     AbsorbElementwiseOpsIntoRequant,
 )
@@ -1368,14 +1369,16 @@ def step_make_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
     driver_dir = os.path.join(cfg.output_dir, "driver")
     if DataflowOutputType.PYNQ_DRIVER in cfg.generate_outputs:
         # generate PYNQ driver
-        model = model.transform(MakePYNQDriver(cfg._resolve_driver_platform()))
+        model = model.transform(
+            MakePYNQDriver(cfg._resolve_target(need_shell=True).driver_platform)
+        )
         shutil.copytree(model.get_metadata_prop("pynq_driver_dir"), driver_dir, dirs_exist_ok=True)
         print("PYNQ Python driver written into " + driver_dir)
     elif DataflowOutputType.CPP_DRIVER in cfg.generate_outputs:
         # generate C++ Driver
         model = model.transform(
             MakeCPPDriver(
-                cfg._resolve_driver_platform(),
+                cfg._resolve_target(need_shell=True).driver_platform,
                 version=cfg.cpp_driver_version,
             )
         )
@@ -1404,11 +1407,12 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
         report_dir = cfg.output_dir + "/report"
         os.makedirs(report_dir, exist_ok=True)
         partition_model_dir = cfg.output_dir + "/intermediate_models/kernel_partitions"
-        shell_flow_type = cfg._resolve_shell_flow_type()
+        target = cfg._resolve_target(need_bitfile=True)
+        shell_flow_type = target.shell_flow_type
         if shell_flow_type in (ShellFlowType.VIVADO_ZYNQ, ShellFlowType.VIVADO_VERSAL):
             model = model.transform(
                 PYNQBuild(
-                    cfg.board,
+                    target.board.name,
                     cfg.synth_clk_period_ns,
                     cfg.enable_hw_debug,
                     partition_model_dir=partition_model_dir,
@@ -1434,19 +1438,20 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
         elif shell_flow_type == ShellFlowType.VITIS_ALVEO:
             model = model.transform(
                 PrepareForLinking(
-                    cfg._resolve_fpga_part(),
+                    target.part,
                     cfg.synth_clk_period_ns,
-                    "vitis-xrt",
+                    target.driver_platform,
                     floorplan_file=cfg.vitis_floorplan_file,
                     partition_model_dir=partition_model_dir,
                 )
             )
             model = model.transform(
                 VitisLink(
-                    cfg._resolve_vitis_platform(),
+                    target.vitis_platform,
                     cfg.synth_clk_period_ns,
                     strategy=cfg._resolve_vitis_opt_strategy(),
                     enable_debug=cfg.enable_hw_debug,
+                    mem_port=target.mem_port,
                 )
             )
             copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel.xclbin")
@@ -1460,7 +1465,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                 json.dump(post_synth_resources, f, indent=2)
         elif shell_flow_type == ShellFlowType.SLASH_ALVEO:
             model = model.transform(
-                PrepareForLinking(cfg._resolve_fpga_part(), cfg.synth_clk_period_ns, "slash-vrt")
+                PrepareForLinking(target.part, cfg.synth_clk_period_ns, target.driver_platform)
             )
             model = model.transform(SlashLink(not cfg.enable_hw_sim))
             copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel.vbin")
@@ -1633,13 +1638,20 @@ def step_assign_ddr_weight_offsets(model: ModelWrapper, cfg: DataflowBuildConfig
     No-op unless MLO is enabled. AssignMemoryOffset itself skips any FINNLoop
     node whose mem_type attribute is not "DDR".
 
-    Any FINNLoop whose mem_type is still unset is resolved here
+    Any FINNLoop whose mem_type is still unset is set here to the board's preferred
+    memory (the first of its row's memories, finn.platform).
     """
     if cfg.mlo:
-        resolved_mem_type = cfg._resolve_mem_type()
+        resolved_mem_type = cfg._resolve_target().mem_type
         for node in model.get_nodes_by_op_type("FINNLoop"):
             node_inst = getCustomOp(node)
             if node_inst.get_nodeattr("mem_type") == "":
+                if resolved_mem_type is None:
+                    raise PlatformError(
+                        "memory-unstated",
+                        "FINNLoop '%s' has no mem_type, and no board states the memory: "
+                        "set board, or mem_type in the folding config." % node.name,
+                    )
                 node_inst.set_nodeattr("mem_type", resolved_mem_type)
                 if resolved_mem_type == "HBM":
                     print(
@@ -1680,4 +1692,61 @@ build_dataflow_step_lookup = {
     "step_loop_body_set_fifo_depths": step_loop_body_set_fifo_depths,
     "step_loop_body_ipgen_and_stitch": step_loop_body_ipgen_and_stitch,
     "step_assign_ddr_weight_offsets": step_assign_ddr_weight_offsets,
+}
+
+
+def _verifies(vstep):
+    return lambda cfg: vstep in cfg._resolve_verification_steps()
+
+
+#: The steps that run AMD tools (Vitis HLS, Vivado, Vivado's simulator or Vitis), each
+#: with a test of whether it does for a build's config, since some act only for their
+#: output or their verification. step_hw_codegen runs no tool; step_set_fifo_depths
+#: always ends in HLSSynthIP; C++ simulation (FOLDED_HLS_CPPSIM) compiles against Vitis
+#: HLS. A step not listed here, including a custom step, counts as tool-free.
+tool_running_steps = {
+    "step_minimize_bit_width": _verifies(VerificationStepType.FOLDED_HLS_CPPSIM),
+    "step_hw_ipgen": lambda cfg: True,
+    "step_set_fifo_depths": lambda cfg: True,
+    "step_loop_body_set_fifo_depths": lambda cfg: True,
+    "step_loop_body_ipgen_and_stitch": lambda cfg: True,
+    "step_create_stitched_ip": lambda cfg: (
+        DataflowOutputType.STITCHED_IP in cfg.generate_outputs
+        or _verifies(VerificationStepType.STITCHED_IP_RTLSIM)(cfg)
+    ),
+    "step_export_portable_rtl": lambda cfg: DataflowOutputType.PORTABLE_RTL in cfg.generate_outputs,
+    "step_measure_rtlsim_performance": (
+        lambda cfg: DataflowOutputType.RTLSIM_PERFORMANCE in cfg.generate_outputs
+    ),
+    "step_synthesize_bitfile": lambda cfg: DataflowOutputType.BITFILE in cfg.generate_outputs,
+}
+
+#: The steps that read the build's part (they resolve its target), each with a test of
+#: whether they do for a build's config. step_transpose_decomposition reads it for a
+#: model with Shuffle nodes, which the config cannot tell, so it counts. A step not
+#: listed here, including a custom step, counts as reading no part.
+part_reading_steps = {
+    "step_specialize_layers": lambda cfg: True,
+    "step_transpose_decomposition": lambda cfg: True,
+    "step_generate_estimate_reports": (
+        lambda cfg: DataflowOutputType.ESTIMATE_REPORTS in cfg.generate_outputs
+    ),
+    "step_set_fifo_depths": lambda cfg: True,
+    "step_assign_ddr_weight_offsets": lambda cfg: cfg.mlo,
+    "step_loop_body_set_fifo_depths": lambda cfg: True,
+    "step_hw_codegen": lambda cfg: True,
+    "step_loop_body_ipgen_and_stitch": lambda cfg: True,
+    "step_hw_ipgen": lambda cfg: True,
+    "step_create_stitched_ip": lambda cfg: DataflowOutputType.STITCHED_IP in cfg.generate_outputs,
+    "step_export_portable_rtl": lambda cfg: DataflowOutputType.PORTABLE_RTL in cfg.generate_outputs,
+    "step_synthesize_bitfile": lambda cfg: DataflowOutputType.BITFILE in cfg.generate_outputs,
+}
+
+#: The steps that make a driver, which needs the build's shell flow, each with a test of
+#: whether they do for a build's config.
+driver_making_steps = {
+    "step_make_driver": lambda cfg: any(
+        out in cfg.generate_outputs
+        for out in (DataflowOutputType.PYNQ_DRIVER, DataflowOutputType.CPP_DRIVER)
+    ),
 }

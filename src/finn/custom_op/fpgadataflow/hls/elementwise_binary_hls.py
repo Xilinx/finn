@@ -37,8 +37,9 @@ import finn.custom_op.fpgadataflow.elementwise_binary as elementwise_binary
 from finn.custom_op.fpgadataflow.elementwise_binary import ElementwiseBinaryOperation
 from finn.custom_op.fpgadataflow.hls import register_custom_op
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
+from finn.platform import is_versal
 from finn.transformation.fpgadataflow.loop_rolling import LoopBodyInputType
-from finn.util.basic import get_vivado_version, is_versal
+from finn.util.basic import get_vivado_version
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,

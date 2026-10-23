@@ -11,12 +11,12 @@ from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.util.basic import qonnx_make_model
 
 from finn import xsi as finnxsi
+from finn.platform import get_board
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.util.basic import pynq_part_map
 
-test_fpga_part = pynq_part_map["AUP-ZU3_8GB"]
+test_fpga_part = get_board("AUP-ZU3_8GB").part
 test_synth_clk_period_ns = 10
 
 

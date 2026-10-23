@@ -17,16 +17,8 @@ from finn.builder.build_dataflow_config import (
     ShellFlowType,
     verify_step_prereqs,
 )
-from finn.util.basic import (
-    get_pynq_golden_dir,
-    get_vivado_version,
-    is_versal,
-    part_map,
-    pynq_golden_files,
-    pynq_part_map,
-    retired_pynq_boards,
-    vitis_part_map,
-)
+from finn.platform import PlatformError
+from finn.util.basic import get_vivado_version
 
 
 class Severity(Enum):
@@ -70,60 +62,52 @@ def _cfg_default(field_name):
     raise AttributeError("DataflowBuildConfig has no field %r" % field_name)
 
 
+def _build_dataflow():
+    # imported lazily via importlib, as below: build_dataflow imports this module
+    return importlib.import_module("finn.builder.build_dataflow")
+
+
+def _build_runs_tools(cfg: DataflowBuildConfig) -> bool:
+    return _build_dataflow().build_runs_tools(cfg)
+
+
 def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
     """Run all configuration checks and return report."""
     v = get_vivado_version()
     checks = []
 
-    has_bitfile = cfg.generate_outputs and DataflowOutputType.BITFILE in cfg.generate_outputs
-    alveo_boards = set(vitis_part_map.keys())
-    pynq_boards = set(pynq_part_map.keys())
+    has_bitfile = DataflowOutputType.BITFILE in (cfg.generate_outputs or [])
+
+    # === Build Steps ===
+    # What the steps the build will run need: AMD tools, a part, a shell flow (for a
+    # driver). Steps that cannot be resolved are an error of their own; what they need
+    # is then unknown (None).
+    try:
+        needs_tools = _build_runs_tools(cfg)
+        needs_part = _build_dataflow().build_reads_part(cfg)
+        needs_shell = _build_dataflow().build_makes_driver(cfg)
+    except (ValueError, AttributeError, ImportError) as error:
+        needs_tools = needs_part = needs_shell = None
+        checks.append(
+            _check(
+                "steps-unresolved",
+                Severity.ERROR,
+                False,
+                f"The build steps cannot be resolved: {error}",
+                "Check steps, start_step and stop_step against the build's steps and phases",
+            )
+        )
 
     # === Vivado Version Checks ===
-    if cfg.board == "V80":
-        checks.append(
-            _check(
-                "v80_vivado",
-                Severity.ERROR,
-                v and v >= (2024, 2),
-                "V80 board requires Vivado 2024.2 or later, "
-                f"found {v[0]}.{v[1] if v else 'unknown'}",
-                "Upgrade to Vivado 2024.2 or later to use V80",
-            )
-        )
-
-    if cfg.shell_flow_type == ShellFlowType.SLASH_ALVEO:
-        checks.append(
-            _check(
-                "slash_vivado",
-                Severity.ERROR,
-                v and v >= (2025, 1),
-                "SLASH_ALVEO shell flow requires Vivado 2025.1, "
-                f"found {v[0]}.{v[1] if v else 'unknown'}",
-                "Upgrade to Vivado 2025.1 for SLASH support",
-            )
-        )
-
     if cfg.mlo:
+        found = f"{v[0]}.{v[1]}" if v else "unknown"
         checks.append(
             _check(
                 "mlo_vivado",
                 Severity.ERROR,
                 v and v >= (2024, 2),
-                "MLO requires Vivado 2024.2 or later, " f"found {v[0]}.{v[1] if v else 'unknown'}",
+                f"MLO requires Vivado 2024.2 or later, found {found}",
                 "Upgrade to Vivado 2024.2 or later for MLO support",
-            )
-        )
-
-    if cfg.board == "AUP-ZU3_8GB":
-        checks.append(
-            _check(
-                "aupzu3_vivado",
-                Severity.ERROR,
-                v and v >= (2024, 1),
-                f"AUP-ZU3_8GB board requires Vivado 2024.1 or later, "
-                f"found {v[0]}.{v[1] if v else 'unknown'}",
-                "Upgrade to Vivado 2024.1 or later to use AUP-ZU3_8GB",
             )
         )
 
@@ -138,131 +122,20 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
             )
         )
 
-    # === Board + Shell Flow Compatibility ===
-    if cfg.board and cfg.board not in part_map:
-        checks.append(
-            _check(
-                "board_exists",
-                Severity.ERROR,
-                False,
-                f"Board '{cfg.board}' not found in supported boards",
-                f"Valid boards: {', '.join(sorted(part_map.keys()))}",
+    # === Target: board, part and shell flow ===
+    # Resolved for what the build states, and for what its steps need. With
+    # steps-unresolved, only what the build states is checked, without the Vivado
+    # minimums.
+    stated = cfg.board is not None or cfg.fpga_part is not None
+    if stated or has_bitfile or needs_part or needs_shell:
+        try:
+            cfg._resolve_target(
+                need_shell=bool(needs_shell),
+                need_bitfile=has_bitfile,
+                need_tools=bool(needs_tools),
             )
-        )
-
-    if cfg.board in retired_pynq_boards:
-        checks.append(
-            _check(
-                "zynq7000_retired",
-                Severity.ERROR,
-                False,
-                f"Board '{cfg.board}' (Zynq-7000) was retired from official FINN "
-                "support with the move to Vivado 2024.2.",
-                "The build flow is unchanged and Vivado 2024.2 still supports the "
-                "xc7z020 part, so you can re-enable this board by removing it from "
-                "retired_pynq_boards in finn.util.basic. The AUP-ZU3_8GB "
-                "(Zynq UltraScale+) board is the recommended supported replacement.",
-            )
-        )
-
-    if cfg.shell_flow_type == ShellFlowType.VITIS_ALVEO and cfg.board is not None:
-        checks.append(
-            _check(
-                "alveo_board_supported",
-                Severity.ERROR,
-                cfg.board in alveo_boards,
-                f"Alveo board '{cfg.board}' is not a supported Alveo target. Support for "
-                "some boards (e.g. U280) was dropped with the move to Vitis 2024.2",
-                f"Valid Alveo boards: {', '.join(sorted(alveo_boards))}. To keep using a "
-                "dropped board (e.g. U280) you can build with Vitis 2022.2 and re-add its "
-                "part/platform entries to vitis_part_map/vitis_default_platform (and the "
-                "matching Platform class in util/platforms.py).",
-            )
-        )
-
-    # Resolve the shell the build will actually use for the bitfile-consistency
-    # checks below: an unset shell_flow_type is inferred from the board. A board
-    # with no shell is only an error when a bitfile is requested, so leave resolved_shell
-    # as None here and let the has_bitfile-gated checks below report it.
-    try:
-        resolved_shell = (
-            cfg._resolve_shell_flow_type()
-            if (cfg.shell_flow_type is not None or cfg.board is not None)
-            else None
-        )
-    except Exception:
-        resolved_shell = None
-
-    if has_bitfile:
-        is_v80 = cfg.board == "V80" or (cfg.fpga_part and cfg.fpga_part.startswith("xcv80"))
-        is_slash = resolved_shell == ShellFlowType.SLASH_ALVEO
-        if is_v80 or is_slash:  # Only check if V80 or SLASH is involved
-            checks.append(
-                _check(
-                    "v80_slash",
-                    Severity.ERROR,
-                    is_v80 == is_slash,  # Pass if both match (both true or both false)
-                    "V80 board and SLASH_ALVEO shell flow must be used together. "
-                    f"Got board={cfg.board}, shell_flow_type={resolved_shell}",
-                    "Use board='V80' with shell_flow_type=SLASH_ALVEO, or use a different "
-                    "board with VITIS_ALVEO/VIVADO_ZYNQ",
-                )
-            )
-
-    if has_bitfile and cfg.board in alveo_boards and resolved_shell != ShellFlowType.VITIS_ALVEO:
-        checks.append(
-            _check(
-                "alveo_shell",
-                Severity.ERROR,
-                False,
-                f"Alveo board '{cfg.board}' requires VITIS_ALVEO shell flow, "
-                f"but {resolved_shell} was specified",
-                "Set shell_flow_type=ShellFlowType.VITIS_ALVEO for Alveo U* boards",
-            )
-        )
-
-    if has_bitfile and cfg.board in pynq_boards:
-        expected_flow = (
-            ShellFlowType.VIVADO_VERSAL
-            if is_versal(pynq_part_map[cfg.board])
-            else ShellFlowType.VIVADO_ZYNQ
-        )
-        checks.append(
-            _check(
-                "pynq_shell",
-                Severity.ERROR,
-                resolved_shell == expected_flow,
-                f"PYNQ board '{cfg.board}' requires {expected_flow.name} shell flow, "
-                f"but {resolved_shell} was specified",
-                f"Set shell_flow_type=ShellFlowType.{expected_flow.name} for this board",
-            )
-        )
-
-    if cfg.board == "VEK280" and has_bitfile:
-        checks.append(
-            _check(
-                "versal_deploy",
-                Severity.ERROR,
-                False,
-                f"Versal board '{cfg.board}' does not yet support bitfile generation. "
-                "System deployment is not available for this Versal device",
-                "Remove BITFILE from generate_outputs, or use a different board",
-            )
-        )
-
-    if has_bitfile and cfg.board == "VCK190":
-        golden_dir = get_pynq_golden_dir(cfg.board)
-        missing = [f for f in pynq_golden_files if not os.path.isfile(os.path.join(golden_dir, f))]
-        checks.append(
-            _check(
-                "vck190_golden",
-                Severity.ERROR,
-                not missing,
-                f"VCK190 golden reference files missing from {golden_dir}: {', '.join(missing)}",
-                "Launch the container with FINN_VCK190_GOLDEN=1 ./run-docker.sh to build them "
-                "(needs Vivado, takes a while on first launch)",
-            )
-        )
+        except PlatformError as refusal:
+            checks.append(_check(refusal.code, Severity.ERROR, False, str(refusal)))
 
     # === Required Field Dependencies ===
     if cfg.mlo and (cfg.loop_body_hierarchy is None or cfg.loop_body_range is None):
@@ -276,40 +149,6 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                 "Provide loop body metadata from PyTorch model hierarchy",
             )
         )
-
-    if (
-        has_bitfile
-        and cfg.shell_flow_type in (ShellFlowType.VIVADO_ZYNQ, ShellFlowType.VIVADO_VERSAL)
-        and cfg.board is None
-    ):
-        flow_name = (
-            "VIVADO_VERSAL" if cfg.shell_flow_type == ShellFlowType.VIVADO_VERSAL else "VIVADO_ZYNQ"
-        )
-        checks.append(
-            _check(
-                "pynq_board",
-                Severity.ERROR,
-                False,
-                f"BITFILE generation with {flow_name} requires 'board' to be set. "
-                "PYNQBuild needs the board name and will fail in step_synthesize_bitfile "
-                "if missing",
-                f"Set board to a valid {flow_name} board name",
-            )
-        )
-
-    if has_bitfile and cfg.shell_flow_type == ShellFlowType.VITIS_ALVEO:
-        if cfg.board is None and cfg.vitis_platform is None:
-            checks.append(
-                _check(
-                    "vitis_platform",
-                    Severity.ERROR,
-                    False,
-                    "BITFILE generation with VITIS_ALVEO requires 'board' or 'vitis_platform' "
-                    "to be set. VitisLink needs platform resolution and will fail in "
-                    "step_synthesize_bitfile if missing",
-                    "Set board (e.g., 'U250') or vitis_platform explicitly",
-                )
-            )
 
     needs_folding = cfg.generate_outputs and any(
         o != DataflowOutputType.ESTIMATE_REPORTS for o in cfg.generate_outputs

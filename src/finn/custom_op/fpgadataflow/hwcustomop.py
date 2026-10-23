@@ -34,7 +34,8 @@ from qonnx.custom_op.base import CustomOp
 from qonnx.util.basic import get_by_name, roundup_to_integer_multiple
 
 from finn import xsi
-from finn.util.basic import get_watchdog_timeout_cycles, is_versal
+from finn.platform import is_versal
+from finn.util.basic import get_watchdog_timeout_cycles
 
 finnxsi = xsi if xsi.is_available() else None
 

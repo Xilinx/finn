@@ -45,10 +45,18 @@ from finn.builder.build_dataflow_config import (
     DataflowBuildConfig,
     default_build_dataflow_steps,
 )
-from finn.builder.build_dataflow_phases import build_dataflow_phase_lookup
+from finn.builder.build_dataflow_phases import (
+    build_dataflow_phase_lookup,
+    driver_making_phases,
+    part_reading_phases,
+    tool_running_phases,
+)
 from finn.builder.build_dataflow_steps import (
     _maybe_enable_verify_behavioral,
     build_dataflow_step_lookup,
+    driver_making_steps,
+    part_reading_steps,
+    tool_running_steps,
 )
 
 
@@ -132,6 +140,35 @@ def resolve_build_steps(cfg: DataflowBuildConfig, partial: bool = True):
         steps_as_fxns = steps_as_fxns[start_ind : (stop_ind + 1)]
 
     return steps_as_fxns
+
+
+def _runs_any(cfg: DataflowBuildConfig, tests) -> bool:
+    return any(
+        tests[fn.__name__](cfg)
+        for fn in resolve_build_steps(cfg, partial=True)
+        if getattr(fn, "__name__", None) in tests
+    )
+
+
+def build_runs_tools(cfg: DataflowBuildConfig) -> bool:
+    """Whether the build runs AMD tools (Vitis HLS, Vivado, Vivado's simulator or
+    Vitis): whether a step or phase it will run, after start_step/stop_step, is one of
+    tool_running_steps or tool_running_phases that acts for this config. Custom and
+    injected steps count as tool-free."""
+    return _runs_any(cfg, {**tool_running_steps, **tool_running_phases})
+
+
+def build_reads_part(cfg: DataflowBuildConfig) -> bool:
+    """Whether a step or phase the build will run reads its part (part_reading_steps,
+    part_reading_phases), so that the build needs a target: board or fpga_part.
+    Custom and injected steps count as reading none."""
+    return _runs_any(cfg, {**part_reading_steps, **part_reading_phases})
+
+
+def build_makes_driver(cfg: DataflowBuildConfig) -> bool:
+    """Whether a step or phase the build will run makes a driver (driver_making_steps,
+    driver_making_phases), so that the build needs a shell flow."""
+    return _runs_any(cfg, {**driver_making_steps, **driver_making_phases})
 
 
 def resolve_step_filename(step_name: str, cfg: DataflowBuildConfig, step_delta: int = 0):

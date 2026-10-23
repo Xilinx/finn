@@ -29,7 +29,7 @@ import warnings
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
-from finn.util.basic import is_versal
+from finn.platform import is_versal
 from finn.util.resource_models import _fifo_cost, _resolve
 
 

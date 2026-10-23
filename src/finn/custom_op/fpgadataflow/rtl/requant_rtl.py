@@ -5,14 +5,10 @@ import numpy as np
 import os
 from qonnx.core.datatype import DataType
 
+import finn.platform
 from finn.custom_op.fpgadataflow.requant import Requant
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.util.basic import (
-    fifo_rtl_files,
-    get_dsp_block,
-    make_build_dir,
-    roundup_to_integer_multiple,
-)
+from finn.util.basic import fifo_rtl_files, make_build_dir, roundup_to_integer_multiple
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
@@ -106,7 +102,7 @@ class Requant_rtl(Requant, RTLBackend):
 
     def _resolve_dsp_version(self, fpgapart):
         """Determine DSP version based on FPGA part."""
-        dsp_block = get_dsp_block(fpgapart)
+        dsp_block = finn.platform.dsp_block(fpgapart)
         match dsp_block:
             case "DSP58":
                 return 3

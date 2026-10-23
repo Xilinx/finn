@@ -85,6 +85,8 @@ stitched IP kernels are first prepared by `PrepareForLinking` and then linked us
 `VitisLink` transformation (for UltraScale+-based Alveo cards) or the `SlashLink` transformation
 (for Versal-based Alveo cards such as the V80).
 
+The part, shell flow and Vivado board preset of each board come from its row in FINN's platform data (see :ref:`platform`).
+
 .. note:: For embedded Versal, the block design is built on top of the PYNQ golden reference design. Currently only the VCK190 is supported, build its golden reference once by launching the container with ``FINN_VCK190_GOLDEN=1 ./run-docker.sh`` (requires Vivado).
 
 

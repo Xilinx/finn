@@ -46,6 +46,8 @@ if {$NUM_AXILITE > 9} {
 set NUM_AXIMM @NUM_AXIMM@
 set BOARD @BOARD@
 set FPGA_PART @FPGA_PART@
+set BOARD_PART @BOARD_PART@
+set ZYNQ_TYPE "@ZYNQ_TYPE@"
 create_project finn_link ./finn_link -part $FPGA_PART
 
 # set board part repo paths to find PYNQ-Z1/Z2
@@ -56,39 +58,7 @@ lappend paths_param $::env(FINN_ROOT)/deps/board_files
 set_property BOARD_PART_REPO_PATHS $paths_prop [current_project]
 set_param board.repoPaths $paths_param
 
-if {$BOARD == "ZCU104"} {
-    set_property board_part xilinx.com:zcu104:part0:1.1 [current_project]
-    set ZYNQ_TYPE "zynq_us+"
-} elseif {$BOARD == "ZCU102"} {
-    set_property board_part xilinx.com:zcu102:part0:3.3 [current_project]
-    set ZYNQ_TYPE "zynq_us+"
-} elseif {$BOARD == "RFSoC2x2"} {
-    set_property board_part xilinx.com:rfsoc2x2:part0:1.1 [current_project]
-    set ZYNQ_TYPE "zynq_us+"
-} elseif {$BOARD == "RFSoC4x2"} {
-    set_property board_part realdigital.org:rfsoc4x2:part0:1.0 [current_project]
-    set ZYNQ_TYPE "zynq_us+"
-} elseif {$BOARD == "Ultra96"} {
-    set_property board_part avnet.com:ultra96v1:part0:1.2 [current_project]
-    set ZYNQ_TYPE "zynq_us+"
-} elseif {$BOARD == "Ultra96-V2"} {
-    set_property board_part avnet.com:ultra96v2:part0:1.2 [current_project]
-    set ZYNQ_TYPE "zynq_us+"
-} elseif {$BOARD == "Pynq-Z2"} {
-    set ZYNQ_TYPE "zynq_7000"
-    set_property board_part tul.com.tw:pynq-z2:part0:1.0 [current_project]
-} elseif {$BOARD == "Pynq-Z1"} {
-    set ZYNQ_TYPE "zynq_7000"
-    set_property board_part www.digilentinc.com:pynq-z1:part0:1.0 [current_project]
-} elseif {$BOARD == "KV260_SOM"} {
-    set ZYNQ_TYPE "zynq_us+"
-    set_property board_part xilinx.com:kv260_som:part0:1.3 [current_project]
-} elseif {$BOARD == "AUP-ZU3_8GB"} {
-    set ZYNQ_TYPE "zynq_us+"
-    set_property board_part realdigital.org:aup-zu3-8gb:part0:1.0 [current_project]
-} else {
-    puts "Unrecognized board"
-}
+set_property board_part $BOARD_PART [current_project]
 
 create_bd_design "finn_link"
 if {$ZYNQ_TYPE == "zynq_us+"} {
@@ -98,11 +68,8 @@ if {$ZYNQ_TYPE == "zynq_us+"} {
     #activate one slave port, deactivate the second master port
     set_property -dict [list CONFIG.PSU__USE__S_AXI_GP2 {1}] [get_bd_cells zynq_ps]
     set_property -dict [list CONFIG.PSU__USE__M_AXI_GP1 {0}] [get_bd_cells zynq_ps]
-    #activate one master port and deactivate third master port for AUP-ZU3
-    if {$BOARD == "AUP-ZU3_8GB"} {
-        set_property -dict [list CONFIG.PSU__USE__M_AXI_GP0 {1}] [get_bd_cells zynq_ps]
-        set_property -dict [list CONFIG.PSU__USE__M_AXI_GP2 {0}] [get_bd_cells zynq_ps]
-    }
+    #board-specific PS settings (the ps_config of the board's row)
+@PS_CONFIG@
     #set frequency of PS clock (this can't always be exactly met)
     set_property -dict [list CONFIG.PSU__OVERRIDE__BASIC_CLOCK {0}] [get_bd_cells zynq_ps]
     set_property -dict [list CONFIG.PSU__CRL_APB__PL0_REF_CTRL__FREQMHZ [expr int($FREQ_MHZ)]] [get_bd_cells zynq_ps]
@@ -246,7 +213,7 @@ set OVERLAY_NAME finn_link
 # The golden reference script builds into an already open project and empty block
 # design, so they keep the FINN names. The board part must match the golden one.
 create_project $OVERLAY_NAME ./$OVERLAY_NAME -part $FPGA_PART
-set_property board_part xilinx.com:vck190:part0:3.4 [current_project]
+set_property board_part @BOARD_PART@ [current_project]
 create_bd_design $OVERLAY_NAME
 
 # Source the golden reference design.
