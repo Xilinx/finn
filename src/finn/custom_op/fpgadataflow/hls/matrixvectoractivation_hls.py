@@ -162,7 +162,7 @@ class MVAU_hls(MVAU, HLSBackend):
             self.code_gen_dict["$GLOBALS$"] += ['#include "thresh.h"']
 
     def defines(self, var):
-        # Tiling (TH>1) is supported by the RTL backend (mvu_tiled). The HLS
+        # Tiling (TH>1) is supported by the RTL backend. The HLS
         # backend implements the untiled MVAU, so TH must be 1 here.
         assert self.get_nodeattr("TH") == 1, (
             f"{self.onnx_node.name}: tiled MVAU (TH>1) is only supported by the "

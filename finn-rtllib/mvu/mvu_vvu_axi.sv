@@ -59,13 +59,17 @@ module mvu_vvu_axi #(
 	bit NARROW_WEIGHTS     = 0,
 	bit SIGNED_ACTIVATIONS = 0,
 
+	int unsigned TH = 1,            // Tile height: number of interleaved input vectors
+	int unsigned WSIMD = PE*SIMD,   // Weight stream parallelism (TH>1 only)
+	int unsigned N_DCPL_STAGES = 2, // Output decoupling stages (TH>1 only)
+
 	bit PUMPED_COMPUTE = 0, // Not meaningful for SIMD < 2, which will error out.
 	                        // Best utilization for even values.
 	bit FORCE_BEHAVIORAL = 0,
 	bit M_REG_LUT = 1,
 
 	// Safely deducible parameters
-	localparam int unsigned  WEIGHT_STREAM_WIDTH    = PE * SIMD * WEIGHT_WIDTH,
+	localparam int unsigned  WEIGHT_STREAM_WIDTH    = (TH > 1 ? WSIMD : PE * SIMD) * WEIGHT_WIDTH,
 	localparam int unsigned  WEIGHT_STREAM_WIDTH_BA = (WEIGHT_STREAM_WIDTH + 7)/8 * 8,
 	localparam int unsigned  INPUT_STREAM_WIDTH     = (IS_MVU ? 1 : PE) * SIMD * ACTIVATION_WIDTH,
 	localparam int unsigned  INPUT_STREAM_WIDTH_BA  = (INPUT_STREAM_WIDTH  + 7)/8 * 8,
@@ -123,33 +127,68 @@ module mvu_vvu_axi #(
 				$error("VVU only supported on DSP58-based implementation");
 				$finish;
 			end
+			if(TH > 1) begin
+				$error("Tiling (TH>1) only supported for MVU, not VVU");
+				$finish;
+			end
+		end
+		if(TH > 1) begin
+			if((PE*SIMD) % WSIMD != 0) begin
+				$error("PE*SIMD (%0d) must be a multiple of WSIMD (%0d)", PE*SIMD, WSIMD);
+				$finish;
+			end
+			if((PE*SIMD)/WSIMD > TH) begin
+				$error("NW=%0d exceeds TH=%0d", (PE*SIMD)/WSIMD, TH);
+				$finish;
+			end
+			if(PUMPED_COMPUTE) begin
+				$error("PUMPED_COMPUTE not supported with TH>1");
+				$finish;
+			end
 		end
 	end
 
 	uwire  rst = !ap_rst_n;
 
-	//- Replay to Accommodate Neuron Fold -----------------------------------
+	localparam int unsigned  SF = MW/SIMD;
+	localparam int unsigned  NF = MH/PE;
+
+	//- Activation Replay ---------------------------------------------------
 	typedef logic [(IS_MVU? 1:PE)*SIMD-1:0][ACTIVATION_WIDTH-1:0]  mvu_flatin_t;
 	uwire mvu_flatin_t amvau;
 	uwire alast;
-	uwire afin;
 	uwire avld;
 	uwire ardy;
 
-	localparam int unsigned  SF = MW/SIMD;
-	localparam int unsigned  NF = MH/PE;
-	replay_buffer #(.LEN(SF), .REP(IS_MVU ? NF : 1), .W($bits(mvu_flatin_t))) activation_replay (
-		.clk(ap_clk), .rst,
-		.ivld(s_axis_input_tvalid), .irdy(s_axis_input_tready), .idat(mvu_flatin_t'(s_axis_input_tdata)),
-		.ovld(avld), .ordy(ardy), .odat(amvau), .olast(alast), .ofin(afin)
-	);
+	if(TH <= 1) begin : genActReplay
+		uwire afin;
+		replay_buffer #(.LEN(SF), .REP(IS_MVU ? NF : 1), .W($bits(mvu_flatin_t))) activation_replay (
+			.clk(ap_clk), .rst,
+			.ivld(s_axis_input_tvalid), .irdy(s_axis_input_tready), .idat(mvu_flatin_t'(s_axis_input_tdata)),
+			.ovld(avld), .ordy(ardy), .odat(amvau), .olast(alast), .ofin(afin)
+		);
+	end : genActReplay
+	else begin : genActInputGen
+		uwire [2:0]  act_done;
+		input_gen #(
+			.DATA_WIDTH($bits(mvu_flatin_t)),
+			.FM_SIZE(SF * TH),
+			.D(3),
+			.DIMS('{NF, SF, TH}),
+			.COEFS('{0, 1, SF})
+		) activation_replay (
+			.clk(ap_clk), .rst(rst),
+			.idat(mvu_flatin_t'(s_axis_input_tdata)),
+			.ivld(s_axis_input_tvalid), .irdy(s_axis_input_tready),
+			.odat(amvau), .ovld(avld), .olst(), .odone(act_done), .ordy(ardy)
+		);
+		assign	alast = act_done[1];
+	end : genActInputGen
 
 	//- Unflatten inputs into structured matrices ---------------------------
 	localparam int unsigned  ACT_PE = IS_MVU? 1 : PE;
 	typedef logic [PE    -1:0][SIMD-1:0][WEIGHT_WIDTH    -1:0]  mvu_w_t;
 	typedef logic [ACT_PE-1:0][SIMD-1:0][ACTIVATION_WIDTH-1:0]  mvu_a_t;
-
-	uwire  mvu_w_t  mvu_w = s_axis_weights_tdata;
 
 	//- Conditional Activations Layout Adjustment for VVU
 	uwire mvu_a_t  amvau_i;
@@ -169,10 +208,49 @@ module mvu_vvu_axi #(
 		end
 	end : genVVUInput
 
+	//- Weight Path ---------------------------------------------------------
+	uwire  mvu_w_t  mvu_w;
+	uwire  wvld;
+	uwire  wrdy;
+
+	if(TH <= 1) begin : genWeightDirect
+		assign	mvu_w = s_axis_weights_tdata;
+		assign	wvld = s_axis_weights_tvalid;
+		assign	s_axis_weights_tready = wrdy;
+	end : genWeightDirect
+	else begin : genWeightBuff
+		weights_buff_tile #(
+			.WEIGHT_WIDTH(WEIGHT_WIDTH),
+			.SIMD(SIMD), .PE(PE),
+			.TH(TH), .WSIMD(WSIMD),
+			.N_DCPL_STAGES(N_DCPL_STAGES)
+		) inst_weights_buff_tile (
+			.clk(ap_clk), .rst(rst),
+			.ivld(s_axis_weights_tvalid), .irdy(s_axis_weights_tready), .idat(s_axis_weights_tdata),
+			.ovld(wvld), .ordy(wrdy), .odat(mvu_w)
+		);
+	end : genWeightBuff
+
 	//- Flow Control Bracket around Compute Core ----------------------------
 	uwire  idle;
-	assign	ardy = !idle && s_axis_weights_tvalid;
-	assign	s_axis_weights_tready = !idle && avld;
+	uwire  en;
+	uwire  pipe_draining; // asserted during pipeline drain (TH>1 only)
+
+	if(TH <= 1) begin : genFlowTH1
+		// TH=1: idle driven by output backpressure (OLock)
+		assign	ardy = !idle && wvld;
+		assign	wrdy = !idle && avld;
+		assign	en = 1'b1; // unused placeholder
+		assign	pipe_draining = 1'b0;
+	end : genFlowTH1
+	else begin : genFlowTiled
+		// TH>1: enable driven by output register slice readiness.
+		// During drain (pipeline flush after image complete), block
+		// new data acceptance to avoid mixing drain zeros with new data.
+		assign	ardy = en && wvld && !pipe_draining;
+		assign	wrdy = en && avld && !pipe_draining;
+		assign	idle = 1'b0; // unused placeholder
+	end : genFlowTiled
 
 	//- Conditionally Pumped DSP Compute ------------------------------------
 	typedef logic [PE-1:0][ACCU_WIDTH-1:0]  dsp_p_t;
@@ -184,16 +262,82 @@ module mvu_vvu_axi #(
 		typedef logic [PE    -1:0][DSP_SIMD-1:0][WEIGHT_WIDTH    -1:0]  dsp_w_t;
 		typedef logic [ACT_PE-1:0][DSP_SIMD-1:0][ACTIVATION_WIDTH-1:0]  dsp_a_t;
 
+		// INT8 dispatch condition and pipeline depth — used by both drain
+		// counter (genTiledCompute) and core instantiation (genINT8/genSoftVec).
+		localparam int unsigned  CHAINLEN  = (DSP_SIMD+2)/3;
+		localparam int unsigned  SEGLEN    = SEGMENTLEN == 0 ? CHAINLEN : SEGMENTLEN;
+		localparam int unsigned  MPS       = (CHAINLEN + SEGLEN-1)/SEGLEN;
+		localparam int unsigned  MLW       = WEIGHT_WIDTH + ACTIVATION_WIDTH - 1;
+		localparam int unsigned  A_DSP_W   = 25 + 2*(VERSION > 1);
+		localparam int unsigned  NUM_LANES = A_DSP_W == WEIGHT_WIDTH ? 1 : 1 + (A_DSP_W - !NARROW_WEIGHTS - WEIGHT_WIDTH) / MLW;
+		localparam bit           IS_INT8   = !IS_MVU || ((VERSION > 2) && (NUM_LANES <= 3) && (WEIGHT_WIDTH <= 8) && (ACTIVATION_WIDTH <= 9));
+		localparam int unsigned  CORE_PIPELINE_DEPTH =
+			IS_INT8 ? 2 + MPS :
+			/* else */ 3 + $clog2(DSP_SIMD) + (DSP_SIMD == 1) + 1;
+
 		uwire  dsp_last;
 		uwire  dsp_zero;
+		uwire  dsp_en;
 		uwire dsp_w_t  dsp_w;
 		uwire dsp_a_t  dsp_a;
 
 		uwire  dsp_vld;
 		uwire dsp_p_t  dsp_p;
 
-		if(!PUMPED_COMPUTE) begin : genUnpumpedCompute
-			assign	dsp_zero = idle || !s_axis_weights_tvalid || !avld;
+		if(TH > 1) begin : genTiledCompute
+			// TH>1: DSP enable is strictly gated by istb (both streams valid)
+			// to prevent accumulator ring misalignment from non-TH-aligned gaps.
+			// Freezing the DSP during gaps preserves ring alignment since the
+			// AccLine and ClearRing only shift on en.
+			//
+			// After all NF*SF*TH data beats have been processed, a drain counter
+			// keeps dsp_en high for CORE_PIPELINE_DEPTH extra cycles to flush
+			// valid flags through the L shift register. At this point, the
+			// AccLine ring is already cleared by `last`, so zero products
+			// draining through it are harmless.
+			localparam int unsigned  DRAIN_BITS = $clog2(CORE_PIPELINE_DEPTH+1);
+			localparam int unsigned  TOTAL_BEATS = NF * SF * TH;
+			localparam int unsigned  BEAT_BITS = $clog2(TOTAL_BEATS);
+
+			// Beat counter: counts valid data beats per image. When all
+			// TOTAL_BEATS are consumed, activates the drain. Resets for
+			// the next image after drain completes.
+			logic [BEAT_BITS-1:0]  BeatCnt = 0;
+			logic [DRAIN_BITS-1:0]  Drain = 0;
+			uwire  draining = (Drain != 0);
+			uwire  istb = avld && wvld && !draining;
+			assign  pipe_draining = draining;
+			always_ff @(posedge ap_clk) begin
+				if(rst) begin
+					BeatCnt <= 0;
+					Drain   <= 0;
+				end
+				else if(en) begin
+					if(draining)
+						Drain <= Drain - 1;
+					else if(istb) begin
+						if(BeatCnt == TOTAL_BEATS - 1) begin
+							BeatCnt <= 0;
+							Drain   <= CORE_PIPELINE_DEPTH;
+						end
+						else
+							BeatCnt <= BeatCnt + 1;
+					end
+				end
+			end
+
+			assign	dsp_en = en && (istb || draining);
+			assign	dsp_zero = !istb;
+			assign	dsp_last = alast && istb;
+			assign	dsp_w = mvu_w;
+			assign	dsp_a = amvau_i;
+
+			assign	ovld = dsp_vld;
+			assign	odat = dsp_p;
+		end : genTiledCompute
+		else if(!PUMPED_COMPUTE) begin : genUnpumpedCompute
+			assign	dsp_en = 1'b1;
+			assign	dsp_zero = idle || !wvld || !avld;
 			assign	dsp_last = alast && !dsp_zero;
 			assign	dsp_w = mvu_w;
 			assign	dsp_a = amvau_i;
@@ -202,6 +346,7 @@ module mvu_vvu_axi #(
 			assign	odat = dsp_p;
 		end : genUnpumpedCompute
 		else begin : genPumpedCompute
+			assign	dsp_en = 1'b1;
 
 			// The input for a slow cycle is split across two fast cycles along the SIMD dimension.
 			//	- Both fast cycles are controlled by the same enable state.
@@ -270,7 +415,7 @@ module mvu_vvu_axi #(
 					Last <= 0;
 				end
 				else begin
-					automatic logic  zero = idle || !s_axis_weights_tvalid || !avld;
+					automatic logic  zero = idle || !wvld || !avld;
 					Zero <= zero;
 					Last <= alast && !zero && Active;
 				end
@@ -305,12 +450,8 @@ module mvu_vvu_axi #(
 		// @todo	Push core selection decision entirely into mvu.sv.
 		// This currently duplicates the lane count computation from mvu.sv
 		// to intercept configurations that should map to the INT8 mode of DSP58.
-		localparam int unsigned  MIN_LANE_WIDTH = WEIGHT_WIDTH + ACTIVATION_WIDTH - 1;
-		// number of lanes: for only 1 lane, NARROW_WEIGHTS makes no difference
-		localparam int unsigned  A_WIDTH = 25 + 2*(VERSION > 1);     // Width of A datapath
-		localparam int unsigned  NUM_LANES = A_WIDTH == WEIGHT_WIDTH? 1 : 1 + (A_WIDTH - !NARROW_WEIGHTS - WEIGHT_WIDTH) / MIN_LANE_WIDTH;
-
-		if(!IS_MVU || ((VERSION > 2) && (NUM_LANES <= 3) && (WEIGHT_WIDTH <= 8) && (ACTIVATION_WIDTH <= 9))) begin : genINT8
+		// IS_INT8 and NUM_LANES are computed at blkDsp scope above.
+		if(IS_INT8) begin : genINT8
 			initial $info("Sidestepping to INT8 mode of DSP58 for %0dx%0d.", WEIGHT_WIDTH, ACTIVATION_WIDTH);
 			mvu_vvu_8sx9_dsp58 #(
 				.IS_MVU(IS_MVU),
@@ -318,9 +459,10 @@ module mvu_vvu_axi #(
 				.WEIGHT_WIDTH(WEIGHT_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .ACCU_WIDTH(ACCU_WIDTH),
 				.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS),
 				.SEGMENTLEN(SEGMENTLEN),
+				.TH(TH),
 				.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
 			) core (
-				.clk(PUMPED_COMPUTE? ap_clk2x : ap_clk), .rst, .en('1),
+				.clk(PUMPED_COMPUTE? ap_clk2x : ap_clk), .rst, .en(dsp_en),
 				.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
 				.vld(dsp_vld), .p(dsp_p)
 			);
@@ -331,9 +473,10 @@ module mvu_vvu_axi #(
 				.PE(PE), .SIMD(DSP_SIMD),
 				.WEIGHT_WIDTH(WEIGHT_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .ACCU_WIDTH(ACCU_WIDTH),
 				.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .NARROW_WEIGHTS(NARROW_WEIGHTS),
+				.TH(TH),
 				.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
 			) core (
-				.clk(PUMPED_COMPUTE? ap_clk2x : ap_clk), .rst, .en('1),
+				.clk(PUMPED_COMPUTE? ap_clk2x : ap_clk), .rst, .en(dsp_en),
 				.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
 				.vld(dsp_vld), .p(dsp_p)
 			);
@@ -341,7 +484,8 @@ module mvu_vvu_axi #(
 
 	end : blkDsp
 
-	if(1) begin : blkOutput
+	//- Output Path ---------------------------------------------------------
+	if(TH <= 1) begin : blkOutput
 		localparam int unsigned  CORE_PIPELINE_DEPTH =
 			VERSION == 3? 3 + (SEGMENTLEN == 0? 0 : ((SIMD+2)/3 -1)/SEGMENTLEN) :
 			/* else */    3 + $clog2(SIMD+1) + (SIMD == 1);
@@ -389,10 +533,69 @@ module mvu_vvu_axi #(
 		assign	idle = OLock;
 
 		assign	m_axis_output_tvalid = OVld;
-		// Why would we need a sign extension here potentially creating a higher signal load into the next FIFO?
-		// These extra bits should never be used. Why not 'x them out?
 		assign	m_axis_output_tdata = { {(OUTPUT_STREAM_WIDTH_BA-OUTPUT_STREAM_WIDTH){OReg[PE-1][ACCU_WIDTH-1]}}, OReg };
 
 	end : blkOutput
+	else begin : blkOutputTiled
+
+		//=== Output Register Slice =============================================
+		// Make `en` computation independent from external inputs.
+		// Drive all outputs from registers.
+
+		logic  MIntVld;
+		uwire  m_int_rdy;
+		logic [OUTPUT_STREAM_WIDTH_BA-1:0]  MIntDat;
+
+		struct packed {
+			logic  rdy;
+			logic [PE-1:0][ACCU_WIDTH-1:0]  dat;
+		}  A = '{ rdy: 1, default: 'x };  // side-step register used when encountering backpressure
+		struct packed {
+			logic  vld;
+			logic [PE-1:0][ACCU_WIDTH-1:0]  dat;
+		}  B = '{ vld: 0, default: 'x };  // ultimate output register
+
+		assign	en = A.rdy;
+		uwire  b_load = !B.vld || m_int_rdy;
+
+		always_ff @(posedge ap_clk) begin
+			if(rst) begin
+				A <= '{ rdy: 1, default: 'x };
+				B <= '{ vld: 0, default: 'x };
+			end
+			else begin
+				if(A.rdy)  A.dat <= odat;
+				A.rdy <= (A.rdy && !ovld) || b_load;
+
+				if(b_load) begin
+					B <= '{
+						vld: ovld || !A.rdy,
+						dat: A.rdy? odat : A.dat
+					};
+				end
+			end
+		end
+		assign	MIntVld = B.vld;
+		assign	MIntDat = { {(OUTPUT_STREAM_WIDTH_BA-OUTPUT_STREAM_WIDTH){B.dat[PE-1][ACCU_WIDTH-1]}}, B.dat };
+
+		//=== Output Reordering =================================================
+		// Transpose from compute order (nf-major, th-minor) to FINN's
+		// standard layout (th-major, nf-minor): all NF folds for one
+		// input vector contiguously, then the next vector.
+		input_gen #(
+			.DATA_WIDTH(OUTPUT_STREAM_WIDTH_BA),
+			.FM_SIZE(NF * TH),
+			.D(2),
+			.DIMS('{TH, NF}),
+			.COEFS('{1, TH})
+		) inst_reorder_out (
+			.clk(ap_clk), .rst(rst),
+			.idat(MIntDat),
+			.ivld(MIntVld), .irdy(m_int_rdy),
+			.odat(m_axis_output_tdata), .ovld(m_axis_output_tvalid),
+			.olst(), .odone(), .ordy(m_axis_output_tready)
+		);
+
+	end : blkOutputTiled
 
 endmodule : mvu_vvu_axi

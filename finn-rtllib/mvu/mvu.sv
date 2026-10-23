@@ -40,6 +40,8 @@ module mvu #(
 	int unsigned  ACTIVATION_WIDTH,
 	int unsigned  ACCU_WIDTH,
 
+	int unsigned  TH = 1,	// Tile height: number of interleaved input vectors
+
 	bit  SIGNED_ACTIVATIONS = 0,
 	bit  NARROW_WEIGHTS   = 0,	// Weights in (-W:W) rather than [-W:W) with W = 2**(WEIGHT_WIDTH-1)
 	bit  FORCE_BEHAVIORAL = 0
@@ -259,6 +261,31 @@ module mvu #(
 
 		uwire        [P_WIDTH-1:0]  p3[SIMD];
 		uwire signed [        1:0]  h3[SIMD][NUM_LANES];
+
+		// Accumulation clearing — shared across SIMD (depends only on L, en, rst)
+		uwire  clr;
+		if(1) begin : blkClr
+			case(TH)
+			0: initial begin
+				$error("%m: TH must be non-zero.");
+				$finish;
+			end
+			1: assign  clr = L[2];
+			2: assign  clr = L[3];
+			default: begin
+				logic  ClrLine[TH-2] = '{ default: 1 };
+				always_ff @(posedge clk) begin
+					if(rst)  ClrLine <= '{ default: 1 };
+					else if(en) begin
+						ClrLine[$high(ClrLine)] <= L[3];
+						for(int unsigned  i = 0; i < $high(ClrLine); i++)  ClrLine[i] <= ClrLine[i+1];
+					end
+				end
+				assign  clr = ClrLine[0];
+			end
+			endcase
+		end : blkClr
+
 		for(genvar  s = 0; s < SIMD; s++) begin : genSIMD
 
 			// Input Lane Assembly
@@ -316,7 +343,106 @@ module mvu #(
 
 			end : blkVectorize
 
+			// Accumulation Connectivity
+			uwire [P_WIDTH-1:0]  cc;	// Fabric feedback (not used for TH=1)
 			uwire [P_WIDTH-1:0]  pp;
+
+			if(1) begin : blkCrossLane
+
+				// Context Assembly for Cross-Lane Carry Inference
+				// For TH<=1: combinational from pp. For TH>=2: registered from cc.
+				logic        pp_ctx_msb;
+				logic [1:0]  pp_ctx_suf[NUM_LANES-1:1];
+				if(1) begin : blkCtx
+					uwire [P_WIDTH-1:0]  pp_ctx_src = TH <= 1? pp : cc;
+
+					uwire        pp_ctx0_msb = pp_ctx_src[$left(pp_ctx_src)];
+					uwire [1:0]  pp_ctx0_suf[NUM_LANES-1:1];
+					for(genvar  i = 1; i < NUM_LANES; i++)  assign  pp_ctx0_suf[i] = pp_ctx_src[OFFSETS[i]+:2];
+
+					if(TH <= 1) begin
+						assign	pp_ctx_msb = pp_ctx0_msb;
+						assign	pp_ctx_suf = pp_ctx0_suf;
+					end
+					else begin
+						logic        PpCtxMsb = 'x;
+						logic [1:0]  PpCtxSuf[NUM_LANES-1:1] = '{ default: 'x };
+						always_ff @(posedge clk) begin
+							if(rst) begin
+								PpCtxMsb <= 'x;
+								PpCtxSuf <= '{ default: 'x };
+							end
+							else if(en) begin
+								PpCtxMsb <= pp_ctx0_msb;
+								PpCtxSuf <= pp_ctx0_suf;
+							end
+						end
+						assign	pp_ctx_msb = PpCtxMsb;
+						assign	pp_ctx_suf = PpCtxSuf;
+					end
+				end : blkCtx
+
+				// External Canary Pipeline
+				// X1, X2: LSB expectation for MUL
+				// X3: LSB expectation upon accumulation
+				logic [1:0]  X1[NUM_LANES-1:1] = '{ default: 0 };
+				logic [1:0]  X2[NUM_LANES-1:1] = '{ default: 0 };
+				logic [1:0]  X3[NUM_LANES-1:1] = '{ default: 0 };
+				logic  Clr2 = 1;
+				always_ff @(posedge clk) begin
+					if(rst) begin
+						X1 <= '{ default: 0 };
+						X2 <= '{ default: 0 };
+						X3 <= '{ default: 0 };
+						Clr2 <= 1;
+					end
+					else if(en) begin
+						X1 <= xx;
+						X2 <= X1;
+						foreach(X3[i]) begin
+							X3[i] <= X2[i] + (Clr2? 0 : pp_ctx_suf[i]);
+						end
+						Clr2 <= clr;
+					end
+				end
+
+				// Derive actual cross-lane overflows
+				for(genvar  i = 0; i < NUM_LANES-1; i++) begin
+					assign	h3[s][i] = pp[OFFSETS[i+1]+:2] - X3[i+1];
+				end
+
+				// Overflow out of high lane
+				logic  PZ = 0;
+				always_ff @(posedge clk) begin
+					if(rst)      PZ <= 0;
+					else if(en)  PZ <= Clr2? 0 : pp_ctx_msb;
+				end
+				assign	h3[s][NUM_LANES-1] =
+					( PZ && !pp[$left(pp)-:2])? +1 :
+					(!PZ && &pp[$left(pp)-:2])? -1 : 0;
+
+			end : blkCrossLane
+
+			assign	p3[s] = pp;
+
+			// Accumulation Cycling: fabric feedback for C-port (per SIMD)
+			if(1) begin : blkAccCycling
+				case(TH)
+				1: assign  cc = 'x;
+				2: assign  cc = pp;
+				default: begin : genTHMulti
+					logic [P_WIDTH-1:0]  Fb[TH-2] = '{ default: 'x };
+					always_ff @(posedge clk) begin
+						if(rst)      Fb <= '{ default: 'x };
+						else if(en) begin
+							Fb[$high(Fb)] <= pp;
+							for(int unsigned  i = 0; i < $high(Fb); i++)  Fb[i] <= Fb[i+1];
+						end
+					end
+					assign	cc = Fb[0];
+				end : genTHMulti
+				endcase
+			end : blkAccCycling
 
 			// Note: Since the product B * AD is computed,
 			//       rst can be only applied to AD and zero only to B
@@ -336,30 +462,45 @@ module mvu #(
 					else if(en)  AD1 <= dd - aa;
 				end
 
-				// Stage #2: Multiply
+				// Stage #2: Multiply / Accumulator Staging
 				logic signed [A_WIDTH+B_WIDTH-1:0]  M2 = 0;
+				logic signed [P_WIDTH-1:0]  C2 = 0;
+				logic  ClrOp2 = 0;	// OPMODE Reg
 				always_ff @(posedge clk) begin
-					if(rst)      M2 <= 0;
-					else if(en)  M2 <=
+					if(rst) begin
+						M2 <= 0;
+						C2 <= 0;
+						ClrOp2 <= 0;
+					end
+					else if(en) begin
+						M2 <=
 // synthesis translate off
-						(B1 === '0) || (AD1 === '0)? 0 :
+							(B1 === '0) || (AD1 === '0)? 0 :
 // synthesis translate on
-						B1 * AD1;
+							B1 * AD1;
+						C2 <= cc;
+						ClrOp2 <= clr;
+					end
 				end
 
 				// Stage #3: Accumulate
 				logic signed [P_WIDTH-1:0]  P3 = 0;
 				always_ff @(posedge clk) begin
 					if(rst)      P3 <= 0;
-					else if(en)  P3 <= M2 + (L[3]? 0 : P3);
+					else if(en)  P3 <= M2 + (ClrOp2? 0 : (TH==1? P3 : C2));
 				end
-
 				assign	pp = P3;
-			end : genBehav
+
+				end : genBehav
 `ifndef VERILATOR
 			else begin : genDSP
-				localparam logic [6:0]  OPMODE_INVERSION = 7'b010_01_01;
-				uwire [6:0]  opmode = { { 1'b0, L[2], 1'b0 }, 4'b00_00 };
+
+				// Dynamic OPMODE: clr toggles Z between accumulation source and 0.
+				// TH=1:   Z=P(010) or Z=0(000). Single-bit toggle on bit[5].
+				// TH>=2:  Z=C(011) or Z=0(000). Two-bit toggle on bits[5:4].
+				// clr from blkClr → OPMODEREG (1-beat delay) → controls P3.
+				localparam logic [6:0]  OPMODE_INVERSION = TH <= 1? 7'b010_01_01 : 7'b011_01_01;
+				uwire [6:0]  opmode = { 1'b0, clr, TH <= 1? 1'b0 : clr, 4'b00_00 };
 				case(VERSION)
 				DSP48E1: DSP48E1 #(
 					// Feature Control Attributes: Data Path Selection
@@ -386,11 +527,11 @@ module mvu #(
 					.BREG(1),			// Number of pipeline stages for B (0, 1 or 2)
 					.CARRYINREG(0),		// Number of pipeline stages for CARRYIN (0 or 1)
 					.CARRYINSELREG(0),	// Number of pipeline stages for CARRYINSEL (0 or 1)
-					.CREG(0),			// Number of pipeline stages for C (0 or 1)
+					.CREG(TH > 1),		// C register: enabled for TH>=2 (C-port feedback)
 					.DREG(0),			// Number of pipeline stages for D (0 or 1)
 					.INMODEREG(0),		// Number of pipeline stages for INMODE (0 or 1)
 					.MREG(1),			// Number of multiplier pipeline stages (0 or 1)
-					.OPMODEREG(1),		// Number of pipeline stages for OPMODE (0 or 1)
+					.OPMODEREG(1),		// Dynamic OPMODE for clear control
 					.PREG(1)			// Number of pipeline stages for P (0 or 1)
 				) dsp (
 					// Cascade: 30-bit (each) output: Cascade Ports
@@ -427,7 +568,12 @@ module mvu #(
 					// Data: 30-bit (each) input: Data Ports
 					.A({5'b0, aa}),	// 30-bit input: A data input
 					.B(bb),			// 18-bit input: B data input
-					.C('x),			// 48-bit input: C data input
+					.C(			// 48-bit input: C data input
+// synthesis translate_off
+					clr? '0 :
+// synthesis translate_on
+					cc
+				),
 					.CARRYIN('0),	// 1-bit input: Carry input signal
 					.D(dd),			// 25-bit input: D data input
 
@@ -438,7 +584,7 @@ module mvu #(
 					.CEALUMODE('0),		// 1-bit input: Clock enable input for ALUMODERE
 					.CEB1('0),			// 1-bit input: Clock enable input for 1st stage BREG
 					.CEB2(en),			// 1-bit input: Clock enable input for 2nd stage BREG
-					.CEC('0),			// 1-bit input: Clock enable input for CREG
+					.CEC(TH > 1? en : 1'b0),	// 1-bit input: Clock enable input for CREG
 					.CECARRYIN('0),		// 1-bit input: Clock enable input for CARRYINREG
 					.CECTRL(en),		// 1-bit input: Clock enable input for OPMODEREG and CARRYINSELREG
 					.CED('0),			// 1-bit input: Clock enable input for DREG
@@ -452,7 +598,7 @@ module mvu #(
 // synthesis translate_on
 						zero
 					),
-					.RSTC('0),			// 1-bit input: Reset for CREG
+					.RSTC(TH > 1? rst : 1'b0),	// 1-bit input: Reset for CREG
 					.RSTD(				// 1-bit input: Reset for DREG and ADREG
 // synthesis translate_off
 						zero ||
@@ -514,12 +660,12 @@ module mvu #(
 					.BREG(1),                          // Pipeline stages for B (0-2)
 					.CARRYINREG(0),                    // Pipeline stages for CARRYIN (0-1)
 					.CARRYINSELREG(0),                 // Pipeline stages for CARRYINSEL (0-1)
-					.CREG(0),                          // Pipeline stages for C (0-1)
+					.CREG(TH > 1),                     // Pipeline stages for C (0-1)
 					.DREG(0),                          // Pipeline stages for D (0-1)
 					.INMODEREG(0),                     // Pipeline stages for INMODE (0-1)
 					.MREG(1),                          // Multiplier pipeline stages (0-1)
 					.OPMODEREG(1),                     // Pipeline stages for OPMODE (0-1)
-					.PREG(1)                          // Number of pipeline stages for P (0-1)
+					.PREG(1)                           // Number of pipeline stages for P (0-1)
 				) dsp (
 					// Cascade outputs: Cascade Ports
 					.ACOUT(),			// 34-bit output: A port cascade
@@ -556,7 +702,12 @@ module mvu #(
 					// Data inputs: Data Ports
 					.A({3'b0, aa}),	// 30-bit input: A data
 					.B(bb),			// 18-bit input: B data
-					.C('x),			// 48-bit input: C data
+					.C(			// 48-bit input: C data
+// synthesis translate_off
+					clr? '0 :
+// synthesis translate_on
+					cc
+				),
 					.CARRYIN('0),	// 1-bit input: Carry-in
 					.D(dd),			// 27-bit input: D data
 
@@ -567,7 +718,7 @@ module mvu #(
 					.CEALUMODE('0),		// 1-bit input: Clock enable for ALUMODE
 					.CEB1('0),			// 1-bit input: Clock enable for 1st stage BREG
 					.CEB2(en),			// 1-bit input: Clock enable for 2nd stage BREG
-					.CEC('0),			// 1-bit input: Clock enable for CREG
+					.CEC(TH > 1? en : 1'b0),	// 1-bit input: Clock enable for CREG
 					.CECARRYIN('0),		// 1-bit input: Clock enable for CARRYINREG
 					.CECTRL(en),		// 1-bit input: Clock enable for OPMODEREG and CARRYINSELREG
 					.CED('0),			// 1-bit input: Clock enable for DREG
@@ -581,7 +732,7 @@ module mvu #(
 // synthesis translate_on
 						zero
 					),
-					.RSTC('0),			// 1-bit input: Reset for CREG
+					.RSTC(TH > 1? rst : 1'b0),	// 1-bit input: Reset for CREG
 					.RSTD(				// 1-bit input: Reset for DREG and ADREG
 // synthesis translate_off
 						zero ||
@@ -645,7 +796,7 @@ module mvu #(
 					.BREG(1),			// Pipeline stages for B (0-2)
 					.CARRYINREG(0),		// Pipeline stages for CARRYIN (0-1)
 					.CARRYINSELREG(0),	// Pipeline stages for CARRYINSEL (0-1)
-					.CREG(0),			// Pipeline stages for C (0-1)
+					.CREG(TH > 1),		// Pipeline stages for C (0-1)
 					.DREG(0),			// Pipeline stages for D (0-1)
 					.INMODEREG(0),		// Pipeline stages for INMODE (0-1)
 					.MREG(1),			// Multiplier pipeline stages (0-1)
@@ -689,7 +840,12 @@ module mvu #(
 					// Data inputs: Data Ports
 					.A({7'b0, aa}),				// 34-bit input: A data
 					.B(bb),						// 24-bit input: B data
-					.C('x),						// 58-bit input: C data
+					.C(						// 58-bit input: C data
+// synthesis translate_off
+					clr? '0 :
+// synthesis translate_on
+					cc
+				),
 					.CARRYIN('0),				// 1-bit input: Carry-in
 					.D(dd),						// 27-bit input: D data
 
@@ -701,7 +857,7 @@ module mvu #(
 					.CEALUMODE('0),		// 1-bit input: Clock enable for ALUMODE
 					.CEB1('0),			// 1-bit input: Clock enable for 1st stage BREG
 					.CEB2(en),			// 1-bit input: Clock enable for 2nd stage BREG
-					.CEC('0),			// 1-bit input: Clock enable for CREG
+					.CEC(TH > 1? en : 1'b0),	// 1-bit input: Clock enable for CREG
 					.CECARRYIN('0),		// 1-bit input: Clock enable for CARRYINREG
 					.CECTRL(en),		// 1-bit input: Clock enable for OPMODEREG and CARRYINSELREG
 					.CED('0),			// 1-bit input: Clock enable for DREG
@@ -715,7 +871,7 @@ module mvu #(
 // synthesis translate_on
 						zero
 					),
-					.RSTC('0),			// 1-bit input: Reset for CREG
+					.RSTC(TH > 1? rst : 1'b0),	// 1-bit input: Reset for CREG
 					.RSTD(				// 1-bit input: Reset for DREG and ADREG
 // synthesis translate_off
 						zero ||
@@ -737,46 +893,33 @@ module mvu #(
 			end : genDSP
 `endif
 
-			// External Canary Pipeline
-			logic [1:0]  X1[NUM_LANES-1:1] = '{ default: 0 };
-			logic [1:0]  X2[NUM_LANES-1:1] = '{ default: 0 };
-			logic [1:0]  X3[NUM_LANES-1:1] = '{ default: 0 };
-			always_ff @(posedge clk) begin
-				if(rst) begin
-					X1 <= '{ default: 0 };
-					X2 <= '{ default: 0 };
-					X3 <= '{ default: 0 };
-				end
-				else if(en) begin
-					X1 <= xx;
-					X2 <= X1;
-					foreach(X3[i]) begin
-						X3[i] <= X2[i] + (L[3]? 2'h0 : pp[OFFSETS[i]+:2]);
-					end
-				end
-			end
-
-			// Derive actual cross-lane overflows
-			for(genvar  i = 0; i < NUM_LANES-1; i++) begin
-				assign	h3[s][i] = pp[OFFSETS[i+1]+:2] - X3[i+1];
-			end
-			// Overflow out of high lane
-			logic  PZ = 0;
-			always_ff @(posedge clk) begin
-				if(rst)      PZ <= 0;
-				else if(en)  PZ <= L[3]? 0 : pp[$left(pp)];
-			end
-			assign	h3[s][NUM_LANES-1] =
-				( PZ && !pp[$left(pp)-:2])? +1 :
-				(!PZ && &pp[$left(pp)-:2])? -1 : 0;
-
-			assign	p3[s] = pp;
-
 		end : genSIMD
 
 		// Stage #4: Potentially Multiple Cycles of Cross-SIMD Reduction
 		// - binary reduction trees with SIMD leaf nodes for both the core lane outputs and the spill accumulation
 		// - balanced tree construction with all fully occupied levels pipelined
+
+		// Context-aligned clear for Hi4 accumulator.
+		// Fixed offset PIPELINE_DEPTH-3 from clr (P3 stage) to Hi4 stage.
+		// For TH>=2, delay L[PIPELINE_DEPTH-1] by TH-1 beats to match Hi4 ring depth.
+		// Reset to 'x (Hi4 has explicit rst) so the delay line maps to SRL.
+		uwire  hi_clr;
+		if(TH <= 1) begin : genHiClr
+			assign	hi_clr = L[PIPELINE_DEPTH-1];
+		end : genHiClr
+		else if(TH == 2) begin : genHiClr
+			assign	hi_clr = L[PIPELINE_DEPTH];
+		end : genHiClr
+		else begin : genHiClr
+			logic [TH-2:0]  HiClrDly = 'x;
+			always_ff @(posedge clk) begin
+				if(en) begin
+					HiClrDly[$high(HiClrDly)] <= L[PIPELINE_DEPTH-1];
+					for(int unsigned  i = 0; i < $high(HiClrDly); i++)  HiClrDly[i] <= HiClrDly[i+1];
+				end
+			end
+			assign	hi_clr = HiClrDly[0];
+		end : genHiClr
 
 		// Count leaves reachable from each node
 		uwire signed [HI_WIDTH_MAX                 -1:0]  hi4[NUM_LANES];
@@ -800,11 +943,33 @@ module mvu #(
 					for(genvar  s = 0; s < SIMD; s++)  assign  arg[s] = h3[s][i];
 
 					// High Sideband Accumulation
+					// h3 (and thus sum) is context-correct per beat.
+					// Hi4 accumulates across SF beats, so for TH>=2 a TH-deep
+					// ring keeps contexts separate (same structure as P3).
 					logic signed [HI_WIDTH-1:0]  Hi4 = 0;
+
+					// Context-aligned feedback: Hi4 itself for TH=1,
+					// TH-deep ring tap for TH>=2.
+					uwire signed [HI_WIDTH-1:0]  hh;
+					if(TH <= 1) begin : genHiFb
+						assign	hh = Hi4;
+					end : genHiFb
+					else begin : genHiFb
+						logic signed [HI_WIDTH-1:0]  HiLine[TH-1] = '{ default: 0 };
+						always_ff @(posedge clk) begin
+							if(rst)  HiLine <= '{ default: 0 };
+							else if(en) begin
+								HiLine[0] <= Hi4;
+								for(int j = 1; j < TH-1; j++)  HiLine[j] <= HiLine[j-1];
+							end
+						end
+						assign	hh = HiLine[TH-2];
+					end : genHiFb
+
 					always_ff @(posedge clk) begin
 						if(rst)  Hi4 <= 0;
 						else if(en) begin
-							automatic logic signed [HI_WIDTH:0]  h = $signed(L[PIPELINE_DEPTH-1]? {(HI_WIDTH){1'b0}} : Hi4) + $signed(sum);
+							automatic logic signed [HI_WIDTH:0]  h = $signed(hi_clr? {(HI_WIDTH){1'b0}} : hh) + $signed(sum);
 							assert(h[HI_WIDTH] === h[HI_WIDTH-1]) else begin
 								$error("%m [%0d:%0d]: Accumulation overflow for ACCU_WIDTH=%0d", c, i, ACCU_WIDTH);
 							end
@@ -858,7 +1023,6 @@ module mvu #(
 		for(genvar  pe = PE_BEG; pe < PE_END; pe++) begin
 			assign	p[pe] = Res5[pe - PE_BEG + PE_REM];
 		end
-
 	end : genPipes
 
 endmodule : mvu
