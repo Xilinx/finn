@@ -22,10 +22,12 @@ module $TOP_MODULE_NAME$ #(
     parameter SHIFT_MIN = $SHIFT_MIN$,
     parameter SHIFT_MAX = $SHIFT_MAX$,
     parameter SIGNED_OUT = $SIGNED_OUT$,
+    parameter SIGNED_IN = $SIGNED_IN$,
 
     // Derived widths (matching requant_axi_decoupled.sv localparam chain)
-    parameter S_WIDTH = (K <= (VERSION == 3 ? 24 : 18)) ? 25 : (VERSION == 3 ? 24 : 18),
-    parameter X_WIDTH = (K <= (VERSION == 3 ? 24 : 18)) ? K  : ((VERSION == 1 ? 25 : 27) < K ? (VERSION == 1 ? 25 : 27) : K),
+    parameter KC = SIGNED_IN ? K : K + 1,
+    parameter S_WIDTH = (KC <= (VERSION == 3 ? 24 : 18)) ? 25 : (VERSION == 3 ? 24 : 18),
+    parameter X_WIDTH = (KC <= (VERSION == 3 ? 24 : 18)) ? KC : ((VERSION == 1 ? 25 : 27) < KC ? (VERSION == 1 ? 25 : 27) : KC),
     parameter BIAS_WIDTH  = S_WIDTH + X_WIDTH,
     parameter SHIFT_RANGE = SHIFT_MAX - SHIFT_MIN + 1,
     parameter SHIFT_WIDTH  = (SHIFT_RANGE > 1) ? $clog2(SHIFT_RANGE) : 1,
@@ -61,7 +63,8 @@ module $TOP_MODULE_NAME$ #(
         .VERSION(VERSION),
         .K(K), .N(N), .C(C), .PE(PE),
         .SHIFT_MIN(SHIFT_MIN), .SHIFT_MAX(SHIFT_MAX),
-        .SIGNED_OUT(SIGNED_OUT)
+        .SIGNED_OUT(SIGNED_OUT),
+        .SIGNED_IN(SIGNED_IN)
     ) core (
         .ap_clk(ap_clk),
         .ap_rst_n(ap_rst_n),
