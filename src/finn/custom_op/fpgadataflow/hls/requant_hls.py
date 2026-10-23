@@ -127,6 +127,7 @@ class Requant_hls(Requant, HLSBackend):
             "#pragma HLS INTERFACE axis port=in0_V",
             "#pragma HLS INTERFACE axis port=out0_V",
             "#pragma HLS INTERFACE ap_ctrl_none port=return",
+            "#pragma HLS DATAFLOW disable_start_propagation",
             "#pragma HLS ARRAY_PARTITION variable=rq_params.scales complete dim=1",
             "#pragma HLS ARRAY_PARTITION variable=rq_params.biases complete dim=1",
         ]

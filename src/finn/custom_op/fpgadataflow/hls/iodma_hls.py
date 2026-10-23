@@ -345,7 +345,7 @@ class IODMA_hls(HWCustomOp, HLSBackend):
             )
         else:
             raise ValueError("Invalid IODMA direction, please set to in or out")
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS DATAFLOW")
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS DATAFLOW disable_start_propagation")
 
     def code_generation_cppsim(self, model):
         """Generates c++ code for simulation (cppsim).

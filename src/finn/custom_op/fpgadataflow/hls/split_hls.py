@@ -81,6 +81,7 @@ class StreamingSplit_hls(StreamingSplit, HLSBackend):
         for i in range(self.get_n_outputs()):
             pragmas.append("#pragma HLS INTERFACE axis port=out%d_V" % i)
         pragmas.append("#pragma HLS INTERFACE ap_ctrl_none port=return")
+        pragmas.append("#pragma HLS DATAFLOW disable_start_propagation")
         pragmas.append("#pragma HLS aggregate variable=in0_V compact=bit")
         for i in range(self.get_n_outputs()):
             pragmas.append("#pragma HLS aggregate variable=out%d_V compact=bit" % i)

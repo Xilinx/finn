@@ -637,6 +637,12 @@ class MVAU(HWCustomOp):
         if datatype_only:
             return DataType[self.get_nodeattr("weightDataType")]
 
+        # BIPOLAR weights (from XNOR-popcount) must not be minimized —
+        # the XNOR hardware expects BIPOLAR {-1,+1}, not INT2.
+        wdt = DataType[self.get_nodeattr("weightDataType")]
+        if wdt == DataType["BIPOLAR"]:
+            return wdt
+
         if not (
             self.get_nodeattr("runtime_writeable_weights")
             or self.get_nodeattr("mem_mode") in ["external", "external_mem", "dynamic"]

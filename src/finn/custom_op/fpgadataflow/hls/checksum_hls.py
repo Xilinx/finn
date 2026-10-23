@@ -233,6 +233,7 @@ class CheckSum_hls(HWCustomOp, HLSBackend):
             "#pragma HLS interface s_axilite port=drain bundle=checksum"
         )
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS interface ap_ctrl_none port=return")
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS DATAFLOW disable_start_propagation")
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()

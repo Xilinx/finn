@@ -81,14 +81,13 @@ class Lookup_hls(Lookup, HLSBackend):
         self.code_gen_dict["$GLOBALS$"] = global_incls
 
     def defines(self, var):
-        n_inputs = np.prod(self.get_folded_input_shape()[:-1])
         dtype = self.get_input_datatype()
         elem_hls_type = dtype.get_hls_datatype_str()
         emb_type = DataType[self.get_nodeattr("EmbeddingType")]
         emb_hls_type = emb_type.get_hls_datatype_str()
         emb_dim = self.get_nodeattr("EmbeddingDim")
         mem_mode = self.get_nodeattr("mem_mode")
-        my_defines = ["static constexpr unsigned NumInputs = %d;" % n_inputs]
+        my_defines = []
         if mem_mode == "external":
             ext_mem_width = self.get_nodeattr("ext_mem_width")
             ext_mem_emb_size = self.get_folded_output_shape()[-2]
@@ -122,8 +121,8 @@ class Lookup_hls(Lookup, HLSBackend):
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "internal_embedded":
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """StreamingLookup<NumEmbeddings,  EmbeddingDim, NumInputs,
-                InputType, EmbeddingType >(in0_V, out0_V, embeddings);"""
+                """StreamingLookup<NumEmbeddings, EmbeddingDim,
+                InputType, EmbeddingType>(in0_V, out0_V, embeddings);"""
             ]
         elif mem_mode == "external":
             self.code_gen_dict["$DOCOMPUTE$"] = [
@@ -133,18 +132,15 @@ class Lookup_hls(Lookup, HLSBackend):
 
     def blackboxfunction(self):
         mem_mode = self.get_nodeattr("mem_mode")
-        ibits = self.get_instream_width()
-        packed_input_hls_type = "ap_uint<%d>" % ibits
-        obits = self.get_outstream_width()
-        packed_output_hls_type = "ap_uint<%d>" % obits
         if mem_mode == "internal_embedded":
+            i_hls_type = self.get_input_datatype().get_hls_datatype_str()
+            i_fold = self.get_folded_input_shape()[-1]
+            emb_hls_type = DataType[self.get_nodeattr("EmbeddingType")].get_hls_datatype_str()
+            emb_dim = self.get_nodeattr("EmbeddingDim")
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                "void %s(hls::stream<%s > &in0_V, hls::stream<%s > &out0_V)"
-                % (
-                    self.onnx_node.name,
-                    packed_input_hls_type,
-                    packed_output_hls_type,
-                )
+                "void %s(hls::stream<tensor<%s,%d>> &in0_V, "
+                "hls::stream<tensor<%s,%d>> &out0_V)"
+                % (self.onnx_node.name, i_hls_type, i_fold, emb_hls_type, emb_dim)
             ]
         elif mem_mode == "external":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
@@ -160,6 +156,7 @@ class Lookup_hls(Lookup, HLSBackend):
         my_pragmas = ["#pragma HLS INTERFACE axis port=in0_V"]
         my_pragmas.append("#pragma HLS INTERFACE axis port=out0_V")
         my_pragmas.append("#pragma HLS INTERFACE ap_ctrl_none port=return")
+        my_pragmas.append("#pragma HLS DATAFLOW disable_start_propagation")
         if mem_mode == "internal_embedded":
             ram_style = RAM_STYLES[self.get_nodeattr("ram_style")]
             storage_type = "RAM_S2P" if ram_style == "URAM" else "ROM_2P"
@@ -189,12 +186,15 @@ class Lookup_hls(Lookup, HLSBackend):
             assert np.vectorize(edt.allowed)(
                 embeddings
             ).all(), "Embeddings can't be expressed with type %s" % str(edt)
-            # reverse innertmost dim in embeddings to remain compatible with
-            # how we normally encode the data in FINN
-            embeddings_rev = np.flip(embeddings, -1)
-            embeddings_hls_code = numpy_to_hls_code(embeddings_rev, edt, "embeddings", True, False)
+            # aggregate initialization: tensor<EmbeddingType, EmbeddingDim>
+            # handles element-to-bit mapping internally, no reversal needed
+            emb_hls_type = edt.get_hls_datatype_str()
+            emb_dim = self.get_nodeattr("EmbeddingDim")
+            num_emb = self.get_nodeattr("NumEmbeddings")
+            init_code = numpy_to_hls_code(embeddings, edt, "embeddings", False, True)
+            decl = "tensor<%s, %d> embeddings[%d] = \n" % (emb_hls_type, emb_dim, num_emb)
             f_thresh = open(weight_filename, "w")
-            f_thresh.write(embeddings_hls_code)
+            f_thresh.write(decl + init_code)
             f_thresh.close()
         elif mem_mode == "external":
             edt = DataType[self.get_nodeattr("EmbeddingType")]

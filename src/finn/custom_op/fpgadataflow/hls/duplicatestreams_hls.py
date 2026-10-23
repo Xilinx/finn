@@ -69,7 +69,7 @@ class DuplicateStreams_hls(DuplicateStreams, HLSBackend):
         HLSBackend.execute_node(self, context, graph)
 
     def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "dup.hpp"']
+        self.code_gen_dict["$GLOBALS$"] = ['#include "tensor.hpp"', '#include "dup.hpp"']
 
     def defines(self, var):
         self.code_gen_dict["$DEFINES$"] = []

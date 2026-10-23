@@ -157,6 +157,8 @@ class MVAU_hls(MVAU, HLSBackend):
                 "external_mem", or "dynamic", currently no other parameter value is supported!"""
             )
         self.code_gen_dict["$GLOBALS$"] += ['#include "mvau.hpp"']
+        if mem_mode == "internal_embedded":
+            self.code_gen_dict["$GLOBALS$"] += ['#include "params.h"']
         if self.calc_tmem() != 0:
             # TODO find a better way of checking for no pregenerated thresholds
             self.code_gen_dict["$GLOBALS$"] += ['#include "thresh.h"']
@@ -330,9 +332,9 @@ class MVAU_hls(MVAU, HLSBackend):
         self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0_V"]
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out0_V")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS DATAFLOW disable_start_propagation")
 
         if mem_mode == "internal_embedded":
-            self.code_gen_dict["$PRAGMAS$"].append('#include "params.h"')
             # weights is tensor<TW, PE, SIMD> weights[WMEM] — fully partition
             self.code_gen_dict["$PRAGMAS$"].append(
                 "#pragma HLS ARRAY_PARTITION variable=weights complete"
@@ -456,6 +458,10 @@ class MVAU_hls(MVAU, HLSBackend):
                 if mem_mode == "dynamic":
                     wnbits = wnbits * self.get_nodeattr("SIMD")
                 export_wdt = self.get_input_datatype(1)
+                # make_weight_file already converts bipolar weights to binary encoding,
+                # so use BINARY as the export dtype for weight packing
+                if export_wdt == DataType["BIPOLAR"]:
+                    export_wdt = DataType["BINARY"]
 
                 wei = npy_to_rtlsim_input("{}/input_1.npy".format(code_gen_dir), export_wdt, wnbits)
                 num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))

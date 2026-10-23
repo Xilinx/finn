@@ -143,8 +143,10 @@ class ElementwiseBinaryOperation_hls(
     # Generates list of C++ includes to be placed at the top of the generated
     # code
     def global_includes(self):
-        # Currently nothing to include
-        self.code_gen_dict["$GLOBALS$"] = []
+        self.code_gen_dict["$GLOBALS$"] = [
+            "#include <hls_stream.h>",
+            '#include "tensor.hpp"',
+        ]
 
     # Generates C++ parameters file, i.e., constant initializer inputs
     def generate_params(self, model: ModelWrapper, path: str):

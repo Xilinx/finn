@@ -2593,6 +2593,10 @@ class InferElementwiseBinaryOperation(Transformation):
                         _min, _max = lhs_init.min(), lhs_init.max()
                         _mag = _max if _min >= 0 else _min if (abs(_min) > _max) else (-_max - 1)
                         idt0 = DataType.get_smallest_possible(_mag)
+                        # BIPOLAR uses {-1,+1} encoding which is incompatible
+                        # with elementwise binary constant handling; use BINARY
+                        if idt0 == DataType["BIPOLAR"]:
+                            idt0 = DataType["BINARY"]
                         model.set_tensor_datatype(in0, idt0)
 
                 if rhs_style == "const":
@@ -2605,6 +2609,8 @@ class InferElementwiseBinaryOperation(Transformation):
                         _min, _max = rhs_init.min(), rhs_init.max()
                         _mag = _max if _min >= 0 else _min if (abs(_min) > _max) else (-_max - 1)
                         idt1 = DataType.get_smallest_possible(_mag)
+                        if idt1 == DataType["BIPOLAR"]:
+                            idt1 = DataType["BINARY"]
                         model.set_tensor_datatype(in1, idt1)
 
                 # If both inputs are integers, set output to INT32 as default.

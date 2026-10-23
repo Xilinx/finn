@@ -88,3 +88,4 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
             pragmas.append("#pragma HLS aggregate variable=in%d_V compact=bit" % i)
         pragmas.append("#pragma HLS aggregate variable=out0_V compact=bit")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS DATAFLOW disable_start_propagation")

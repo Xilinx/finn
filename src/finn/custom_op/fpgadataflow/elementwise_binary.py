@@ -367,6 +367,10 @@ class ElementwiseBinaryOperation(HWCustomOp):
                     _mag = _max if _min > 0 else _min if (abs(_min) > _max) else (-_max - 1)
                     # Smallest data type large enough to represent this range of values
                     lhs_dtype = DataType.get_smallest_possible(_mag)
+                    # BIPOLAR uses {-1,+1} encoding which is incompatible
+                    # with elementwise binary constant handling; use BINARY
+                    if lhs_dtype == DataType["BIPOLAR"]:
+                        lhs_dtype = DataType["BINARY"]
                 elif lhs_dtype.is_fixed_point():
                     # Convert the fixed-point array to corresponding integers and get
                     # smallest integer representation
@@ -407,6 +411,8 @@ class ElementwiseBinaryOperation(HWCustomOp):
                     _mag = _max if _min > 0 else _min if (abs(_min) > _max) else (-_max - 1)
                     # Smallest data type large enough to represent this range of values
                     rhs_dtype = DataType.get_smallest_possible(_mag)
+                    if rhs_dtype == DataType["BIPOLAR"]:
+                        rhs_dtype = DataType["BINARY"]
                 elif rhs_dtype.is_fixed_point():
                     # Convert the fixed-point array to corresponding integers and get
                     # smallest integer representation

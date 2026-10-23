@@ -80,44 +80,42 @@ class VVAU_rtl(VVAU, RTLBackend):
                     raise Exception("Unexpected input found for VectorVectorActivation")
                 in_ind += 1
 
-                sim = self.get_rtlsim()
-                nbits = self.get_instream_width(0)
-                inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
-                super().reset_rtlsim(sim)
+            sim = self.get_rtlsim()
+            nbits = self.get_instream_width(0)
+            inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
+            super().reset_rtlsim(sim)
 
-                if mem_mode in ["external", "internal_decoupled"]:
-                    wnbits = self.get_instream_width(1)
-                    export_wdt = self.get_input_datatype(1)
-                    wei = npy_to_rtlsim_input(
-                        "{}/weights.npy".format(code_gen_dir), export_wdt, wnbits
-                    )
-                    dim_h, dim_w = self.get_nodeattr("Dim")
-                    num_w_reps = dim_h * dim_w
+            if mem_mode in ["external", "internal_decoupled"]:
+                wnbits = self.get_instream_width(1)
+                export_wdt = self.get_input_datatype(1)
+                wei = npy_to_rtlsim_input("{}/weights.npy".format(code_gen_dir), export_wdt, wnbits)
+                dim_h, dim_w = self.get_nodeattr("Dim")
+                num_w_reps = dim_h * dim_w
 
-                    io_dict = {
-                        "inputs": {"in0": inp, "in1": wei * num_w_reps},
-                        "outputs": {"out0": []},
-                    }
-                else:
-                    io_dict = {
-                        "inputs": {"in0": inp},
-                        "outputs": {"out0": []},
-                    }
-                self.rtlsim_multi_io(sim, io_dict)
-                super().close_rtlsim(sim)
-                output = io_dict["outputs"]["out0"]
-                odt = self.get_output_datatype()
-                target_bits = odt.bitwidth()
-                packed_bits = self.get_outstream_width()
-                out_npy_path = "{}/output.npy".format(code_gen_dir)
-                out_shape = self.get_folded_output_shape()
-                rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
+                io_dict = {
+                    "inputs": {"in0": inp, "in1": wei * num_w_reps},
+                    "outputs": {"out0": []},
+                }
+            else:
+                io_dict = {
+                    "inputs": {"in0": inp},
+                    "outputs": {"out0": []},
+                }
+            self.rtlsim_multi_io(sim, io_dict)
+            super().close_rtlsim(sim)
+            output = io_dict["outputs"]["out0"]
+            odt = self.get_output_datatype()
+            target_bits = odt.bitwidth()
+            packed_bits = self.get_outstream_width()
+            out_npy_path = "{}/output.npy".format(code_gen_dir)
+            out_shape = self.get_folded_output_shape()
+            rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
 
-                # load and reshape output
-                output = np.load(out_npy_path)
-                oshape = self.get_normal_output_shape()
-                output = np.asarray([output], dtype=np.float32).reshape(*oshape)
-                context[node.output[0]] = output
+            # load and reshape output
+            output = np.load(out_npy_path)
+            oshape = self.get_normal_output_shape()
+            output = np.asarray([output], dtype=np.float32).reshape(*oshape)
+            context[node.output[0]] = output
         else:
             raise Exception(
                 """Invalid value for attribute exec_mode! Is currently set to: {}
@@ -274,6 +272,9 @@ class VVAU_rtl(VVAU, RTLBackend):
             [str(1)] if (self.get_input_datatype(0).min() < 0) else [str(0)]
         )
         code_gen_dict["$SEGMENTLEN$"] = [str(self._resolve_segment_len(clk))]
+        code_gen_dict["$TH$"] = [str(1)]
+        code_gen_dict["$WSIMD$"] = [str(int(self.get_nodeattr("PE")) * int(self.get_nodeattr("SIMD")))]
+        code_gen_dict["$N_DCPL_STAGES$"] = [str(2)]
 
         return template_path, code_gen_dict
 
