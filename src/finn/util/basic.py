@@ -40,6 +40,7 @@ from qonnx.util.basic import gen_finn_dt_tensor, roundup_to_integer_multiple
 from typing import Dict, Optional, Tuple
 
 from finn.util.data_packing import finnpy_to_packed_bytearray
+from finn.util.launcher import ToolUnavailable
 
 # mapping from PYNQ board names to FPGA part names
 pynq_part_map = dict()
@@ -177,10 +178,37 @@ def get_vivado_root():
 
 
 def get_vivado_version() -> Optional[Tuple[int, int]]:
-    """Extract Vivado version as (year, minor) tuple from XILINX_VIVADO."""
+    """Return the release of the Vivado installation in XILINX_VIVADO as a
+    (year, minor) tuple. It is read from the path, else from the installation's
+    data/version.sh. Returns None if XILINX_VIVADO is not set or neither names
+    a release."""
     path = os.environ.get("XILINX_VIVADO", "")
     match = re.search(r"\b(20\d{2})\.(1|2)\b", path)
+    if match is None and path:
+        # an install path without the release, e.g. /opt/Xilinx/Vivado/current
+        try:
+            with open(os.path.join(path, "data", "version.sh")) as f:
+                match = re.search(
+                    r"^XILINX_VERSION_DEFAULT=(20\d{2})\.(\d+)\s*$", f.read(), re.MULTILINE
+                )
+        except OSError:
+            pass
     return (int(match.group(1)), int(match.group(2))) if match else None
+
+
+def require_vivado_version() -> Tuple[int, int]:
+    """Return get_vivado_version(), or raise ToolUnavailable if it is unknown."""
+    version = get_vivado_version()
+    if version is None:
+        path = os.environ.get("XILINX_VIVADO")
+        if not path:
+            raise ToolUnavailable("vivado", "XILINX_VIVADO is not set")
+        raise ToolUnavailable(
+            "vivado",
+            f"cannot read the Vivado release from XILINX_VIVADO={path} or from "
+            f"{os.path.join(path, 'data', 'version.sh')}",
+        )
+    return version
 
 
 def get_liveness_threshold_cycles():
