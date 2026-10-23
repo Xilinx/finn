@@ -27,10 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-import os
-import re
-
-from finn.util.basic import resolve_xilinx_tool
+from finn.util.basic import require_vivado_version, resolve_xilinx_tool
 from finn.util.launcher import run_tool
 
 
@@ -56,11 +53,7 @@ class CallHLS:
         directory. Also writes ipgen.sh in code_gen_dir, which repeats the run by
         hand. The output of HLS goes to ipgen.stdout.log and ipgen.stderr.log in
         code_gen_dir. Raises ToolFailed if HLS fails."""
-        vivado_path = os.environ.get("XILINX_VIVADO")
-        # xsi kernel lib name depends on Vivado version (renamed in 2024.2)
-        match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
-        year, minor = int(match.group(1)), int(match.group(2))
-        if (year, minor) > (2024, 2):
+        if require_vivado_version() > (2024, 2):
             command = [resolve_xilinx_tool("vitis-run"), "--mode", "hls", "--tcl", self.tcl_script]
         else:
             command = [resolve_xilinx_tool("vitis_hls"), self.tcl_script]

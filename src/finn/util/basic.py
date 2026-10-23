@@ -40,6 +40,7 @@ from qonnx.util.basic import gen_finn_dt_tensor, roundup_to_integer_multiple
 from typing import Dict, Optional, Tuple
 
 from finn.util.data_packing import finnpy_to_packed_bytearray
+from finn.util.launcher import ToolUnavailable
 
 # mapping from PYNQ board names to FPGA part names
 pynq_part_map = dict()
@@ -181,6 +182,22 @@ def get_vivado_version() -> Optional[Tuple[int, int]]:
     path = os.environ.get("XILINX_VIVADO", "")
     match = re.search(r"\b(20\d{2})\.(1|2)\b", path)
     return (int(match.group(1)), int(match.group(2))) if match else None
+
+
+def require_vivado_version() -> Tuple[int, int]:
+    """Return get_vivado_version(), or raise ToolUnavailable if it is unknown."""
+    version = get_vivado_version()
+    if version is None:
+        path = os.environ.get("XILINX_VIVADO")
+        if not path:
+            raise ToolUnavailable("vivado", "XILINX_VIVADO is not set")
+        raise ToolUnavailable(
+            "vivado",
+            f"XILINX_VIVADO={path} does not name the Vivado release; set it to the "
+            "installation directory (<root>/<release>/Vivado), as the installation's "
+            "settings64.sh does",
+        )
+    return version
 
 
 def get_liveness_threshold_cycles():
