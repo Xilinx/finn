@@ -30,7 +30,6 @@ import pytest
 
 import numpy as np
 import qonnx.custom_op.general.xnorpopcount as xp
-import xml.etree.ElementTree as ET
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -69,7 +68,7 @@ from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.general import ApplyConfig
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import is_versal
-from finn.util.test import make_runtime_weight_stream
+from finn.util.test import get_hls_synth_interval, make_runtime_weight_stream
 
 finnxsi = xsi if xsi.is_available() else None
 
@@ -1161,18 +1160,41 @@ def test_fpgadataflow_mvau_hls_threshold_width_cppsim():
     ), f"Min input test failed: expected {y_min_expected}, got {y_min_produced}"
 
 
+# (input/weight datatype, activation, fold): representative kernel datapaths rather
+# than a cross product. fold=1 is fully unrolled (the original regression), fold=4
+# gives NF=SF=4 and exercises the weight memory and input buffer
+@pytest.mark.parametrize(
+    "dt,act,fold",
+    [
+        pytest.param(DataType["INT4"], None, 1, id="int4-full"),
+        pytest.param(DataType["INT4"], None, 4, id="int4-folded"),
+        pytest.param(DataType["INT4"], DataType["UINT4"], 4, id="int4-thresh"),
+        pytest.param(DataType["BIPOLAR"], None, 4, id="bipolar"),
+    ],
+)
 # mem_mode: on-chip weights, embedded or streamed from the packaged weight streamer
 @pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
 @pytest.mark.fpgadataflow
+@pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_mvau_hls_single_iteration_top_pipeline(mem_mode):
-    """A fully unrolled HLS MVAU (SIMD=MW, PE=MH) must achieve II=1.
-    The function-pipelined hlslib kernel handles this natively —
-    no special top-level pragma workaround needed."""
+def test_fpgadataflow_mvau_hls_ii(dt, act, fold, mem_mode):
+    """The freerunning top of an HLS MVAU must achieve II=1 for any folding, i.e. it
+    calls the function-pipelined hlslib kernel once per cycle."""
     mw, mh = 16, 16
-    idt = wdt = DataType["INT4"]
+    pe, simd = mh // fold, mw // fold
+    idt = wdt = dt
     W = gen_finn_dt_tensor(wdt, (mw, mh))
-    model = make_single_fclayer_modelwrapper(W, mh, mw, wdt, idt, DataType["INT32"])
+    if act is None:
+        T = tdt = None
+        odt = DataType["UINT32"] if dt == DataType["BIPOLAR"] else DataType["INT32"]
+    else:
+        # threshold values only need to be valid, they don't affect the II
+        odt, tdt = act, DataType["INT32"]
+        (t_min, t_max) = calculate_signed_dot_prod_range(idt, wdt, mw)
+        n_steps = act.get_num_possible_values() - 1
+        T = np.sort(np.random.randint(t_min, t_max - 1, (mh, n_steps)), axis=1)
+        T = T.astype(np.float32)
+    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
     inst = getCustomOp(model.graph.node[0])
     inst.set_nodeattr("preferred_impl_style", "hls")
     inst.set_nodeattr("mem_mode", mem_mode)
@@ -1184,14 +1206,4 @@ def test_fpgadataflow_mvau_hls_single_iteration_top_pipeline(mem_mode):
 
     model = model.transform(PrepareIP(part, 10))
     model = model.transform(HLSSynthIP())
-    inst = getCustomOp(model.graph.node[0])
-    code_gen_dir = inst.get_nodeattr("code_gen_dir_ipgen")
-    report = f"{code_gen_dir}/project_{node.name}/sol1/syn/report/{node.name}_csynth.xml"
-    latency = ET.parse(report).getroot().find("PerformanceEstimates/SummaryOfOverallLatency")
-    # With function-pipelined hlslib kernels the top-level report uses
-    # Interval-min instead of PipelineInitiationInterval.
-    pii = latency.find("PipelineInitiationInterval")
-    if pii is not None:
-        assert int(pii.text) == 1
-    else:
-        assert int(latency.find("Interval-min").text) == 1
+    assert get_hls_synth_interval(getCustomOp(model.graph.node[0])) == 1

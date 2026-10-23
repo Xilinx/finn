@@ -47,6 +47,9 @@ class VVAU_hls(VVAU, HLSBackend):
         my_attrs = {}
         my_attrs.update(VVAU.get_nodeattr_types(self))
         my_attrs.update(HLSBackend.get_nodeattr_types(self))
+        # the function-pipelined hlslib kernel processes one beat per call,
+        # so cppsim must call it repeatedly until the output runs dry
+        my_attrs["hls_style"] = ("s", False, "freerunning", {"freerunning"})
         return my_attrs
 
     def lut_estimation(self, fpgapart):
@@ -373,6 +376,10 @@ class VVAU_hls(VVAU, HLSBackend):
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<ap_uint<{}>> out0_V ("out0_V");'.format(self.get_outstream_width())
         )
+        # collects the outputs drained from out0_V by the freerunning cppsim loop
+        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+            'hls::stream<ap_uint<{}>> strm0 ("strm0");'.format(self.get_outstream_width())
+        )
         if mem_mode == "internal_decoupled" or mem_mode == "external":
             self.code_gen_dict["$STREAMDECLARATIONS$"].append(
                 'hls::stream<ap_uint<{}>> in1_V ("in1_V");'.format(self.get_instream_width(1))
@@ -393,14 +400,11 @@ class VVAU_hls(VVAU, HLSBackend):
             threshs = "threshs"
 
         if mem_mode == "internal_embedded":
-            n = "numReps*(Channels1/PE1)*(InnerProdDim/SIMD1+1)"
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                "for(unsigned i = 0; i < %s; i++)\n"
                 "Vector_Vector_Activate_Batch"
                 "<Channels1, InnerProdDim, SIMD1, PE1, 1, %s, %s, %s>"
                 "(in0_V, out0_V, weights, %s, %s);"
                 % (
-                    n,
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
                     tmpl_args["TWeightI"],
@@ -415,15 +419,12 @@ class VVAU_hls(VVAU, HLSBackend):
             else:
                 export_wdt = wdt
             wdtype_hls_str = export_wdt.get_hls_datatype_str()
-            n = "numReps*(Channels1/PE1)*(InnerProdDim/SIMD1+1)"
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                "for(unsigned i = 0; i < %s; i++)\n"
                 "Vector_Vector_Activate_Stream_Batch"
                 "<Channels1, InnerProdDim, SIMD1, PE1, 1,"
                 " %s, %s, %s, %s>"
                 "(in0_V, out0_V, in1_V, %s, %s);"
                 % (
-                    n,
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
                     tmpl_args["TWeightI"],
@@ -454,7 +455,7 @@ class VVAU_hls(VVAU, HLSBackend):
 
         # note: the innermost dim is not reversed for the output
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %s>(out0_V, %s, "%s", false);'
+            'apintstream2npy<%s, %s, %s>(strm0, %s, "%s", false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
@@ -466,6 +467,14 @@ class VVAU_hls(VVAU, HLSBackend):
 
     def save_as_npy(self):
         self.code_gen_dict["$SAVEASCNPY$"] = []
+
+    def timeout_value(self):
+        """Set timeout value for the freerunning cppsim loop. Successive outputs are
+        at most one synapse fold (k_h*k_w/SIMD calls) apart, so stopping earlier
+        would drop outputs."""
+        k_h, k_w = self.get_nodeattr("Kernel")
+        sf = (k_h * k_w) // self.get_nodeattr("SIMD")
+        self.code_gen_dict["$TIMEOUT_VALUE$"] = [str(sf + 100)]
 
     def blackboxfunction(self):
         mem_mode = self.get_nodeattr("mem_mode")
@@ -503,6 +512,7 @@ class VVAU_hls(VVAU, HLSBackend):
         self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0_V"]
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out0_V")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS dataflow disable_start_propagation")
 
         if mem_mode == "internal_embedded":
             self.code_gen_dict["$PRAGMAS$"].append('#include "params.h"')

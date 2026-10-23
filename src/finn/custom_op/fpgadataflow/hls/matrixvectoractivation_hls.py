@@ -55,6 +55,9 @@ class MVAU_hls(MVAU, HLSBackend):
         my_attrs.update(HLSBackend.get_nodeattr_types(self))
         # for HLS MVAU default resType to lut
         my_attrs["resType"] = ("s", False, "lut", {"auto", "lut", "dsp"})
+        # the function-pipelined hlslib kernel processes one beat per call,
+        # so cppsim must call it repeatedly until the output runs dry
+        my_attrs["hls_style"] = ("s", False, "freerunning", {"freerunning"})
         return my_attrs
 
     def lut_estimation(self, fpgapart):
@@ -292,6 +295,10 @@ class MVAU_hls(MVAU, HLSBackend):
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<ap_uint<{}>> out0_V ("out0_V");'.format(self.get_outstream_width())
         )
+        # collects the outputs drained from out0_V by the freerunning cppsim loop
+        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+            'hls::stream<ap_uint<{}>> strm0 ("strm0");'.format(self.get_outstream_width())
+        )
 
         if mem_mode in ["internal_decoupled", "external", "external_mem", "dynamic"]:
             iwidth = self.get_instream_width(1)
@@ -316,8 +323,7 @@ class MVAU_hls(MVAU, HLSBackend):
             threshs = "threshs"
         if mem_mode == "internal_embedded":
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """for(unsigned i = 0; i < numReps * (MH1/PE1) * (MW1/SIMD1 + 1); i++)
-                Matrix_Vector_Activate_Batch<MW1, MH1, SIMD1, PE1, 1, {}, {}, {}>
+                """Matrix_Vector_Activate_Batch<MW1, MH1, SIMD1, PE1, 1, {}, {}, {}>
                 (in0_V, out0_V, weights, {}, {});""".format(
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
@@ -334,8 +340,7 @@ class MVAU_hls(MVAU, HLSBackend):
                 export_wdt = wdt
             wdtype_hls_str = export_wdt.get_hls_datatype_str()
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """for(unsigned i = 0; i < numReps * (MH1/PE1) * (MW1/SIMD1 + 1); i++)
-                Matrix_Vector_Activate_Stream_Batch<MW1, MH1, SIMD1, PE1, {}, {}, {}, {} >
+                """Matrix_Vector_Activate_Stream_Batch<MW1, MH1, SIMD1, PE1, {}, {}, {}, {} >
                 (in0_V, out0_V, in1_V, {}, {});""".format(
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
@@ -368,7 +373,7 @@ class MVAU_hls(MVAU, HLSBackend):
 
         # note: the innermost dim is not reversed for the output
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %s>(out0_V, %s, "%s", false);'
+            'apintstream2npy<%s, %s, %s>(strm0, %s, "%s", false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
@@ -422,6 +427,7 @@ class MVAU_hls(MVAU, HLSBackend):
         self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0_V"]
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out0_V")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS dataflow disable_start_propagation")
 
         if mem_mode == "internal_embedded":
             self.code_gen_dict["$PRAGMAS$"].append('#include "params.h"')
@@ -464,6 +470,13 @@ class MVAU_hls(MVAU, HLSBackend):
                 pass
             else:
                 raise Exception("Unrecognized ram_style_thresholds value:" + ram_style_thresholds)
+
+    def timeout_value(self):
+        """Set timeout value for the freerunning cppsim loop. Successive outputs are
+        at most one synapse fold (MW/SIMD calls) apart, so stopping earlier would
+        drop outputs."""
+        sf = self.get_nodeattr("MW") // self.get_nodeattr("SIMD")
+        self.code_gen_dict["$TIMEOUT_VALUE$"] = [str(sf + 100)]
 
     def get_ap_int_max_w(self):
         # base class impl (max of inp/out stream widths)
