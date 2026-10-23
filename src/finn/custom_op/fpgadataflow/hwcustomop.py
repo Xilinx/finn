@@ -34,11 +34,7 @@ from qonnx.custom_op.base import CustomOp
 from qonnx.util.basic import get_by_name, roundup_to_integer_multiple
 
 from finn import xsi
-from finn.util.basic import (
-    get_watchdog_timeout_cycles,
-    is_versal,
-    least_divisor_at_most,
-)
+from finn.util.basic import get_watchdog_timeout_cycles, is_versal
 
 finnxsi = xsi if xsi.is_available() else None
 
@@ -399,6 +395,7 @@ class HWCustomOp(CustomOp):
                 pe = self.get_nodeattr("PE")
                 simd = self.get_nodeattr("SIMD")
                 theight = self.get_nodeattr("TH")
+                iwsimd = self.get_fetch_weights_simd()
                 n_reps = np.prod(self.get_nodeattr("numInputVectors")) // theight
                 en_mlo = "EN_MLO" if self.get_nodeattr("mlo_max_iter") else "NO_MLO"
             else:
@@ -410,6 +407,7 @@ class HWCustomOp(CustomOp):
                 # TODO use broadcast rhs shape here
                 n_reps = np.prod(self.get_nodeattr("rhs_shape")[:-1])
                 theight = 1
+                iwsimd = simd
                 en_mlo = "EN_MLO" if self.get_nodeattr("mlo_max_iter") else "NO_MLO"
             # upper bound on how many layers can be supported, set to 64 for now
             n_max_layers = 64
@@ -425,9 +423,7 @@ class HWCustomOp(CustomOp):
                 "$WEIGHT_WIDTH$": [str(wdt.bitwidth())],
                 "$N_LAYERS$": [str(n_max_layers)],
                 "$TH$": [str(theight)],
-                "$WSIMD$": [
-                    str(least_divisor_at_most(pe * simd, theight) if theight > 1 else simd)
-                ],
+                "$WSIMD$": [str(iwsimd)],
                 "$EN_MLO$": [en_mlo],
                 "$ADDRESS_OFFSET$": [str(self.get_nodeattr("address_offset"))],
             }

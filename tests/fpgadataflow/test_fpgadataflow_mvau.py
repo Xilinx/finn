@@ -447,6 +447,10 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, pumpe
     cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
     exp_cycles_dict = model.analysis(exp_cycles_per_layer)
     exp_cycles = exp_cycles_dict[node.name]
+    if mem_mode == "external_mem":
+        # node-by-node rtlsim feeds the weights straight into the MVU core,
+        # bypassing fetch_weights, so it only measures the compute cycles
+        exp_cycles = inst.get_exp_compute_cycles()
     assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
     assert exp_cycles != 0
 
@@ -748,7 +752,8 @@ def test_mvau_fifocharacterize_rtlsim(
 #   - WSIMD:                 the =1 edge (1 weight/cycle) up to 192
 #   - CHAINLEN = (SIMD+2)/3: 1, 2, 3, 6, 11
 #   - TH:                    3 and 9 (high tiling)
-#   - NW < TH (slack):       non-dividing TH cases (NW=2 < TH=3, etc.)
+#   - NW < TH (slack):       non-dividing TH cases (NW=2 < TH=3, etc.),
+#                            including TH > PE*SIMD (WSIMD=1)
 #   - mem_mode:              external_mem and internal_decoupled (tiling is
 #                            decoupled from the weight memory mode)
 @pytest.mark.parametrize(
@@ -773,6 +778,10 @@ def test_mvau_fifocharacterize_rtlsim(
         # NW < TH (non-dividing): WSIMD chosen as smallest divisor of PE*SIMD >= ceil(PE*SIMD/TH)
         (2, 4, 3, "internal_decoupled"),  # PE*SIMD=8, TH=3: WSIMD=4, NW=2, slack=1
         (6, 16, 9, "external_mem"),  # PE*SIMD=96, TH=9: WSIMD=12, NW=8, slack=1
+        # external_mem with non-dividing TH: the weight fetch estimate must use WSIMD,
+        # (PE*SIMD)//TH would overestimate get_exp_cycles() beyond the rtlsim tolerance
+        (2, 4, 3, "external_mem"),  # PE*SIMD=8, TH=3: WSIMD=4, NW=2, slack=1
+        (2, 4, 9, "external_mem"),  # TH > PE*SIMD=8: WSIMD=1, NW=8, slack=1
         # external_mem + TH=1: standard MVAU fed by fetch_weights from external memory
         # (PE>1 catches PE-lane swaps, SIMD=1 covers the sub-word byte-packing edge).
         (9, 16, 1, "external_mem"),
@@ -907,6 +916,22 @@ def test_fpgadataflow_rtl_mvau(
     assert (
         output_matmul == output_mvau_rtl_stitch
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
+
+    # Check the cycle estimate against stitched-IP rtlsim, which unlike node-by-node
+    # rtlsim includes the weight path (fetch_weights for external_mem).
+    # get_exp_cycles() is the steady-state cycles per frame, so measure the extra
+    # cycles of 3 frames over 1 frame to cancel out the pipeline fill.
+    def stitched_rtlsim_cycles(n_frames):
+        ctx = {"global_in": np.concatenate([input_dict["global_in"]] * n_frames)}
+        rtlsim_exec(model, ctx)
+        return int(model.get_metadata_prop("cycles_rtlsim"))
+
+    cycles_per_frame = (stitched_rtlsim_cycles(3) - stitched_rtlsim_cycles(1)) / 2
+    exp_cycles = getCustomOp(model.get_nodes_by_op_type("MVAU_rtl")[0]).get_exp_cycles()
+    assert np.isclose(exp_cycles, cycles_per_frame, rtol=0.1, atol=20), (
+        f"MVAU cycle estimate {exp_cycles} not close to stitched-IP rtlsim "
+        f"{cycles_per_frame} cycles per frame"
+    )
 
 
 @pytest.mark.parametrize("mh", [32])

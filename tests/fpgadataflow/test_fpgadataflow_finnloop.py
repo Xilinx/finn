@@ -5,6 +5,7 @@ import numpy as np
 import os
 import re
 from dataclasses import replace
+from functools import partial
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -18,6 +19,7 @@ from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 import finn.core.onnx_exec as oxe
+from finn.analysis.fpgadataflow.fifo_transaction_counts import fifo_transaction_counts
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
@@ -27,6 +29,7 @@ from finn.util.basic import (
     make_build_dir,
     pynq_golden_files,
 )
+from finn.util.rtlsim import check_fifo_log_consistency, read_fifo_log_snapshot
 
 verif_steps = [
     "folded_hls_cppsim",
@@ -546,14 +549,14 @@ def create_chained_loop_bodies(
     return loop_body_models
 
 
-def assert_finnloop_cycle_estimate(build_dir, x, rtol=0.35, atol=50):
+def assert_finnloop_cycle_estimate(build_dir, x, max_ratio=3):
     """Compare FINNLoop.get_exp_cycles() against the measured rtlsim cycle count.
 
     Reuses the loop-body IP already built by an MLO end-to-end build (no extra
     synthesis): loads the node-by-node rtlsim child model saved by the build,
     re-runs rtlsim on the single FINNLoop node (which populates its
     ``cycles_rtlsim`` nodeattr, see HWCustomOp.rtlsim_multi_io) and asserts the
-    estimate is close to the measured value, mirroring the FMPadding cycle check.
+    estimate is an upper bound that is at most max_ratio times the measured value.
     """
     child_fn = build_dir + "/intermediate_models/verify_node_by_node_rtlsim.onnx"
     assert os.path.isfile(child_fn), f"missing node-by-node rtlsim model {child_fn}"
@@ -570,26 +573,119 @@ def assert_finnloop_cycle_estimate(build_dir, x, rtol=0.35, atol=50):
     cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
     exp_cycles = inst.get_exp_cycles()
     assert exp_cycles != 0
-    # The FINNLoop estimate is a conservative liveness bound and tends to slightly
-    # over-count (measured ~2928 vs ~2310 rtlsim, i.e. ~27% high, for the canonical
-    # config), which is the safe direction for the watchdog. A relative tolerance is
-    # used because the per-iteration overhead heuristic makes the error scale with
-    # the iteration count.
-    assert np.isclose(exp_cycles, cycles_rtlsim, rtol=rtol, atol=atol), (
-        f"FINNLoop cycle estimate {exp_cycles} not close to rtlsim {cycles_rtlsim} "
-        f"(rtol={rtol}, atol={atol})"
+    # The FINNLoop estimate is conservative: it assumes serial iterations, each
+    # taking the overlap-free body latency, so it over-counts. It must never
+    # under-count, since it sets the FIFO sizing period.
+    assert cycles_rtlsim <= exp_cycles <= max_ratio * cycles_rtlsim, (
+        f"FINNLoop cycle estimate {exp_cycles} is not between rtlsim {cycles_rtlsim} "
+        f"and {max_ratio}x rtlsim"
     )
+
+
+def _read_fifo_log_dir(log_dir, expect_verbose=True):
+    """Parse one debug_fifo snapshot directory, checking its format and consistency."""
+    assert os.path.isdir(log_dir), f"missing fifo debug dir {log_dir}"
+    logs = read_fifo_log_snapshot(log_dir)
+    assert logs, f"no per-FIFO debug logs in {log_dir}"
+    wrong_format = {
+        n: log["verbose"] for n, log in logs.items() if log["verbose"] != expect_verbose
+    }
+    assert wrong_format == {}, (
+        f"built with fifo_log_verbose={expect_verbose} but these logs say "
+        f"otherwise: {wrong_format}"
+    )
+    for log in logs.values():
+        check_fifo_log_consistency(log)
+    return logs
+
+
+def assert_mlo_fifo_logs(build_dir, loop_name):
+    """Check the debug_fifo snapshots of an MLO build against its final graph."""
+    log_root = build_dir + "/debug/fifo_logs"
+    body_prefix = loop_name + "_"
+
+    sizing_logs = _read_fifo_log_dir(f"{log_root}/fifo_sizing/{loop_name}")
+    stitched_body_logs = _read_fifo_log_dir(f"{log_root}/stitched_ip_rtlsim/{loop_name}")
+
+    # every sizing log has to name a FIFO in the loop body it was simulated with;
+    # the body's nodes carry no loop prefix, the log names do
+    body_pre_fifosim = ModelWrapper(
+        f"{log_root}/fifo_sizing/{loop_name}/intermediate_models/{body_prefix}pre_fifosim.onnx"
+    )
+    sim_fifos = {
+        body_prefix + n.name for n in body_pre_fifosim.get_nodes_by_op_type("StreamingFIFO_rtl")
+    }
+    assert set(sizing_logs) == sim_fifos, (
+        f"fifo_sizing/{loop_name}: logs {sorted(sizing_logs)} do not match the "
+        f"simulated FIFOs {sorted(sim_fifos)}"
+    )
+    for scope, logs in [("fifo_sizing", sizing_logs), ("stitched_ip_rtlsim", stitched_body_logs)]:
+        untagged = sorted(n for n in logs if not n.startswith(body_prefix))
+        assert not untagged, (
+            f"{scope}/{loop_name}: log(s) {untagged} are in the loop snapshot but "
+            f"are not tagged with that loop context"
+        )
+
+    final_model = ModelWrapper(build_dir + "/intermediate_models/step_create_stitched_ip.onnx")
+    all_counts = final_model.analysis(partial(fifo_transaction_counts, apply_to_subgraphs=True))
+    body_counts = {k: v for k, v in all_counts.items() if k.startswith(body_prefix)}
+    main_counts = {k: v for k, v in all_counts.items() if not k.startswith(body_prefix)}
+    assert body_counts, "expected FIFOs inside the loop body"
+    # the non_mlo_nodes head/tail layers are what put FIFOs in the main graph
+    assert main_counts, "expected top-level FIFOs around the FINNLoop"
+
+    # The stitched-ip rtlsim runs the whole design once, so every FIFO in the final
+    # graph must have reported, in the scope it belongs to and only there. Logs are
+    # matched by file name, which has to be the FIFO's final node name.
+    _assert_logs_cover_fifos(stitched_body_logs, body_counts, f"stitched_ip_rtlsim/{loop_name}")
+    main_logs = _read_fifo_log_dir(f"{log_root}/stitched_ip_rtlsim/main")
+    _assert_logs_cover_fifos(main_logs, main_counts, "stitched_ip_rtlsim/main")
+    body_in_main = sorted(n for n in main_logs if n.startswith(body_prefix))
+    assert not body_in_main, (
+        f"stitched_ip_rtlsim/main: loop-body log(s) {body_in_main} leaked into the "
+        f"top-level snapshot"
+    )
+
+    assert len(sizing_logs) >= len(body_counts), (
+        f"fifo_sizing/{loop_name}: {len(sizing_logs)} log(s) for a body that ends "
+        f"up with {len(body_counts)} FIFO(s)"
+    )
+
+    for name, log in stitched_body_logs.items():
+        assert log["in"] == body_counts[name], "%s: logged in=%d, expected %d" % (
+            log["path"],
+            log["in"],
+            body_counts[name],
+        )
+    for name, log in main_logs.items():
+        assert log["in"] == main_counts[name], "%s: logged in=%d, expected %d" % (
+            log["path"],
+            log["in"],
+            main_counts[name],
+        )
+
+
+def _assert_logs_cover_fifos(logs, expected_counts, scope):
+    """Assert a snapshot holds exactly one log per expected FIFO -- no gaps, no strays."""
+    missing = sorted(set(expected_counts) - set(logs))
+    extra = sorted(set(logs) - set(expected_counts))
+    assert not missing, f"{scope}: no log written for FIFO(s) {missing}"
+    assert not extra, f"{scope}: log(s) {extra} do not correspond to a FIFO in this scope"
 
 
 # MVAU folding as a jointly-valid tuple (dim, mvau_pe, mvau_simd, mvau_th, helper_pe).
 # TH=1 selects the standard MVAU; TH>1 selects the tiled MVAU (Versal DSP58).
 # The dimensions must satisfy the tiling constraints: MW % SIMD == 0, MH % PE == 0
-# and (PE * SIMD) % TH == 0, so pe/simd/th cannot be stacked independently.
+# and TH must divide the number of input vectors, so pe/simd/th cannot be stacked
+# independently. TH need not divide PE*SIMD: the weight stream then carries WSIMD,
+# the smallest divisor of PE*SIMD with NW = PE*SIMD/WSIMD <= TH.
 @pytest.mark.parametrize(
     "mvau_cfg",
     [
         (16, 2, 2, 1, 2),
         (12, 6, 3, 3, 6),
+        (12, 4, 4, 3, 4),  # PE*SIMD=16, TH=3: WSIMD=8, NW=2 < TH
+        (12, 2, 2, 9, 2),  # TH > PE*SIMD=4: WSIMD=1, NW=4 < TH
     ],
 )
 # iteration count, number of models chained together
@@ -761,18 +857,24 @@ def test_finnloop_end2end_mlo(
         "phase_generate_outputs",  # Phase (only stitched IP requested, so no full synth)
     ]
 
-    # debug_fifo forces behavioral verification and per-FIFO log capture, which
-    # noticeably extends the flow. Only exercise it on a single canonical config.
-    run_fifo_debug = (
+    # The single canonical parameter combination, used to gate the two expensive
+    # extra checks below so they each run exactly once per non_mlo_nodes value.
+    canonical_cfg = (
         mvau_cfg == (16, 2, 2, 1, 2)
         and elemwise_optype == "ElementwiseMul_hls"
         and rhs_shape == [1]
         and eltw_param_dtype == "INT8"
-        and not non_mlo_nodes
     )
+
+    run_fifo_debug = canonical_cfg and non_mlo_nodes
+
+    # Cycle-count verification stays on the plain FINNLoop, where the measured
+    # rtlsim cycles are the loop's alone and not inflated by head/tail nodes.
+    run_cycle_check = canonical_cfg and not non_mlo_nodes
 
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
+        enable_build_pdb_debug=False,
         steps=steps,
         synth_clk_period_ns=10.0,
         board="V80",
@@ -789,6 +891,7 @@ def test_finnloop_end2end_mlo(
         verify_expected_output_npy=tmp_output_dir + "/expected_output.npy",
         verify_save_full_context=True,  # Enable per-iteration context saving
         debug_fifo=run_fifo_debug,  # snapshot per-FIFO sizing logs (tagged per loop body)
+        fifo_log_verbose=True,
         # MLO pins folding via mvau_pe/mvau_simd on the nodes at creation time, so the
         # folding_missing check (which assumes creation-time PE=1/SIMD=1) is a false
         # positive here; target_fps would instead override the deliberate folding.
@@ -862,22 +965,11 @@ def test_finnloop_end2end_mlo(
     # Cycle-count verification for the FINNLoop: compare get_exp_cycles() against the
     # measured rtlsim cycles (FMPadding-style). Gated to the single canonical config so
     # it reuses the already-built loop-body IP with just one extra rtlsim run.
-    if run_fifo_debug:
+    if run_cycle_check:
         assert_finnloop_cycle_estimate(tmp_output_dir, x)
 
-    # debug_fifo snapshots per-FIFO sizing logs. For MLO the loop-body FIFO sizing
-    # tags each log with its enclosing FINNLoop name and stores them under a subdir
-    # named after that loop, so verify the per-loop logs landed there.
     if run_fifo_debug:
-        loop_fifo_debug_dir = tmp_output_dir + "/debug/fifo_logs/fifo_sizing/FINNLoop_0"
-        assert os.path.isdir(
-            loop_fifo_debug_dir
-        ), f"missing per-loop fifo debug dir {loop_fifo_debug_dir}"
-        loop_fifo_logs = [f for f in os.listdir(loop_fifo_debug_dir) if f.endswith(".log")]
-        assert len(loop_fifo_logs) > 0, f"no per-FIFO debug logs in {loop_fifo_debug_dir}"
-        assert all(
-            f.startswith("FINNLoop_0_") for f in loop_fifo_logs
-        ), f"per-loop fifo logs not tagged with loop context: {loop_fifo_logs}"
+        assert_mlo_fifo_logs(tmp_output_dir, "FINNLoop_0")
 
     # also run dcp generation for a subset of the test parameters
     # this extends the test run time quite a lot
@@ -912,17 +1004,7 @@ def test_finnloop_end2end_mlo(
         #   word-aligned image stays byte-identical for divisors at the real folding
         ("AUP-ZU3_8GB", 8, 8, 4, 1, 2, 3, 3),  # folded, non-divisor (3 wasted bits/word):
         #   exercises the DMA-word-aligned fix on both the activation and weight paths
-        pytest.param(
-            "AUP-ZU3_8GB",
-            12,
-            3,
-            6,
-            1,
-            6,
-            8,
-            8,
-            marks=pytest.mark.xfail(reason="Known bug in the expected cycle count"),
-        ),  # folded, helper PE > 2: VCK190 folding on ZynqMP
+        ("AUP-ZU3_8GB", 12, 3, 6, 1, 6, 8, 8),  # folded, helper PE > 2: VCK190 folding on ZynqMP
         ("VCK190", 12, 3, 6, 3, 6, 8, 8),  # embedded Versal, tiled MVAU (DSP58)
     ],
 )
@@ -1049,6 +1131,7 @@ def test_finnloop_end2end_mlo_ddr(
 
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
+        enable_build_pdb_debug=False,
         steps=steps,
         synth_clk_period_ns=10.0,
         board=board,

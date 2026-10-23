@@ -165,13 +165,17 @@ def create_signed_requant_model(abits, max_val, ishape, per_channel):
 @pytest.mark.parametrize("sim_style", ["cppsim", "node_by_node", "stitched_ip"])
 @pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
 @pytest.mark.parametrize("signed_out", [False, True])
+@pytest.mark.parametrize("input_dtype", ["INT8", "UINT8"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_requant_rtl(abits, ishape, per_channel, part, pe, sim_style, mem_mode, signed_out):
+def test_requant_rtl(
+    abits, ishape, per_channel, part, pe, sim_style, mem_mode, signed_out, input_dtype
+):
     """Test Requant RTL backend with different devices (DSP variants).
 
-    Tests integer input which uses the RTL backend.
+    Tests signed and unsigned integer input which use the RTL backend (unsigned
+    inputs are zero-extended by one bit for the signed core).
     Different FPGA parts test different DSP versions:
     - Versal (xcvc1902): DSP58
     - Ultrascale+ (xczu7ev): DSP48E2
@@ -179,7 +183,6 @@ def test_requant_rtl(abits, ishape, per_channel, part, pe, sim_style, mem_mode, 
     """
     num_channels = ishape[1]
     max_val = 1.0
-    input_dtype = "INT8"  # RTL backend is for integer inputs
 
     # Skip if PE doesn't divide evenly into num_channels
     if num_channels % pe != 0:
@@ -191,7 +194,7 @@ def test_requant_rtl(abits, ishape, per_channel, part, pe, sim_style, mem_mode, 
     else:
         model = create_requant_model(abits, max_val, ishape, per_channel)
 
-    # Set input datatype to INT8 for RTL backend
+    # Set integer input datatype for RTL backend
     model.set_tensor_datatype(model.graph.input[0].name, DataType[input_dtype])
     model = model.transform(InferDataTypes())
 
@@ -224,7 +227,7 @@ def test_requant_rtl(abits, ishape, per_channel, part, pe, sim_style, mem_mode, 
 
     # Verify RTL backend was selected
     requant_rtl_nodes = model.get_nodes_by_op_type("Requant_rtl")
-    assert len(requant_rtl_nodes) == 1, "Expected Requant_rtl for INT8 input"
+    assert len(requant_rtl_nodes) == 1, f"Expected Requant_rtl for {input_dtype} input"
     getCustomOp(requant_rtl_nodes[0]).set_nodeattr("PE", pe)
     getCustomOp(requant_rtl_nodes[0]).set_nodeattr("mem_mode", mem_mode)
 
