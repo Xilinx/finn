@@ -45,6 +45,7 @@ must use the phases, since the loop-body orchestration lives there.
 """
 
 import json
+import logging
 import numpy as np
 import os
 import shutil
@@ -174,10 +175,12 @@ from finn.util.rtlsim import annotate_rtlsim_performance
 from finn.util.test import execute_parent
 from finn.util.vivado import parse_ooc_synth_results
 
+log = logging.getLogger(__name__)
+
 
 def _maybe_enable_verify_behavioral(cfg):
     if cfg.debug_fifo and not cfg.verify_rtlsim_behavioral:
-        print(
+        log.warning(
             "[debug_fifo] forcing verify_rtlsim_behavioral=True so that "
             "the verify phase uses fifo_gauge and produces per-FIFO logs."
         )
@@ -266,7 +269,7 @@ def verify_step(
     step_name: str,
     need_parent: bool,
 ):
-    print("Running verification for " + step_name)
+    log.info("Running verification for " + step_name)
     verify_out_dir = cfg.output_dir + "/verification_output"
     intermediate_models_dir = cfg.output_dir + "/intermediate_models"
     os.makedirs(verify_out_dir, exist_ok=True)
@@ -293,11 +296,11 @@ def verify_step(
             exp_ishape = tuple(parent_model.get_tensor_shape(parent_model.get_first_global_in()))
             target_ishape = (in_npy.shape[0],) + exp_ishape[1:]
             if in_npy.shape != target_ishape:
-                print(
+                log.info(
                     "Verification input has shape %s while model expects %s"
                     % (str(in_npy.shape), str(target_ishape))
                 )
-                print("Attempting to force model shape on verification input")
+                log.info("Attempting to force model shape on verification input")
                 in_npy = in_npy.reshape(target_ishape)
             out_dict = execute_parent(parent_model_fn, child_model_fn, in_npy, return_full_ctx=True)
             out_npy = out_dict[out_tensor_name]
@@ -307,22 +310,22 @@ def verify_step(
             exp_ishape = tuple(model.get_tensor_shape(inp_tensor_name))
             target_ishape = (in_npy.shape[0],) + exp_ishape[1:]
             if in_npy.shape != target_ishape:
-                print(
+                log.info(
                     "Verification input has shape %s while model expects %s"
                     % (str(in_npy.shape), str(target_ishape))
                 )
-                print("Attempting to force model shape on verification input")
+                log.info("Attempting to force model shape on verification input")
                 in_npy = in_npy.reshape(target_ishape)
             inp_dict = {inp_tensor_name: in_npy}
             out_dict = execute_onnx(model, inp_dict, True)
             out_npy = out_dict[out_tensor_name]
         exp_oshape = exp_out_npy.shape
         if out_npy.shape != exp_oshape:
-            print(
+            log.info(
                 "Verification output has shape %s while model produces %s"
                 % (str(exp_oshape), str(out_npy.shape))
             )
-            print("Attempting to force model shape on verification output")
+            log.info("Attempting to force model shape on verification output")
             out_npy = out_npy.reshape(exp_oshape)
 
         if cfg.verification_atol is None:
@@ -363,7 +366,7 @@ def verify_step(
                         new_node_wdb_path = node_wdb_path.replace(".wdb", "_%d.wdb" % index)
                         shutil.move(node_wdb_path, new_node_wdb_path)
 
-    print("Verification for %s : %s" % (step_name, res_to_str[all_res]))
+    log.info("Verification for %s : %s" % (step_name, res_to_str[all_res]))
 
 
 def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
@@ -470,7 +473,7 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
         # Check if any of the relevant op types exist in the model
         if any(len(model.get_nodes_by_op_type(op_type)) > 0 for op_type in op_types):
             if desc:
-                print(f"Converting {desc}...")
+                log.info(f"Converting {desc}...")
             model = model.transform(transform)
         return model
 
@@ -513,7 +516,7 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
             "threshold layers (standalone)",
         )
     else:
-        print(
+        log.info(
             """standalone_thresholds are set to False.
             Please be aware that this means the MVAUs might be implemented in HLS
             because the RTL variant doesn't support the merge of
@@ -637,7 +640,7 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     # Graph topology transformations (always check - not based on op_type)
     # DuplicateStreams: detects forks where tensors have multiple consumers
-    print("Checking for graph forks (duplicate streams)...")
+    log.info("Checking for graph forks (duplicate streams)...")
     model = model.transform(to_hw.InferDuplicateStreamsLayer())
 
     # Optimization: Absorb ElementwiseMul/Add into Requant
@@ -674,7 +677,7 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     # failed conversion is reported clearly, before step_create_dataflow_partition
     # (which assumes a single clean dataflow block) fails less obviously.
     validation_result = model.analysis(validate_dataflow_conversion)
-    print(validation_result["message"])
+    log.info(validation_result["message"])
     if not validation_result["valid"]:
         raise AssertionError(validation_result["message"])
 
@@ -755,7 +758,7 @@ def step_transpose_decomposition(model: ModelWrapper, cfg: DataflowBuildConfig):
             loop_model = loop_model.transform(GiveUniqueNodeNames(prefix=node.name + "_"))
             node_inst.set_nodeattr("body", loop_model.graph)
     else:
-        print("Model doesn't contain any Shuffle nodes, skipping step_transpose_decomposition.")
+        log.info("Model doesn't contain any Shuffle nodes, skipping step_transpose_decomposition.")
     return model
 
 
@@ -797,7 +800,7 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
         extract_model_config_to_json(model, cfg.output_dir + "/auto_folding_config.json", hw_attrs)
 
     else:
-        print("No target_fps provided, skipping step_target_fps_parallelization.")
+        log.info("No target_fps provided, skipping step_target_fps_parallelization.")
 
     return model
 
@@ -816,7 +819,7 @@ def step_apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
     if cfg.folding_config_file is not None:
         model = model.transform(ApplyConfig(cfg.folding_config_file), apply_to_subgraphs=True)
     else:
-        print("No folding config json provided, skipping step_apply_folding_config.")
+        log.info("No folding config json provided, skipping step_apply_folding_config.")
 
     return model
 
@@ -885,9 +888,11 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
             with open(report_dir + "/estimate_network_performance.json", "w") as f:
                 json.dump(estimate_network_performance, f, indent=2)
         else:
-            print("Model contains MLO, currently network performance can't be estimated for this.")
+            log.info(
+                "Model contains MLO, currently network performance can't be estimated for this."
+            )
     else:
-        print(
+        log.info(
             """DataflowOutputType.ESTIMATE_REPORTS not in requested outputs,
             skipping step_generate_estimate_reports."""
         )
@@ -920,7 +925,7 @@ def step_minimize_bit_width(model: ModelWrapper, cfg: DataflowBuildConfig):
         # make sure the changed datatypes are propagated through the network
         model = model.transform(InferDataTypes(), apply_to_subgraphs=True)
     else:
-        print("minimize_bit_width set to False, only run RoundAndClipThresholds.")
+        log.info("minimize_bit_width set to False, only run RoundAndClipThresholds.")
 
     # Always run RoundAndClipThresholds after accumulator widths are determined
     model = model.transform(RoundAndClipThresholds(), apply_to_subgraphs=True)
@@ -996,7 +1001,7 @@ def step_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
                 model, "node_by_node_rtlsim", verify_out_dir
             )
             if skip_verification:
-                print(
+                log.info(
                     "NOTE: This model contains a FINNLoop which is treated as a closed IP "
                     "during node-by-node rtlsim. The conflicting ops are inside the loop "
                     "body and cannot be simulated individually."
@@ -1124,7 +1129,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         else:
             assert "Unsupported auto_fifo_strategy: " + cfg.auto_fifo_strategy
     else:
-        print("auto_fifo_depths is set to False, assume folding cfg json contains FIFO sizes.")
+        log.info("auto_fifo_depths is set to False, assume folding cfg json contains FIFO sizes.")
         # assume folding cfg json contains FIFO sizes too
         # insert DWCs, FIFOs and run ApplyConfig once more
         model = model.transform(InsertDWC())
@@ -1216,10 +1221,10 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
         shutil.copytree(
             model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir, dirs_exist_ok=True
         )
-        print("Vivado stitched IP written into " + stitched_ip_dir)
+        log.info("Vivado stitched IP written into " + stitched_ip_dir)
 
     else:
-        print(
+        log.info(
             """DataflowOutputType.STITCHED_IP not in requested outputs,
             skipping step_create_stitched_ip."""
         )
@@ -1285,7 +1290,7 @@ def step_export_portable_rtl(model: ModelWrapper, cfg: DataflowBuildConfig):
         # the wrapper and file lists (without synthesis)
         vivado_stitch_proj = model.get_metadata_prop("vivado_stitch_proj")
         if not vivado_stitch_proj:
-            print("Creating stitched IP for portable RTL export (synthesis disabled)...")
+            log.info("Creating stitched IP for portable RTL export (synthesis disabled)...")
             model = model.transform(
                 CreateStitchedIP(
                     cfg._resolve_fpga_part(),
@@ -1298,9 +1303,9 @@ def step_export_portable_rtl(model: ModelWrapper, cfg: DataflowBuildConfig):
 
         export_dir = cfg.output_dir + "/portable_rtl"
         model = model.transform(ExportPortableRTL(export_dir))
-        print("Portable RTL export written to " + export_dir)
+        log.info("Portable RTL export written to " + export_dir)
     else:
-        print(
+        log.info(
             """DataflowOutputType.PORTABLE_RTL not in requested outputs,
             skipping step_export_portable_rtl."""
         )
@@ -1353,7 +1358,7 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
             os.environ["RTLSIM_TRACE_DEPTH"] = str(orig_rtlsim_trace_depth)
 
     else:
-        print(
+        log.info(
             """DataflowOutputType.RTLSIM_PERFORMANCE not in requested outputs or model is MLO,
             skipping step_measure_rtlsim_performance."""
         )
@@ -1370,7 +1375,7 @@ def step_make_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
         # generate PYNQ driver
         model = model.transform(MakePYNQDriver(cfg._resolve_driver_platform()))
         shutil.copytree(model.get_metadata_prop("pynq_driver_dir"), driver_dir, dirs_exist_ok=True)
-        print("PYNQ Python driver written into " + driver_dir)
+        log.info("PYNQ Python driver written into " + driver_dir)
     elif DataflowOutputType.CPP_DRIVER in cfg.generate_outputs:
         # generate C++ Driver
         model = model.transform(
@@ -1385,9 +1390,9 @@ def step_make_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
             dirs_exist_ok=True,
             copy_function=shutil.copyfile,
         )
-        print("C++ driver written into " + driver_dir)
+        log.info("C++ driver written into " + driver_dir)
     else:
-        print(
+        log.info(
             """Neither DataflowOutputType.PYNQ_DRIVER nor DataflowOutputType.CPP_DRIVER
             in requested outputs, skipping step_make_driver."""
         )
@@ -1472,10 +1477,10 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
 
         else:
             raise Exception("Unrecognized shell_flow_type: " + str(shell_flow_type))
-        print("Bitfile written into " + bitfile_dir)
+        log.info("Bitfile written into " + bitfile_dir)
 
     else:
-        print(
+        log.info(
             "DataflowOutputType.BITFILE not in requested outputs, skipping step_synthesize_bitfile."
         )
 
@@ -1498,7 +1503,7 @@ def step_deployment_package(model: ModelWrapper, cfg: DataflowBuildConfig):
             copy_function=shutil.copyfile,
         )
     else:
-        print(
+        log.info(
             """DataflowOutputType.DEPLOYMENT_PACKAGE not in requested outputs,
             skipping step_deployment_package."""
         )
@@ -1518,18 +1523,18 @@ def step_loop_rolling(model, cfg):
             }
             model = model.transform(SetLoopBoundary(node_metadata, cfg.loop_body_range))
         else:
-            print(
+            log.info(
                 """MLO is selected but no loop range for the subgraph is specified,
                 this might cause an error during loop rolling."""
             )
         if cfg.loop_body_hierarchy is not None:
-            print(f"Running Loop Rolling on {cfg.loop_body_hierarchy} hierarchy")
+            log.info(f"Running Loop Rolling on {cfg.loop_body_hierarchy} hierarchy")
             template_path = os.path.join(cfg.output_dir, "loop-body-template.onnx")
             loop_extraction = LoopExtraction(cfg.loop_body_hierarchy, template_path)
             model = model.transform(loop_extraction)
             model = model.transform(LoopRolling(loop_extraction.loop_body_template))
     else:
-        print("MLO not selected, skipping step_loop_rolling.")
+        log.info("MLO not selected, skipping step_loop_rolling.")
 
     return model
 
@@ -1642,7 +1647,7 @@ def step_assign_ddr_weight_offsets(model: ModelWrapper, cfg: DataflowBuildConfig
             if node_inst.get_nodeattr("mem_type") == "":
                 node_inst.set_nodeattr("mem_type", resolved_mem_type)
                 if resolved_mem_type == "HBM":
-                    print(
+                    log.info(
                         "NOTE: selecting HBM mem_type for FINNLoop '%s' on board %s. "
                         "You can create a stitched IP to use with HBM, but there is "
                         "currently no automatic system integration for HBM as there is "

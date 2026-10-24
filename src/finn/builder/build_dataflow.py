@@ -31,9 +31,7 @@ import json
 import logging
 import os
 import pdb  # NOQA
-import sys
 import time
-import traceback
 from qonnx.core.modelwrapper import ModelWrapper
 
 from finn.builder.build_dataflow_checks import (
@@ -50,25 +48,19 @@ from finn.builder.build_dataflow_steps import (
     _maybe_enable_verify_behavioral,
     build_dataflow_step_lookup,
 )
+from finn.util.build_log import log_run, running_step
+
+# Not __name__: run as a script, this module is __main__, outside the finn logger tree.
+log = logging.getLogger("finn.builder.build_dataflow")
 
 
-# adapted from https://stackoverflow.com/a/39215961
-class StreamToLogger(object):
-    """
-    Fake file-like stream object that redirects writes to a logger instance.
-    """
-
-    def __init__(self, logger, level):
-        self.logger = logger
-        self.level = level
-        self.linebuf = ""
-
-    def write(self, buf):
-        for line in buf.rstrip().splitlines():
-            self.logger.log(self.level, line.rstrip())
-
-    def flush(self):
-        pass
+def _step_index(step_names, step_name, option):
+    if step_name not in step_names:
+        raise ValueError(
+            "%s %r not found, the steps of this build are: %s"
+            % (option, step_name, ", ".join(step_names))
+        )
+    return step_names.index(step_name)
 
 
 def resolve_build_steps(cfg: DataflowBuildConfig, partial: bool = True):
@@ -124,11 +116,11 @@ def resolve_build_steps(cfg: DataflowBuildConfig, partial: bool = True):
         if cfg.start_step is None:
             start_ind = 0
         else:
-            start_ind = step_names.index(cfg.start_step)
+            start_ind = _step_index(step_names, cfg.start_step, "start_step")
         if cfg.stop_step is None:
             stop_ind = len(step_names) - 1
         else:
-            stop_ind = step_names.index(cfg.stop_step)
+            stop_ind = _step_index(step_names, cfg.stop_step, "stop_step")
         steps_as_fxns = steps_as_fxns[start_ind : (stop_ind + 1)]
 
     return steps_as_fxns
@@ -136,8 +128,7 @@ def resolve_build_steps(cfg: DataflowBuildConfig, partial: bool = True):
 
 def resolve_step_filename(step_name: str, cfg: DataflowBuildConfig, step_delta: int = 0):
     step_names = list(map(lambda x: x.__name__, resolve_build_steps(cfg, partial=False)))
-    assert step_name in step_names, "start_step %s not found" + step_name
-    step_no = step_names.index(step_name) + step_delta
+    step_no = _step_index(step_names, step_name, "start_step") + step_delta
     assert step_no >= 0, "Invalid step+delta combination"
     assert step_no < len(step_names), "Invalid step+delta combination"
     filename = cfg.output_dir + "/intermediate_models/"
@@ -145,116 +136,99 @@ def resolve_step_filename(step_name: str, cfg: DataflowBuildConfig, step_delta: 
     return filename
 
 
-def _run_build_steps(model, cfg, build_dataflow_steps, log, step_log):
+def _run_build_steps(model, cfg, build_dataflow_steps):
     """Run the resolved build steps in order.
 
-    The high-level step timeline (and any failure traceback) is written to `log`
-    (build_dataflow.log). The verbose per-step stdout/stderr (cppsim/rtlsim output
-    etc.) is redirected to `step_log` (build_dataflow_stepwise.log) so it does not
-    crowd the main log.
+    Each step runs under running_step, so the records of the finn loggers and the
+    Python warnings that it produces go to build_dataflow.log, stamped with the
+    name of the configured step or phase.
 
     Returns 0 on success and -1 on the first failing step.
     """
     step_num = 1
     time_per_step = dict()
-    stdout_logger = StreamToLogger(step_log, logging.INFO)
-    stderr_logger = StreamToLogger(step_log, logging.ERROR)
-    stdout_orig = sys.stdout
-    stderr_orig = sys.stderr
     for transform_step in build_dataflow_steps:
-        try:
-            step_name = transform_step.__name__
-            step_banner = "Running step: %s [%d/%d]" % (
-                step_name,
-                step_num,
-                len(build_dataflow_steps),
-            )
-            print(step_banner)
-            # record the high-level step timeline in the main build log
-            log.info(step_banner)
-            # redirect verbose step output to the separate stepwise logfile
-            if not cfg.verbose:
-                sys.stdout = stdout_logger
-                sys.stderr = stderr_logger
-                step_log.info(step_banner)
-            # run the step
-            step_start = time.time()
-            model = transform_step(model, cfg)
-            step_end = time.time()
-            # restore stdout/stderr
-            sys.stdout = stdout_orig
-            sys.stderr = stderr_orig
-            time_per_step[step_name] = step_end - step_start
-            chkpt_name = "%s.onnx" % (step_name)
-            if cfg.save_intermediate_models:
-                intermediate_model_dir = cfg.output_dir + "/intermediate_models"
-                if not os.path.exists(intermediate_model_dir):
-                    os.makedirs(intermediate_model_dir)
-                model.save("%s/%s" % (intermediate_model_dir, chkpt_name))
-            step_num += 1
-        except:  # noqa
-            # restore stdout/stderr
-            sys.stdout = stdout_orig
-            sys.stderr = stderr_orig
-            # print exception info and traceback
-            extype, value, tb = sys.exc_info()
-            traceback.print_exc()
-            # also record the traceback in the main build log for findability
-            log.error("Step %s failed:\n%s" % (step_name, traceback.format_exc()))
-            # start postmortem debug if configured
-            if cfg.enable_build_pdb_debug:
-                pdb.post_mortem(tb)
-            else:
-                print("enable_build_pdb_debug not set in build config, exiting...")
-            print("Build failed")
-            return -1
+        step_name = transform_step.__name__
+        with running_step(step_name):
+            try:
+                log.info("Running step: %s [%d/%d]", step_name, step_num, len(build_dataflow_steps))
+                # run the step
+                step_start = time.time()
+                model = transform_step(model, cfg)
+                step_end = time.time()
+                time_per_step[step_name] = step_end - step_start
+                chkpt_name = "%s.onnx" % (step_name)
+                if cfg.save_intermediate_models:
+                    intermediate_model_dir = cfg.output_dir + "/intermediate_models"
+                    if not os.path.exists(intermediate_model_dir):
+                        os.makedirs(intermediate_model_dir)
+                    model.save("%s/%s" % (intermediate_model_dir, chkpt_name))
+                step_num += 1
+            except Exception as e:
+                log.error("Step %s failed:", step_name, exc_info=True)
+                # start postmortem debug if configured
+                if cfg.enable_build_pdb_debug:
+                    pdb.post_mortem(e.__traceback__)
+                else:
+                    log.info("enable_build_pdb_debug not set in build config, exiting...")
+                log.info("Build failed")
+                return -1
 
     with open(cfg.output_dir + "/time_per_step.json", "w") as f:
         json.dump(time_per_step, f, indent=2)
-    print("Completed successfully")
+    log.info("Completed successfully")
     return 0
 
 
 def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
     """Best-effort build a dataflow accelerator using the given configuration.
 
+    The build is logged to build_dataflow.log in the output directory; see
+    finn.util.build_log for what reaches the console.
+
     :param model_filename: ONNX model filename to build
     :param cfg: Build configuration
     """
+    # create the output dir if it doesn't exist
+    if not os.path.exists(cfg.output_dir):
+        os.makedirs(cfg.output_dir)
+    with log_run(cfg.output_dir + "/build_dataflow.log", runner=log.name, verbose=cfg.verbose):
+        return _build_dataflow_cfg(model_filename, cfg)
+
+
+def _build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
     # if start_step is specified, override the input model
     if cfg.start_step is None:
-        print("Building dataflow accelerator from " + model_filename)
+        log.info("Building dataflow accelerator from " + model_filename)
         model = ModelWrapper(model_filename)
     else:
         intermediate_model_filename = resolve_step_filename(cfg.start_step, cfg, -1)
-        print(
-            "Building dataflow accelerator from intermediate checkpoint"
+        log.info(
+            "Building dataflow accelerator from intermediate checkpoint "
             + intermediate_model_filename
         )
         model = ModelWrapper(intermediate_model_filename)
     assert type(model) is ModelWrapper
     finn_build_dir = os.environ["FINN_BUILD_DIR"]
 
-    print("Intermediate outputs will be generated in " + finn_build_dir)
-    print("Final outputs will be generated in " + cfg.output_dir)
-    print("Build log is at " + cfg.output_dir + "/build_dataflow.log")
-    print("Per-step (verbose) log is at " + cfg.output_dir + "/build_dataflow_stepwise.log")
-    # create the output dir if it doesn't exist
-    if not os.path.exists(cfg.output_dir):
-        os.makedirs(cfg.output_dir)
+    log.info("Intermediate outputs will be generated in " + finn_build_dir)
+    log.info("Final outputs will be generated in " + cfg.output_dir)
+    log.info("Build log is at " + cfg.output_dir + "/build_dataflow.log")
 
     _maybe_enable_verify_behavioral(cfg)
 
     # Run configuration checks
     config_report = run_all_config_checks(cfg)
-    print(format_report(config_report))
+    log.info(format_report(config_report))
     report_path = save_report(config_report, cfg.output_dir)
-    print(f"Configuration check report saved to: {report_path}")
+    log.info(f"Configuration check report saved to: {report_path}")
 
     if config_report.has_errors():
         if cfg.mute_config_assertions is True:
-            print("WARNING: Configuration errors detected but muted by mute_config_assertions=True")
-            print("Build may fail or produce unexpected results.")
+            log.warning(
+                "Configuration errors detected but muted by mute_config_assertions=True. "
+                "Build may fail or produce unexpected results."
+            )
         else:
             raise AssertionError(
                 "Configuration check failed with errors. "
@@ -262,48 +236,7 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
             )
 
     build_dataflow_steps = resolve_build_steps(cfg)
-    # set up logger
-    # Note: basicConfig() is ignored if logging already configured (e.g., in Jupyter)
-    # So we explicitly add a file handler to ensure build_dataflow.log is created
-    log = logging.getLogger("build_dataflow")
-    log.setLevel(logging.DEBUG)
-    log.propagate = (
-        False  # Prevent propagation to root logger (avoids duplicate console output in Jupyter)
-    )
-
-    # Create file handler for build_dataflow.log
-    log_file_handler = logging.FileHandler(cfg.output_dir + "/build_dataflow.log", mode="a")
-    log_file_handler.setLevel(logging.DEBUG)
-    log_file_handler.setFormatter(logging.Formatter("[%(asctime)s] %(message)s"))
-
-    # Remove any existing handlers from this logger to avoid duplicates
-    for handler in log.handlers[:]:
-        log.removeHandler(handler)
-
-    # Add the file handler (only file output, no console output)
-    log.addHandler(log_file_handler)
-
-    # Separate logger for the verbose per-step stdout/stderr (cppsim/rtlsim output
-    # etc.), so it does not crowd the high-level timeline in build_dataflow.log
-    step_log = logging.getLogger("build_dataflow.step_io")
-    step_log.setLevel(logging.DEBUG)
-    step_log.propagate = False
-    step_log_file_handler = logging.FileHandler(
-        cfg.output_dir + "/build_dataflow_stepwise.log", mode="a"
-    )
-    step_log_file_handler.setLevel(logging.DEBUG)
-    step_log_file_handler.setFormatter(logging.Formatter("[%(asctime)s] %(message)s"))
-    for handler in step_log.handlers[:]:
-        step_log.removeHandler(handler)
-    step_log.addHandler(step_log_file_handler)
-
-    try:
-        return _run_build_steps(model, cfg, build_dataflow_steps, log, step_log)
-    finally:
-        log.removeHandler(log_file_handler)
-        log_file_handler.close()
-        step_log.removeHandler(step_log_file_handler)
-        step_log_file_handler.close()
+    return _run_build_steps(model, cfg, build_dataflow_steps)
 
 
 def build_dataflow_directory(path_to_cfg_dir: str):
@@ -330,15 +263,31 @@ def build_dataflow_directory(path_to_cfg_dir: str):
     old_wd = os.getcwd()
     # change into build dir to resolve relative paths
     os.chdir(path_to_cfg_dir)
-    ret = build_dataflow_cfg(onnx_filename, build_cfg)
-    os.chdir(old_wd)
-    return ret
+    try:
+        return build_dataflow_cfg(onnx_filename, build_cfg)
+    finally:
+        os.chdir(old_wd)
 
 
 def main():
     """Entry point for dataflow builds. Invokes `build_dataflow_directory` using
-    command line arguments"""
-    clize.run(build_dataflow_directory)
+    command line arguments. Exits with a nonzero status if the build failed."""
+
+    def cli(path_to_cfg_dir: str):
+        """Best-effort build a dataflow accelerator from the specified directory.
+
+        :param path_to_cfg_dir: Directory containing the model and build config
+
+        The specified directory path_to_cfg_dir must contain the following files:
+
+        * model.onnx : ONNX model to be converted to dataflow accelerator
+        * dataflow_build_config.json : JSON file with build configuration
+
+        """
+        if build_dataflow_directory(path_to_cfg_dir):
+            raise SystemExit(1)
+
+    clize.run(cli)
 
 
 if __name__ == "__main__":
