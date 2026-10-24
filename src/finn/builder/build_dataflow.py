@@ -71,6 +71,15 @@ class StreamToLogger(object):
         pass
 
 
+def _step_index(step_names, step_name, option):
+    if step_name not in step_names:
+        raise ValueError(
+            "%s %r not found, the steps of this build are: %s"
+            % (option, step_name, ", ".join(step_names))
+        )
+    return step_names.index(step_name)
+
+
 def resolve_build_steps(cfg: DataflowBuildConfig, partial: bool = True):
     """Resolve build steps from config, supporting both phases and fine-grained steps.
 
@@ -124,11 +133,11 @@ def resolve_build_steps(cfg: DataflowBuildConfig, partial: bool = True):
         if cfg.start_step is None:
             start_ind = 0
         else:
-            start_ind = step_names.index(cfg.start_step)
+            start_ind = _step_index(step_names, cfg.start_step, "start_step")
         if cfg.stop_step is None:
             stop_ind = len(step_names) - 1
         else:
-            stop_ind = step_names.index(cfg.stop_step)
+            stop_ind = _step_index(step_names, cfg.stop_step, "stop_step")
         steps_as_fxns = steps_as_fxns[start_ind : (stop_ind + 1)]
 
     return steps_as_fxns
@@ -136,8 +145,7 @@ def resolve_build_steps(cfg: DataflowBuildConfig, partial: bool = True):
 
 def resolve_step_filename(step_name: str, cfg: DataflowBuildConfig, step_delta: int = 0):
     step_names = list(map(lambda x: x.__name__, resolve_build_steps(cfg, partial=False)))
-    assert step_name in step_names, "start_step %s not found" + step_name
-    step_no = step_names.index(step_name) + step_delta
+    step_no = _step_index(step_names, step_name, "start_step") + step_delta
     assert step_no >= 0, "Invalid step+delta combination"
     assert step_no < len(step_names), "Invalid step+delta combination"
     filename = cfg.output_dir + "/intermediate_models/"
@@ -192,10 +200,13 @@ def _run_build_steps(model, cfg, build_dataflow_steps, log, step_log):
                     os.makedirs(intermediate_model_dir)
                 model.save("%s/%s" % (intermediate_model_dir, chkpt_name))
             step_num += 1
-        except:  # noqa
+        except BaseException as e:
             # restore stdout/stderr
             sys.stdout = stdout_orig
             sys.stderr = stderr_orig
+            # an interrupt or an exit request is not a failed step: let it through
+            if not isinstance(e, Exception):
+                raise
             # print exception info and traceback
             extype, value, tb = sys.exc_info()
             traceback.print_exc()
@@ -228,7 +239,7 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
     else:
         intermediate_model_filename = resolve_step_filename(cfg.start_step, cfg, -1)
         print(
-            "Building dataflow accelerator from intermediate checkpoint"
+            "Building dataflow accelerator from intermediate checkpoint "
             + intermediate_model_filename
         )
         model = ModelWrapper(intermediate_model_filename)
@@ -330,15 +341,31 @@ def build_dataflow_directory(path_to_cfg_dir: str):
     old_wd = os.getcwd()
     # change into build dir to resolve relative paths
     os.chdir(path_to_cfg_dir)
-    ret = build_dataflow_cfg(onnx_filename, build_cfg)
-    os.chdir(old_wd)
-    return ret
+    try:
+        return build_dataflow_cfg(onnx_filename, build_cfg)
+    finally:
+        os.chdir(old_wd)
 
 
 def main():
     """Entry point for dataflow builds. Invokes `build_dataflow_directory` using
-    command line arguments"""
-    clize.run(build_dataflow_directory)
+    command line arguments. Exits with a nonzero status if the build failed."""
+
+    def cli(path_to_cfg_dir: str):
+        """Best-effort build a dataflow accelerator from the specified directory.
+
+        :param path_to_cfg_dir: Directory containing the model and build config
+
+        The specified directory path_to_cfg_dir must contain the following files:
+
+        * model.onnx : ONNX model to be converted to dataflow accelerator
+        * dataflow_build_config.json : JSON file with build configuration
+
+        """
+        if build_dataflow_directory(path_to_cfg_dir):
+            raise SystemExit(1)
+
+    clize.run(cli)
 
 
 if __name__ == "__main__":
