@@ -3,14 +3,17 @@
 
 import pytest
 
+import logging
 import os
 import subprocess
 import sys
+import warnings
 from onnx import TensorProto, helper
 
 import finn.builder.build_dataflow as build
 from finn.builder.build_dataflow_config import DataflowBuildConfig, DataflowOutputType
-from finn.util.basic import make_build_dir
+from finn.util.basic import launch_process_helper, make_build_dir
+from finn.util.build_log import log_run
 
 
 def make_test_model(build_dir, op_type="Relu", domain=""):
@@ -32,7 +35,7 @@ def make_cfg(output_dir, steps, **kw):
         fpga_part="xc7z020clg400-1",
         steps=steps,
         generate_outputs=[DataflowOutputType.ESTIMATE_REPORTS],
-        **kw
+        **kw,
     )
 
 
@@ -144,3 +147,69 @@ def test_an_unknown_step_name_is_reported_with_the_valid_names(option):
     message = str(exc.value)
     assert option in message and "'step_foo'" in message
     assert "passing_step" in message
+
+
+def talking_step(model, cfg):
+    sys.stdout.write("(Pdb) from inside the step\n")
+    logging.getLogger("finn.transformation.test").info("a record from the step")
+    with warnings.catch_warnings():
+        warnings.simplefilter("always")
+        warnings.warn("a warning from the step", UserWarning)
+    launch_process_helper(["echo", "a line of tool output"])
+    return model
+
+
+@pytest.mark.util
+def test_a_step_writes_to_the_real_stdout_and_its_records_reach_the_build_log(capfd):
+    finn = logging.getLogger("finn")
+    state = finn.level, list(finn.handlers), finn.propagate
+    build_dir = make_build_dir("test_runner_step_output_")
+    output_dir = os.path.join(build_dir, "output")
+    # and a built-in step's message, which it used to print
+    cfg = make_cfg(output_dir, [talking_step, "step_apply_folding_config"])
+    assert build.build_dataflow_cfg(make_test_model(build_dir), cfg) == 0
+    printed = capfd.readouterr()
+    log_path = os.path.join(output_dir, "build_dataflow.log")
+    with open(log_path) as f:
+        log = f.read()
+    assert "(Pdb) from inside the step" in printed.out
+    assert "Running step: talking_step [1/2]" in printed.out
+    assert "1 Python warnings, in " + log_path in printed.out
+    assert "a record from the step" not in printed.out + printed.err
+    assert "a line of tool output" not in printed.out + printed.err
+    assert "INFO talking_step finn.transformation.test: a record from the step" in log
+    assert "WARNING talking_step py.warnings: " in log
+    assert "UserWarning: a warning from the step" in log
+    assert "INFO talking_step finn.util.basic: a line of tool output" in log
+    assert "(Pdb)" not in log
+    assert "No folding config json provided" in log
+    assert "No folding config json provided" not in printed.out + printed.err
+    assert (finn.level, finn.handlers, finn.propagate) == state
+
+
+TOOL = ["sh", "-c", "printf 'stdout tail'; printf 'stderr tail' >&2"]
+
+
+@pytest.mark.util
+def test_tool_output_is_logged_per_stream_in_a_run(tmp_path):
+    path = tmp_path / "run.log"
+    with log_run(str(path), runner="finn.builder.build_dataflow"):
+        launch_process_helper(TOOL)
+    log = path.read_text()
+    assert "finn.util.basic: stdout tail\n" in log
+    assert "finn.util.basic: stderr tail\n" in log
+
+
+@pytest.mark.util
+def test_tool_output_outside_a_run_is_written_through(capfd, monkeypatch):
+    # a handler that takes no INFO record must not swallow the tool's output
+    root = logging.getLogger()
+    monkeypatch.setattr(root, "level", logging.INFO)
+    handler = logging.NullHandler()
+    root.addHandler(handler)
+    try:
+        launch_process_helper(TOOL)
+    finally:
+        root.removeHandler(handler)
+    printed = capfd.readouterr()
+    assert (printed.out, printed.err) == ("stdout tail", "stderr tail")
