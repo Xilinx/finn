@@ -459,6 +459,138 @@ def test_join_window_floor():
     assert list(need[:4]) == [1, 2, 7, 8] and need[-1] == 24 and len(need) == 24
 
 
+def make_concat_window(h=4, w=4, ch=2):
+    """Fork -> (shortcut | FMPadding -> 3x3 sliding window) -> concat, no TAVs."""
+    hw = dict(domain="finn.custom_op.fpgadataflow", backend="fpgadataflow")
+    pix = [1, h, w]
+    nodes = [
+        helper.make_node(
+            "DuplicateStreams",
+            ["inp"],
+            ["short", "l0"],
+            NumChannels=ch,
+            NumOutputStreams=2,
+            PE=1,
+            inputDataType=IDT.name,
+            numInputVectors=pix,
+            **hw,
+        ),
+        helper.make_node(
+            "FMPadding",
+            ["l0"],
+            ["l1"],
+            ImgDim=[h, w],
+            Padding=[1, 1, 1, 1],
+            NumChannels=ch,
+            SIMD=1,
+            inputDataType=IDT.name,
+            **hw,
+        ),
+        helper.make_node(
+            "ConvolutionInputGenerator_rtl",
+            ["l1"],
+            ["l2"],
+            ConvKernelDim=[3, 3],
+            IFMChannels=ch,
+            IFMDim=[h + 2, w + 2],
+            OFMDim=[h, w],
+            SIMD=1,
+            Stride=[1, 1],
+            Dilation=[1, 1],
+            inputDataType=IDT.name,
+            outputDataType=IDT.name,
+            domain="finn.custom_op.fpgadataflow.rtl",
+            backend="fpgadataflow",
+        ),
+        helper.make_node(
+            "StreamingConcat",
+            ["short", "l2"],
+            ["outp"],
+            ChannelsPerStream=[ch, 9 * ch],
+            SIMD=1,
+            inputDataTypes=[IDT.name, IDT.name],
+            numInputVectors=pix,
+            **hw,
+        ),
+    ]
+    graph = helper.make_graph(
+        nodes,
+        "concat_window",
+        [helper.make_tensor_value_info("inp", TensorProto.FLOAT, pix + [ch])],
+        [helper.make_tensor_value_info("outp", TensorProto.FLOAT, pix + [10 * ch])],
+    )
+    return ModelWrapper(qonnx_make_model(graph)).transform(GiveUniqueNodeNames())
+
+
+@pytest.mark.fpgadataflow
+def test_join_window_floor_concat():
+    # input words each output word needs: padding words wait for the last real
+    # pixel before them, a window for its last pixel, an upsampled pixel for
+    # its nearest neighbour (2 words a pixel throughout)
+    model = make_concat_window()
+    pad, swg = (getCustomOp(n) for n in model.graph.node[1:3])
+    assert list(pad.get_tav_input_need()[::2][:8]) == [1, 1, 1, 1, 1, 1, 0 + 1, 2]
+    assert pad.get_tav_input_need()[-1] == 32
+    # window (0, 0) ends at padded pixel (2, 2), the 15th: FMPadding word 30
+    assert list(swg.get_tav_input_need()[::18]) == [
+        30,
+        32,
+        34,
+        36,
+        42,
+        44,
+        46,
+        48,
+        54,
+        56,
+        58,
+        60,
+        66,
+        68,
+        70,
+        72,
+    ]
+    up = helper.make_node(
+        "UpsampleNearestNeighbour",
+        ["x"],
+        ["y"],
+        domain="finn.custom_op.fpgadataflow",
+        backend="fpgadataflow",
+        HI=2,
+        WI=2,
+        HO=4,
+        WO=4,
+        NumChannels=2,
+        SIMD=1,
+        inputDataType=IDT.name,
+    )
+    assert list(getCustomOp(up).get_tav_input_need()[::2]) == [
+        2,
+        2,
+        4,
+        4,
+        2,
+        2,
+        4,
+        4,
+        6,
+        6,
+        8,
+        8,
+        6,
+        6,
+        8,
+        8,
+    ]
+    # the concat takes a pixel's 2 shortcut words with its 18 window words; the
+    # window of pixel (0, 0) needs 12 fork words (FMPadding row 1 up to pixel
+    # (1, 1)), so the shortcut holds 11 words before the concat can start
+    # (deadlock), 12 with the fork and the concat at 10 cycles a word (paced);
+    # the window words come 18 a pixel at a cycle each: 9 on the window input
+    floors = join_window_floors(model, list(model.graph.node))
+    assert floors == {"short": 15, "l2": 12}
+
+
 @pytest.mark.fpgadataflow
 def test_decoupled_chain_floor():
     # A consumer that can be throttled reads 100 tokens in 100 cycles against a

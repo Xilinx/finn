@@ -73,6 +73,18 @@ class FMPadding(HWCustomOp):
         odim_w = idim_w + pad_w
         return [odim_h, odim_w]
 
+    def get_tav_input_need(self, ind=0):
+        """For the FIFO sizer's join floor: output word *j* needs the input up to
+        its own pixel, a padding word the input up to the last pixel before it."""
+        h, w = self.get_nodeattr("ImgDim")
+        top, left = self.get_nodeattr("Padding")[:2]
+        ho, wo = self.get_padded_odim()
+        words = int(np.prod(self.get_folded_input_shape()[:-1])) // (h * w)
+        row, col = np.divmod(np.arange(ho * wo), wo)
+        inside = (row >= top) & (row < top + h)
+        pixels = np.clip(row - top, 0, h) * w + np.where(inside, np.clip(col - left + 1, 0, w), 0)
+        return np.repeat(np.maximum(pixels * words, 1), words)
+
     def get_exp_cycles(self):
         odim_h, odim_w = self.get_padded_odim()
         channels = self.get_nodeattr("NumChannels")

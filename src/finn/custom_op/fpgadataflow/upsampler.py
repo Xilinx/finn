@@ -121,6 +121,17 @@ class UpsampleNearestNeighbour(HWCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
+    def get_tav_input_need(self, ind=0):
+        """For the FIFO sizer's join floor: output pixel (y, x) needs the input
+        up to its nearest neighbour."""
+        hi, wi = self.get_nodeattr("HI"), self.get_nodeattr("WI")
+        ho, wo = self.get_nodeattr("HO"), self.get_nodeattr("WO")
+        words = self.get_nodeattr("NumChannels") // self.get_nodeattr("SIMD")
+        b, rest = np.divmod(np.arange(self.get_nodeattr("batchSize") * ho * wo), ho * wo)
+        y, x = np.divmod(rest, wo)
+        pixels = b * hi * wi + (y * hi // ho) * wi + x * wi // wo + 1
+        return np.repeat(pixels * words, words)
+
     def get_exp_cycles(self):
         return np.prod(self.get_folded_output_shape()[:-1])
 

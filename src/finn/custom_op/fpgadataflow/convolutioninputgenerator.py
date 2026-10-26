@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import math
+import numpy as np
 import warnings
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
@@ -748,6 +749,21 @@ class ConvolutionInputGenerator(HWCustomOp):
             dilation = dilation[::-1]
 
         return (ifm_ch, ifm_dim, ofm_dim, k, stride, dilation)
+
+    def get_tav_input_need(self, ind=0):
+        """For the FIFO sizer's join floor: the words of output pixel (y, x)
+        need the input up to the last pixel of its window."""
+        h, w = self.get_nodeattr("IFMDim")
+        k_h, k_w = self.get_nodeattr("ConvKernelDim")
+        s_h, s_w = self.get_nodeattr("Stride")
+        d_h, d_w = self.get_nodeattr("Dilation")
+        oshape = self.get_folded_output_shape()
+        oh, ow = oshape[1], oshape[2]
+        words_in = int(np.prod(self.get_folded_input_shape()[:-1])) // (h * w)
+        words_out = int(np.prod(oshape[:-1])) // (oh * ow)
+        y, x = np.divmod(np.arange(oh * ow), ow)
+        last = (y * s_h + (k_h - 1) * d_h) * w + x * s_w + (k_w - 1) * d_w
+        return np.repeat((np.minimum(last, h * w - 1) + 1) * words_in, words_out)
 
     def get_exp_cycles(self):
         return 0

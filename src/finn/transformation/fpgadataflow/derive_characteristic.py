@@ -959,7 +959,7 @@ def join_window_floors(model, nodes, period=None):
 
     floors = {}
     for join in nodes:
-        if not is_stream_join(join):
+        if not (is_stream_join(join) or join.op_type.startswith("StreamingConcat")):
             continue
         ins = [t for t in join.input if producer(t) is not None]
         if len(ins) < 2:
@@ -1010,23 +1010,29 @@ def join_window_floors(model, nodes, period=None):
             return res
 
         try:
-            n_join = _frame_words(registry.getCustomOp(join), 0)
+            # join token k: the k-th word of every input of an add, the k-th
+            # block of each input's share of a concatenated pixel
+            sizes = [
+                _frame_words(registry.getCustomOp(join), list(join.input).index(t)) for t in ins
+            ]
+            n_join = int(np.gcd.reduce(sizes))
+            per = [n // n_join for n in sizes]
             k = np.arange(1, 2 * n_join + 1, dtype=np.int64)
-            walks = [walk(t, len(k)) for t in ins]
+            walks = [walk(t, 2 * n) for t, n in zip(ins, sizes)]
         except Exception:
             continue
         if any(w is None for w in walks):
             continue
-        total = np.max(np.stack([w[0] for w in walks]), axis=0)
-        taken = np.max(np.stack([w[1] for w in walks]), axis=0)
+        total = np.max(np.stack([w[0][k * c - 1] for w, c in zip(walks, per)]), axis=0)
+        taken = np.max(np.stack([w[1][k * c - 1] for w, c in zip(walks, per)]), axis=0)
         try:
             rate = float(registry.getCustomOp(join).get_exp_cycles()) / n_join
         except Exception:
             rate = 0.0
         taken = rate * k + np.maximum.accumulate(taken - rate * k)
-        for t, (need, times) in zip(ins, walks):
-            deadlock = np.searchsorted(need, total - 1, side="right") - (k - 1)
-            paced = np.searchsorted(times, taken, side="right") - (k - 1)
+        for t, (need, times), c in zip(ins, walks, per):
+            deadlock = np.searchsorted(need, total - 1, side="right") - (k - 1) * c
+            paced = np.searchsorted(times, taken, side="right") - (k - 1) * c
             backlog = int(max(deadlock.max(), paced.max()))
             if backlog > 1:
                 floors[t] = int(np.ceil(backlog * (1 + JOIN_FLOOR_MARGIN)))
