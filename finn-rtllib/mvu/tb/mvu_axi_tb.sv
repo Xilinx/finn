@@ -24,7 +24,7 @@ module mvu_axi_tb;
 		int unsigned  accu_width;
 		bit  signed_activations;
 		bit  narrow_weights;
-		int unsigned  th;     // Tile height (0 or 1 => TH=1)
+		int unsigned  th;     // Tile height (>=1)
 		int unsigned  wsimd;  // Weight stream parallelism (0 => PE*SIMD)
 	} cfg_t;
 	localparam int unsigned  TEST_COUNT = 16;
@@ -32,9 +32,9 @@ module mvu_axi_tb;
 		//     ver  mh  mw  pe simd ww  aw  accw sa nw  th  wsimd
 		// --- Lane-sliced × TH=1 ---
 		// T0: DSP48E2, PE=2, SIMD=2
-		'{      2,   4,  4,  2,  2,  4,  4,  16,  0, 0,  0,  0 },
+		'{      2,   4,  4,  2,  2,  4,  4,  16,  0, 0,  1,  0 },
 		// T1: DSP48E2, PE=1, SIMD=1 — single lane
-		'{      2,   4,  4,  1,  1,  4,  4,  16,  0, 0,  0,  0 },
+		'{      2,   4,  4,  1,  1,  4,  4,  16,  0, 0,  1,  0 },
 		// --- Lane-sliced × TH≥2 ---
 		// T2: DSP48E2, TH=2, PE=2, SIMD=1 — cross-lane overflow
 		'{      2,   4,  2,  2,  1,  4,  4,  16,  0, 0,  2,  0 },
@@ -51,10 +51,10 @@ module mvu_axi_tb;
 		// T8: DSP48E1, TH=2
 		'{      1,   4,  2,  2,  1,  4,  4,  16,  0, 0,  2,  0 },
 		// T9: DSP48E1, TH=1
-		'{      1,   4,  4,  2,  2,  4,  4,  16,  0, 0,  0,  0 },
+		'{      1,   4,  4,  2,  2,  4,  4,  16,  0, 0,  1,  0 },
 		// --- INT8 (mvu_vvu_8sx9_dsp58) × TH=1 ---
 		// T10: DSP58, 8b×8b, PE=4, SIMD=6 — 3-MAC baseline
-		'{      3,  16, 48,  4,  6,  8,  8,  24,  0, 0,  0,  0 },
+		'{      3,  16, 48,  4,  6,  8,  8,  24,  0, 0,  1,  0 },
 		// --- INT8 (mvu_vvu_8sx9_dsp58) × TH≥2 ---
 		// T11: DSP58, 8b×8b, TH=2, PE=2, SIMD=1 — minimal tiled INT8
 		'{      3,   4,  2,  2,  1,  8,  8,  24,  0, 0,  2,  0 },
@@ -94,8 +94,8 @@ module mvu_axi_tb;
 		localparam int unsigned  WEIGHT_WIDTH     = CFG.weight_width;
 		localparam int unsigned  ACTIVATION_WIDTH = CFG.activation_width;
 		localparam int unsigned  ACCU_WIDTH       = CFG.accu_width;
-		localparam int unsigned  TH   = CFG.th > 1 ? CFG.th : 1;
-		localparam int unsigned  WSIMD = CFG.wsimd > 0 ? CFG.wsimd : PE * SIMD;
+		localparam int unsigned  TH   = CFG.th;
+		localparam int unsigned  WSIMD = CFG.wsimd > 0 ? CFG.wsimd : PE*SIMD;
 		typedef logic signed [WEIGHT_WIDTH    -1:0]  weight_t;
 		typedef logic        [ACTIVATION_WIDTH-1:0]  activation_t;
 		typedef logic signed [ACCU_WIDTH      -1:0]  accu_t;
