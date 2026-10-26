@@ -689,8 +689,10 @@ def edge_depth(
       producer has given up its run-ahead, so the FIFO has to carry the
       consumer through the gap.
     * Throttled cap: bounds the floor when the consumer can be throttled, the
-      producer can be blocked (its chain is not at the pacer) and the blocking
-      budget is not marginal (``CAP_MARGIN``).
+      producer can be blocked (its chain is not at the pacer), the blocking
+      budget is not marginal (``CAP_MARGIN``) and the slow stages around the
+      edge (``t_above``, ``t_below``) take at most ``CAP_MARGIN`` periods
+      together.
     * Decoupled chain: no floor when the consumer can be throttled, a node
       between the pacer and the producer takes at least ``1 - 1 / CAP_MARGIN``
       of the period (``t_above``, the slowest of them), so the producer is not
@@ -706,10 +708,13 @@ def edge_depth(
     floor = min(peak, burst_above_rate(read_times, edge.per_frame / float(global_period)))
     if not throttleable:
         floor = max(floor, min(peak, refill))
+    # slow stages on both sides of the edge stall each other behind a capped FIFO
+    t_pair = t_above + (global_period if t_below is None else t_below)
     if (
         throttleable
         and edge.t_up < pacer_period
         and not (peak > 0 and allowance < CAP_MARGIN * peak)
+        and t_pair <= CAP_MARGIN * global_period
     ):
         floor = min(floor, THROTTLED_CAP)
     if (

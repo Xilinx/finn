@@ -479,6 +479,14 @@ def test_decoupled_chain_floor():
     assert edge_depth(90, reads, edge, False, True, gp, pacer, 0, 0, 100, 600) == 90
     # a consumer that drives the pacer keeps its floor
     assert edge_depth(90, reads, edge, False, False, gp, pacer, 0, 0, 500, 600) == 90
+    # throttled cap: burst floor 270 (300 reads in 300 cycles at 0.1 token per
+    # cycle), allowance 5000; capped at 256 where the slow stages around the edge
+    # fit in CAP_MARGIN periods, not where they stall each other (cnv-w2a2 small,
+    # 0.88 + 0.91 of the period: the cap cost 2 % in rtlsim)
+    reads, edge, gp = np.arange(300), Edge(None, 10000, 50000, 50000, 100000), 100000
+    assert edge_depth(300, reads, edge, False, True, gp, 99500) == 256
+    assert edge_depth(300, reads, edge, False, True, gp, 99500, 0, 0, 10000, 60000) == 256
+    assert edge_depth(300, reads, edge, False, True, gp, 99500, 0, 0, 88000, 91000) == 270
     # slowest period at or below each node of the mlp chain (pacer MVAU_hls_0)
     model, _ = characterize(make_mlp([(64, 64, 8, 8), (64, 64, 2, 64), (64, 64, 64, 64)], 16))
     nodes = list(model.graph.node)

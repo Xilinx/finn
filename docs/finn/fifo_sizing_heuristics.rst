@@ -405,6 +405,24 @@ cannot be trusted about. The margin changes one depth on the regression set,
 ``Pool_hls_1 -> MVAU_rtl_0`` in resnet50 (272 with the margin, 256 without),
 on no other model.
 
+The cap also needs the slow stages around the edge to take turns: the slowest
+node between the last pacer and the producer and the slowest node at or below
+the consumer (``t_above`` and ``t_below`` of `Decoupled chain`_) take at most
+``CAP_MARGIN`` periods together. Both take most of the period on either side of
+the edge otherwise, and the producer's blocking budget is spent again by the
+slack relaxation of the edges further down the same chain. *Example:*
+cnv-w2a2, small folding (AUP-ZU3, pacer ``MVAU_hls_0`` at 129606 cycles):
+``Pool_hls_0 -> ConvolutionInputGenerator_rtl_3`` (peak 307, burst floor 307,
+allowance 1533) was capped at 256, with 0.88 of the period above it and 0.91
+below. The edge two nodes further down, ``MVAU_hls_2 ->
+ConvolutionInputGenerator_rtl_4``, was relaxed by the whole allowance of the
+chain (3968 to 1715). Stitched-IP rtlsim: 132298 cycles a frame (0.980 of the
+estimate); unbounded FIFOs or the capped edge at 280 or 307: 129606, the
+estimate (the relaxed edge alone needs 2400 instead). cnv-w1a2's small folding
+has the same edge (0.982 to 1.000 at 307). On the other regression models the
+condition changes no depth except two ``StreamingConcat -> MVAU_rtl`` edges of
+yolov8 (small folding).
+
 Decoupled chain
 ---------------
 
