@@ -156,7 +156,6 @@ class MVAU_hls(MVAU, HLSBackend):
                 """Please set mem_mode to "internal_embedded", "internal_decoupled", "external",
                 "external_mem", or "dynamic", currently no other parameter value is supported!"""
             )
-        self.code_gen_dict["$GLOBALS$"] += ['#include "mvau.hpp"']
         if mem_mode == "internal_embedded":
             self.code_gen_dict["$GLOBALS$"] += ['#include "params.h"']
         if self.calc_tmem() != 0:

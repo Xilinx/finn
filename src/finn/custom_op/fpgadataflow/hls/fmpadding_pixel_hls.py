@@ -87,15 +87,11 @@ class FMPadding_Pixel_hls(FMPadding_Pixel, HLSBackend):
         return ["config_compile -pipeline_style flp"]
 
     def blackboxfunction(self):
-        packed_bits = self.get_instream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
+        elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
+        simd = self.get_nodeattr("SIMD")
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            "void %s(hls::stream<%s > &in0_V, hls::stream<%s > &out0_V)"
-            % (
-                self.onnx_node.name,
-                packed_hls_type,
-                packed_hls_type,
-            )
+            "void %s(hls::stream<tensor<%s,%d>> &in0_V, hls::stream<tensor<%s,%d>> &out0_V)"
+            % (self.onnx_node.name, elem_hls_type, simd, elem_hls_type, simd)
         ]
 
     def execute_node(self, context, graph):
