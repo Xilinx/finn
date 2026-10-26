@@ -198,12 +198,16 @@ class IODMA_hls(HWCustomOp, HLSBackend):
 
     def defines(self, var):
         itype_bits = self.get_input_datatype().bitwidth()
+        elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
         total_bits = itype_bits * np.prod(self.get_normal_input_shape())
         assert total_bits % 8 == 0, "DMA input not a multiple of 1 Byte"
         total_bytes = total_bits // 8
+        intfw = self.get_nodeattr("intfWidth")
+        assert intfw % itype_bits == 0, "intfWidth must be a multiple of element bits"
+        n_intf = intfw // itype_bits
         self.code_gen_dict["$DEFINES$"] = [
             "static constexpr unsigned NumBytes1 = %d;" % total_bytes,
-            "static constexpr unsigned DataWidth1 = %d;" % self.get_nodeattr("intfWidth"),
+            "using DmaWord = tensor<%s, %d>;" % (elem_hls_type, n_intf),
         ]
 
     def get_ap_int_max_w(self):
@@ -225,10 +229,15 @@ class IODMA_hls(HWCustomOp, HLSBackend):
             func = "Stream2Mem_Batch"
         else:
             raise ValueError("Invalid IODMA direction, please set to in or out")
-        dma_inst_template = func + "<DataWidth1, NumBytes1>(%s, %s, numReps);"
+        dma_inst_template = func + "<DmaWord, NumBytes1>(%s, %s, numReps);"
+        elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
+        itype_bits = self.get_input_datatype().bitwidth()
         intfw = self.get_nodeattr("intfWidth")
         strmw = self.get_nodeattr("streamWidth")
         width_lcm = (strmw * intfw) // math.gcd(strmw, intfw)
+        n_intf = intfw // itype_bits
+        n_strm = strmw // itype_bits
+        n_lcm = width_lcm // itype_bits
 
         if direction == "in":
             # AXI MM -> IODMA -> (DWCs) -> out
@@ -238,20 +247,23 @@ class IODMA_hls(HWCustomOp, HLSBackend):
             elif (strmw % intfw == 0) or (intfw % strmw == 0):
                 # case 1: single DWC wrapped as hls::task
                 self.code_gen_dict["$DOCOMPUTE$"] = [
-                    "hls_thread_local hls::stream<ap_uint<%d> > dma2dwc;" % intfw,
+                    "hls_thread_local hls::stream<tensor<%s, %d>> dma2dwc;"
+                    % (elem_hls_type, n_intf),
                     "hls_thread_local hls::task t1("
-                    "StreamingDataWidthConverter<%d, %d>, dma2dwc, out0_V);" % (intfw, strmw),
+                    "StreamingDWC<%s, %d, %d>, dma2dwc, out0_V);" % (elem_hls_type, n_intf, n_strm),
                     dma_inst_template % ("in0_V", "dma2dwc"),
                 ]
             else:
                 # case 2: two DWCs through LCM width, each as hls::task
                 self.code_gen_dict["$DOCOMPUTE$"] = [
-                    "hls_thread_local hls::stream<ap_uint<%d> > dma2lcm;" % intfw,
-                    "hls_thread_local hls::stream<ap_uint<%d> > lcm2out;" % width_lcm,
+                    "hls_thread_local hls::stream<tensor<%s, %d>> dma2lcm;"
+                    % (elem_hls_type, n_intf),
+                    "hls_thread_local hls::stream<tensor<%s, %d>> lcm2out;"
+                    % (elem_hls_type, n_lcm),
                     "hls_thread_local hls::task t1("
-                    "StreamingDataWidthConverter<%d, %d>, dma2lcm, lcm2out);" % (intfw, width_lcm),
+                    "StreamingDWC<%s, %d, %d>, dma2lcm, lcm2out);" % (elem_hls_type, n_intf, n_lcm),
                     "hls_thread_local hls::task t2("
-                    "StreamingDataWidthConverter<%d, %d>, lcm2out, out0_V);" % (width_lcm, strmw),
+                    "StreamingDWC<%s, %d, %d>, lcm2out, out0_V);" % (elem_hls_type, n_lcm, n_strm),
                     dma_inst_template % ("in0_V", "dma2lcm"),
                 ]
         elif direction == "out":
@@ -262,48 +274,46 @@ class IODMA_hls(HWCustomOp, HLSBackend):
             elif (strmw % intfw == 0) or (intfw % strmw == 0):
                 # case 1: single DWC wrapped as hls::task
                 self.code_gen_dict["$DOCOMPUTE$"] = [
-                    "hls_thread_local hls::stream<ap_uint<%d> > dwc2dma;" % intfw,
+                    "hls_thread_local hls::stream<tensor<%s, %d>> dwc2dma;"
+                    % (elem_hls_type, n_intf),
                     "hls_thread_local hls::task t1("
-                    "StreamingDataWidthConverter<%d, %d>, in0_V, dwc2dma);" % (strmw, intfw),
+                    "StreamingDWC<%s, %d, %d>, in0_V, dwc2dma);" % (elem_hls_type, n_strm, n_intf),
                     dma_inst_template % ("dwc2dma", "out0_V"),
                 ]
             else:
                 # case 2: two DWCs through LCM width, each as hls::task
                 self.code_gen_dict["$DOCOMPUTE$"] = [
-                    "hls_thread_local hls::stream<ap_uint<%d> > in2lcm;" % width_lcm,
-                    "hls_thread_local hls::stream<ap_uint<%d> > lcm2dma;" % intfw,
+                    "hls_thread_local hls::stream<tensor<%s, %d>> in2lcm;" % (elem_hls_type, n_lcm),
+                    "hls_thread_local hls::stream<tensor<%s, %d>> lcm2dma;"
+                    % (elem_hls_type, n_intf),
                     "hls_thread_local hls::task t1("
-                    "StreamingDataWidthConverter<%d, %d>, in0_V, in2lcm);" % (strmw, width_lcm),
+                    "StreamingDWC<%s, %d, %d>, in0_V, in2lcm);" % (elem_hls_type, n_strm, n_lcm),
                     "hls_thread_local hls::task t2("
-                    "StreamingDataWidthConverter<%d, %d>, in2lcm, lcm2dma);" % (width_lcm, intfw),
+                    "StreamingDWC<%s, %d, %d>, in2lcm, lcm2dma);" % (elem_hls_type, n_lcm, n_intf),
                     dma_inst_template % ("lcm2dma", "out0_V"),
                 ]
         else:
             raise Exception("Unknown IODMA direction: %s" % direction)
 
     def blackboxfunction(self):
-        packed_ibits = self.get_instream_width()
-        packed_hls_type_in = "ap_uint<%d>" % packed_ibits
-        packed_obits = self.get_outstream_width()
-        packed_hls_type_out = "ap_uint<%d>" % packed_obits
+        elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
+        itype_bits = self.get_input_datatype().bitwidth()
+        intfw = self.get_nodeattr("intfWidth")
+        strmw = self.get_nodeattr("streamWidth")
+        n_intf = intfw // itype_bits
+        n_strm = strmw // itype_bits
+        tensor_intf = "tensor<%s, %d>" % (elem_hls_type, n_intf)
+        tensor_strm = "tensor<%s, %d>" % (elem_hls_type, n_strm)
         direction = self.get_nodeattr("direction")
         if direction == "in":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                "void %s(%s *in0_V, hls::stream<%s > &out0_V, unsigned int numReps)"
-                % (
-                    self.onnx_node.name,
-                    packed_hls_type_in,
-                    packed_hls_type_out,
-                )
+                "void %s(%s *in0_V, hls::stream<%s> &out0_V, unsigned int numReps)"
+                % (self.onnx_node.name, tensor_intf, tensor_strm)
             ]
         elif direction == "out":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                "void %s(hls::stream<%s > &in0_V, %s *out0_V, unsigned int numReps)"
-                % (
-                    self.onnx_node.name,
-                    packed_hls_type_in,
-                    packed_hls_type_out,
-                )
+                "void %s(hls::stream<%s> &in0_V, %s *out0_V, unsigned int numReps)"
+                % (self.onnx_node.name, tensor_strm, tensor_intf)
             ]
         else:
             raise ValueError("Invalid IODMA direction, please set to in or out")
@@ -330,6 +340,12 @@ class IODMA_hls(HWCustomOp, HLSBackend):
                 "#pragma HLS INTERFACE s_axilite port=in0_V bundle=control"
             )
             self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out0_V")
+            self.code_gen_dict["$PRAGMAS$"].append(
+                "#pragma HLS aggregate variable=in0_V compact=bit"
+            )
+            self.code_gen_dict["$PRAGMAS$"].append(
+                "#pragma HLS aggregate variable=out0_V compact=bit"
+            )
         elif direction == "out":
             self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=in0_V")
             if intfname == "":
@@ -342,6 +358,12 @@ class IODMA_hls(HWCustomOp, HLSBackend):
                 )
             self.code_gen_dict["$PRAGMAS$"].append(
                 "#pragma HLS INTERFACE s_axilite port=out0_V bundle=control"
+            )
+            self.code_gen_dict["$PRAGMAS$"].append(
+                "#pragma HLS aggregate variable=in0_V compact=bit"
+            )
+            self.code_gen_dict["$PRAGMAS$"].append(
+                "#pragma HLS aggregate variable=out0_V compact=bit"
             )
         else:
             raise ValueError("Invalid IODMA direction, please set to in or out")

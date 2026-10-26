@@ -61,7 +61,7 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
         return my_attrs
 
     def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "dwc_tensor.hpp"']
+        self.code_gen_dict["$GLOBALS$"] = ['#include "dwc.hpp"']
 
     def defines(self, var):
         self.code_gen_dict["$DEFINES$"] = []
