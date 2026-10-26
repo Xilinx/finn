@@ -20,33 +20,28 @@ class TLastMarker_rtl(HWCustomOp, RTLBackend):
 
     def get_nodeattr_types(self):
         my_attrs = {
+            # number of beats per frame; TLAST=1 is generated on the last one
             "NumIters": ("i", True, 0),
-            "DynIters": ("i", False, 0),
+            # direction: whether to insert ("out") or strip ("in") TLAST
             "Direction": ("s", False, "out", {"out", "in"}),
+            # width of input-output data streams, in bits
             "StreamWidth": ("i", True, 0),
+            # width of individual element in stream, in bits
             "ElemWidth": ("i", True, 0),
-            "Protocol": ("s", False, "external", {"external", "internal"}),
         }
         my_attrs.update(HWCustomOp.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
 
     def execute_node(self, context, graph):
-        mode = self.get_nodeattr("exec_mode")
-        if mode == "cppsim":
-            # TLastMarker is transparent in node-by-node execution
-            i_name = self.onnx_node.input[0]
-            o_name = self.onnx_node.output[0]
-            context[o_name] = context[i_name]
-        elif mode == "rtlsim":
-            RTLBackend.execute_node(self, context, graph)
-        else:
-            raise ValueError('exec_mode must be "cppsim" or "rtlsim"')
+        # TLAST is not part of the tensor data, so the marker is transparent in
+        # node-by-node execution regardless of exec_mode. Its effect is only
+        # visible in stitched-IP rtlsim.
+        i_name = self.onnx_node.input[0]
+        o_name = self.onnx_node.output[0]
+        context[o_name] = context[i_name]
 
     def generate_hdl(self, model, fpgapart, clk):
-        if self.get_nodeattr("DynIters") == 1:
-            raise Exception("DynIters=1 is not supported for TLastMarker_rtl")
-
         rtlsrc = _rtlsrc_dir()
         with open(os.path.join(rtlsrc, "lastmarker_template.v"), "r") as f:
             template = f.read()

@@ -241,7 +241,7 @@ class InsertFIFO(Transformation):
                     and final_node.op_type != "IODMA_hls"
                 ):
                     assert (
-                        final_node.op_type != "TLastMarker_hls"
+                        final_node.op_type != "TLastMarker_rtl"
                     ), """Insert tlast marker should be done
                         after inserting the FIFOs"""
                     n0 = getCustomOp(final_node)

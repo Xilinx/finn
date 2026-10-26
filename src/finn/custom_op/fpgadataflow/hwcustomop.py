@@ -344,7 +344,11 @@ class HWCustomOp(CustomOp):
                 if self.onnx_node.op_type.startswith("Thresholding"):
                     depth = self.calc_tmem()
                 elif self.onnx_node.op_type.startswith("MVAU"):
-                    depth = self.calc_wmem() * self.get_nodeattr("TH")
+                    # one memory line per WSIMD-wide weight sub-tile, i.e.
+                    # NW = PE*SIMD/WSIMD lines per WMEM entry (NW < TH if TH
+                    # does not divide PE*SIMD, NW = 1 for TH = 1)
+                    pe_simd = self.get_nodeattr("PE") * self.get_nodeattr("SIMD")
+                    depth = self.calc_wmem() * (pe_simd // self.get_weight_stream_simd())
                 else:
                     depth = self.calc_wmem()
             if width is None:

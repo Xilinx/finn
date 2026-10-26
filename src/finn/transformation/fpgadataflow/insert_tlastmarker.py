@@ -35,16 +35,14 @@ from qonnx.util.basic import get_by_name
 
 
 class InsertTLastMarker(Transformation):
-    """Ensure that the graph is started/terminated with a TLastMarker node, inserting
-    one if necessary.
-    Use constructor args to determine type of TLastMarker to be inserted.
+    """Ensure that the graph is started/terminated with a TLastMarker_rtl node, inserting
+    one if necessary. If both is True, TLAST-stripping markers are also inserted on
+    the graph inputs.
     More information available on the TLastMarker documentation.
     """
 
-    def __init__(self, both=False, external=True, dynamic=False):
+    def __init__(self, both=False):
         super().__init__()
-        self.dyniters = dynamic
-        self.external = external
         self.both = both
 
     def apply(self, model):
@@ -52,7 +50,7 @@ class InsertTLastMarker(Transformation):
         graph_out_name = model.get_first_global_out()
         final_node = model.find_producer(graph_out_name)
         graph_modified = False
-        if final_node.op_type not in ("TLastMarker_hls", "TLastMarker_rtl") and not (
+        if final_node.op_type != "TLastMarker_rtl" and not (
             final_node.op_type == "IODMA_hls"
             and get_by_name(final_node.attribute, "direction").s.decode("UTF-8") == "out"
         ):
@@ -77,9 +75,7 @@ class InsertTLastMarker(Transformation):
                 NumIters=num_iters,
                 StreamWidth=stream_width,
                 ElemWidth=elem_width,
-                DynIters=(1 if self.dyniters else 0),
                 Direction="out",
-                Protocol=("external" if self.external else "internal"),
                 domain="finn.custom_op.fpgadataflow.rtl",
                 backend="fpgadataflow",
             )
@@ -109,7 +105,7 @@ class InsertTLastMarker(Transformation):
                 ):
                     continue
                 # 2. node is either a TLastMarker or an input IODMA
-                if first_node.op_type not in ("TLastMarker_hls", "TLastMarker_rtl") and not (
+                if first_node.op_type != "TLastMarker_rtl" and not (
                     first_node.op_type == "IODMA_hls"
                     and get_by_name(first_node.attribute, "direction").s.decode("UTF-8") == "in"
                 ):
@@ -153,9 +149,7 @@ class InsertTLastMarker(Transformation):
                         NumIters=num_iters,
                         StreamWidth=stream_width,
                         ElemWidth=elem_width,
-                        DynIters=(1 if self.dyniters else 0),
                         Direction="in",
-                        Protocol=("external" if self.external else "internal"),
                         domain="finn.custom_op.fpgadataflow.rtl",
                         backend="fpgadataflow",
                     )
