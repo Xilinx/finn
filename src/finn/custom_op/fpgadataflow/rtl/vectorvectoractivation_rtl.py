@@ -273,7 +273,9 @@ class VVAU_rtl(VVAU, RTLBackend):
         )
         code_gen_dict["$SEGMENTLEN$"] = [str(self._resolve_segment_len(clk))]
         code_gen_dict["$TH$"] = [str(1)]
-        code_gen_dict["$WSIMD$"] = [str(int(self.get_nodeattr("PE")) * int(self.get_nodeattr("SIMD")))]
+        code_gen_dict["$WSIMD$"] = [
+            str(int(self.get_nodeattr("PE")) * int(self.get_nodeattr("SIMD")))
+        ]
         code_gen_dict["$N_DCPL_STAGES$"] = [str(2)]
 
         return template_path, code_gen_dict
