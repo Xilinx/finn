@@ -183,23 +183,13 @@ def test_convert_to_hw_pool(idt, odt, pool_config, ifm_ch, pe, op_type, exec_mod
 
     new_model = model.transform(to_hw.InferPool())
     new_model = new_model.transform(GiveUniqueNodeNames())
-    new_model = new_model.transform(to_hw.InferConvInpGen())
-    # to test cppsim, set preferred_impl_style for swg to hls
-    inst = getCustomOp(new_model.get_nodes_by_op_type("ConvolutionInputGenerator")[0])
-    inst.set_nodeattr("preferred_impl_style", "hls")
-    if pad != 0:
-        inst = getCustomOp(new_model.get_nodes_by_op_type("FMPadding")[0])
-        inst.set_nodeattr("preferred_impl_style", "hls")
     y_produced = oxe.execute_onnx(new_model, input_dict)["outp"]
     assert (y_produced == y_expected).all()
     new_model = new_model.transform(SpecializeLayers("xc7z020clg400-1"))
 
-    # Folding
+    # Folding — only Pool PE needs to be set (no separate SWG node)
     for n in new_model.graph.node:
-        if n.op_type.startswith("ConvolutionInputGenerator"):
-            inst = getCustomOp(n)
-            inst.set_nodeattr("SIMD", pe)
-        elif n.op_type.startswith("Pool"):
+        if n.op_type.startswith("Pool"):
             inst = getCustomOp(n)
             inst.set_nodeattr("PE", pe)
 
@@ -213,19 +203,11 @@ def test_convert_to_hw_pool(idt, odt, pool_config, ifm_ch, pe, op_type, exec_mod
         assert new_accum <= initial_accum
 
     if stride <= k:
-        if pad == 0:
-            assert len(new_model.graph.node) == 4
-            assert new_model.graph.node[0].op_type == "Transpose"
-            assert new_model.graph.node[1].op_type.startswith("ConvolutionInputGenerator")
-            assert new_model.graph.node[2].op_type.startswith("Pool")
-            assert new_model.graph.node[3].op_type == "Transpose"
-        else:
-            assert len(new_model.graph.node) == 5
-            assert new_model.graph.node[0].op_type == "Transpose"
-            assert new_model.graph.node[1].op_type.startswith("FMPadding")
-            assert new_model.graph.node[2].op_type.startswith("ConvolutionInputGenerator")
-            assert new_model.graph.node[3].op_type.startswith("Pool")
-            assert new_model.graph.node[4].op_type == "Transpose"
+        # Consolidated Pool: Transpose → Pool → Transpose (3 nodes)
+        assert len(new_model.graph.node) == 3
+        assert new_model.graph.node[0].op_type == "Transpose"
+        assert new_model.graph.node[1].op_type.startswith("Pool")
+        assert new_model.graph.node[2].op_type == "Transpose"
     else:
         # not currently converted to HLS, node stays as-is
         assert len(new_model.graph.node) == 1
@@ -259,14 +241,13 @@ def test_convert_to_hw_pool(idt, odt, pool_config, ifm_ch, pe, op_type, exec_mod
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
 
 
-# ceil_mode=1 MaxPool geometries.  The sliding-window generator only produces a
-# floor-count grid, so InferPool absorbs any ceil extension (where the drop-rule
-# output exceeds the floor output) into extra trailing padding, letting Im2Col's
-# floor formula reproduce the declared drop-rule output size.  All three cases
-# below must build and match the onnxruntime reference:
+# ceil_mode=1 MaxPool geometries.  InferPool absorbs any ceil extension
+# (where the drop-rule output exceeds the floor output) into extra trailing
+# padding within the consolidated Pool node.  All three cases below must
+# build and match the onnxruntime reference:
 #   (k, stride, pad, ifm_dim):   drop  floor   how it builds
 #     (2, 2, 0, 8):                4     4      ceil_mode is a no-op
-#     (2, 2, 1, 9):                5     5      FMPadding 9->11, floor=5
+#     (2, 2, 1, 9):                5     5      pad absorbed into Pool
 #     (2, 2, 0, 7):                4     3      pad-to-ceil 7->8 (bottom/right +1)
 @pytest.mark.parametrize(
     "ceil_config",
@@ -297,16 +278,10 @@ def test_convert_to_hw_maxpool_ceil_mode(ceil_config, exec_mode):
 
     new_model = model.transform(to_hw.InferPool())
     new_model = new_model.transform(GiveUniqueNodeNames())
-    new_model = new_model.transform(to_hw.InferConvInpGen())
-    if pad != 0:
-        inst = getCustomOp(new_model.get_nodes_by_op_type("FMPadding")[0])
-        inst.set_nodeattr("preferred_impl_style", "hls")
     new_model = new_model.transform(SpecializeLayers("xc7z020clg400-1"))
 
     for n in new_model.graph.node:
-        if n.op_type.startswith("ConvolutionInputGenerator"):
-            getCustomOp(n).set_nodeattr("SIMD", pe)
-        elif n.op_type.startswith("Pool"):
+        if n.op_type.startswith("Pool"):
             getCustomOp(n).set_nodeattr("PE", pe)
 
     if exec_mode == "cppsim":
