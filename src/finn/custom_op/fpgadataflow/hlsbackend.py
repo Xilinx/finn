@@ -441,6 +441,11 @@ compilation transformations?
         cpp_interface = self.get_nodeattr("cpp_interface")
 
         for i, inp in enumerate(self.onnx_node.input):
+            iwidth = self.get_instream_width(i)
+            # if the stream is not exposed, it has 0 width and no npy file will be created
+            if iwidth == 0:
+                continue
+
             dtype = self.get_input_datatype(i)
             if dtype == DataType["BIPOLAR"]:
                 # use binary for bipolar storage
@@ -448,11 +453,6 @@ compilation transformations?
             elem_hls_type = dtype.get_hls_datatype_str()
             npy_type = "half" if elem_hls_type == "half" else "float"
             npy_in = "%s/input_%s.npy" % (code_gen_dir, i)
-
-            iwidth = self.get_instream_width(i)
-            # if the stream is not exposed, it has 0 width and no npy file will be created
-            if iwidth == 0:
-                continue
             if cpp_interface == "packed":
                 packed_bits = iwidth
                 packed_hls_type = "ap_uint<%d>" % packed_bits

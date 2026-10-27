@@ -103,14 +103,6 @@ finn.custom\_op.fpgadataflow.thresholding\_hls
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.fpgadataflow.tlastmarker\_hls
------------------------------------------------
-
-.. automodule:: finn.custom_op.fpgadataflow.hls.tlastmarker_hls
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 finn.custom\_op.fpgadataflow.upsampler\_hls
 ---------------------------------------------
 
