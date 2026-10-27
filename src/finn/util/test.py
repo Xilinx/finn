@@ -53,7 +53,7 @@ from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.derive_characteristic import (
     DeriveTokenAccessVectors,
 )
-from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
+from finn.transformation.fpgadataflow.make_pynq_proj import PYNQBuild
 from finn.transformation.fpgadataflow.prepare_ip import _codegen_single_node
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
@@ -148,7 +148,7 @@ def get_build_env(board, target_clk_ns):
     if board in pynq_part_map:
         ret["toolchain"] = "pynq"
         ret["part"] = pynq_part_map[board]
-        ret["build_fxn"] = ZynqBuild(board, target_clk_ns)
+        ret["build_fxn"] = PYNQBuild(board, target_clk_ns)
     elif board in vitis_part_map:
         ret["toolchain"] = "vitis-xrt"
         ret["part"] = vitis_part_map[board]

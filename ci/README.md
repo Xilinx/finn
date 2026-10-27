@@ -62,9 +62,10 @@ To start a build, click *Build with Parameters* and select the stage you would l
 | `STAGES` value     | Rows that run            | Use when                                      | Needs `FINN_CI_NFS_ROOT`?                                      |
 | ------------------ | ------------------------ | --------------------------------------------- | -------------------------------------------------------------- |
 | `sanity` (default) | Sanity rows only         | Per-PR quick check                            | Recommended (publishes `bnn_build_sanity` zips for HW handoff) |
-| `full`             | Every CI row             | Nightly / pre-merge full matrix               | Yes (otherwise no handoff and no timing master update)         |
+| `full`             | Every CI row except benchmark | Nightly / pre-merge full matrix          | Yes (otherwise no handoff and no timing master update)         |
 | `fpgadataflow`     | fpgadataflow row(s) only | Only build-side debug, no HW handoff produced | No                                                             |
 | `end2end`          | end2end + BNN rows only  | Debugging just the end2end family             | Recommended (BNN rows publish `bnn_build_full` zips)           |
+| `benchmark`        | finn-examples suite only | Manual benchmark runs (excluded from `full`)  | No (build-only, no HW handoff yet)                             |
 
 
 The above table is unit tested for drift against the actual stage tables. Bitstream artifact handoff is skipped if an NFS root directory is not set. Note that "sanity" is the only stage that will be available directly after running a seed job.

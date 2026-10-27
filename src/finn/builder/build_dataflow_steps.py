@@ -53,6 +53,7 @@ from functools import partial
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
+from qonnx.transformation.composed import ComposedTransformation
 from qonnx.transformation.fold_constants import FoldConstants
 from qonnx.transformation.general import (
     GiveReadableTensorNames,
@@ -117,12 +118,13 @@ from finn.transformation.fpgadataflow.derive_characteristic import (
     JustInTimeSynthesize,
     ProducerDelayCharacteristicFunctions,
 )
+from finn.transformation.fpgadataflow.export_portable_rtl import ExportPortableRTL
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.loop_rolling import LoopExtraction, LoopRolling
 from finn.transformation.fpgadataflow.make_driver import MakeCPPDriver, MakePYNQDriver
-from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
+from finn.transformation.fpgadataflow.make_pynq_proj import PYNQBuild
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
 )
@@ -151,12 +153,20 @@ from finn.transformation.fpgadataflow.transpose_decomposition import (
 )
 from finn.transformation.general import ApplyConfig
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
-from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
+from finn.transformation.qonnx.convert_qonnx_to_finn import (
+    QONNX_QUANT_OP_TYPES,
+    ConvertQONNXtoFINN,
+)
 from finn.transformation.qonnx.quant_act_to_multithreshold import (
     default_filter_function_generator,
 )
 from finn.transformation.streamline import Streamline
-from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
+from finn.transformation.streamline.reorder import (
+    MakeMaxPoolNHWC,
+    MoveTransposePastEltwise,
+    MoveTransposePastFork,
+    MoveTransposePastJoinAdd,
+)
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import get_rtlsim_trace_depth
 from finn.util.config import (
@@ -323,14 +333,15 @@ def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
 
 def step_qonnx_to_finn(model: ModelWrapper, cfg: DataflowBuildConfig):
     """
-    This step will only execute if QONNX nodes are found.
-    These include the following op_types: "Quant" , "Trunc" and "BinaryQuant".
+    This step will only execute if QONNX quantization nodes are found, i.e. nodes
+    with one of the op_types in QONNX_QUANT_OP_TYPES ("IntQuant", "Quant",
+    "BipolarQuant", "FloatQuant" and "Trunc").
     If such nodes are found the step will run the tidy-up step from QONNX
     and then convert the QONNX model to the FINN-ONNX dialect.
     """
-    # Check if any QONNX nodes exist, i.e. BinaryQuant, Quant or Trunc
+    # Check if any QONNX quantization nodes exist
     q_count = 0
-    for op_type in ["BinaryQuant", "Quant", "Trunc"]:
+    for op_type in QONNX_QUANT_OP_TYPES:
         q_count += len(model.get_nodes_by_op_type(op_type))
     if q_count == 0:
         return model
@@ -420,6 +431,25 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
             model = model.transform(transform)
         return model
 
+    # Cancel channels-last (NCHW<->NHWC) layout transposes to a fixpoint before HW
+    # op-conversion, so they absorb into MultiThresholds (fixing their data_layout)
+    # instead of freezing into shuffle layers. Idempotent once linear graphs are
+    # detangled; the fixpoint is what resolves residual fork/join chains (e.g. ResNet).
+    if len(model.get_nodes_by_op_type("Transpose")) > 0:
+        model = model.transform(InferDataLayouts())
+        model = model.transform(
+            ComposedTransformation(
+                [
+                    MoveTransposePastJoinAdd(),
+                    MoveTransposePastFork(),
+                    MoveTransposePastEltwise(),
+                    absorb.AbsorbConsecutiveTransposes(),
+                    absorb.AbsorbTransposeIntoMultiThreshold(),
+                ]
+            )
+        )
+        model = model.transform(InferDataLayouts())
+
     # Thresholding layers (standalone mode)
     if cfg.standalone_thresholds:
         # First: Convert high-bitwidth MultiThreshold and all Quant nodes to Requant
@@ -477,27 +507,9 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
         model, ["MultiThreshold"], to_hw.InferThresholdingLayer(), "threshold layers"
     )
 
-    # Convolution-related transformations
-    model = apply_if_relevant(
-        model,
-        ["MaxPool", "AveragePool", "MaxPoolNHWC", "QuantAvgPool2d"],
-        to_hw.InferPool(),
-        "pooling layers",
-    )
-    model = apply_if_relevant(model, ["Im2Col"], to_hw.InferConvInpGen(), "conv input generator")
-    # If ConvInpGen derived, run remove cnv to fc flatten transform
-    model = apply_if_relevant(
-        model, ["ConvolutionInputGenerator"], RemoveCNVtoFCFlatten(), "Flatten"
-    )
-
-    # Streaming operations
-    model = apply_if_relevant(
-        model, ["Concat"], to_hw.InferPad1DLayer(), "1D padding and CLS token insertion"
-    )
-    model = apply_if_relevant(model, ["Concat"], to_hw.InferConcatLayer(), "concat layers")
-    model = apply_if_relevant(model, ["Split"], to_hw.InferSplitLayer(), "split layers")
-
-    # Elementwise operations
+    # Elementwise binary ops (Add/Mul/...). Before InferPool: promoting a preceding
+    # integer-valued Add/Mul to an integer ElementwiseAdd/Mul lets the pool's
+    # integer-input gate pass (e.g. QuantAvgPool2d).
     model = apply_if_relevant(
         model,
         [
@@ -517,13 +529,40 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
         to_hw.InferElementwiseBinaryOperation(),
         "elementwise binary operations",
     )
+
+    # Convolution-related transformations
+    model = apply_if_relevant(
+        model,
+        ["MaxPool", "AveragePool", "MaxPoolNHWC", "QuantAvgPool2d"],
+        to_hw.InferPool(),
+        "pooling layers",
+    )
+    model = apply_if_relevant(model, ["Im2Col"], to_hw.InferConvInpGen(), "conv input generator")
+    # Remove a flatten-into-FC pattern (standalone flatten between two dataflow
+    # nodes, or a [0,3,1,2] transpose+flatten absorbed into the following MVAU).
+    # The transform is fully self-gating and a no-op unless the exact pattern is
+    # present. Runs before InferShuffle so
+    # genuinely-absorbable transposes are eliminated rather than turned into
+    # (resource-costing) shuffle layers.
+    model = apply_if_relevant(model, ["Flatten", "Reshape"], RemoveCNVtoFCFlatten(), "Flatten")
+
+    # Streaming operations
+    model = apply_if_relevant(
+        model, ["Concat"], to_hw.InferPad1DLayer(), "1D padding and CLS token insertion"
+    )
+    model = apply_if_relevant(model, ["Concat"], to_hw.InferConcatLayer(), "concat layers")
+    model = apply_if_relevant(model, ["Split"], to_hw.InferSplitLayer(), "split layers")
+
+    # Elementwise operations
     model = apply_if_relevant(model, ["Where"], to_hw.InferWhereLayer(), "where selection")
     model = apply_if_relevant(
         model, ["Relu"], to_hw.InferReLUAsElementwiseMax(), "ReLU as elementwise max"
     )
 
     # Upsampling and resizing
-    model = apply_if_relevant(model, ["Upsample"], to_hw.InferUpsample(), "upsample layers")
+    model = apply_if_relevant(
+        model, ["Upsample", "Resize"], to_hw.InferUpsample(), "upsample layers"
+    )
 
     # Global pooling
     model = apply_if_relevant(
@@ -1272,6 +1311,48 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
+def step_export_portable_rtl(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Export a self-contained, portable RTL project.
+
+    If STITCHED_IP was not requested, this step will run CreateStitchedIP
+    internally (without synthesis) to generate the wrapper and file lists
+    needed for the portable export.
+
+    The export contains:
+    - All Verilog/SystemVerilog source files with relative paths
+    - All .dat memory initialization files
+    - A filelist.f for simulator tools (Verilator, QuestaSim, ModelSim)
+    - A sources.tcl for Vivado non-IPI projects
+    """
+
+    if DataflowOutputType.PORTABLE_RTL in cfg.generate_outputs:
+        # If stitched IP wasn't created yet, run CreateStitchedIP to generate
+        # the wrapper and file lists (without synthesis)
+        vivado_stitch_proj = model.get_metadata_prop("vivado_stitch_proj")
+        if not vivado_stitch_proj:
+            print("Creating stitched IP for portable RTL export (synthesis disabled)...")
+            model = model.transform(
+                CreateStitchedIP(
+                    cfg._resolve_fpga_part(),
+                    cfg.synth_clk_period_ns,
+                    run_synth=False,
+                    run_pnr=False,
+                    signature=cfg.signature,
+                )
+            )
+
+        export_dir = cfg.output_dir + "/portable_rtl"
+        model = model.transform(ExportPortableRTL(export_dir))
+        print("Portable RTL export written to " + export_dir)
+    else:
+        print(
+            """DataflowOutputType.PORTABLE_RTL not in requested outputs,
+            skipping step_export_portable_rtl."""
+        )
+
+    return model
+
+
 def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Measure performance + latency of stitched-IP model in rtlsim (xsi).
     Depends on the DataflowOutputType.STITCHED_IP output product.
@@ -1368,16 +1449,18 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
         report_dir = cfg.output_dir + "/report"
         os.makedirs(report_dir, exist_ok=True)
         partition_model_dir = cfg.output_dir + "/intermediate_models/kernel_partitions"
-        if cfg.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
+        shell_flow_type = cfg._resolve_shell_flow_type()
+        if shell_flow_type in (ShellFlowType.VIVADO_ZYNQ, ShellFlowType.VIVADO_VERSAL):
             model = model.transform(
-                ZynqBuild(
+                PYNQBuild(
                     cfg.board,
                     cfg.synth_clk_period_ns,
                     cfg.enable_hw_debug,
                     partition_model_dir=partition_model_dir,
                 )
             )
-            copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel.bit")
+            bitfile = model.get_metadata_prop("bitfile")
+            copy(bitfile, bitfile_dir + "/finn-accel" + os.path.splitext(bitfile)[1])
             copy(model.get_metadata_prop("hw_handoff"), bitfile_dir + "/finn-accel.hwh")
             copy(
                 model.get_metadata_prop("vivado_synth_rpt"),
@@ -1388,14 +1471,12 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
             with open(report_dir + "/post_synth_resources.json", "w") as f:
                 json.dump(post_synth_resources, f, indent=2)
 
-            vivado_pynq_proj_dir = model.get_metadata_prop("vivado_pynq_proj")
-            timing_rpt = (
-                "%s/finn_zynq_link.runs/impl_1/top_wrapper_timing_summary_routed.rpt"
-                % vivado_pynq_proj_dir
+            copy(
+                model.get_metadata_prop("vivado_timing_rpt"),
+                report_dir + "/post_route_timing.rpt",
             )
-            copy(timing_rpt, report_dir + "/post_route_timing.rpt")
 
-        elif cfg.shell_flow_type == ShellFlowType.VITIS_ALVEO:
+        elif shell_flow_type == ShellFlowType.VITIS_ALVEO:
             model = model.transform(
                 PrepareForLinking(
                     cfg._resolve_fpga_part(),
@@ -1408,7 +1489,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
             model = model.transform(
                 VitisLink(
                     cfg._resolve_vitis_platform(),
-                    cfg.synth_clk_period_ns(),
+                    cfg.synth_clk_period_ns,
                     strategy=cfg._resolve_vitis_opt_strategy(),
                     enable_debug=cfg.enable_hw_debug,
                 )
@@ -1422,7 +1503,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
             post_synth_resources = model.analysis(post_synth_res)
             with open(report_dir + "/post_synth_resources.json", "w") as f:
                 json.dump(post_synth_resources, f, indent=2)
-        elif cfg.shell_flow_type == ShellFlowType.SLASH_ALVEO:
+        elif shell_flow_type == ShellFlowType.SLASH_ALVEO:
             model = model.transform(
                 PrepareForLinking(cfg._resolve_fpga_part(), cfg.synth_clk_period_ns, "slash-vrt")
             )
@@ -1433,8 +1514,9 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                 post_synth_resources = model.analysis(post_synth_res)
                 with open(report_dir + "/post_synth_resources.json", "w") as f:
                     json.dump(post_synth_resources, f, indent=2)
+
         else:
-            raise Exception("Unrecognized shell_flow_type: " + str(cfg.shell_flow_type))
+            raise Exception("Unrecognized shell_flow_type: " + str(shell_flow_type))
         print("Bitfile written into " + bitfile_dir)
 
     else:
@@ -1621,6 +1703,7 @@ build_dataflow_step_lookup = {
     "step_create_dataflow_partition": step_create_dataflow_partition,
     "step_target_fps_parallelization": step_target_fps_parallelization,
     "step_apply_folding_config": step_apply_folding_config,
+    "step_minimize_bit_width_datatype_only": step_minimize_bit_width_datatype_only,
     "step_minimize_bit_width": step_minimize_bit_width,
     "step_transpose_decomposition": step_transpose_decomposition,
     "step_generate_estimate_reports": step_generate_estimate_reports,
@@ -1628,6 +1711,7 @@ build_dataflow_step_lookup = {
     "step_hw_ipgen": step_hw_ipgen,
     "step_set_fifo_depths": step_set_fifo_depths,
     "step_create_stitched_ip": step_create_stitched_ip,
+    "step_export_portable_rtl": step_export_portable_rtl,
     "step_measure_rtlsim_performance": step_measure_rtlsim_performance,
     "step_make_driver": step_make_driver,
     "step_synthesize_bitfile": step_synthesize_bitfile,

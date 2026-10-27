@@ -409,7 +409,8 @@ logic [DATA_BITS-1:0] axis_dma_wr_tdata;
 cdma_u #(
     .ADDR_BITS(ADDR_BITS),
     .LEN_BITS(LEN_BITS),
-    .DATA_BITS(DATA_BITS)
+    .DATA_BITS(DATA_BITS),
+    .N_OUTSTANDING(N_OUTSTANDING_DMAS)
 ) inst_dma (
     .aclk(aclk),
     .aresetn(aresetn),

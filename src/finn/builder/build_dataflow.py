@@ -145,27 +145,38 @@ def resolve_step_filename(step_name: str, cfg: DataflowBuildConfig, step_delta: 
     return filename
 
 
-def _run_build_steps(model, cfg, build_dataflow_steps, log):
-    """Run the resolved build steps in order, logging to `log`.
+def _run_build_steps(model, cfg, build_dataflow_steps, log, step_log):
+    """Run the resolved build steps in order.
+
+    The high-level step timeline (and any failure traceback) is written to `log`
+    (build_dataflow.log). The verbose per-step stdout/stderr (cppsim/rtlsim output
+    etc.) is redirected to `step_log` (build_dataflow_stepwise.log) so it does not
+    crowd the main log.
 
     Returns 0 on success and -1 on the first failing step.
     """
     step_num = 1
     time_per_step = dict()
-    stdout_logger = StreamToLogger(log, logging.INFO)
-    stderr_logger = StreamToLogger(log, logging.ERROR)
+    stdout_logger = StreamToLogger(step_log, logging.INFO)
+    stderr_logger = StreamToLogger(step_log, logging.ERROR)
     stdout_orig = sys.stdout
     stderr_orig = sys.stderr
     for transform_step in build_dataflow_steps:
         try:
             step_name = transform_step.__name__
-            print("Running step: %s [%d/%d]" % (step_name, step_num, len(build_dataflow_steps)))
-            # redirect output to logfile
+            step_banner = "Running step: %s [%d/%d]" % (
+                step_name,
+                step_num,
+                len(build_dataflow_steps),
+            )
+            print(step_banner)
+            # record the high-level step timeline in the main build log
+            log.info(step_banner)
+            # redirect verbose step output to the separate stepwise logfile
             if not cfg.verbose:
                 sys.stdout = stdout_logger
                 sys.stderr = stderr_logger
-                # also log current step name to logfile
-                print("Running step: %s [%d/%d]" % (step_name, step_num, len(build_dataflow_steps)))
+                step_log.info(step_banner)
             # run the step
             step_start = time.time()
             model = transform_step(model, cfg)
@@ -188,6 +199,8 @@ def _run_build_steps(model, cfg, build_dataflow_steps, log):
             # print exception info and traceback
             extype, value, tb = sys.exc_info()
             traceback.print_exc()
+            # also record the traceback in the main build log for findability
+            log.error("Step %s failed:\n%s" % (step_name, traceback.format_exc()))
             # start postmortem debug if configured
             if cfg.enable_build_pdb_debug:
                 pdb.post_mortem(tb)
@@ -225,6 +238,7 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
     print("Intermediate outputs will be generated in " + finn_build_dir)
     print("Final outputs will be generated in " + cfg.output_dir)
     print("Build log is at " + cfg.output_dir + "/build_dataflow.log")
+    print("Per-step (verbose) log is at " + cfg.output_dir + "/build_dataflow_stepwise.log")
     # create the output dir if it doesn't exist
     if not os.path.exists(cfg.output_dir):
         os.makedirs(cfg.output_dir)
@@ -269,11 +283,27 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
     # Add the file handler (only file output, no console output)
     log.addHandler(log_file_handler)
 
+    # Separate logger for the verbose per-step stdout/stderr (cppsim/rtlsim output
+    # etc.), so it does not crowd the high-level timeline in build_dataflow.log
+    step_log = logging.getLogger("build_dataflow.step_io")
+    step_log.setLevel(logging.DEBUG)
+    step_log.propagate = False
+    step_log_file_handler = logging.FileHandler(
+        cfg.output_dir + "/build_dataflow_stepwise.log", mode="a"
+    )
+    step_log_file_handler.setLevel(logging.DEBUG)
+    step_log_file_handler.setFormatter(logging.Formatter("[%(asctime)s] %(message)s"))
+    for handler in step_log.handlers[:]:
+        step_log.removeHandler(handler)
+    step_log.addHandler(step_log_file_handler)
+
     try:
-        return _run_build_steps(model, cfg, build_dataflow_steps, log)
+        return _run_build_steps(model, cfg, build_dataflow_steps, log, step_log)
     finally:
         log.removeHandler(log_file_handler)
         log_file_handler.close()
+        step_log.removeHandler(step_log_file_handler)
+        step_log_file_handler.close()
 
 
 def build_dataflow_directory(path_to_cfg_dir: str):

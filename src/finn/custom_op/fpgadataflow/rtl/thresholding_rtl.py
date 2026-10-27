@@ -29,7 +29,6 @@
 import math
 import numpy as np
 import os
-import shutil
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import roundup_to_integer_multiple
 
@@ -317,7 +316,6 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         # Set the 'gen_top_module' attribute for use later
         # by xsi and IPI generation
         self.set_nodeattr("gen_top_module", code_gen_dict["$TOP_MODULE$"][0])
-        axi_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/axi/hdl/")
         rtlsrc = os.environ["FINN_ROOT"] + "/finn-rtllib/thresholding/hdl"
         template_path = rtlsrc + "/thresholding_template_wrapper.v"
         with open(template_path, "r") as f:
@@ -331,11 +329,6 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             "w",
         ) as f:
             f.write(template_wrapper)
-
-        sv_files = ["thresholding.sv", "thresholding_axi.sv"]
-        for sv_file in sv_files:
-            shutil.copy(rtlsrc + "/" + sv_file, code_gen_dir)
-        shutil.copy(axi_dir + "axilite.sv", code_gen_dir)
 
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
@@ -423,16 +416,9 @@ class Thresholding_rtl(Thresholding, RTLBackend):
     def code_generation_ipi(self):
         """Constructs and returns the TCL commands for node instantiation as an RTL
         block."""
-        rtl_file_list = self.get_rtl_file_list()
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
-        cmd = ["file mkdir %s" % source_target]
-
-        for rtl_file in rtl_file_list:
-            cmd.append(
-                "add_files -copy_to %s -norecurse %s"
-                % (source_target, os.path.join(code_gen_dir, rtl_file))
-            )
+        cmd = []
+        for rtl_file in self.get_rtl_file_list(abspath=True):
+            cmd.append("add_files -norecurse %s" % rtl_file)
 
         # Create an RTL block, not an IP core (-type ip)
         cmd.append(

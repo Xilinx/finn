@@ -35,7 +35,15 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
 from finn.transformation.fpgadataflow.alveo_build import VitisOptStrategy
-from finn.util.basic import hbm_boards, part_map, vitis_default_platform
+from finn.util.basic import (
+    hbm_boards,
+    is_versal,
+    part_map,
+    pynq_part_map,
+    slash_part_map,
+    vitis_default_platform,
+    vitis_part_map,
+)
 
 
 class AutoFIFOSizingMethod(str, Enum):
@@ -85,6 +93,7 @@ class ShellFlowType(str, Enum):
     the FINN-generated accelerator."""
 
     VIVADO_ZYNQ = "vivado_zynq"
+    VIVADO_VERSAL = "vivado_versal"
     VITIS_ALVEO = "vitis_alveo"
     SLASH_ALVEO = "slash_alveo"
 
@@ -100,6 +109,7 @@ class DataflowOutputType(str, Enum):
     PYNQ_DRIVER = "pynq_driver"
     CPP_DRIVER = "cpp_driver"
     DEPLOYMENT_PACKAGE = "deployment_package"
+    PORTABLE_RTL = "portable_rtl"
 
 
 class VitisOptStrategyCfg(str, Enum):
@@ -475,14 +485,15 @@ class DataflowBuildConfig:
             return self.hls_clk_period_ns
 
     def _resolve_driver_platform(self):
-        if self.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
-            return "zynq-iodma"
-        elif self.shell_flow_type == ShellFlowType.VITIS_ALVEO:
+        shell_flow_type = self._resolve_shell_flow_type()
+        if shell_flow_type in (ShellFlowType.VIVADO_ZYNQ, ShellFlowType.VIVADO_VERSAL):
+            return "pynq-iodma"
+        elif shell_flow_type == ShellFlowType.VITIS_ALVEO:
             return "vitis-xrt"
-        elif self.shell_flow_type == ShellFlowType.SLASH_ALVEO:
+        elif shell_flow_type == ShellFlowType.SLASH_ALVEO:
             return "slash-vrt"
         else:
-            raise Exception("Couldn't resolve driver platform for " + str(self.shell_flow_type))
+            raise Exception("Couldn't resolve driver platform for " + str(shell_flow_type))
 
     def _resolve_fpga_part(self):
         if self.fpga_part is None:
@@ -531,6 +542,29 @@ class DataflowBuildConfig:
             raise Exception(
                 "Could not resolve Vitis platform:" " need either board or vitis_platform specified"
             )
+
+    def _resolve_shell_flow_type(self):
+        """Resolve the shell flow from an explicit setting, else from the board.
+
+        When shell_flow_type is unset, infer it from the board's membership in
+        FINN's part maps (Alveo -> VITIS_ALVEO, Zynq PYNQ -> VIVADO_ZYNQ,
+        Versal PYNQ -> VIVADO_VERSAL, V80 -> SLASH_ALVEO), mirroring
+        _resolve_fpga_part/_resolve_vitis_platform. An explicit shell_flow_type
+        always wins.
+        """
+        if self.shell_flow_type is not None:
+            return self.shell_flow_type
+        if self.board in vitis_part_map:
+            return ShellFlowType.VITIS_ALVEO
+        elif self.board in pynq_part_map:
+            if is_versal(pynq_part_map[self.board]):
+                return ShellFlowType.VIVADO_VERSAL
+            return ShellFlowType.VIVADO_ZYNQ
+        elif self.board in slash_part_map:
+            return ShellFlowType.SLASH_ALVEO
+        raise Exception(
+            "Could not resolve shell_flow_type: need either board or shell_flow_type specified"
+        )
 
     def _resolve_verification_steps(self):
         if self.verify_steps is None:

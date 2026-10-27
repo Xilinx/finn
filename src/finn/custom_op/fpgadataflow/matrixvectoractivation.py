@@ -316,7 +316,10 @@ class MVAU(HWCustomOp):
         elif ind == 1:
             match mem_mode:
                 case "dynamic":
-                    folded_input_shape = tuple(vecs[:2] + [mw] + [nf, pe])
+                    # one (MW x MH) operand per leading dim except the row dim, e.g.
+                    # per (batch, head) for [batch, heads, rows, MW] inputs and per
+                    # batch for [batch, rows, MW] inputs
+                    folded_input_shape = tuple(vecs[:-1] + [mw] + [nf, pe])
                 case "external" | "external_mem" | "internal_decoupled":
                     folded_input_shape = (n_vecs, sf * nf, (simd * pe) // theight)
                 case _:
@@ -523,13 +526,21 @@ class MVAU(HWCustomOp):
 
         idt = self.get_input_datatype(0)
 
-        # if datatype_only, runtime-writeable weights, mem_mode=external, or
-        # weights are absent (MLO), then we use worst-case values from datatypes
+        # if datatype_only, runtime-writeable weights, mem_mode=external,
+        # weights are absent (MLO), or this is a binary-XNOR node, then we use
+        # worst-case values from datatypes.
+        # binaryXnorMode is special: the hardware replaces the bipolar MAC with
+        # XNOR + popcount, so its accumulator is an unsigned popcount in [0, MW],
+        # not the signed bipolar dot-product. The value-based branch reinterprets
+        # only the weights as bipolar and would describe a signed accumulator
+        # that doesn't match the XNOR hardware (and is no tighter than [0, MW]
+        # anyway), so XNOR nodes use the datatype-bound unsigned range.
         if (
             datatype_only
             or self.get_nodeattr("runtime_writeable_weights")
             or self.get_nodeattr("mem_mode") in ["external", "external_mem", "dynamic"]
             or weights is None
+            or self.get_nodeattr("binaryXnorMode")
         ):
             mw = self.get_nodeattr("MW")
             mh = self.get_nodeattr("MH")
@@ -629,8 +640,18 @@ class MVAU(HWCustomOp):
         inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
         wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
         if inp_is_bipolar and wt_is_bipolar:
-            # ensure all thresholds are nonnegative
-            assert (orig_thres_matrix >= 0).all()
+            # Bipolar-XNOR nodes accumulate an unsigned popcount, so thresholds
+            # reaching HW codegen must be non-negative (a negative threshold means
+            # "always fire" and should already have been clipped to 0 by
+            # RoundAndClipThresholds). A negative here means the accumulator was
+            # minimized as signed (see minimize_accumulator_width) or
+            # RoundAndClipThresholds did not run.
+            assert (orig_thres_matrix >= 0).all(), (
+                "Negative threshold on a bipolar-XNOR node reaching HW codegen; "
+                "expected non-negative (unsigned popcount) thresholds. Check that "
+                "the accumulator was minimized as unsigned and that "
+                "RoundAndClipThresholds ran."
+            )
             # ensure all thresholds are integer
             assert (orig_thres_matrix.astype(np.int32) == orig_thres_matrix).all()
         ret = orig_thres_matrix
@@ -1039,8 +1060,7 @@ class MVAU(HWCustomOp):
                 )
 
     def code_generation_ipi(self):
-        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
-        cmd = ["file mkdir %s" % source_target]
+        cmd = []
 
         #
         # check if additional components are needed
@@ -1109,7 +1129,7 @@ class MVAU(HWCustomOp):
                         dyn_rtllib_dir + "dynamic_load.sv",
                     ]
                     for f in sourcefiles:
-                        cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
+                        cmd += ["add_files -norecurse %s" % f]
                     strm_inst = node_name + "_wdynld"
                     strm_out_name = "m_axis_0"
 
@@ -1192,7 +1212,7 @@ class MVAU(HWCustomOp):
                         if file.endswith(".sv") or file.endswith(".svh"):
                             sourcefiles.append(os.path.join(dma_rtllib_dir + "cdma_x/", file))
                     for f in sourcefiles:
-                        cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
+                        cmd += ["add_files -norecurse %s" % f]
                     strm_inst = node_name + "_fetch_weights"
                     strm_out_name = "out0_V"
                     # update intf dict to remove weights input and replace with index/tap input
@@ -1219,7 +1239,7 @@ class MVAU(HWCustomOp):
                         ms_rtllib_dir + "memstream.sv",
                     ]
                     for f in sourcefiles:
-                        cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
+                        cmd += ["add_files -norecurse %s" % f]
                     strm_inst = node_name + "_wstrm"
                     strm_out_name = "m_axis_0"
 
