@@ -182,15 +182,16 @@ def resolve_tier(tier):
     a launcher -- the exact shape of the four defects this program exists to
     prevent. It belongs here, once.
 
-    `dev` and `build` stay EXPLICIT requests. An explicit `--tier build` with no
-    toolchain is still a hard error: that is a request, not a default, and
-    silently handing back a narrower environment than the caller asked for is
-    how a CI shard ends up passing without testing anything.
+    `build` exposes the available host inputs. Missing optional installations
+    produce warnings; tool-dependent compiler checks still report missing tools.
     """
     if tier != "auto":
         return tier
     root = hostpath(os.environ.get("FINN_XILINX_PATH"))
-    if root and os.path.isdir(root):
+    if (root and os.path.isdir(root)) or any(
+        os.path.isdir(hostpath(os.environ.get(alias)) or "")
+        for alias in ("VIVADO_PATH", "VITIS_PATH", "HLS_PATH")
+    ):
         return "build"
     warn(
         "no FINN_XILINX_PATH (environment or %s); resolving --tier auto to 'dev'. "
@@ -239,20 +240,15 @@ def add_toolchain(out):
     """Add toolchain paths and their read-only root mount."""
     root = hostpath(os.environ.get("FINN_XILINX_PATH"))
     version = os.environ.get("FINN_XILINX_VERSION")
-    if not root:
-        die(
-            "FINN_XILINX_PATH is unset (environment or %s); tier %r requires it"
-            % (host_file.file_path() or "no host file", out["tier"]),
-            3,
+    if not root or not os.path.isdir(root):
+        warn("FINN_XILINX_PATH=%s is not an installed directory; not mounted" % root)
+        root = None
+    if root:
+        out["mounts"].append(
+            {"source": root, "target": root, "mode": "ro", "reason": "xilinx-toolchain"}
         )
-    if not os.path.isdir(root):
-        die("FINN_XILINX_PATH=%s is not a directory" % root, 3)
-
-    out["mounts"].append(
-        {"source": root, "target": root, "mode": "ro", "reason": "xilinx-toolchain"}
-    )
-    layout = xilinx_layout(root, version)
-    if not layout:
+    layout = xilinx_layout(root, version) if root else {}
+    if root and not layout:
         warn(
             "no Vivado/Vitis/HLS found under %s for version %r; "
             "the toolchain mount will be present but empty of known tools" % (root, version)
@@ -266,9 +262,12 @@ def add_toolchain(out):
         value = os.environ.get(alias) or layout.get(name)
         if value:
             value = hostpath(value)
+            if not os.path.isdir(value):
+                warn(alias + " is not an installed directory; not mounted: " + value)
+                continue
             out["env"][alias] = value
             out["env"][name] = value
-            if not value.startswith(root + os.sep) and value != root:
+            if not root or (not value.startswith(root + os.sep) and value != root):
                 out["mounts"].append(
                     {"source": value, "target": value, "mode": "ro", "reason": "tool-override"}
                 )
@@ -290,9 +289,12 @@ def add_platform_repo(out, toolchain_root):
     for value in filter(None, paths):
         platforms = hostpath(value)
         if not os.path.isdir(platforms):
-            die("platform repository is not a directory: " + platforms, 3)
+            warn("platform repository is not a directory; not mounted: " + platforms)
+            continue
         resolved.append(platforms)
-        if platforms != toolchain_root and not platforms.startswith(toolchain_root + os.sep):
+        if not toolchain_root or (
+            platforms != toolchain_root and not platforms.startswith(toolchain_root + os.sep)
+        ):
             out["mounts"].append(
                 {"source": platforms, "target": platforms, "mode": "ro", "reason": "platform-repo"}
             )

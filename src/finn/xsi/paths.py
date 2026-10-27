@@ -2,12 +2,25 @@
 # SPDX-License-Identifier: BSD-3-Clause
 """Locate upstream XSI sources and writable, installation-specific binaries."""
 import hashlib
+import importlib.metadata
 import json
 import os
+import shutil
+import subprocess
 import sysconfig
+from functools import lru_cache
 from pathlib import Path
 
 from finn import resources
+from finn.xsi._build_config import LINK_ARGS, get_build_paths
+
+
+@lru_cache(maxsize=32)
+def _compiler_version(path, modified, size):
+    try:
+        return subprocess.check_output([path, "--version"], text=True, stderr=subprocess.DEVNULL)
+    except (OSError, subprocess.CalledProcessError):
+        return "unavailable"
 
 
 def source_dir() -> Path:
@@ -19,7 +32,29 @@ def build_dir() -> Path:
     """Separate Python ABIs, source changes and selected Vivado installations."""
     source = source_dir()
     vivado = Path(os.environ.get("XILINX_VIVADO", "/missing-vivado")).resolve()
-    inputs = {"vivado": str(vivado), "abi": sysconfig.get_config_var("SOABI")}
+    includes, compiler, flags = get_build_paths()
+    executable = shutil.which(compiler)
+    compiler_info = {"command": compiler}
+    if executable:
+        executable = Path(executable).resolve()
+        stat = executable.stat()
+        compiler_info.update(
+            path=str(executable),
+            version=_compiler_version(str(executable), stat.st_mtime_ns, stat.st_size),
+        )
+    try:
+        pybind11_version = importlib.metadata.version("pybind11")
+    except importlib.metadata.PackageNotFoundError:
+        pybind11_version = "missing"
+    inputs = {
+        "vivado": str(vivado),
+        "abi": sysconfig.get_config_var("SOABI"),
+        "includes": includes,
+        "compiler": compiler_info,
+        "flags": flags,
+        "link_flags": LINK_ARGS,
+        "pybind11": pybind11_version,
+    }
     for path in [*source.glob("*.cpp"), *source.glob("*.hpp"), vivado / "data/xsim/include/xsi.h"]:
         if path.is_file():
             inputs[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()

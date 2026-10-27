@@ -12,6 +12,8 @@ pipeline {
       steps {
         catchError(stageResult: 'FAILURE') {
           script {
+            // Clear reports even if Docker/overlay preparation fails before pytest.
+            sh 'rm -rf -- brevitas_suite.xml brevitas_suite.html brevitas-provenance coverage_brevitas_suite'
             cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
 
             // The committed lock stays unchanged; the command selects an overlay.

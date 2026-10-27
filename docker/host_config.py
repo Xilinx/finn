@@ -17,9 +17,9 @@ comments. Environment variables override these defaults.
 
 ``FINN_XILINX_ENV`` names another file; set it empty to use none.
 
-This is the one reader. ``finn.toolchain.launcher`` imports it; the host scripts
-(``docker/xilinx_install.py``, ``docker/config.py``) load it by path from their
-checkout, where FINN may not be installed yet. Standard library only.
+The host scripts ``docker/xilinx_install.py`` and ``docker/config.py`` load
+this reader by path from their checkout, where FINN may not be installed yet.
+Standard library only.
 """
 
 from __future__ import annotations
@@ -39,8 +39,7 @@ KEYS = (
     "LM_LICENSE_FILE",
     "FINN_TOOL_DIR_OVERRIDE",
 )
-# Paths must be absolute: in a sandbox the kit receives them verbatim, and a
-# `~` or a relative path would name something else there.
+# Paths must be absolute so native and container callers resolve the same input.
 PATH_KEYS = ("FINN_XILINX_PATH", "PLATFORM_REPO_PATHS")
 # FlexLM reads either; one set by the caller is never replaced.
 LICENSE_VARIABLES = ("XILINXD_LICENSE_FILE", "LM_LICENSE_FILE")

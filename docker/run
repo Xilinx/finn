@@ -40,6 +40,7 @@ if [ "${FINN_CONTAINER_REBUILD:-0}" = 1 ] && [ "${FINN_CONTAINER_NO_BUILD:-0}" =
     echo '--rebuild and --no-build are mutually exclusive' >&2; exit 2
 fi
 export FINN_RUNTIMES=$(finn_normalize_runtimes "$RUNTIMES")
+finn_prepare_runtime_inputs
 finn_set_provenance
 cd "$REPO"
 target=$(finn_bake_target "$FINN_RUNTIMES")

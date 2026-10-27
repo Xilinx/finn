@@ -96,12 +96,11 @@ finn_set_provenance () {
     export FINN_IMAGE_REVISION FINN_SOURCE_REVISION FINN_SOURCE_DESCRIBE FINN_SOURCE_DIRTY
 }
 
-# The bake target for a runtime set and a variant ("", sbx or release).
+# The bake target for a runtime set and an optional release variant.
 #
 #   finn_bake_target ""              -> finn
 #   finn_bake_target "xrt"           -> finn-xrt
 #   finn_bake_target "xrt,slash"     -> finn-runtime        (parameterized)
-#   finn_bake_target "xrt" sbx       -> finn-sbx-xrt
 #   finn_bake_target "xrt" release   -> finn-release        (parameterized)
 finn_bake_target () {
     local runtimes variant="${2:-}"
@@ -125,20 +124,29 @@ finn_bake_target () {
 #   sed -n '/^{/,$p'     bake writes progress lines to stdout before the JSON.
 #                        Without this, json.load sees "#1 reading ..." and dies.
 finn_bake_tag () {
-    local target="$1"
-    docker buildx bake -f docker-bake.hcl --print "$target" 2>/dev/null \
-        | sed -n '/^{/,$p' \
-        | python3 -c "import json,sys;print(json.load(sys.stdin)['target']['$target']['tags'][0])" 2>/dev/null
+    local target="$1" request
+    request=$(docker buildx bake -f docker-bake.hcl --print "$target") || {
+        recho "Unable to resolve $target. Docker Buildx with Bake is required; install docker-buildx-plugin and check 'docker buildx bake --help'."
+        return 1
+    }
+    printf '%s\n' "$request" | sed -n '/^{/,$p' \
+        | python3 -c "import json,sys;print(json.load(sys.stdin)['target']['$target']['tags'][0])"
+}
+
+finn_prepare_runtime_inputs () {
+    FINN_RUNTIMES=$(python3 "$REPO/docker/runtime_inputs.py" "${FINN_RUNTIMES:-}") || return
+    export FINN_RUNTIMES
 }
 
 # Build one Bake target. Image references are resolved separately.
 finn_bake_build () {
     local target="$1"; shift
+    python3 "$REPO/docker/runtime_inputs.py" "${FINN_RUNTIMES:-}" --cache-xrt || return
     gecho "Building $target"
     # shellcheck disable=SC2086
     docker buildx bake -f docker-bake.hcl --load \
         --set "$target.output=type=docker,compression=gzip,compression-level=1" "$@" "$target" \
-        || { recho "docker buildx bake $target failed"; return 1; }
+        || { recho "docker buildx bake $target failed; Docker Buildx with Bake is required"; return 1; }
 }
 
 # Prepare a Docker-daemon image for any consumer. Sets FINN_IMAGE. Explicit

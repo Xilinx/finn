@@ -6,10 +6,36 @@
 import pytest
 
 import os
+import time
 from finn_ci import __main__ as cli
 from finn_ci import retention
 
 pytestmark = pytest.mark.util
+
+
+def test_image_pruning_reaps_abandoned_staging_but_keeps_recent_writes(tmp_path):
+    parent = tmp_path / "job"
+    old = time.time() - 2 * 24 * 60 * 60
+    for name in (".finn-image-abandoned", ".finn-image-active", ".finn-image-new"):
+        publication = parent / name / "publication"
+        publication.mkdir(parents=True)
+        archive = publication / "finn-docker-image.tar.gz"
+        archive.write_bytes(b"partial")
+        if name != ".finn-image-new":
+            os.utime(publication, (old, old))
+            os.utime(publication.parent, (old, old))
+        if name == ".finn-image-abandoned":
+            os.utime(archive, (old, old))
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (parent / ".finn-image-link").symlink_to(outside, target_is_directory=True)
+    assert retention.prune_images(str(tmp_path), "job", "1", 3, 14, dry_run=True) == 1
+    assert (parent / ".finn-image-abandoned").exists()
+    assert retention.prune_images(str(tmp_path), "job", "1", 3, 14) == 1
+    assert not (parent / ".finn-image-abandoned").exists()
+    assert (parent / ".finn-image-active").exists()
+    assert (parent / ".finn-image-new").exists()
+    assert outside.is_dir()
 
 
 @pytest.mark.parametrize(

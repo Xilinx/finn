@@ -6,6 +6,7 @@ variable "REGISTRY" { default = "xilinx/finn" }
 variable "FINN_RUNTIMES" { default = "" }
 variable "FINN_UV_NO_CACHE" { default = "0" }
 variable "UBUNTU_TAG" { default = "noble-20240605" }
+variable "FINN_RELEASE_SOURCE_DIR" { default = ".cache/release-source" }
 function "runtime_set" {
   params = [runtimes]
   result = join(",", distinct(sort(compact(split(",", runtimes)))))
@@ -77,6 +78,7 @@ target "finn-runtime" {
 
 target "finn-release" {
   inherits = ["_prepared"]
+  contexts = { finn-source = FINN_RELEASE_SOURCE_DIR }
   target = "release"
   args = { FINN_RUNTIMES = runtime_set(FINN_RUNTIMES) }
   labels = merge(labels(FINN_RUNTIMES), {

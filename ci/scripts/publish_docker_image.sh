@@ -5,5 +5,6 @@ set -euo pipefail
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 . "$REPO/docker/lib.sh"
 export FINN_RUNTIMES=${FINN_RUNTIMES:-xrt}
+finn_prepare_runtime_inputs
 finn_set_provenance
 exec python3 "$REPO/docker/image.py" publish "$1" "$2" --workspace "$REPO/image-metadata"

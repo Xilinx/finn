@@ -70,17 +70,24 @@ for name in $(echo "$FINN_RUNTIMES" | tr ',' ' '); do
     fetch)
         : "${DEB:?$manifest is SOURCE=fetch but does not set DEB}"
         : "${URL:?$manifest is SOURCE=fetch but does not set URL}"
-        out="/tmp/$DEB.deb"
-        echo "runtime '$name': fetching $DEB"
-        if ! wget -q "$URL" -O "$out"; then
-            if [ -n "${FALLBACK_URL:-}" ]; then
-                echo "  primary URL failed, trying the fallback" >&2
-                rm -f "$out"
-                wget -q "$FALLBACK_URL" -O "$out"
-            else
-                echo "ERROR: could not download $name from $URL" >&2
-                exit 1
+        cached="/tmp/runtime-cache/$DEB.deb"
+        if [ -f "$cached" ] && [ -n "${SHA256:-}" ]; then
+            out="$cached"
+            echo "runtime '$name': using checksum-verified download cache"
+        else
+            out="/tmp/$DEB.deb"
+            echo "runtime '$name': fetching $DEB"
+            if ! wget -q "$URL" -O "$out"; then
+                if [ -n "${FALLBACK_URL:-}" ]; then
+                    echo "  primary URL failed, trying the fallback" >&2
+                    rm -f "$out"
+                    wget -q "$FALLBACK_URL" -O "$out"
+                else
+                    echo "ERROR: could not download $name from $URL" >&2
+                    exit 1
+                fi
             fi
+            fetched="$fetched $out"
         fi
         if [ -n "${SHA256:-}" ]; then
             echo "$SHA256  $out" | sha256sum -c -
@@ -93,7 +100,6 @@ for name in $(echo "$FINN_RUNTIMES" | tr ',' ' '); do
             sha256sum "$out" >&2
         fi
         debs="$debs $out"
-        fetched="$fetched $out"
         ;;
     supply)
         : "${FILES:?$manifest is SOURCE=supply but does not set FILES}"

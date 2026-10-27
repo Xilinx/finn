@@ -51,8 +51,7 @@ elif [ "${FINN_ENV_APPLIED:-}" != "1" ]; then
     #   lnx64/tools/fpo_v7_1    the floating-point operator libraries that
     #                           HLS-generated code links against
     #
-    # These lived in the entrypoint once, which meant `docker exec` and
-    # `sbx exec` sessions ran without them.
+    # Direct `docker exec` sessions also need these settings.
     # ---------------------------------------------------------------------
     for _finn_dir in \
         "${XILINX_VIVADO:-}/lib/lnx64.o" \
@@ -101,10 +100,7 @@ elif [ "${FINN_ENV_APPLIED:-}" != "1" ]; then
     # Order-preserving, first occurrence wins, so the toolchain still shadows
     # the system tools exactly as settings64.sh intended.
     # ---------------------------------------------------------------------
-    if [ -n "${FINN_TOOL_DIR_OVERRIDE:-}" ]; then
-        PATH="$FINN_TOOL_DIR_OVERRIDE:$PATH"
-        export PATH
-    fi
+    # Farm interception belongs to resolve_xilinx_tool(), not bare/nested calls.
     if [ -n "${VIRTUAL_ENV:-}" ]; then
         PATH="$VIRTUAL_ENV/bin:$PATH"
         export PATH

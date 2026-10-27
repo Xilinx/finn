@@ -36,7 +36,6 @@ export_sif () {
     TAG="$FINN_IMAGE"
     mkdir -p "$(dirname "$OUTPUT")"
     TAR=$(mktemp -t finn-sif-XXXXXX.tar)
-    trap 'rm -f "$TAR"' EXIT
     gecho "Exporting $TAG"
     docker save "$TAG" -o "$TAR" || { recho "docker save failed"; exit 1; }
     gecho "Converting to $OUTPUT"
@@ -98,6 +97,8 @@ done
 
 RUNTIMES=$(finn_normalize_runtimes "$RUNTIMES")
 export FINN_RUNTIMES="$RUNTIMES"
+finn_prepare_runtime_inputs
+RUNTIMES=$FINN_RUNTIMES
 finn_set_provenance
 
 artifact=docker
@@ -129,6 +130,20 @@ if [ "$PRINT_ONLY" = 1 ]; then
 fi
 
 cd "$REPO"
+RELEASE_SOURCE_DIR=""
+TAR=""
+cleanup() {
+    [ -z "$TAR" ] || rm -f "$TAR"
+    [ -z "$RELEASE_SOURCE_DIR" ] || rm -rf "$RELEASE_SOURCE_DIR"
+    return 0
+}
+trap cleanup EXIT
+if [ "$variant" = release ]; then
+    mkdir -p "$REPO/.cache"
+    RELEASE_SOURCE_DIR=$(mktemp -d "$REPO/.cache/release-source.XXXXXX")
+    python3 "$DOCKER_DIR/source.py" "$REPO" "$RELEASE_SOURCE_DIR/source.tar"
+    export FINN_RELEASE_SOURCE_DIR="$RELEASE_SOURCE_DIR"
+fi
 case "$artifact" in
     docker)
         finn_prepare_image "$target" build

@@ -91,8 +91,10 @@ def command(args):
         cmd += ["notebooks"]
     elif not cmd:
         cmd = ["bash"]
-        if sys.stdin.isatty() and sys.stdout.isatty():
-            argv += ["-it"]
+    if sys.stdin.isatty():
+        argv += ["-i"]
+        if sys.stdout.isatty():
+            argv += ["-t"]
     return argv + [args.image] + cmd
 
 

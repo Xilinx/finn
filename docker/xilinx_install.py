@@ -4,8 +4,8 @@
 The host file (``~/.config/finn/xilinx.env``) is read by FINN's one reader,
 ``docker/host_config.py``, loaded here by path from this checkout
 (``host_file``): this script runs where FINN may not be installed yet.
-docker/config.py imports this script on the host, and the sbx workload's
-startup hook runs it from the mounted checkout:
+docker/config.py imports this script on the host. It can also print the
+resolved installation directly from the checkout:
 
     python3 docker/xilinx_install.py sh     # export lines for the resolved layout
 

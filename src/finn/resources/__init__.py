@@ -48,7 +48,6 @@ __all__ = [
     "Status",
     "declarations",
     "fetch",
-    "finnlib_root",
     "home",
     "path",
     "paths",
@@ -166,11 +165,6 @@ def path(name: str, fetch: bool = True) -> str:
             f"then set {PREFIX}DIR=DIR (or {PREFIX}SYSTEM_CACHE=DIR to use it read-only).",
         )
     return str(_store.fetch(resource, _store.fetch_root()))
-
-
-def finnlib_root() -> Path:
-    """FinnLib as FINN resolves it: FINN_RESOURCES_FINNLIB, a cached copy, or a fetch."""
-    return Path(path("finnlib"))
 
 
 def paths(kind: str, fetch: bool = True) -> list[str]:

@@ -108,3 +108,6 @@ MANIFEST
 /brevitas-provenance/
 
 /packaging/finn-experimental/build/
+/docker/runtime-cache/*.deb
+/docker/packages/*.deb
+/docker/packages/*.rpm

@@ -2,12 +2,14 @@
 # A uv overlay changes this command only; the base uv.lock stays untouched.
 set -euo pipefail
 cd "${FINN_ROOT:?}"
+export FINN_BREVITAS_PROVENANCE=${FINN_BREVITAS_PROVENANCE:-brevitas-provenance}
+rm -f -- brevitas_suite.xml brevitas_suite.html
+rm -rf -- "$FINN_BREVITAS_PROVENANCE" coverage_brevitas_suite
 if [[ ! ${BREVITAS_COMMIT:-} =~ ^[0-9a-fA-F]{40}$ ]]; then
     echo 'BREVITAS_COMMIT must be a full Git commit SHA' >&2
     exit 2
 fi
 export FINN_BREVITAS_EXPECTED_COMMIT=${BREVITAS_COMMIT,,}
-export FINN_BREVITAS_PROVENANCE=${FINN_BREVITAS_PROVENANCE:-brevitas-provenance}
 # Keep the rest of FINN's baseline selected. Without this generated uv export,
 # the overlay independently upgrades Torch and can break the base torchvision.
 # Candidate-only new dependencies remain free to resolve and are recorded.

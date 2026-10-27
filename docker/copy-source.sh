@@ -3,13 +3,10 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Embed source assets without unselected or redundant supplied runtime archives.
 set -eu
-[ "$#" -eq 2 ] || { echo 'Usage: copy-source.sh SOURCE DESTINATION' >&2; exit 2; }
-source_dir=$1
+[ "$#" -eq 2 ] || { echo 'Usage: copy-source.sh TRACKED_SOURCE_TAR DESTINATION' >&2; exit 2; }
+archive=$1
 destination=$2
-archive=$(mktemp -t finn-source-XXXXXX.tar)
-trap 'rm -f "$archive"' EXIT HUP INT TERM
 mkdir -p "$destination"
-tar -C "$source_dir" --exclude='./docker/packages/*.deb' --exclude='./docker/packages/*.rpm' -cf "$archive" .
 tar -C "$destination" -xf "$archive"
 
 # A restrictive checkout umask must not make embedded sources unreadable to callers.

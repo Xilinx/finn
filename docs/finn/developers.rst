@@ -177,7 +177,7 @@ Finally, the full test suite with appropriate parallelization can be run inside 
 
 ::
 
-  quicktest.sh full
+  bash docker/quicktest.sh full
 
 See more options on pytest at https://docs.pytest.org/en/stable/usage.html.
 

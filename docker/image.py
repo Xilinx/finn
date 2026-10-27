@@ -3,12 +3,14 @@
 # SPDX-License-Identifier: BSD-3-Clause
 """Prepare image provenance and transport immutable Docker images over NFS."""
 import argparse
+import fcntl
 import gzip
 import hashlib
 import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -142,6 +144,14 @@ def publish(directory, reference, workspace):
                     )
                     try:
                         shutil.copyfileobj(process.stdout, compressed)
+                    except BaseException:
+                        process.terminate()
+                        try:
+                            process.wait(timeout=10)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            process.wait()
+                        raise
                     finally:
                         process.stdout.close()
                     if process.wait():
@@ -172,19 +182,50 @@ def publish(directory, reference, workspace):
             write_metadata(workspace, previous_ref, previous)
 
 
-def load(directory):
-    """Always load authoritative bytes, then run by verified ID rather than tag."""
-    image_id, _, _ = read_metadata(directory, archive=True)
+def _loaded(image_id):
     result = subprocess.run(
-        ["docker", "load", "--input", str(Path(directory) / ARCHIVE)], stdout=sys.stderr
+        ["docker", "image", "inspect", "--format", "{{.Id}}", image_id],
+        capture_output=True,
+        text=True,
     )
     if result.returncode:
-        raise RuntimeError("docker load failed")
-    if docker("image", "inspect", "--format", "{{.Id}}", image_id) != image_id:
+        return False
+    if result.stdout.strip() != image_id:
         raise ValueError("Loaded image does not match the published identity")
-    # Inspect actual image labels too; a forged sidecar cannot relabel an image.
+    # A matching tag is insufficient; verify the content-addressed ID and labels.
     metadata(image_id)
+    return True
+
+
+def load(directory):
+    """Reuse verified image bytes, or serialize archive validation/load per host."""
+    image_id, _, info = read_metadata(directory)
+    if not (Path(directory) / ARCHIVE).is_file():
+        raise ValueError("Incomplete image publication: archive is missing")
+    if not re.fullmatch(r"[0-9a-f]{64}", info.get("archive_sha256", "")):
+        raise ValueError("Malformed archive checksum metadata")
+    if _loaded(image_id):
+        return image_id
+    # This is host-local, not an NFS lock: different agents/daemons may load in parallel.
+    lock = os.environ.get("FINN_DOCKER_LOAD_LOCK", "/tmp/finn-docker-load.lock")
+    with open(lock, "a") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        if _loaded(image_id):
+            return image_id
+        read_metadata(directory, archive=True)
+        result = subprocess.run(
+            ["docker", "load", "--input", str(Path(directory) / ARCHIVE)], stdout=sys.stderr
+        )
+        if result.returncode:
+            raise RuntimeError("docker load failed")
+        if not _loaded(image_id):
+            raise ValueError("Loaded image does not match the published identity")
     return image_id
+
+
+def _terminate(signum, frame):
+    # Unwind TemporaryDirectory and child-process cleanup on a Jenkins abort.
+    raise SystemExit(128 + signum)
 
 
 def main():
@@ -202,6 +243,7 @@ def main():
     p = sub.add_parser("load")
     p.add_argument("directory")
     args = parser.parse_args()
+    previous = signal.signal(signal.SIGTERM, _terminate)
     try:
         if args.command == "inspect":
             print(metadata(args.reference)["image_id"])
@@ -214,6 +256,8 @@ def main():
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
         print(f"finn image: {error}", file=sys.stderr)
         return 1
+    finally:
+        signal.signal(signal.SIGTERM, previous)
     return 0
 
 

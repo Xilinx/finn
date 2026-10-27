@@ -309,14 +309,24 @@ local fallback mode. Shared publication retains
   input hash, resource pins/digests, runtimes and archive SHA256.
 
 Publication renames a complete directory into place. Retries verify an existing
-publication; they cannot replace another image or source. Consumers verify the
-archive checksum and environment, load it even if a same-tag local image exists,
-and execute its verified immutable ID. Tags remain descriptive transport metadata.
-Authoritative `FINN_DOCKER_PREBUILT=1` fails closed on absent, legacy, corrupt or
-mismatched artifacts. Optional shared cache mode permits local fallback. Old
+publication; they cannot replace another image or source. Consumers verify metadata
+and actual image identity/labels. A loaded matching image ID is reused without
+reading the archive; a matching tag alone is insufficient. Cache misses take a
+host-local lock, recheck identity, verify the archive checksum and load once.
+Thus corrupt archive bytes fail when loading is necessary, while existing verified
+image bytes remain usable. Missing archives or invalid metadata always fail.
+Authoritative `FINN_DOCKER_PREBUILT=1` fails closed on incomplete or mismatched
+inputs. Optional shared cache mode permits local fallback. Old
 archives lacking provenance require rebuilding; do not deploy mixed producers
 and consumers. Source checkouts remain pinned by the pipeline separately from
 source-independent dependency images.
+
+SIGTERM unwinds publication staging and stops its Docker save process. Image
+retention also removes `.finn-image-*` staging directories with no writes for
+24 hours, covering hard kills and host crashes. Recent publication writes survive.
+The per-agent `FINN_XRT_PATH` cache is populated and checksum-verified on local
+builds. `SLASHKIT_DEB_PACKAGE` is staged and selects slashkit before tag/provenance
+resolution, including in the legacy Jenkins entrypoints.
 
 The dedicated Brevitas job accepts a full `BREVITAS_COMMIT`. It uses
 `uv run --locked --with "brevitas @ git+...@COMMIT"` without changing the manifest

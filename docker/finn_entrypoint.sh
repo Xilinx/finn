@@ -32,6 +32,10 @@ if [ "${FINN_SYNC:-1}" != 0 ]; then
     uv pip install --no-deps --no-build-isolation -e "$FINN_ROOT"
 fi
 . /etc/finn-toolchain.sh
+if [ -n "${FINN_TOOL_DIR_OVERRIDE:-}" ] && [ -z "${FINN_RESOURCES_HLSLIB:-}" ]; then
+    # Farm jobs see the shared build tree, not the image's /opt resource cache.
+    python -m finn.resources fetch hlslib >/dev/null || exit 1
+fi
 FINN_HLSLIB_PATH=$(python -m finn.resources path hlslib) || exit 1
 export FINN_HLSLIB_PATH
 if [ -n "${XILINX_VIVADO:-}${FINN_BOARD_FILES_PATH:-}" ]; then

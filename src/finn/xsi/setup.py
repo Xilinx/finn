@@ -21,63 +21,16 @@ Options:
 """
 
 import argparse
+import importlib
 import os
 import shutil
 import subprocess
 import sys
-import sysconfig
-from pathlib import Path
-from typing import List, Tuple
+from typing import List
 
 from finn.resources import _store
+from finn.xsi._build_config import LINK_ARGS, get_build_paths
 from finn.xsi.paths import build_dir, source_dir
-
-
-def get_build_paths() -> Tuple[List[str], str, List[str]]:
-    """Get include paths and compiler for building the extension.
-
-    Returns:
-        Tuple of (include_dirs, compiler, extra_compile_args)
-    """
-    include_dirs = []
-
-    # Get Python include directory
-    python_include = sysconfig.get_path("include")
-    if python_include:
-        include_dirs.append(python_include)
-
-    # Try to get pybind11 include directory
-    # flake8: noqa
-    try:
-        import pybind11
-
-        pybind11_include = pybind11.get_include()
-        include_dirs.append(pybind11_include)
-
-        # Also get the user-specific include
-        pybind11_user_include = pybind11.get_include(user=True)
-        if pybind11_user_include != pybind11_include:
-            include_dirs.append(pybind11_user_include)
-    except ImportError:
-        # Will be caught later in prerequisites check
-        pass
-
-    # Get Xilinx Vivado include directory
-    xilinx_vivado = os.environ.get("XILINX_VIVADO")
-    if xilinx_vivado:
-        xilinx_include = os.path.join(xilinx_vivado, "data", "xsim", "include")
-        if os.path.exists(xilinx_include):
-            include_dirs.append(xilinx_include)
-
-    # Determine compiler
-    compiler = "g++"
-    if not shutil.which("g++") and shutil.which("clang++"):
-        compiler = "clang++"
-
-    # Compile flags
-    extra_compile_args = ["--std=c++17", "-Wall", "-O3", "-shared", "-fPIC"]
-
-    return include_dirs, compiler, extra_compile_args
 
 
 def check_prerequisites() -> List[str]:
@@ -101,7 +54,7 @@ def check_prerequisites() -> List[str]:
 
     # Check for pybind11
     try:
-        import pybind11
+        importlib.import_module("pybind11")
     except ImportError:
         errors.append("pybind11 not found. Please install it with: pip install pybind11")
 
@@ -131,7 +84,7 @@ def build_xsi(force: bool = False, verbose: bool = True) -> bool:
             # Try importing to see if it works
             sys.path.insert(0, str(xsi_path))
             try:
-                import xsi
+                importlib.import_module("xsi")
 
                 sys.path.pop(0)
                 if verbose:
@@ -166,7 +119,7 @@ def build_xsi(force: bool = False, verbose: bool = True) -> bool:
     cmd.extend(source_files)
 
     # Link libraries
-    cmd.extend(["-ldl", "-lrt"])
+    cmd.extend(LINK_ARGS)
 
     if verbose:
         print(f"Build command: {' '.join(cmd)}")
@@ -217,17 +170,17 @@ def verify_installation() -> bool:
 
     try:
         # Import the compiled C++ extension
-        import xsi
+        importlib.import_module("xsi")
 
         print("\n✓ xsi C++ extension module imports successfully")
 
         # Import the Python package
-        import finn_xsi.adapter
+        adapter = importlib.import_module("finn_xsi.adapter")
 
         print("✓ finn_xsi.adapter imports successfully")
 
         # Check for basic functionality
-        if hasattr(finn_xsi.adapter, "rtlsim_multi_io"):
+        if hasattr(adapter, "rtlsim_multi_io"):
             print("✓ RTL simulation functions available")
 
         return True

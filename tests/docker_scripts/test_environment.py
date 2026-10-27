@@ -257,12 +257,24 @@ def test_release_source_omits_supplied_runtime_archives(tmp_path):
     (packages / "README.md").write_text("package instructions")
     (source / "compiler.py").write_text("compiler source")
     (source / "compiler.py").chmod(0o600)
+    (source / ".gitignore").write_text("generated.onnx\n")
+    subprocess.run(["git", "init", "-q", str(source)], check=True)
+    subprocess.run(["git", "-C", str(source), "add", "-f", "."], check=True)
+    (source / "generated.onnx").write_text("ignored model download")
+    (source / "untracked.txt").write_text("not part of the source snapshot")
+    (source / "compiler.py").write_text("edited tracked source")
     destination = tmp_path / "prepared"
+    archive = tmp_path / "source.tar"
     subprocess.run(
-        ["sh", str(ROOT / "docker/copy-source.sh"), str(source), str(destination)], check=True
+        [sys.executable, str(ROOT / "docker/source.py"), str(source), str(archive)], check=True
     )
-    assert (destination / "compiler.py").read_text() == "compiler source"
+    subprocess.run(
+        ["sh", str(ROOT / "docker/copy-source.sh"), str(archive), str(destination)], check=True
+    )
+    assert (destination / "compiler.py").read_text() == "edited tracked source"
     assert (destination / "compiler.py").stat().st_mode & 0o004
     assert (destination / "docker/packages/README.md").is_file()
     assert not list(destination.rglob("*.deb"))
     assert not list(destination.rglob("*.rpm"))
+    assert not (destination / "generated.onnx").exists()
+    assert not (destination / "untracked.txt").exists()

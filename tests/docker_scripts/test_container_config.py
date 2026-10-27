@@ -5,9 +5,8 @@ layouts and licence forms that a single development host cannot exercise. That
 is the whole point: the defects this resolver replaces were all cases where a
 code path was only ever run against one host's configuration.
 
-In particular, the pre-2024.2 Xilinx layout is unrepresented on the machine this
-was developed on, and that is exactly where the sbx mount silently resolved to
-nothing.
+Both supported AMD installation layouts must resolve independent of the host
+running these tests.
 """
 
 
@@ -55,12 +54,7 @@ def test_new_layout_resolves(tmp_path):
 
 
 def test_old_layout_resolves(tmp_path):
-    """The layout that the sbx path used to miss entirely.
-
-    2022.2 is FINN's documented default version and uses $ROOT/Vivado/2022.2.
-    The previous sbx code probed $ROOT/2022.2, found nothing, and created the
-    sandbox with no toolchain mounted while still exporting VIVADO_PATH.
-    """
+    """Resolve the ROOT/Vivado/VERSION layout used by older installations."""
     root = _make_tree(str(tmp_path / "Xilinx"), "old", "2022.2")
     found = finn_env.xilinx_layout(root, "2022.2")
     assert found["XILINX_VIVADO"] == os.path.join(root, "Vivado", "2022.2")
@@ -224,7 +218,7 @@ def test_platform_repo_inside_root_is_not_double_mounted(tmp_path):
 
 
 def test_node_locked_license_dir_is_mounted(tmp_path):
-    """The mount the old sbx path lost to a subshell."""
+    """Licence file mounts survive host resolution."""
     root = _make_tree(str(tmp_path / "Xilinx"), "new", "2025.1")
     licdir = tmp_path / "lic"
     licdir.mkdir()
@@ -289,10 +283,11 @@ def test_docker_egress_is_declarative(tmp_path):
     assert data["egress_enforcement"] == "declared"
 
 
-def test_missing_xilinx_path_is_an_error(tmp_path):
+def test_missing_xilinx_path_warns_without_blocking_software(tmp_path):
     proc = _inspect({}, "build")
-    assert proc.returncode == 3
+    assert proc.returncode == 0
     assert "FINN_XILINX_PATH" in proc.stderr
+    assert json.loads(proc.stdout)["mounts"] == []
 
 
 def test_unknown_tier_is_rejected():
@@ -381,7 +376,7 @@ def _clean_env(env):
     toolchain instead of the fixture.
 
     BASH_ENV and ENV go too: bash reads them even with --noprofile --norc, and
-    a sandbox's BASH_ENV exports its XILINX_* again inside the child.
+    BASH_ENV may export XILINX_* again inside the child.
     """
     child = dict(os.environ)
     child.pop("FINN_ENV_APPLIED", None)
@@ -420,12 +415,7 @@ def _apply_toolchain(env, probe='printf "%s" "$PATH"'):
 
 
 def test_toolchain_dedupes_repeated_path_entries():
-    """settings64.sh prepends unconditionally, so applying it twice grows PATH.
-
-    Observed in a live sandbox at four copies of the full Xilinx PATH -- about
-    3 kB -- because the entrypoint applied it, then the sbx kit's startup
-    command applied it again on top of the result.
-    """
+    """Repeated vendor settings must not grow PATH."""
     assert _apply_toolchain({"PATH": "/a:/b:/a:/c:/b"}) == "/a:/b:/c"
 
 
@@ -672,18 +662,12 @@ def test_sh_output_is_not_an_injection_path():
 
 
 # --------------------------------------------------------------------------
-# Static properties, moved here from ci/scripts/conformance.sh.
-#
-# Each of these reads files and needs no docker, no sbx and no toolchain. In
-# the conformance suite they ran on one machine, behind a `have_docker` or a
-# cached-.sif guard; here they run on every PR. The suite keeps only what
-# genuinely needs hardware -- bare `docker exec` / `sbx exec`, direct SIF
-# execution, and the real `bake --print`.
+# Static launcher properties.
 # --------------------------------------------------------------------------
 
 
 def test_nothing_requests_host_privilege():
-    """In-container root is the sbx contract; HOST privilege is never granted.
+    """Container root does not require host privileges.
 
     "No privileges" is ambiguous and the wrong reading is the natural one. This
     asserts the reading that matters: no launcher asks for --privileged, an
@@ -976,7 +960,7 @@ def test_native_callers_execute_resolver_in_an_isolated_installation(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# The host file: ~/.config/finn/xilinx.env, shared with the sbx xilinx kit.
+# The shared native/container host file: ~/.config/finn/xilinx.env.
 # --------------------------------------------------------------------------
 
 
@@ -1007,9 +991,8 @@ def test_host_file_is_read_with_comments(tmp_path):
         ("FINN_XILINX_VERSION", "NAME=value"),
     ],
 )
-def test_host_file_refuses_what_sbx_would_read_differently(tmp_path, line, complaint):
-    """The file is also sbx's --kit-args-file, which takes values verbatim and
-    refuses undeclared names: anything else must fail here, not in a sandbox."""
+def test_host_file_rejects_ambiguous_shell_syntax(tmp_path, line, complaint):
+    """Host defaults have one literal interpretation in every consumer."""
     path = _host_file(tmp_path, line + "\n")
     with pytest.raises(host_file.ConfigError, match=complaint):
         host_file.read_file(path)
@@ -1117,8 +1100,8 @@ def test_a_malformed_host_file_is_an_error(tmp_path):
     assert "not a setting" in proc.stderr
 
 
-def test_sbx_resolution_prints_exports(tmp_path):
-    """The sbx workload's startup hook runs this to record the installation."""
+def test_installation_cli_prints_exports(tmp_path):
+    """The standalone installation CLI prints shell exports."""
     root = _make_tree(str(tmp_path / "Xilinx"), "old", "2024.2")
     env = {
         "PATH": os.environ["PATH"],

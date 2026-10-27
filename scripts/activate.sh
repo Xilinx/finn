@@ -17,10 +17,15 @@ _finn_settings=$(python3 "$FINN_ROOT/docker/config.py" inspect --tier auto --wor
 eval "$(printf '%s\n' "$_finn_settings" | sed 's/^/export /')"
 unset FINN_ENV_APPLIED
 . "$FINN_ROOT/docker/finn-toolchain.sh"
+if [ -n "${FINN_TOOL_DIR_OVERRIDE:-}" ] && [ -z "${FINN_RESOURCES_HLSLIB:-}" ]; then
+    python3 -m finn.resources fetch hlslib >/dev/null || return
+fi
 FINN_HLSLIB_PATH=$(python3 -m finn.resources path hlslib) || return
 export FINN_HLSLIB_PATH
-FINN_BOARD_FILES_PATH=$(python3 -m finn.resources.prepare boards) || return
-export FINN_BOARD_FILES_PATH
+if [ -n "${XILINX_VIVADO:-}" ]; then
+    FINN_BOARD_FILES_PATH=$(python3 -m finn.resources.prepare boards) || return
+    export FINN_BOARD_FILES_PATH
+fi
 export XILINX_LOCAL_USER_DATA=no
 export VIVADO_IP_CACHE=${VIVADO_IP_CACHE:-$FINN_BUILD_DIR/vivado_ip_cache}
 unset _finn_settings _finn_root _finn_venv

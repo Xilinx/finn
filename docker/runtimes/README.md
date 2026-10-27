@@ -14,7 +14,7 @@ FINN_RUNTIMES=xrt docker buildx bake -f docker-bake.hcl finn-xrt
 ## Add a runtime target
 
 Write one file, `docker/runtimes/<name>.env`. The parameterized
-`finn-runtime`/`finn-sbx-runtime` Bake targets and launchers can use it without a
+`finn-runtime` Bake target and launchers can use it without a
 new named target. Add an explicit named target only when the combination should
 join the supported CI matrix.
 

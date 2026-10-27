@@ -113,7 +113,7 @@ ENV LANG="en_US.UTF-8" \
 
 # FLEXlm workaround. Licence checkout fingerprints the host through libudev and
 # corrupts the heap doing it ("realloc(): invalid pointer"); preloading the system
-# libudev avoids it. Set as image ENV so docker exec and sbx exec inherit it. The
+# libudev avoids it. Set as image ENV so direct docker exec inherit it. The
 # check fails the build if a new base moves the library.
 RUN test -e /lib/x86_64-linux-gnu/libudev.so.1 || \
     { echo "ERROR: libudev.so.1 is not at the preloaded path; update LD_PRELOAD" >&2; exit 1; }
@@ -143,7 +143,7 @@ FROM system AS python
 
 COPY --from=ghcr.io/astral-sh/uv:0.10.0 /uv /uvx /usr/local/bin/
 
-# /opt/venv is active for every process (docker exec and sbx exec included), not
+# /opt/venv is active for every process (direct docker exec included), not
 # only for login shells. It uses the distro Python; uv never downloads one.
 ENV VIRTUAL_ENV=/opt/venv \
     UV_PROJECT_ENVIRONMENT=/opt/venv \
@@ -190,7 +190,7 @@ RUN --mount=type=bind,source=src/finn/resources,target=/tmp/src/finn/resources \
     rm -f /opt/finn/resources/.*.lock
 ENV FINN_RESOURCES_SYSTEM_CACHE=/opt/finn/resources
 
-# Vendor tool shims. docker exec and sbx exec do not run the entrypoint, so bare
+# Vendor tool shims. direct docker exec do not run the entrypoint, so bare
 # vendor commands (e.g. `vivado -version`) go through a shim early on PATH that
 # applies the selected toolchain environment.
 COPY docker/toolchain-shim /usr/local/lib/finn/toolchain-shim
@@ -210,8 +210,7 @@ COPY --chmod=0644 docker/finn-bashenv.sh /etc/finn-bashenv.sh
 ENV BASH_ENV=/etc/finn-bashenv.sh
 RUN chmod 755 /usr/local/bin/finn_entrypoint.sh
 
-# tini reaps zombies as PID 1. sbx runs this ENTRYPOINT with its own keep-alive
-# command instead of CMD.
+# tini reaps zombies as PID 1 for all container commands.
 ENTRYPOINT ["/usr/bin/tini", "--", "finn_entrypoint.sh"]
 CMD ["bash"]
 USER agent
@@ -229,6 +228,7 @@ ARG FINN_RUNTIMES=""
 ENV FINN_RUNTIMES=${FINN_RUNTIMES}
 RUN --mount=type=bind,source=docker/runtimes,target=/tmp/runtimes \
     --mount=type=bind,source=docker/packages,target=/tmp/packages \
+    --mount=type=bind,source=docker/runtime-cache,target=/tmp/runtime-cache \
     --mount=type=bind,source=docker/install-runtimes.sh,target=/tmp/install-runtimes.sh \
     sh /tmp/install-runtimes.sh
 USER agent
@@ -252,8 +252,9 @@ FROM runtime AS release
 ARG FINN_SOURCE_REVISION=unknown
 ARG FINN_SOURCE_DIRTY=unknown
 USER root
-RUN --mount=type=bind,source=.,target=/tmp/context \
-    sh /tmp/context/docker/copy-source.sh /tmp/context /opt/finn/source
+RUN --mount=type=bind,from=finn-source,source=source.tar,target=/tmp/finn-source.tar \
+    --mount=type=bind,source=docker/copy-source.sh,target=/tmp/copy-source.sh \
+    sh /tmp/copy-source.sh /tmp/finn-source.tar /opt/finn/source
 RUN uv pip install --no-deps --no-build-isolation -e /opt/finn/source && uv pip check && \
     printf '{"revision":"%s","dirty":"%s"}\n' "$FINN_SOURCE_REVISION" "$FINN_SOURCE_DIRTY" > /opt/finn/source/FINN_BUILD_INFO.json
 ENV FINN_ROOT=/opt/finn/source FINN_SYNC=0

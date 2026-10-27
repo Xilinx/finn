@@ -86,6 +86,9 @@ def test_transport_uses_published_identity_and_rejects_corruption(tmp_path, monk
         shutil.copytree(publication, corrupt)
         with (corrupt / images.ARCHIVE).open("ab") as handle:
             handle.write(b"corrupted")
+        # Reuse is safe by immutable ID; archive bytes matter only on a cache miss.
+        assert images.load(corrupt) == original
+        images.docker("image", "rm", published_tag)
         with pytest.raises(ValueError, match="checksum mismatch"):
             images.load(corrupt)
         (corrupt / images.FILES[1]).unlink()

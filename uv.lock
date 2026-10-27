@@ -465,8 +465,10 @@ version = "0.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "bitstring", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "brevitas", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "clize", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "dataclasses-json", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "importlib-resources", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "numpy", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "onnx", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "onnxoptimizer", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
@@ -480,19 +482,18 @@ dependencies = [
     { name = "sigtools", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "toposort", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "torchvision", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "vcdvcd", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
 ]
 
 [package.dev-dependencies]
 ci = [
-    { name = "brevitas", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "dataset-loading", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "deap", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "dependencies", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "finn-experimental", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "future-annotations", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "gspread", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
-    { name = "importlib-resources", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "ipykernel", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "ipython", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "jupyter", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
@@ -516,13 +517,11 @@ ci = [
     { name = "setuptools", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "tokenize-rt", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "torchaudio", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
-    { name = "torchvision", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "tqdm", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "wget", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "wheel", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
 ]
 dev = [
-    { name = "brevitas", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "build", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "dataset-loading", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "deap", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
@@ -531,7 +530,6 @@ dev = [
     { name = "finn-experimental", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "future-annotations", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "gspread", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
-    { name = "importlib-resources", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "ipykernel", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "ipython", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "jupyter", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
@@ -561,13 +559,11 @@ dev = [
     { name = "sphinx-rtd-theme", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "tokenize-rt", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "torchaudio", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
-    { name = "torchvision", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "tqdm", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "wget", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "wheel", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
 ]
 docs = [
-    { name = "brevitas", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "dataset-loading", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "deap", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "dependencies", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
@@ -575,7 +571,6 @@ docs = [
     { name = "finn-experimental", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "future-annotations", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "gspread", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
-    { name = "importlib-resources", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "ipykernel", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "ipython", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "jupyter", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
@@ -601,7 +596,6 @@ docs = [
     { name = "sphinx-rtd-theme", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "tokenize-rt", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "torchaudio", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
-    { name = "torchvision", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "tqdm", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "wget", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "wheel", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
@@ -621,13 +615,11 @@ notebooks = [
     { name = "tqdm", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
 ]
 test = [
-    { name = "brevitas", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "dataset-loading", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "deap", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "dependencies", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "finn-experimental", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "future-annotations", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
-    { name = "importlib-resources", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "mip", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "networkx", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "pytest", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
@@ -637,7 +629,6 @@ test = [
     { name = "setuptools", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "tokenize-rt", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "torchaudio", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
-    { name = "torchvision", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "wget", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "wheel", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
 ]
@@ -645,8 +636,10 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "bitstring", specifier = "==4.2.3" },
+    { name = "brevitas", git = "https://github.com/Xilinx/brevitas.git?rev=06133f4778ecedc77020b5e778022cf4e805bc86" },
     { name = "clize", specifier = "==5.0.1" },
     { name = "dataclasses-json", specifier = "==0.5.7" },
+    { name = "importlib-resources", specifier = "==6.1.0" },
     { name = "numpy", specifier = "==1.26.4" },
     { name = "onnx", specifier = "==1.22.0" },
     { name = "onnxoptimizer" },
@@ -660,19 +653,18 @@ requires-dist = [
     { name = "sigtools", specifier = "==4.0.1" },
     { name = "toposort", specifier = "==1.7.0" },
     { name = "torch", specifier = "==2.8.0", index = "https://download.pytorch.org/whl/cu126" },
+    { name = "torchvision", specifier = "==0.23.0", index = "https://download.pytorch.org/whl/cu126" },
     { name = "vcdvcd", specifier = "==1.0.5" },
 ]
 
 [package.metadata.requires-dev]
 ci = [
-    { name = "brevitas", git = "https://github.com/Xilinx/brevitas.git?rev=06133f4778ecedc77020b5e778022cf4e805bc86" },
     { name = "dataset-loading", git = "https://github.com/fbcotter/dataset_loading.git?rev=5b9faa226e5f7c857579d31cdd9acde8cdfb816f" },
     { name = "deap", specifier = "==1.4.1" },
     { name = "dependencies", specifier = "==2.0.1" },
     { name = "finn-experimental", directory = "packaging/finn-experimental" },
     { name = "future-annotations", specifier = "==1.0.0" },
     { name = "gspread", specifier = "==3.6.0" },
-    { name = "importlib-resources", specifier = "==6.1.0" },
     { name = "ipykernel", specifier = "==6.29.0" },
     { name = "ipython", specifier = "==8.18.1" },
     { name = "jupyter", specifier = "==1.0.0" },
@@ -696,13 +688,11 @@ ci = [
     { name = "setuptools", specifier = "==68.2.2" },
     { name = "tokenize-rt", specifier = "==4.2.1" },
     { name = "torchaudio", specifier = "==2.8.0", index = "https://download.pytorch.org/whl/cu126" },
-    { name = "torchvision", specifier = "==0.23.0", index = "https://download.pytorch.org/whl/cu126" },
     { name = "tqdm", specifier = "==4.64.1" },
     { name = "wget", specifier = "==3.2" },
     { name = "wheel", specifier = "==0.45.1" },
 ]
 dev = [
-    { name = "brevitas", git = "https://github.com/Xilinx/brevitas.git?rev=06133f4778ecedc77020b5e778022cf4e805bc86" },
     { name = "build", specifier = "==1.2.2.post1" },
     { name = "dataset-loading", git = "https://github.com/fbcotter/dataset_loading.git?rev=5b9faa226e5f7c857579d31cdd9acde8cdfb816f" },
     { name = "deap", specifier = "==1.4.1" },
@@ -711,7 +701,6 @@ dev = [
     { name = "finn-experimental", directory = "packaging/finn-experimental" },
     { name = "future-annotations", specifier = "==1.0.0" },
     { name = "gspread", specifier = "==3.6.0" },
-    { name = "importlib-resources", specifier = "==6.1.0" },
     { name = "ipykernel", specifier = "==6.29.0" },
     { name = "ipython", specifier = "==8.18.1" },
     { name = "jupyter", specifier = "==1.0.0" },
@@ -741,13 +730,11 @@ dev = [
     { name = "sphinx-rtd-theme", specifier = "==2.0.0" },
     { name = "tokenize-rt", specifier = "==4.2.1" },
     { name = "torchaudio", specifier = "==2.8.0", index = "https://download.pytorch.org/whl/cu126" },
-    { name = "torchvision", specifier = "==0.23.0", index = "https://download.pytorch.org/whl/cu126" },
     { name = "tqdm", specifier = "==4.64.1" },
     { name = "wget", specifier = "==3.2" },
     { name = "wheel", specifier = "==0.45.1" },
 ]
 docs = [
-    { name = "brevitas", git = "https://github.com/Xilinx/brevitas.git?rev=06133f4778ecedc77020b5e778022cf4e805bc86" },
     { name = "dataset-loading", git = "https://github.com/fbcotter/dataset_loading.git?rev=5b9faa226e5f7c857579d31cdd9acde8cdfb816f" },
     { name = "deap", specifier = "==1.4.1" },
     { name = "dependencies", specifier = "==2.0.1" },
@@ -755,7 +742,6 @@ docs = [
     { name = "finn-experimental", directory = "packaging/finn-experimental" },
     { name = "future-annotations", specifier = "==1.0.0" },
     { name = "gspread", specifier = "==3.6.0" },
-    { name = "importlib-resources", specifier = "==6.1.0" },
     { name = "ipykernel", specifier = "==6.29.0" },
     { name = "ipython", specifier = "==8.18.1" },
     { name = "jupyter", specifier = "==1.0.0" },
@@ -781,7 +767,6 @@ docs = [
     { name = "sphinx-rtd-theme", specifier = "==2.0.0" },
     { name = "tokenize-rt", specifier = "==4.2.1" },
     { name = "torchaudio", specifier = "==2.8.0", index = "https://download.pytorch.org/whl/cu126" },
-    { name = "torchvision", specifier = "==0.23.0", index = "https://download.pytorch.org/whl/cu126" },
     { name = "tqdm", specifier = "==4.64.1" },
     { name = "wget", specifier = "==3.2" },
     { name = "wheel", specifier = "==0.45.1" },
@@ -801,13 +786,11 @@ notebooks = [
     { name = "tqdm", specifier = "==4.64.1" },
 ]
 test = [
-    { name = "brevitas", git = "https://github.com/Xilinx/brevitas.git?rev=06133f4778ecedc77020b5e778022cf4e805bc86" },
     { name = "dataset-loading", git = "https://github.com/fbcotter/dataset_loading.git?rev=5b9faa226e5f7c857579d31cdd9acde8cdfb816f" },
     { name = "deap", specifier = "==1.4.1" },
     { name = "dependencies", specifier = "==2.0.1" },
     { name = "finn-experimental", directory = "packaging/finn-experimental" },
     { name = "future-annotations", specifier = "==1.0.0" },
-    { name = "importlib-resources", specifier = "==6.1.0" },
     { name = "mip", specifier = "==1.13.0" },
     { name = "networkx", specifier = "==2.8" },
     { name = "pytest", specifier = "==7.4.4" },
@@ -817,7 +800,6 @@ test = [
     { name = "setuptools", specifier = "==68.2.2" },
     { name = "tokenize-rt", specifier = "==4.2.1" },
     { name = "torchaudio", specifier = "==2.8.0", index = "https://download.pytorch.org/whl/cu126" },
-    { name = "torchvision", specifier = "==0.23.0", index = "https://download.pytorch.org/whl/cu126" },
     { name = "wget", specifier = "==3.2" },
     { name = "wheel", specifier = "==0.45.1" },
 ]

@@ -5,6 +5,10 @@ Docker, documentation and CI use the dependency groups in `pyproject.toml`.
 The initial development image includes the full upstream notebook, export,
 reporting and benchmark environment. CUDA PyTorch 2.8/cu126 is retained.
 
+Docker builds require Docker Buildx with Bake (`docker buildx bake --help`).
+Install `docker-buildx-plugin` alongside Docker Engine if it is missing.
+A published-image launch with an explicit verified image needs no Bake.
+
 ## Start an environment
 
 ```bash
@@ -35,6 +39,8 @@ The checkout and build directory are mirrored at their host paths. The active
 without dependencies, and checks that its lock matches the image. Setup failure
 stops execution. Rebuild after changing dependencies; source edits reuse the
 same development environment. Identity uses canonical Git executable bits so differing Jenkins umasks do not change it. The image contains `tini` for child reaping.
+Attached terminals work for explicit commands such as `docker/run -- ipython`
+as well as the default shell; CI invocations remain noninteractive.
 
 For native use, install Ubuntu system
 prerequisites (`sudo ./scripts/install-system-deps.sh`), then run:
@@ -76,6 +82,13 @@ network requirements reported by inspection are declarations, not firewall rules
 site-specific mounts/env/hostname through `FINN_DOCKER_EXTRA`. Jenkins keeps its
 existing per-agent hostname and farm cleanup. `.Xilinx/` Tcl files in the checkout
 are copied into the container's writable home.
+Farm interception applies through `resolve_xilinx_tool()`; wrapper directories
+are not prepended to PATH for nested/bare commands. With interception enabled,
+startup copies hlslib from the image into the writable resource cache without
+network access. Keep `FINN_HOST_BUILD_DIR` (and any resource override) on storage
+visible at the same absolute path to the farm, since generated Tcl embeds it.
+Missing optional platform repositories or tool installations warn and are not
+mounted. Native activation prepares board files only when Vivado is selected.
 
 Inspect without running Docker, or render a Compose overlay:
 
@@ -143,8 +156,9 @@ Two migration corrections are explicit: Sphinx 5.0.2 requires docutils below
 above. Other direct selections remain upstream's, and formerly floating transitives
 are now recorded in the lock. The supported platform is Linux x86-64/Python 3.12.
 
-XSI binaries live under `$FINN_HOME/xsi` and are keyed by source, Python ABI and
-Vivado installation/header identity. Golden reference output lives under
+XSI binaries live under `$FINN_HOME/xsi` and are keyed by source, Python ABI,
+compiler identity, effective compile/link settings, pybind11 version and Vivado
+installation/header identity. Golden reference output lives under
 `$FINN_BUILD_DIR/pynq_golden` (`FINN_GOLDEN_DIR` overrides its parent).
 `FINN_VCK190_GOLDEN=1` fetches the pinned PYNQ sources and builds a private copy;
 it requires real tools and records the inputs. The pinned PYNQ golden Tcl declares Vivado 2025.2, which needs its own licensed-tool validation. Source resources stay immutable.
@@ -160,6 +174,10 @@ modules and host daemons remain host responsibilities.
 ./docker/build --release --runtime xrt
 ./docker/build --export-sif /absolute/finn.sif --runtime xrt
 ```
+
+Release builds snapshot Git-tracked working-tree files, including tracked edits
+and deletions. Ignored downloads and untracked notebook/model output are excluded.
+Add intended new source files to Git before building a release.
 
 SIF conversion requires a local Apptainer or Singularity executable. The release
 image contains a stable upstream source tree, including HDL, HLS, XSI and shell
@@ -188,7 +206,9 @@ for offline use. Read-only execution still requires writable external outputs.
 | `FINN_DOCKER_CACHE_DIR`, `FINN_DOCKER_RUN_AS_ROOT`, verification and SSH inputs | Retained; SSH mounting is explicit and read-only |
 | `FINN_DOCKER_BUILD_EXTRA` | Bake options, e.g. `--set *.args.UBUNTU_TAG=...`; set `UBUNTU_TAG` so the identity matches |
 | `FINN_DOCKER_NO_CACHE` | `docker/build --rebuild` |
-| `FINN_SKIP_XRT_DOWNLOAD`, `FINN_XRT_PATH`, `XRT_DEB_VERSION`, `SLASHKIT_DEB_PACKAGE` | Explicit runtime manifests; use `SOURCE=supply` and `docker/packages/` for site packages |
+| `FINN_XRT_PATH` | Retained checksum-verified public download cache; populated and reused for local XRT builds |
+| `SLASHKIT_DEB_PACKAGE` | Retained site package path; atomically staged in `docker/packages/` and selects the `slashkit` runtime |
+| `FINN_SKIP_XRT_DOWNLOAD`, `XRT_DEB_VERSION` | Explicit runtime selection and pinned manifests; use `SOURCE=supply` for site packages |
 | `FINN_SKIP_DEP_REPOS`, `FINN_SKIP_BOARD_FILES` | Prepared resource cache/overrides and `FINN_RESOURCES_OFFLINE=1` |
 | `DOCKER_INTERACTIVE` | TTY detection; explicit Docker flags through `FINN_DOCKER_EXTRA` |
 | `FINN_SINGULARITY` | `docker/build --export-sif PATH` and standard Apptainer/Singularity launch |
