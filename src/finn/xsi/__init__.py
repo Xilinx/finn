@@ -19,10 +19,10 @@ Usage:
 """
 
 import logging
-import os
 import sys
-from pathlib import Path
 from typing import Any, Optional
+
+from finn.xsi.paths import build_dir, source_dir
 
 
 def is_available() -> bool:
@@ -32,7 +32,7 @@ def is_available() -> bool:
         bool: True if finn_xsi can be imported, False otherwise
     """
     # Check if xsi.so exists
-    xsi_path = Path(os.environ["FINN_ROOT"]) / "finn_xsi"
+    xsi_path = build_dir()
     xsi_so = xsi_path / "xsi.so"
     if not xsi_so.exists():
         return False
@@ -54,7 +54,7 @@ def _load_modules() -> bool:
     if _adapter_module is not None:
         return True
 
-    xsi_path = Path(os.environ["FINN_ROOT"]) / "finn_xsi"
+    xsi_path = build_dir()
     xsi_so = xsi_path / "xsi.so"
 
     if not xsi_so.exists():
@@ -65,6 +65,9 @@ def _load_modules() -> bool:
     if path_added:
         sys.path.insert(0, str(xsi_path))
 
+    source_added = str(source_dir()) not in sys.path
+    if source_added:
+        sys.path.insert(1, str(source_dir()))
     try:
         # Imports must be inside function: modules require dynamic path setup
         # and may not exist if finn_xsi extension is not built
@@ -86,6 +89,8 @@ def _load_modules() -> bool:
         logging.warning(f"Unexpected error loading finn_xsi: {type(e).__name__}: {e}")
         return False
     finally:
+        if source_added:
+            sys.path.remove(str(source_dir()))
         # Remove from path if we added it
         if path_added and str(xsi_path) in sys.path:
             try:

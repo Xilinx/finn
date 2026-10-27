@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+# Build the FINN Docker image or the release image (optionally
+# exported as a SIF).
+
+set -euo pipefail
+
+SCRIPT=$(readlink -f "$0")
+DOCKER_DIR=$(dirname "$SCRIPT")
+REPO=$(dirname "$DOCKER_DIR")
+CALLER_DIR="$PWD"
+
+# shellcheck source=/dev/null
+. "$DOCKER_DIR/lib.sh"
+
+export_sif () {
+    local OUTPUT="$SIF_OUTPUT"
+    RUNTIME=""
+    for candidate in apptainer singularity; do
+        command -v "$candidate" >/dev/null 2>&1 && { RUNTIME="$candidate"; break; }
+    done
+    [ -n "$RUNTIME" ] || {
+        recho "SIF export requires apptainer or singularity on PATH."
+        recho "  Ubuntu:  sudo apt install singularity-container"
+        recho "  Or:      https://github.com/apptainer/apptainer/releases"
+        exit 1
+    }
+
+    case "$OUTPUT" in
+        /*) ;;
+        *) OUTPUT="$CALLER_DIR/$OUTPUT" ;;
+    esac
+    OUTPUT=$(readlink -m "$OUTPUT")
+    [ ! -d "$OUTPUT" ] || { recho "SIF output path is a directory: $OUTPUT"; exit 2; }
+
+    finn_prepare_image "$target" build
+    TAG="$FINN_IMAGE"
+    mkdir -p "$(dirname "$OUTPUT")"
+    TAR=$(mktemp -t finn-sif-XXXXXX.tar)
+    trap 'rm -f "$TAR"' EXIT
+    gecho "Exporting $TAG"
+    docker save "$TAG" -o "$TAR" || { recho "docker save failed"; exit 1; }
+    gecho "Converting to $OUTPUT"
+    "$RUNTIME" build --force "$OUTPUT" "docker-archive://$TAR" \
+        || { recho "$RUNTIME build failed"; exit 1; }
+    gecho "Exported SIF: $OUTPUT"
+    sha256sum "$OUTPUT"
+}
+
+usage () {
+    cat <<'EOF'
+Usage: docker/build [OPTIONS]
+
+Options:
+  --release          build the release image: FINN installed from this checkout
+  --export-sif PATH  build the release image and export it as an Apptainer SIF
+  --runtime NAME     add image content such as xrt; repeatable
+  --rebuild          rebuild image layers without cache
+  --print-tag        print the image reference without building
+  --print            print the resolved build request
+  -h, --help         show this help
+EOF
+}
+
+RELEASE=0
+SIF_OUTPUT=""
+SIF_REQUESTED=0
+RUNTIMES="${FINN_RUNTIMES:-}"
+PRINT_ONLY=0
+PRINT_TAG=0
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --release) RELEASE=1; shift ;;
+        --export-sif)
+            [ "$#" -ge 2 ] || { echo "--export-sif needs a path" >&2; exit 2; }
+            SIF_OUTPUT=$2; SIF_REQUESTED=1; shift 2 ;;
+        --export-sif=*) SIF_OUTPUT=${1#*=}; SIF_REQUESTED=1; shift ;;
+        --runtime)
+            [ "$#" -ge 2 ] || { echo "--runtime needs a value" >&2; exit 2; }
+            RUNTIMES="${RUNTIMES:+$RUNTIMES,}$2"; shift 2 ;;
+        --runtime=*)
+            value=${1#*=}; RUNTIMES="${RUNTIMES:+$RUNTIMES,}$value"; shift ;;
+        --rebuild) export FINN_CONTAINER_REBUILD=1; shift ;;
+        --print) PRINT_ONLY=1; shift ;;
+        --print-tag) PRINT_TAG=1; shift ;;
+        -h|--help) usage; exit 0 ;;
+        --) shift; break ;;
+        -*) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
+        *) break ;;
+    esac
+done
+
+[ "$#" -eq 0 ] || { echo "docker/build does not accept a command" >&2; exit 2; }
+[ "$SIF_REQUESTED" != 1 ] || [ -n "$SIF_OUTPUT" ] || {
+    echo "--export-sif needs a path" >&2
+    exit 2
+}
+
+RUNTIMES=$(finn_normalize_runtimes "$RUNTIMES")
+export FINN_RUNTIMES="$RUNTIMES"
+finn_set_provenance
+
+artifact=docker
+variant=""
+if [ "$SIF_REQUESTED" = 1 ]; then
+    artifact=sif
+    variant=release
+elif [ "$RELEASE" = 1 ]; then
+    variant=release
+fi
+export FINN_IMAGE_VARIANT="$variant"
+target=$(finn_bake_target "$RUNTIMES" "$variant")
+
+if [ "$PRINT_TAG" = 1 ]; then
+    cd "$REPO"
+    finn_bake_tag "$target"
+    exit $?
+fi
+
+if [ "$PRINT_ONLY" = 1 ]; then
+    printf 'artifact=%s\n' "$artifact"
+    printf 'runtimes=%s\n' "$RUNTIMES"
+    printf 'bake_target=%s\n' "$target"
+    printf 'image_revision=%s\n' "$FINN_IMAGE_REVISION"
+    printf 'source_revision=%s\n' "$FINN_SOURCE_REVISION"
+    printf 'rebuild=%s\n' "${FINN_CONTAINER_REBUILD:-0}"
+    printf 'output=%s\n' "$SIF_OUTPUT"
+    exit 0
+fi
+
+cd "$REPO"
+case "$artifact" in
+    docker)
+        finn_prepare_image "$target" build
+        ;;
+    sif)
+        export_sif
+        ;;
+esac

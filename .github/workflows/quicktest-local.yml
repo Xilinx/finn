@@ -23,6 +23,10 @@ jobs:
         run: |
           sudo ./scripts/install-system-deps.sh
 
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version-file: .uv-version
+
       - name: Setup local FINN environment
         run: |
           export FINN_HOST_BUILD_DIR=/tmp/finn_gha
@@ -31,5 +35,5 @@ jobs:
       - name: Run quicktest
         run: |
           export FINN_HOST_BUILD_DIR=/tmp/finn_gha
-          source scripts/finn-env.sh
+          source scripts/activate.sh
           ./scripts/quicktest-local.sh

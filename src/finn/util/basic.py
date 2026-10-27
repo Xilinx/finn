@@ -39,6 +39,7 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.util.basic import gen_finn_dt_tensor, roundup_to_integer_multiple
 from typing import Dict, Optional, Tuple
 
+from finn.resources.prepare import golden_dir
 from finn.util.data_packing import finnpy_to_packed_bytearray
 
 # mapping from PYNQ board names to FPGA part names
@@ -150,7 +151,7 @@ def get_pynq_golden_dir(board):
     """Return the directory holding the golden reference design for a Versal PYNQ
     board."""
 
-    return os.path.join(get_finn_root(), "deps", "pynq_golden", board.lower())
+    return str(golden_dir(board))
 
 
 def fifo_rtl_files(abspath=True, gauge=False):

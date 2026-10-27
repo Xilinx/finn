@@ -29,6 +29,9 @@ import sysconfig
 from pathlib import Path
 from typing import List, Tuple
 
+from finn.resources import _store
+from finn.xsi.paths import build_dir, source_dir
+
 
 def get_build_paths() -> Tuple[List[str], str, List[str]]:
     """Get include paths and compiler for building the extension.
@@ -115,10 +118,9 @@ def build_xsi(force: bool = False, verbose: bool = True) -> bool:
     Returns:
         bool: True if build successful
     """
-    finn_root = Path(os.environ["FINN_ROOT"])
-    xsi_path = finn_root / "finn_xsi"
+    xsi_path = build_dir()
 
-    if not xsi_path.exists():
+    if not source_dir().exists():
         print(f"Error: finn_xsi source not found at {xsi_path}")
         return False
 
@@ -148,7 +150,7 @@ def build_xsi(force: bool = False, verbose: bool = True) -> bool:
     include_dirs, compiler, compile_args = get_build_paths()
 
     # Source files
-    source_files = ["xsi_bind.cpp", "xsi_finn.cpp"]
+    source_files = [str(source_dir() / name) for name in ("xsi_bind.cpp", "xsi_finn.cpp")]
 
     # Build command
     cmd = [compiler] + compile_args
@@ -170,7 +172,12 @@ def build_xsi(force: bool = False, verbose: bool = True) -> bool:
         print(f"Build command: {' '.join(cmd)}")
 
     # Run the compilation
-    result = subprocess.run(cmd, cwd=xsi_path, capture_output=True, text=True)
+    with _store.locked(xsi_path.parent, xsi_path.name):
+        xsi_path.mkdir(parents=True, exist_ok=True)
+        cmd[cmd.index("-o") + 1] = "xsi.so.tmp"
+        result = subprocess.run(cmd, cwd=xsi_path, capture_output=True, text=True)
+        if result.returncode == 0:
+            (xsi_path / "xsi.so.tmp").replace(xsi_path / "xsi.so")
 
     if result.returncode != 0:
         print("Build failed!")
@@ -196,8 +203,7 @@ def build_xsi(force: bool = False, verbose: bool = True) -> bool:
 
 def verify_installation() -> bool:
     """Verify that finn_xsi can be imported and works."""
-    finn_root = Path(os.environ["FINN_ROOT"])
-    xsi_path = finn_root / "finn_xsi"
+    xsi_path = build_dir()
 
     # Check if xsi.so exists
     xsi_so = xsi_path / "xsi.so"
@@ -206,6 +212,7 @@ def verify_installation() -> bool:
         return False
 
     # Temporarily add to path
+    sys.path.insert(0, str(source_dir()))
     sys.path.insert(0, str(xsi_path))
 
     try:
@@ -230,12 +237,12 @@ def verify_installation() -> bool:
         return False
     finally:
         sys.path.pop(0)
+        sys.path.remove(str(source_dir()))
 
 
 def clean_build() -> bool:
     """Clean build artifacts."""
-    finn_root = Path(os.environ["FINN_ROOT"])
-    xsi_path = finn_root / "finn_xsi"
+    xsi_path = build_dir()
 
     print(f"Cleaning build artifacts in {xsi_path}...")
 

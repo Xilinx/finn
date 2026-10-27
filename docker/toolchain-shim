@@ -1,0 +1,29 @@
+#!/bin/bash
+# Direct docker exec does not run the entrypoint. Apply selected vendor settings
+# before dispatching, removing the shim directory to avoid recursion.
+
+set -e
+
+SHIM_DIR=/usr/local/lib/finn/toolchain-bin
+tool=$(basename "$0")
+
+# Apply the toolchain unless an outer shell already did. Sourcing is 7 ms and
+# the file is idempotent, so this is the cheap path either way.
+if [ "${FINN_ENV_APPLIED:-}" != "1" ] && [ -r /etc/finn-toolchain.sh ]; then
+    # shellcheck source=/dev/null
+    . /etc/finn-toolchain.sh 2>/dev/null || true
+fi
+
+# Resolve the real tool with the shim directory taken out of PATH, so we cannot
+# find ourselves.
+PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$SHIM_DIR" | paste -sd: -)
+export PATH
+
+real=$(command -v "$tool" 2>/dev/null) || real=""
+if [ -z "$real" ]; then
+    echo "finn: $tool not found after the toolchain was configured." >&2
+    echo "finn: the Xilinx install may not be mounted in this container," >&2
+    echo "finn: or XILINX_VIVADO/XILINX_VITIS/XILINX_HLS may be unset." >&2
+    exit 127
+fi
+exec "$real" "$@"

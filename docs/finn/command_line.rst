@@ -56,7 +56,7 @@ Now you can invoke the simple dataflow build as follows:
 
 ::
 
-  ./run-docker.sh build_dataflow <path/to/dataflow_build_dir/>
+  ./docker/run --fpga --volume /path/to/model:/path/to/model -- build_dataflow /path/to/model
 
 Depending on the chosen output products, the dataflow build will run for a while
 as it goes through the build phases:
@@ -246,7 +246,7 @@ You can launch the desired custom build flow using:
 
 ::
 
- ./run-docker.sh build_custom <path/to/custom_build_dir> <name-of-build-flow>
+ ./docker/run --fpga --volume /path/to/model:/path/to/model --workdir /path/to/model -- python <name-of-build-flow>.py
 
 This will mount the specified folder into the FINN Docker container and launch
 the build flow. If ``<name-of-build-flow>`` is not specified it will default to ``build``
