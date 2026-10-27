@@ -142,6 +142,7 @@ from finn.transformation.fpgadataflow.set_fifo_depths import (
     CapConvolutionFIFODepths,
     InsertAndSetFIFODepths,
     RemoveShallowFIFOs,
+    reset_implementation,
     xsi_fifosim,
 )
 from finn.transformation.fpgadataflow.set_folding import SetFolding
@@ -196,25 +197,76 @@ def _fifo_debug_live_dir(cfg):
     return cfg.output_dir + "/debug/fifo_logs/_live"
 
 
-def snapshot_fifo_logs(cfg, phase_name, loop_context=None):
+def _attach_fifo_debug_logs(model, cfg, prefix=""):
+    """Give every StreamingFIFO_rtl node in `model` a fifo_gauge log path."""
     if not cfg.debug_fifo:
-        return
+        return model
+    live_dir = os.path.abspath(_fifo_debug_live_dir(cfg))
+    os.makedirs(live_dir, exist_ok=True)
+    for node in model.get_nodes_by_op_type("StreamingFIFO_rtl"):
+        node_inst = getCustomOp(node)
+        log_path = os.path.join(live_dir, prefix + node.name + ".log")
+        if node_inst.get_nodeattr("debug_log_path") == log_path:
+            continue
+        node_inst.set_nodeattr("debug_log_path", log_path)
+        node_inst.set_nodeattr("fifo_log_verbose", int(cfg.fifo_log_verbose))
+        node_inst.set_nodeattr("fifo_log_flush_cycles", int(cfg.fifo_log_flush_cycles))
+        # DATA_LOGFILE is baked into the generated RTL, so any already-generated
+        # IP for this node has to be regenerated with the new path
+        reset_implementation(node_inst)
+    return model
+
+
+def snapshot_fifo_logs(cfg, phase_name, loop_context=None):
+    """
+    Move the live fifo logs, located in
+    `<output>/debug/fifo_logs/_live`,
+    into a "snapshotted" directory, located in
+    `<output>/debug/fifo_logs/<phase_name>/<loop_context>`.
+
+    Should only be called after a simulation is finished. Without a loop_context,
+    all remaining live logs are moved to `main`, so snapshot the loop bodies first.
+    """
+    # Determine live directories
     live_dir = _fifo_debug_live_dir(cfg)
-    if not os.path.isdir(live_dir):
+    live_onnx_dir = os.path.join(live_dir, "intermediate_models")
+    if not cfg.debug_fifo or not os.path.isdir(live_dir):
         return
+
+    # Determine snapshot directories
     prefix = (loop_context + "_") if loop_context else None
     subdir = loop_context or "main"
     dest_dir = os.path.join(cfg.output_dir, "debug", "fifo_logs", phase_name, subdir)
+    dest_onnx_dir = os.path.join(dest_dir, "intermediate_models")
+    # Drop the previous snapshot of this phase/scope, so a rebuild into the same
+    # output_dir with fewer FIFOs doesn't leave stale logs behind.
+    if os.path.isdir(dest_dir):
+        shutil.rmtree(dest_dir)
     os.makedirs(dest_dir, exist_ok=True)
-    for fn in os.listdir(live_dir):
-        if not fn.endswith(".log"):
-            continue
-        if prefix is not None and not fn.startswith(prefix):
-            continue
-        src = os.path.join(live_dir, fn)
-        dst = os.path.join(dest_dir, fn)
-        shutil.copy2(src, dst)
-        open(src, "w").close()
+    if os.path.isdir(live_onnx_dir):
+        os.makedirs(dest_onnx_dir, exist_ok=True)
+
+    # Filter to only relevant log files
+    log_files = [
+        log_file
+        for log_file in os.listdir(live_dir)
+        if log_file.endswith(".log") and (prefix is None or log_file.startswith(prefix))
+    ]
+
+    # Identify relevant ONNX files
+    onnx_files = [
+        onnx_file
+        for onnx_file in (os.listdir(live_onnx_dir) if os.path.isdir(live_onnx_dir) else [])
+        if onnx_file.endswith(".onnx") and (prefix is None or onnx_file.startswith(prefix))
+    ]
+
+    # Move relevant log files to snapshot directory
+    for log_file in log_files:
+        shutil.move(os.path.join(live_dir, log_file), os.path.join(dest_dir, log_file))
+
+    # Move relevant onnx files to snapshot directory
+    for onnx_file in onnx_files:
+        shutil.move(os.path.join(live_onnx_dir, onnx_file), os.path.join(dest_onnx_dir, onnx_file))
 
 
 def verify_step(
@@ -1153,6 +1205,8 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     fifosim_input_throttle=cfg.fifosim_input_throttle,
                     cfg_n_inferences=cfg.fifosim_n_inferences,
                     debug_log_dir=(_fifo_debug_live_dir(cfg) if cfg.debug_fifo else None),
+                    fifo_log_verbose=cfg.fifo_log_verbose,
+                    fifo_log_flush_cycles=cfg.fifo_log_flush_cycles,
                 )
             )
             snapshot_fifo_logs(cfg, "fifo_sizing")
@@ -1219,6 +1273,8 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     # phase_build_hardware for MLO ones). An explicit cfg.steps list that places
     # this step after step_hw_ipgen has to list those two steps again after it.
 
+    # Make sure every surviving top-level FIFO has a gauge log path.
+    model = _attach_fifo_debug_logs(model, cfg)
     return model
 
 
@@ -1304,9 +1360,9 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
                 "stitched_ip_rtlsim",
                 need_parent=True,
             )
-            if is_mlo(model):
-                for loop_node in verify_model.get_nodes_by_op_type("FINNLoop"):
-                    snapshot_fifo_logs(cfg, "stitched_ip_rtlsim", loop_context=loop_node.name)
+            # loop bodies first, the main snapshot takes whatever is left
+            for loop_node in verify_model.get_nodes_by_op_type("FINNLoop"):
+                snapshot_fifo_logs(cfg, "stitched_ip_rtlsim", loop_context=loop_node.name)
             snapshot_fifo_logs(cfg, "stitched_ip_rtlsim")
     return model
 
@@ -1619,6 +1675,8 @@ def step_loop_body_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig
             fifosim_input_throttle=cfg.fifosim_input_throttle,
             debug_log_dir=(_fifo_debug_live_dir(cfg) if cfg.debug_fifo else None),
             debug_log_prefix=(loop_context + "_") if loop_context else "",
+            fifo_log_verbose=cfg.fifo_log_verbose,
+            fifo_log_flush_cycles=cfg.fifo_log_flush_cycles,
         )
     )
     # snapshot per-FIFO debug logs for this loop body before the live dir is reused
@@ -1632,6 +1690,9 @@ def step_loop_body_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig
         GiveUniqueNodeNames(prefix=(loop_context + "_") if loop_context else "")
     )
     model = model.transform(GiveReadableTensorNames())
+    # The renaming above renumbered the FIFOs, so point the surviving ones at logs
+    # named after their final node names (which already carry the loop prefix).
+    model = _attach_fifo_debug_logs(model, cfg)
 
     return model
 

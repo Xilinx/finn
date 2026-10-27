@@ -358,14 +358,6 @@ class MVAU_rtl(MVAU, RTLBackend):
         # Validate the tiled-MVU (TH>1) constraints
         theight = self.get_nodeattr("TH")
         if theight > 1:
-            pe = self.get_nodeattr("PE")
-            tile = pe * simd
-            if tile % theight != 0:
-                raise Exception(
-                    "%s: TH=%d does not divide the tile PE*SIMD=%d. The tiled MVU "
-                    "requires (PE*SIMD) %% TH == 0." % (self.onnx_node.name, theight, tile)
-                )
-
             # The tiled wrapper conservatively caps both activation and weight widths at 8 bits.
             act_width = self.get_input_datatype(0).bitwidth()
             if act_width > 8:
@@ -438,6 +430,7 @@ class MVAU_rtl(MVAU, RTLBackend):
         code_gen_dict["$PE$"] = [str(self.get_nodeattr("PE"))]
         code_gen_dict["$SIMD$"] = [str(simd)]
         code_gen_dict["$TH$"] = [str(self.get_nodeattr("TH"))]
+        code_gen_dict["$WSIMD$"] = [str(self.get_weight_stream_simd())]
         code_gen_dict["$ACTIVATION_WIDTH$"] = [str(self.get_input_datatype(0).bitwidth())]
         code_gen_dict["$WEIGHT_WIDTH$"] = [str(self.get_input_datatype(1).bitwidth())]
         code_gen_dict["$ACCU_WIDTH$"] = [str(self.get_output_datatype().bitwidth())]

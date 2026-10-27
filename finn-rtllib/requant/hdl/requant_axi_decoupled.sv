@@ -28,12 +28,15 @@ module requant_axi_decoupled #(
 	int unsigned  SHIFT_MAX,  // Worst-case maximum shift across all channels
 
 	bit  SIGNED_OUT = 0,  // 0: unsigned clip [0, 2^N-1], 1: signed clip [-2^(N-1), 2^(N-1)-1]
+	bit  SIGNED_IN = 1,   // 0: unsigned input, zero-extended by one bit for the signed core
+
+	localparam int unsigned  KC = SIGNED_IN? K : K+1,  // Core Input Precision
 
 	// Derived multiplier operand widths (must match derive_MUL_WIDTHS)
-	localparam int unsigned  S_WIDTH = (K <= (VERSION==3? 24 : 18))? 25 :
+	localparam int unsigned  S_WIDTH = (KC <= (VERSION==3? 24 : 18))? 25 :
 	                                    (VERSION==3? 24 : 18),
-	localparam int unsigned  X_WIDTH = (K <= (VERSION==3? 24 : 18))? K :
-	                                    ((VERSION==1? 25 : 27) < K? (VERSION==1? 25 : 27) : K),
+	localparam int unsigned  X_WIDTH = (KC <= (VERSION==3? 24 : 18))? KC :
+	                                    ((VERSION==1? 25 : 27) < KC? (VERSION==1? 25 : 27) : KC),
 	localparam int unsigned  BIAS_WIDTH  = S_WIDTH + X_WIDTH,
 	localparam int unsigned  SHIFT_RANGE = SHIFT_MAX - SHIFT_MIN + 1,
 	localparam int unsigned  SHIFT_WIDTH  = (SHIFT_RANGE > 1)? $clog2(SHIFT_RANGE) : 1,
@@ -93,13 +96,17 @@ module requant_axi_decoupled #(
 
 	//-----------------------------------------------------------------------
 	// Free-running decoupled requant compute core
-	uwire signed [PE-1:0][K-1:0]  core_idat = s_axis_tdata[0+:PE*K];
+	uwire [PE-1:0][K-1:0]  idat = s_axis_tdata[0+:PE*K];
+	uwire signed [PE-1:0][KC-1:0]  core_idat;
+	for(genvar  pe = 0; pe < PE; pe++) begin : genInput
+		assign	core_idat[pe] = idat[pe];  // zero-extends unsigned inputs (KC = K+1)
+	end
 	uwire [PE-1:0][PARAMS_LANE_WIDTH-1:0]  core_pdat = s_params_tdata[0+:PE*PARAMS_LANE_WIDTH];
 	uwire [PE-1:0][N-1:0]  core_odat;
 	uwire  core_ovld;
 	requant_decoupled #(
 		.VERSION(VERSION),
-		.K(K), .N(N), .C(C), .PE(PE),
+		.K(KC), .N(N), .C(C), .PE(PE),
 		.SHIFT_MIN(SHIFT_MIN), .SHIFT_MAX(SHIFT_MAX),
 		.SIGNED_OUT(SIGNED_OUT)
 	) impl (

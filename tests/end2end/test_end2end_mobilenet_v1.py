@@ -535,6 +535,7 @@ def test_end2end_mobilenet_build_v80():
 
     cfg = build.DataflowBuildConfig(
         output_dir=output_dir,
+        enable_build_pdb_debug=False,
         synth_clk_period_ns=target_clk_ns,
         fpga_part=fpga_part,
         shell_flow_type=build_cfg.ShellFlowType.SLASH_ALVEO,

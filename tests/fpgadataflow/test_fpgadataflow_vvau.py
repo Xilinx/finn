@@ -63,7 +63,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.general import ApplyConfig
-from finn.util.test import tree_model_test
+from finn.util.test import get_hls_synth_interval, tree_model_test
 
 
 def _infer_sparse_weight_tensor(W_conv, k_h, k_w, channels):
@@ -313,6 +313,55 @@ def test_fpgadataflow_vvau(
             assert (
                 y_produced == y_expected
             ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
+
+
+# (input/weight datatype, activation, (NF, SF)): representative kernel datapaths
+# rather than a cross product. (1, 1) is fully unrolled (the original regression),
+# (2, 3) folds both channels and kernel and exercises the weight memory
+@pytest.mark.parametrize(
+    "dt,act,fold",
+    [
+        pytest.param(DataType["INT4"], None, (1, 1), id="int4-full"),
+        pytest.param(DataType["INT4"], None, (2, 3), id="int4-folded"),
+        pytest.param(DataType["INT4"], DataType["UINT4"], (2, 3), id="int4-thresh"),
+        pytest.param(DataType["BIPOLAR"], None, (2, 3), id="bipolar"),
+    ],
+)
+# mem_mode: on-chip weights, embedded or streamed from the packaged weight streamer
+@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_fpgadataflow_vvau_hls_ii(dt, act, fold, mem_mode):
+    """The freerunning top of an HLS VVAU must achieve II=1 for any folding, i.e. it
+    calls the function-pipelined hlslib kernel once per cycle."""
+    k_h, k_w, channels = 3, 3, 4
+    nf, sf = fold
+    pe, simd = channels // nf, (k_h * k_w) // sf
+    idt = wdt = dt
+    if act is None:
+        T = tdt = None
+        odt = DataType["UINT32"] if dt == DataType["BIPOLAR"] else DataType["INT32"]
+    else:
+        # threshold values only need to be valid, they don't affect the II
+        odt, tdt = act, DataType["INT32"]
+        (t_min, t_max) = _calculate_dot_prod_range(idt, wdt, k_h * k_w)
+        n_steps = act.get_num_possible_values() - 1
+        T = np.sort(np.random.randint(t_min, t_max - 1, (channels, n_steps)), axis=1)
+        T = T.astype(np.float32)
+    W = gen_finn_dt_tensor(wdt, (channels, 1, k_h, k_w))
+    model = _make_single_vvau_modelwrapper(
+        W, pe, simd, k_h, k_w, channels, 4, 4, wdt, idt, odt, T, tdt, mem_mode
+    )
+    getCustomOp(model.graph.node[0]).set_nodeattr("preferred_impl_style", "hls")
+    part = "xczu7ev-ffvc1156-2-e"
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(GiveUniqueNodeNames())
+    assert model.graph.node[0].op_type == "VVAU_hls"
+
+    model = model.transform(PrepareIP(part, 10))
+    model = model.transform(HLSSynthIP())
+    assert get_hls_synth_interval(getCustomOp(model.graph.node[0])) == 1
 
 
 def make_single_dw_conv_modelwrapper(conv_config, idt, wdt):

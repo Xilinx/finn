@@ -52,6 +52,7 @@ def test_build_dataflow_step_injection():
 
     cfg = build.DataflowBuildConfig(
         output_dir=output_dir,
+        enable_build_pdb_debug=False,
         synth_clk_period_ns=10.0,
         fpga_part="xc7z020clg400-1",
         # restrict to the two CPU-only phases that our injections target
@@ -104,6 +105,7 @@ def test_build_dataflow_no_injection_is_noop():
 
     cfg = build.DataflowBuildConfig(
         output_dir=output_dir,
+        enable_build_pdb_debug=False,
         synth_clk_period_ns=10.0,
         fpga_part="xc7z020clg400-1",
         steps=["phase_prepare_model"],
@@ -133,6 +135,7 @@ def test_estimate_only_flow_skips_fifo_sizing():
 
     cfg = build.DataflowBuildConfig(
         output_dir=output_dir,
+        enable_build_pdb_debug=False,
         synth_clk_period_ns=10.0,
         fpga_part="xc7z020clg400-1",
         steps=build_cfg.estimate_only_dataflow_steps,

@@ -68,6 +68,7 @@ from finn.transformation.general import ApplyConfig
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import is_versal
 from finn.util.test import (
+    get_hls_synth_interval,
     make_runtime_weight_stream,
     tree_model_test,
     tree_model_test_up_to_rotation,
@@ -473,6 +474,10 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, pumpe
     cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
     exp_cycles_dict = model.analysis(exp_cycles_per_layer)
     exp_cycles = exp_cycles_dict[node.name]
+    if mem_mode == "external_mem":
+        # node-by-node rtlsim feeds the weights straight into the MVU core,
+        # bypassing fetch_weights, so it only measures the compute cycles
+        exp_cycles = inst.get_exp_compute_cycles()
     assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
     assert exp_cycles != 0
 
@@ -685,16 +690,19 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
 
 @pytest.mark.parametrize("mh", [18])
 @pytest.mark.parametrize("mw", [32])
-# (PE, SIMD, TH, mem_mode) as a jointly-valid tuple satisfying MH % PE == 0,
-# MW % SIMD == 0 and (PE * SIMD) % TH == 0. TH=1 selects the standard MVAU;
-# TH>1 selects the tiled MVAU (Versal DSP58 only, filtered below).
+# (PE, SIMD, TH, mem_mode) as a jointly-valid tuple satisfying MH % PE == 0
+# and MW % SIMD == 0. WSIMD is the smallest divisor of PE*SIMD >= ceil(PE*SIMD/TH).
+# TH=1 selects the standard MVAU; TH>1 selects the tiled MVAU (Versal DSP58
+# only, filtered below). TH need not divide PE*SIMD.
 #
 # TH must divide the number of input vectors (ofm_shape 3x3 -> 9), so the tiled
 # configs use TH in {3, 9}. The tiled set spreads across the integration-level
 # axes (the DSP-chain corner cases themselves are covered by the RTL testbench):
-#   - WSIMD = PE*SIMD/TH:   the =1 edge (1 weight/cycle) up to 192
+#   - WSIMD:                 the =1 edge (1 weight/cycle) up to 192
 #   - CHAINLEN = (SIMD+2)/3: 1, 2, 3, 6, 11
 #   - TH:                    3 and 9 (high tiling)
+#   - NW < TH (slack):       non-dividing TH cases (NW=2 < TH=3, etc.),
+#                            including TH > PE*SIMD (WSIMD=1)
 #   - mem_mode:              external_mem and internal_decoupled (tiling is
 #                            decoupled from the weight memory mode)
 @pytest.mark.parametrize(
@@ -716,6 +724,13 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
         (9, 8, 9, "external_mem"),  # TH=9 high tiling, CHAINLEN=3
         (9, 16, 3, "external_mem"),  # CHAINLEN=6
         (18, 32, 3, "internal_decoupled"),  # max fold, CHAINLEN=11, decoupled
+        # NW < TH (non-dividing): WSIMD chosen as smallest divisor of PE*SIMD >= ceil(PE*SIMD/TH)
+        (2, 4, 3, "internal_decoupled"),  # PE*SIMD=8, TH=3: WSIMD=4, NW=2, slack=1
+        (6, 16, 9, "external_mem"),  # PE*SIMD=96, TH=9: WSIMD=12, NW=8, slack=1
+        # external_mem with non-dividing TH: the weight fetch estimate must use WSIMD,
+        # (PE*SIMD)//TH would overestimate get_exp_cycles() beyond the rtlsim tolerance
+        (2, 4, 3, "external_mem"),  # PE*SIMD=8, TH=3: WSIMD=4, NW=2, slack=1
+        (2, 4, 9, "external_mem"),  # TH > PE*SIMD=8: WSIMD=1, NW=8, slack=1
         # external_mem + TH=1: standard MVAU fed by fetch_weights from external memory
         # (PE>1 catches PE-lane swaps, SIMD=1 covers the sub-word byte-packing edge).
         (9, 16, 1, "external_mem"),
@@ -756,7 +771,6 @@ def test_fpgadataflow_rtl_mvau(
         pytest.skip("External memory has no on-chip weight memory to clock-pump")
 
     # Tiled MVAU (TH>1) requires DSP58 (Versal) and is not combined with clock pumping.
-    # The (PE * SIMD) % TH == 0 constraint is guaranteed by the parameter tuples above.
     if th > 1:
         if part != "xcvc1902-vsva2197-2MP-e-S":
             pytest.skip("Tiled MVAU (TH>1) is only supported on Versal (DSP58)")
@@ -851,6 +865,22 @@ def test_fpgadataflow_rtl_mvau(
     assert (
         output_matmul == output_mvau_rtl_stitch
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
+
+    # Check the cycle estimate against stitched-IP rtlsim, which unlike node-by-node
+    # rtlsim includes the weight path (fetch_weights for external_mem).
+    # get_exp_cycles() is the steady-state cycles per frame, so measure the extra
+    # cycles of 3 frames over 1 frame to cancel out the pipeline fill.
+    def stitched_rtlsim_cycles(n_frames):
+        ctx = {"global_in": np.concatenate([input_dict["global_in"]] * n_frames)}
+        rtlsim_exec(model, ctx)
+        return int(model.get_metadata_prop("cycles_rtlsim"))
+
+    cycles_per_frame = (stitched_rtlsim_cycles(3) - stitched_rtlsim_cycles(1)) / 2
+    exp_cycles = getCustomOp(model.get_nodes_by_op_type("MVAU_rtl")[0]).get_exp_cycles()
+    assert np.isclose(exp_cycles, cycles_per_frame, rtol=0.1, atol=20), (
+        f"MVAU cycle estimate {exp_cycles} not close to stitched-IP rtlsim "
+        f"{cycles_per_frame} cycles per frame"
+    )
 
 
 @pytest.mark.parametrize("mh", [32])
@@ -1286,3 +1316,52 @@ def test_fpgadataflow_mvau_hls_threshold_width_cppsim():
     assert np.allclose(
         y_min_produced, y_min_expected
     ), f"Min input test failed: expected {y_min_expected}, got {y_min_produced}"
+
+
+# (input/weight datatype, activation, fold): representative kernel datapaths rather
+# than a cross product. fold=1 is fully unrolled (the original regression), fold=4
+# gives NF=SF=4 and exercises the weight memory and input buffer
+@pytest.mark.parametrize(
+    "dt,act,fold",
+    [
+        pytest.param(DataType["INT4"], None, 1, id="int4-full"),
+        pytest.param(DataType["INT4"], None, 4, id="int4-folded"),
+        pytest.param(DataType["INT4"], DataType["UINT4"], 4, id="int4-thresh"),
+        pytest.param(DataType["BIPOLAR"], None, 4, id="bipolar"),
+    ],
+)
+# mem_mode: on-chip weights, embedded or streamed from the packaged weight streamer
+@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_fpgadataflow_mvau_hls_ii(dt, act, fold, mem_mode):
+    """The freerunning top of an HLS MVAU must achieve II=1 for any folding, i.e. it
+    calls the function-pipelined hlslib kernel once per cycle."""
+    mw, mh = 16, 16
+    pe, simd = mh // fold, mw // fold
+    idt = wdt = dt
+    W = gen_finn_dt_tensor(wdt, (mw, mh))
+    if act is None:
+        T = tdt = None
+        odt = DataType["UINT32"] if dt == DataType["BIPOLAR"] else DataType["INT32"]
+    else:
+        # threshold values only need to be valid, they don't affect the II
+        odt, tdt = act, DataType["INT32"]
+        (t_min, t_max) = calculate_signed_dot_prod_range(idt, wdt, mw)
+        n_steps = act.get_num_possible_values() - 1
+        T = np.sort(np.random.randint(t_min, t_max - 1, (mh, n_steps)), axis=1)
+        T = T.astype(np.float32)
+    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
+    inst = getCustomOp(model.graph.node[0])
+    inst.set_nodeattr("preferred_impl_style", "hls")
+    inst.set_nodeattr("mem_mode", mem_mode)
+    part = "xczu7ev-ffvc1156-2-e"
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(GiveUniqueNodeNames())
+    node = model.graph.node[0]
+    assert node.op_type == "MVAU_hls"
+
+    model = model.transform(PrepareIP(part, 10))
+    model = model.transform(HLSSynthIP())
+    assert get_hls_synth_interval(getCustomOp(model.graph.node[0])) == 1
