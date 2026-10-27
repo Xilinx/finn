@@ -80,12 +80,6 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
         blackbox_hls = "void %s(%s, %s)" % (self.onnx_node.name, in_streams, out_stream)
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [blackbox_hls]
 
-    def get_tree_model_timing(self):
-        # a dataflow top (see pragmas) moves one word per cycle (csynth Interval 1)
-        if self.has_dataflow_top():
-            return 1, 3, 4
-        return StreamingConcat.get_tree_model_timing(self)
-
     def pragmas(self):
         n_inputs = self.get_n_inputs()
         pragmas = []

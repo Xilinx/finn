@@ -183,11 +183,11 @@ Node latency
 ------------
 
 *What:* every characterized node's write times are delayed by
-``TAV_PIPELINE_LATENCY`` (32 cycles) plus its ``get_tav_extra_latency()``
+``TAV_PIPELINE_LATENCY`` (32 cycles) plus ``tav_extra_latency()`` of the node
 (``node_latency``; ``InnerShuffle``: one page, ``I * J / SIMD`` cycles, since no
 word of a page leaves before the whole page is in its bank). In the causal pass
 a node's writes are also held to the input blocks of
-``get_tav_input_blocks()`` (``block_writes``; a dynamic ``MVAU`` computes on the
+``tav_input_blocks()`` (``block_writes``; a dynamic ``MVAU`` computes on the
 whole matrix ``dynamic_load`` buffered from in1, while its TAV reads in1 alongside
 the compute); held words leave at most one per cycle. ``DeriveFIFOSizes`` keeps
 the passes without latency too, so no edge gets smaller than without the rule.
@@ -503,13 +503,13 @@ Join window floor
 *What:* ``join_window_floors`` gives every input of a two-stream join
 (``ElementwiseAdd`` / ``AddStreams``) a floor that does not come from any TAV.
 From the join it walks back to the fork its inputs share, composing each
-node's ``get_tav_input_window()``: output block *b* of ``out_words`` words
+node's ``tav_input_window()``: output block *b* of ``out_words`` words
 needs the first ``(b + 1) * in_words`` words of the input (default: the ratio
 of the folded frame sizes in lowest terms, so a 48:1 width converter needs 48
 words a word; ``MVAU`` in0 ``(MW / SIMD, MH / PE)``, a vector (TH vectors when tiled); ``HWSoftmax`` a
 row; ``InnerShuffle`` a page; a dynamic ``MVAU``'s in1 the whole matrix; a node
 that reorders a frame gives the need of every output word instead,
-``get_tav_input_need()``, e.g. ``OuterShuffle`` from its permutation). That
+``tav_input_need()``, e.g. ``OuterShuffle`` from its permutation). That
 gives ``need_i(k)``, the fork words input *i* needs for its first *k* tokens,
 and two backlogs over two frames:
 

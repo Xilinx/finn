@@ -140,23 +140,20 @@ of rebuilding from scratch.
 4. Add `verification_io/<model>_input.npy` / `_output.npy` if the model should be
    verified.
 
-## Feature tests (FIFO sizing, folding, DWC padding)
+## FIFO sizing tests
 
-Each model's test file also carries feature tests, selected by marker:
+Each model's test file also carries `test_<model>_fifo_sizing[<board>-<strategy>]`
+(marker `fifo_sizing`): the committed folding, with FIFOs sized by
+`heuristic_analytical` or `heuristic_rtlsim`.
 
-| marker | test | checks |
-|--------|------|--------|
-| `fifo_sizing` | `test_<model>_fifo_sizing[<strategy>]` | committed folding, FIFOs sized by `heuristic_analytical` / `heuristic_rtlsim` |
-
-All of them resume the `phase_convert_to_hardware` checkpoint of a cached estimate-only build
-with the committed folding (`$FINN_BUILD_DIR/est_<model>_<board>_*`), whose estimated
-throughput is the reference. They build up to stitched IP (no bitfile) and pass if the
-stitched-IP rtlsim output matches the golden output and the rtlsim throughput is at least
-98 % of the build's own analytic estimate.
-Numbers (estimated and rtlsim throughput, FIFO storage, padding DWCs,
-folding and FIFO sizing step times) are written to `report/feature_metrics.json`.
+The test resumes the `phase_convert_to_hardware` checkpoint of a cached estimate-only build
+with the committed folding (`$FINN_BUILD_DIR/est_<model>_<board>_*`), builds up to stitched
+IP (no bitfile) and passes if the stitched-IP rtlsim output matches the golden output and
+the rtlsim throughput is at least 98 % of the build's own analytic estimate.
+Numbers (estimated and rtlsim throughput, FIFO storage, FIFO sizing time) are written to
+`report/feature_metrics.json`.
 
 ```bash
 pytest tests/benchmark/gtsrb/test_build_gtsrb.py -m fifo_sizing -k heuristic_analytical
-pytest tests/benchmark -m "folding or dwc" -n 4 --dist loadgroup
+pytest tests/benchmark -m fifo_sizing -k heuristic_analytical -n 4 --dist loadgroup
 ```

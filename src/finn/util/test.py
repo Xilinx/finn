@@ -61,7 +61,7 @@ from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
 )
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import (
-    decompress_string_to_numpy,
+    load_tav_npy,
     make_build_dir,
     pynq_part_map,
     robust_rmtree,
@@ -505,11 +505,11 @@ def tree_model_test(
         CACHING,
     )
 
-    chr_in = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_in"))
-    chr_out = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_out"))
+    chr_in = load_tav_npy(node_analytical.get_nodeattr("io_chrc_in"))
+    chr_out = load_tav_npy(node_analytical.get_nodeattr("io_chrc_out"))
 
-    rtlsim_in = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_in"))
-    rtlsim_out = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_out"))
+    rtlsim_in = load_tav_npy(node_rtlsim.get_nodeattr("io_chrc_in"))
+    rtlsim_out = load_tav_npy(node_rtlsim.get_nodeattr("io_chrc_out"))
 
     if DEBUGGING:
         debug_chr_funcs(chr_in, chr_out, rtlsim_in, rtlsim_out)
@@ -636,10 +636,10 @@ def tree_model_test_up_to_rotation(
     node_rtlsim = get_characteristic_fnc(
         model_rtl, (*node_details, "rtlsim"), part, target_clk_ns, "rtlsim", CACHING
     )
-    chr_in = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_in"))
-    chr_out = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_out"))
-    rtlsim_in = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_in"))
-    rtlsim_out = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_out"))
+    chr_in = load_tav_npy(node_analytical.get_nodeattr("io_chrc_in"))
+    chr_out = load_tav_npy(node_analytical.get_nodeattr("io_chrc_out"))
+    rtlsim_in = load_tav_npy(node_rtlsim.get_nodeattr("io_chrc_in"))
+    rtlsim_out = load_tav_npy(node_rtlsim.get_nodeattr("io_chrc_out"))
     ok, _, _, _ = compare_chr_funcs_up_to_rotation(
         chr_in[0],
         chr_out[0],
@@ -678,10 +678,10 @@ def compare_nodes(
     """Largest absolute divergence between a node's tree-model and reference
     token access vectors, over the cycle window [start_cycle, max_cycle)."""
     # Extract and decompress the input/output trace arrays
-    tav_ref_in = decompress_string_to_numpy(ref_node.get_nodeattr("io_chrc_in"))[0]
-    tav_ref_out = decompress_string_to_numpy(ref_node.get_nodeattr("io_chrc_out"))[0]
-    tav_model_in = decompress_string_to_numpy(model_node.get_nodeattr("io_chrc_in"))[0]
-    tav_model_out = decompress_string_to_numpy(model_node.get_nodeattr("io_chrc_out"))[0]
+    tav_ref_in = load_tav_npy(ref_node.get_nodeattr("io_chrc_in"))[0]
+    tav_ref_out = load_tav_npy(ref_node.get_nodeattr("io_chrc_out"))[0]
+    tav_model_in = load_tav_npy(model_node.get_nodeattr("io_chrc_in"))[0]
+    tav_model_out = load_tav_npy(model_node.get_nodeattr("io_chrc_out"))[0]
 
     # Determine max length for slicing
     max_len = max(len(tav_ref_in), len(tav_model_in), len(tav_ref_out), len(tav_model_out))

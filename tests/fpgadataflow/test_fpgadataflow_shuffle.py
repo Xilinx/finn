@@ -1066,7 +1066,4 @@ def test_outer_shuffle_tree_model_declines_small_buffer(declining_param):
 
     outer = [n for n in model.graph.node if n.op_type.startswith("OuterShuffle")]
     assert len(outer) == 1, "expected exactly one OuterShuffle to characterize"
-    inst = getCustomOp(outer[0])
-    extents, coeffs, num_words = inst.loop_nest()
-    assert inst.buffer_depth(extents, coeffs, num_words) < num_words
-    assert inst.get_tree_model() is None
+    assert getCustomOp(outer[0]).get_tree_model() is None

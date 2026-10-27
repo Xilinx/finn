@@ -29,7 +29,7 @@
 
 from qonnx.custom_op.registry import getCustomOp
 
-from finn.util.basic import decompress_string_to_numpy
+from finn.util.basic import load_tav_npy
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
@@ -79,8 +79,8 @@ def dataflow_performance(model, use_characterized=False):
                 if chrc_in == "" or chrc_out == "":
                     node_cycles = 0
                 else:
-                    cycles_in = len(decompress_string_to_numpy(chrc_in)[0]) // 2
-                    cycles_out = len(decompress_string_to_numpy(chrc_out)[0]) // 2
+                    cycles_in = len(load_tav_npy(chrc_in)[0]) // 2
+                    cycles_out = len(load_tav_npy(chrc_out)[0]) // 2
                     node_cycles = max(cycles_in, cycles_out)
             else:
                 node_cycles = int(inst.get_nodeattr("cycles_estimate"))

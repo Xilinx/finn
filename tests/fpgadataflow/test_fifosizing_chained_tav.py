@@ -66,6 +66,8 @@ from finn.transformation.fpgadataflow.derive_characteristic import (
     phase_lead,
     read_node_tavs,
     refill_floor,
+    tav_input_need,
+    tav_input_window,
 )
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
@@ -418,7 +420,7 @@ def test_join_window_floor():
     # floor 64 plus 25 %.
     model, _ = characterize(make_residual(nvec=16, ch=64, simd=1, pe=1))
     mvau = getCustomOp(model.graph.node[1])
-    assert mvau.get_tav_input_window(0) == (64, 64)
+    assert tav_input_window(mvau, 0) == (64, 64)
     assert join_window_floors(model, list(model.graph.node)) == {"short": 80}
     depths = size_fifos(make_residual(nvec=16, ch=64, simd=1, pe=1))
     assert depths == {
@@ -431,7 +433,7 @@ def test_join_window_floor():
     # it. Nothing to buffer beyond what the TAVs give.
     model, _ = characterize(make_residual(nvec=16, ch=64, simd=64, pe=1))
     dwc = getCustomOp(model.graph.node[1])
-    assert dwc.get_tav_input_window(0) == (1, 64)
+    assert tav_input_window(dwc, 0) == (1, 64)
     assert join_window_floors(model, list(model.graph.node)) == {}
     # two MVAU_rtl (SIMD = PE = 1, 1024 cycles a vector) in series: the second
     # only starts a vector once the first has emitted all of it, so paced the
@@ -455,7 +457,7 @@ def test_join_window_floor():
         perm=[0, 2, 1, 3],
         SIMD=1,
     )
-    need = getCustomOp(shuffle).get_tav_input_need(0)
+    need = tav_input_need(getCustomOp(shuffle), 0)
     assert list(need[:4]) == [1, 2, 7, 8] and need[-1] == 24 and len(need) == 24
 
 
@@ -529,10 +531,10 @@ def test_join_window_floor_concat():
     # its nearest neighbour (2 words a pixel throughout)
     model = make_concat_window()
     pad, swg = (getCustomOp(n) for n in model.graph.node[1:3])
-    assert list(pad.get_tav_input_need()[::2][:8]) == [1, 1, 1, 1, 1, 1, 0 + 1, 2]
-    assert pad.get_tav_input_need()[-1] == 32
+    assert list(tav_input_need(pad)[::2][:8]) == [1, 1, 1, 1, 1, 1, 0 + 1, 2]
+    assert tav_input_need(pad)[-1] == 32
     # window (0, 0) ends at padded pixel (2, 2), the 15th: FMPadding word 30
-    assert list(swg.get_tav_input_need()[::18]) == [
+    assert list(tav_input_need(swg)[::18]) == [
         30,
         32,
         34,
@@ -564,7 +566,7 @@ def test_join_window_floor_concat():
         SIMD=1,
         inputDataType=IDT.name,
     )
-    assert list(getCustomOp(up).get_tav_input_need()[::2]) == [
+    assert list(tav_input_need(getCustomOp(up))[::2]) == [
         2,
         2,
         4,

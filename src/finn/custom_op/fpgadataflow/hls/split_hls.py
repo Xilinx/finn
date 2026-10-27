@@ -74,12 +74,6 @@ class StreamingSplit_hls(StreamingSplit, HLSBackend):
         blackbox_hls = "void %s(%s, %s)" % (self.onnx_node.name, in_stream, out_streams)
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [blackbox_hls]
 
-    def get_tree_model_timing(self):
-        # a dataflow top (see pragmas) moves one word per cycle (csynth Interval 1)
-        if self.has_dataflow_top():
-            return 1, 1, 4
-        return StreamingSplit.get_tree_model_timing(self)
-
     def pragmas(self):
         pragmas = []
         pragmas.append("#pragma HLS INTERFACE axis port=in0_V")

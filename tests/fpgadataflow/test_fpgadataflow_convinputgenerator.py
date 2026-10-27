@@ -42,7 +42,6 @@ import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn import xsi as finnxsi
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
-from finn.custom_op.fpgadataflow.convolutioninputgenerator import swg_default_tree
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
@@ -356,13 +355,13 @@ def test_fpgadataflow_analytical_characterization_slidingwindow(
     max_allowed_length_frac = 0.2
     length_const = 5000
 
-    # ``swg_default_tree`` executes the RTL sliding-window FSM rather than
-    # approximating it, so wherever it applies the token access vector is a
-    # pure function of the generated parameters and has to match rtlsim
-    # exactly. Only the configurations it declines -- HLS impl style,
-    # dynamic_mode, a SIMD that does not divide, an FSM that does not settle --
-    # fall back to the approximation and keep a tolerance.
-    if swg_default_tree(getCustomOp(model.graph.node[0])) is not None:
+    # The tree model executes the RTL sliding-window FSM rather than
+    # approximating it (``swg_default_exact``), so wherever it applies the token
+    # access vector is a pure function of the generated parameters and has to
+    # match rtlsim exactly. Only the configurations it declines -- HLS impl
+    # style, dynamic_mode, a SIMD that does not divide, an FSM that does not
+    # settle -- fall back to the approximation and keep a tolerance.
+    if getCustomOp(model.graph.node[0]).get_tree_model().name == "swg_default_exact":
         max_allowed_volume_frac = 0.0
         volume_const = 0
         max_allowed_length_frac = 0.0
@@ -503,13 +502,13 @@ def test_fpgadataflow_analytical_characterization_slidingwindow_mobilenet(
     max_allowed_length_frac = 0.2
     length_const = 2140
 
-    # ``swg_default_tree`` executes the RTL sliding-window FSM rather than
-    # approximating it, so wherever it applies the token access vector is a
-    # pure function of the generated parameters and has to match rtlsim
-    # exactly. Only the configurations it declines -- HLS impl style,
-    # dynamic_mode, a SIMD that does not divide, an FSM that does not settle --
-    # fall back to the approximation and keep a tolerance.
-    if swg_default_tree(getCustomOp(model.graph.node[0])) is not None:
+    # The tree model executes the RTL sliding-window FSM rather than
+    # approximating it (``swg_default_exact``), so wherever it applies the token
+    # access vector is a pure function of the generated parameters and has to
+    # match rtlsim exactly. Only the configurations it declines -- HLS impl
+    # style, dynamic_mode, a SIMD that does not divide, an FSM that does not
+    # settle -- fall back to the approximation and keep a tolerance.
+    if getCustomOp(model.graph.node[0]).get_tree_model().name == "swg_default_exact":
         max_allowed_volume_frac = 0.0
         volume_const = 0
         max_allowed_length_frac = 0.0

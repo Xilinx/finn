@@ -27,9 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """Tree model vs node rtlsim token access vectors of StreamingSplit_hls and
-StreamingConcat_hls. Their schedule depends on whether the generated HLS top is
-a dataflow region (``get_tree_model_timing``), so these tests check whichever top
-the source in this tree generates."""
+StreamingConcat_hls."""
 
 import pytest
 
@@ -52,13 +50,8 @@ CONFIGS = [
     ([2, 6], 2, [1, 5]),
 ]
 
-# The rate, the token counts and the read-to-write relationship are exact. With
-# the dataflow top rtlsim's period is a fifth of a five-frame run and so holds
-# one cycle of wind-up more than the model's (two over the stored two periods),
-# and the first output word trails its input word by 3 or 4 cycles depending on
-# the configuration, worth a token on the output. Without a dataflow region the
-# match is exact. The model does not claim where rtlsim's window was cut, hence
-# the rotation.
+# The rate, the token counts and the read-to-write relationship are exact. The
+# model does not claim where rtlsim's window was cut, hence the rotation.
 TOLERANCES = dict(
     max_allowed_volume_frac=0.005,
     max_allowed_length_frac=0.005,

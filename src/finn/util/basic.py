@@ -26,10 +26,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import base64
 import errno
 import gzip
-import json
 import numpy as np
 import os
 import re
@@ -475,33 +473,20 @@ def get_dsp_block(fpgapart):
         return "DSP48E2"
 
 
-def stretch(a, new_length):
-    n = len(a)
-    x_old = np.arange(n)
-    x_new = np.linspace(0, n - 1, new_length)
-    stretched = np.interp(x_new, x_old, a).round().astype(a.dtype)
-    return stretched
-
-
 class Characteristic_Node:
     def __init__(self, name, sub_phases, leaf):
         self.name = name
         self.sub_phases = sub_phases
-        self.cycles_eval = None
-        self.cycles_inputs = None
-        self.cycles_outputs = None
         self.leaf = leaf
-        self.debug = False
         self._deltas = None
 
     def deltas(self):
         """One period's per-cycle (input, output) token deltas, as an (n, 2) array.
 
-        The vectorised equivalent of ``traverse_phase_tree``, which walks one
-        Python loop iteration per cycle -- about a second per node once periods
-        reach a few hundred thousand cycles, where the whole point of a tree
-        model is that it is cheap. ``np.repeat`` over the run lengths and a
-        single ``cumsum`` give a bit-identical answer in milliseconds.
+        Vectorised: ``np.repeat`` over the run lengths rather than one Python loop
+        iteration per cycle, which would cost about a second per node once periods
+        reach a few hundred thousand cycles, where the whole point of a tree model
+        is that it is cheap.
 
         Memoised per node, and shared by every repetition of a sub-tree, so a
         tree that repeats one phase ``numVectors`` times builds it once.
@@ -537,47 +522,6 @@ class Characteristic_Node:
         total = one[-1]
         return np.concatenate([one + i * total for i in range(periods)])
 
-    def sum(self, op):
-        if self.leaf:
-            if op == 2:
-                return sum([x[0] for x in self.sub_phases])
-            else:
-                return sum([x[0] * x[1][op] for x in self.sub_phases])
-        else:
-            return sum([x[0] * x[1].sum(op) for x in self.sub_phases])
-
-    def traverse_phase_tree(self, op, counter, cycles, ch_fnc):
-        """
-        The tree traversal function to get the token access vector.
-        We call it multiple times to get input, output and cycle count vectors.
-
-
-        op: 0 input, 1 output, 2 cycle count
-        counter: current count of op
-        cycles: current cycle count
-        ch_fnc: list of counter values at each cycle (the token access vector)
-        """
-
-        if (
-            self.leaf
-        ):  # immediate write out of the counter state to the array due to being a leaf node
-            for phase in self.sub_phases:
-                for _ in range(phase[0]):
-                    if op == 2:
-                        counter += 1
-                    else:
-                        counter += phase[1][op]
-                    cycles += 1
-                    ch_fnc.append(counter)
-            return counter, cycles, ch_fnc
-        else:  # recursive call to the next sub-node
-            for phase in self.sub_phases:
-                for _ in range(phase[0]):
-                    counter, cycles, ch_fnc = phase[1].traverse_phase_tree(
-                        op, counter, cycles, ch_fnc
-                    )
-            return counter, cycles, ch_fnc
-
 
 def rle_encode(d):
     """Run-length encode a 1D array. Returns (values, lengths) as int64 arrays
@@ -590,53 +534,6 @@ def rle_encode(d):
     return d[starts].astype(np.int64), (ends - starts).astype(np.int64)
 
 
-def compress_numpy_to_string(arr):
-    """Serialize a Token Access Vector (TAV) array to a compact string.
-
-    TAVs are cumulative, monotonically non-decreasing per-cycle token counts.
-    Rather than storing the full per-cycle state (how many tokens have
-    accumulated at every clock cycle), we store the TAV in its *gaps* form: a
-    run-length encoding of the per-cycle deltas (np.diff along the time axis).
-    A run of value 0 is exactly the number of cycles spent without a token
-    being read/written, i.e. the gap between two tokens.
-
-    This encoding is lossless: decompress_string_to_numpy() unrolls it back to
-    the exact original array, so downstream FIFO sizing is unchanged. The last
-    axis is treated as the time axis; any leading axes (e.g. multiple streams)
-    are handled row by row."""
-    arr = np.asarray(arr)
-    # gaps encoding only well-defined for arrays that have a time axis
-    if arr.ndim >= 1 and arr.shape[-1] >= 1:
-        n = arr.shape[-1]
-        rows = arr.reshape(-1, n)
-        starts = rows[:, 0]
-        run_values = []
-        run_lengths = []
-        n_runs = []
-        for row in rows:
-            vals, lens = rle_encode(np.diff(row))
-            run_values.append(vals)
-            run_lengths.append(lens)
-            n_runs.append(int(vals.size))
-        run_values = np.concatenate(run_values) if run_values else np.empty(0, dtype=np.int64)
-        run_lengths = np.concatenate(run_lengths) if run_lengths else np.empty(0, dtype=np.int64)
-        metadata = {
-            "fmt": "gaps1",  # marks the gaps format for decompress auto-detection
-            "dtype": str(arr.dtype),
-            "shape": list(arr.shape),
-            "n_runs": n_runs,  # runs per row, to split the flat run arrays
-        }
-        payload = starts.astype(arr.dtype).tobytes() + run_values.tobytes() + run_lengths.tobytes()
-    else:
-        # fallback: legacy raw storage for degenerate (0D / empty time axis) shapes
-        metadata = {"dtype": str(arr.dtype), "shape": list(arr.shape)}
-        payload = arr.tobytes()
-
-    metadata_bytes = json.dumps(metadata).encode("utf-8")
-    combined_data = metadata_bytes + b"||" + gzip.compress(payload)
-    return base64.b64encode(combined_data).decode("utf-8")
-
-
 def save_gaps_npy(arr, path):
     """Save a Token Access Vector array to ``path`` as a gzip-compressed .npy file
     holding the run-length encoding of its per-cycle deltas (the gaps form). One
@@ -645,8 +542,8 @@ def save_gaps_npy(arr, path):
         [k, n, n_runs(k), starts(k), run_values(sum n_runs), run_lengths(sum n_runs)]
 
     where a run of value 0 in the deltas is the number of cycles spent without a
-    token. The array is gzip-compressed on disk (same scheme as the inline string
-    encoding). This is lossless; load_tav_npy() reconstructs the exact array."""
+    token. The array is gzip-compressed on disk. This is lossless; load_tav_npy()
+    reconstructs the exact array."""
     arr = np.asarray(arr)
     if arr.ndim == 1:
         arr = arr.reshape(1, -1)
@@ -714,49 +611,6 @@ def save_tav_npy(inst, attr_name, arr):
     path = os.path.join(tav_dir, "tav_%s_%s.npy" % (safe_name, attr_name))
     save_gaps_npy(arr, path)
     return path
-
-
-def decompress_string_to_numpy(s):
-    """Inverse of compress_numpy_to_string(). Auto-detects the storage format:
-    a path to an .npy sidecar (written by save_tav_npy) is loaded and unrolled;
-    the inline gaps format ("fmt": "gaps1") is unrolled back to the full per-cycle
-    TAV; legacy raw-array strings (no "fmt" key) are decoded as before."""
-    if isinstance(s, str) and s.endswith(".npy") and os.path.exists(s):
-        return load_tav_npy(s)
-    combined_data = base64.b64decode(s.encode("utf-8"))  # Decode from base64
-    metadata_bytes, compressed_data = combined_data.split(b"||", 1)  # Split metadata & data
-
-    metadata = json.loads(metadata_bytes.decode("utf-8"))  # Decode metadata
-    dtype = np.dtype(metadata["dtype"])  # Convert dtype back
-    shape = tuple(metadata["shape"])  # Convert shape back
-    payload = gzip.decompress(compressed_data)
-
-    if metadata.get("fmt") != "gaps1":
-        # legacy raw format: full per-cycle array stored directly
-        return np.frombuffer(payload, dtype=dtype).reshape(shape)
-
-    # gaps format: unroll run-length-encoded deltas back to the cumulative TAV
-    n = shape[-1]
-    n_runs = metadata["n_runs"]
-    m = len(n_runs)
-    itemsize = dtype.itemsize
-    starts = np.frombuffer(payload[: m * itemsize], dtype=dtype)
-    rest = payload[m * itemsize :]
-    total_runs = int(sum(n_runs))
-    int64_size = np.dtype(np.int64).itemsize
-    run_values = np.frombuffer(rest[: total_runs * int64_size], dtype=np.int64)
-    run_lengths = np.frombuffer(
-        rest[total_runs * int64_size : 2 * total_runs * int64_size], dtype=np.int64
-    )
-
-    rows = np.empty((m, n), dtype=dtype)
-    pos = 0
-    for r in range(m):
-        k = n_runs[r]
-        deltas = np.repeat(run_values[pos : pos + k], run_lengths[pos : pos + k])
-        pos += k
-        rows[r, :] = (int(starts[r]) + np.concatenate(([0], np.cumsum(deltas)))).astype(dtype)
-    return rows.reshape(shape)
 
 
 def get_dsp_datapath_limits(dsp_block):

@@ -120,7 +120,7 @@ def test_gtsrb(board, bench_recorder):
     check_build_outputs(output_dir, build_output_files)
 
 
-# --- feature tests: FIFO sizing, folding, DWC padding -----------------------
+# --- feature tests: FIFO sizing ----------------------------------------------
 # Each test resumes the convert-phase checkpoint of a cached estimate-only build
 # (committed folding) with the feature's settings, builds the stitched IP and
 # checks it in rtlsim: output equal to the golden output and throughput within
@@ -176,7 +176,7 @@ def resume_checkpoint(ref_dir, output_dir):
 
 
 @contextlib.contextmanager
-def timed_steps(step_names=("step_target_fps_parallelization", "step_set_fifo_depths")):
+def timed_steps(step_names=("step_set_fifo_depths",)):
     """Record the wall time (s) of the named build steps into the yielded dict.
     The builder only times whole phases, so the steps are wrapped where the
     phases look them up."""
@@ -222,22 +222,18 @@ def verification_passed(output_dir, step="stitched_ip_rtlsim"):
     return bool(results) and all("_SUCCESS." in os.path.basename(r) for r in results)
 
 
-def feature_metrics(output_dir, ref_dir, **extra):
-    """Collect a feature build's numbers (throughput, FIFO storage, padding DWCs,
-    folding/FIFO step times), store them as ``report/feature_metrics.json`` and
-    return them."""
+def feature_metrics(output_dir, **extra):
+    """Collect a feature build's numbers (throughput, FIFO storage, FIFO sizing
+    time), store them as ``report/feature_metrics.json`` and return them."""
     from qonnx.core.modelwrapper import ModelWrapper
     from qonnx.custom_op.registry import getCustomOp
 
-    est, ref = estimated_throughput(output_dir), estimated_throughput(ref_dir)
-    rtlsim = rtlsim_throughput(output_dir)
+    est, rtlsim = estimated_throughput(output_dir), rtlsim_throughput(output_dir)
     row = dict(
         output_dir=output_dir,
         est_fps=est,
-        ref_est_fps=ref,
         rtlsim_fps=rtlsim,
         rtlsim_vs_est=rtlsim / est if rtlsim and est else None,
-        est_vs_ref=est / ref if est and ref else None,
         verified=verification_passed(output_dir),
     )
     for step in ["step_set_fifo_depths", "step_minimize_bit_width"]:
@@ -245,15 +241,12 @@ def feature_metrics(output_dir, ref_dir, **extra):
         if os.path.isfile(model_file):
             break
     if os.path.isfile(model_file):
-        fifo_bits, pad_dwcs = 0, 0
+        fifo_bits = 0
         for node in ModelWrapper(model_file).graph.node:
-            inst = getCustomOp(node) if node.domain.startswith("finn") else None
             if node.op_type.startswith("StreamingFIFO"):
+                inst = getCustomOp(node)
                 fifo_bits += inst.get_nodeattr("depth") * inst.get_instream_width()
-            elif node.op_type.startswith("StreamingDataWidthConverter"):
-                n_in = int(np.prod(inst.get_normal_input_shape()))
-                pad_dwcs += n_in != int(np.prod(inst.get_normal_output_shape()))
-        row.update(fifo_kbit=fifo_bits / 1024, pad_dwcs=pad_dwcs)
+        row.update(fifo_kbit=fifo_bits / 1024)
     row.update(extra)
     os.makedirs(os.path.join(output_dir, "report"), exist_ok=True)
     with open(os.path.join(output_dir, "report", "feature_metrics.json"), "w") as f:
@@ -292,36 +285,30 @@ def reference_estimate(board):
     )
 
 
-def run_feature_build(board, name, estimate_only=False, **overrides):
-    """Resume the reference checkpoint with ``overrides`` and, unless
-    ``estimate_only``, check the stitched IP in rtlsim. Returns the metrics."""
+def run_feature_build(board, name, **overrides):
+    """Resume the reference checkpoint with ``overrides`` and check the stitched
+    IP in rtlsim. Returns the metrics."""
     ref_dir = reference_estimate(board)
     output_dir = make_build_dir(f"{name}_gtsrb_{board}_")
     cfg = configure_build(
         board,
         output_dir,
         steps=feature_steps(None),
-        generate_outputs=ESTIMATE_OUTPUTS if estimate_only else FEATURE_OUTPUTS,
-        stop_step=ESTIMATE_PHASE if estimate_only else None,
-        verify_steps=[] if estimate_only else ["stitched_ip_rtlsim"],
+        generate_outputs=FEATURE_OUTPUTS,
+        verify_steps=["stitched_ip_rtlsim"],
         stitched_ip_gen_dcp=False,
         save_intermediate_models=True,
         **overrides,
     )
-    # make_benchmark_cfg drops None values: apply them afterwards (e.g. no folding JSON)
-    for key, value in overrides.items():
-        if value is None:
-            setattr(cfg, key, None)
     with timed_steps() as step_times:
         ret = build.build_dataflow_cfg(resume_checkpoint(ref_dir, output_dir), cfg)
-    metrics = feature_metrics(output_dir, ref_dir, test=name, step_times_s=step_times)
+    metrics = feature_metrics(output_dir, test=name, step_times_s=step_times)
     assert ret == 0, f"build failed, see {output_dir}/build_dataflow.log"
-    if not estimate_only:
-        assert metrics["verified"], "stitched-IP rtlsim output differs from the golden output"
-        assert (metrics["rtlsim_vs_est"] or 0) >= 0.98, "rtlsim %s fps, estimate %s fps" % (
-            metrics["rtlsim_fps"],
-            metrics["est_fps"],
-        )
+    assert metrics["verified"], "stitched-IP rtlsim output differs from the golden output"
+    assert (metrics["rtlsim_vs_est"] or 0) >= 0.98, "rtlsim %s fps, estimate %s fps" % (
+        metrics["rtlsim_fps"],
+        metrics["est_fps"],
+    )
     return metrics
 
 

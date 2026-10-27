@@ -56,12 +56,21 @@ import warnings
 from collections import namedtuple
 from qonnx.transformation.base import NodeLocalTransformation, Transformation
 
+from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
+    ConvolutionInputGenerator,
+)
+from finn.custom_op.fpgadataflow.fmpadding import FMPadding
+from finn.custom_op.fpgadataflow.hwsoftmax import HWSoftmax
+from finn.custom_op.fpgadataflow.inner_shuffle import InnerShuffle
+from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
+from finn.custom_op.fpgadataflow.outer_shuffle import OuterShuffle
+from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour
 from finn.transformation.fpgadataflow.prepare_ip import _codegen_single_node
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.util.basic import decompress_string_to_numpy
+from finn.util.basic import load_tav_npy
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 #: Ops that are never characterized: fork, join and the FIFOs themselves.
@@ -244,9 +253,7 @@ def read_tav_rows(inst):
     out = []
     for name in ("io_chrc_in", "io_chrc_out"):
         raw = inst.get_nodeattr(name)
-        out.append(
-            None if raw == "" else np.atleast_2d(decompress_string_to_numpy(raw)).astype(np.int64)
-        )
+        out.append(None if raw == "" else np.atleast_2d(load_tav_npy(raw)).astype(np.int64))
     return out[0], out[1]
 
 
@@ -395,9 +402,125 @@ def causal_writes(write_times, in_scheds, lead=0):
     return np.maximum.accumulate(out)
 
 
+def tav_extra_latency(inst):
+    """Cycles from the arrival of an input word to the first output word that
+    depends on it, beyond ``TAV_PIPELINE_LATENCY``. A TAV records the steady
+    state at an arbitrary phase and cannot show it. An ``InnerShuffle``
+    transposes a page in a bank: none of its words leaves before all
+    ``I * J / SIMD`` of them are in, at most one per cycle."""
+    if isinstance(inst, InnerShuffle):
+        in_shape = inst.get_nodeattr("transpose_in_shape")
+        return int(in_shape[-2]) * int(in_shape[-1]) // inst.get_nodeattr("SIMD")
+    return 0
+
+
+def tav_input_blocks(inst):
+    """``{input index: (in_words, out_words)}`` for the inputs a node consumes
+    in whole blocks, block *b* of ``out_words`` output words needing block *b*
+    of ``in_words`` words of that input complete. A dynamic ``MVAU`` computes on
+    the matrix its ``dynamic_load`` buffered from in1: the
+    ``numInputVectors[-1] * MH / PE`` outputs of a matrix need all
+    ``MW * MH / PE`` words of it."""
+    if isinstance(inst, MVAU) and inst.get_nodeattr("mem_mode") == "dynamic":
+        n_reps = inst.get_nodeattr("numInputVectors")[-1]
+        nf = inst.get_nodeattr("MH") // inst.get_nodeattr("PE")
+        burst = inst.get_nodeattr("MW") * inst.get_nodeattr("MH") // inst.get_nodeattr("PE")
+        return {1: (burst, n_reps * nf)}
+    return {}
+
+
+def tav_input_window(inst, ind=0):
+    """For the join floor: ``(in_words, out_words)``, output block *b* of
+    ``out_words`` words needs the first ``(b + 1) * in_words`` words of input
+    ``ind``.
+
+    * ``MVAU``: the ``MH / PE`` outputs of a vector need all ``MW / SIMD``
+      words of it; the tiled MVU (TH > 1) computes a group of TH vectors
+      together.
+    * ``HWSoftmax``: a vector is normalized by its maximum and sum, none of its
+      outputs leaves before all of it is in.
+    * ``InnerShuffle``: a page leaves only once all of it is in.
+    * otherwise the blocks of ``tav_input_blocks``, else the ratio of the folded
+      frame sizes in lowest terms (a 48:1 width converter needs 48 words a word,
+      a one-to-one node one).
+    """
+    if isinstance(inst, MVAU) and ind == 0:
+        th = inst.get_nodeattr("TH")
+        sf = inst.get_nodeattr("MW") // inst.get_nodeattr("SIMD")
+        return sf * th, inst.get_nodeattr("MH") // inst.get_nodeattr("PE") * th
+    if isinstance(inst, HWSoftmax):
+        fold = inst.get_folded_input_shape()[-2]
+        return fold, fold
+    if isinstance(inst, InnerShuffle):
+        page = tav_extra_latency(inst)
+        return page, page
+    blocks = tav_input_blocks(inst)
+    if ind in blocks:
+        return blocks[ind]
+    n_in = int(np.prod(inst.get_folded_input_shape(ind)[:-1]))
+    n_out = int(np.prod(inst.get_folded_output_shape()[:-1]))
+    g = np.gcd(n_in, n_out)
+    return n_in // g, n_out // g
+
+
+def tav_input_need(inst, ind=0):
+    """For the join floor, nodes that reorder a frame: an array over one frame's
+    output words, entry *j* the number of words of input ``ind`` output word *j*
+    needs. None for every other node (``tav_input_window`` then applies).
+
+    * ``FMPadding``: output word *j* needs the input up to its own pixel, a
+      padding word the input up to the last pixel before it.
+    * ``ConvolutionInputGenerator``: the words of output pixel (y, x) need the
+      input up to the last pixel of its window.
+    * ``UpsampleNearestNeighbour``: output pixel (y, x) needs the input up to
+      its nearest neighbour.
+    * ``OuterShuffle``: output word *j* is input word ``src[j]`` of the
+      transposed frame, so it needs the first ``max(src[:j + 1]) + 1`` words
+      (only when the innermost dimension, folded by SIMD, stays innermost).
+    """
+    if isinstance(inst, FMPadding):
+        h, w = inst.get_nodeattr("ImgDim")
+        top, left = inst.get_nodeattr("Padding")[:2]
+        ho, wo = inst.get_padded_odim()
+        words = int(np.prod(inst.get_folded_input_shape()[:-1])) // (h * w)
+        row, col = np.divmod(np.arange(ho * wo), wo)
+        inside = (row >= top) & (row < top + h)
+        pixels = np.clip(row - top, 0, h) * w + np.where(inside, np.clip(col - left + 1, 0, w), 0)
+        return np.repeat(np.maximum(pixels * words, 1), words)
+    if isinstance(inst, ConvolutionInputGenerator):
+        h, w = inst.get_nodeattr("IFMDim")
+        k_h, k_w = inst.get_nodeattr("ConvKernelDim")
+        s_h, s_w = inst.get_nodeattr("Stride")
+        d_h, d_w = inst.get_nodeattr("Dilation")
+        oshape = inst.get_folded_output_shape()
+        oh, ow = oshape[1], oshape[2]
+        words_in = int(np.prod(inst.get_folded_input_shape()[:-1])) // (h * w)
+        words_out = int(np.prod(oshape[:-1])) // (oh * ow)
+        y, x = np.divmod(np.arange(oh * ow), ow)
+        last = (y * s_h + (k_h - 1) * d_h) * w + x * s_w + (k_w - 1) * d_w
+        return np.repeat((np.minimum(last, h * w - 1) + 1) * words_in, words_out)
+    if isinstance(inst, UpsampleNearestNeighbour):
+        hi, wi = inst.get_nodeattr("HI"), inst.get_nodeattr("WI")
+        ho, wo = inst.get_nodeattr("HO"), inst.get_nodeattr("WO")
+        words = inst.get_nodeattr("NumChannels") // inst.get_nodeattr("SIMD")
+        b, rest = np.divmod(np.arange(inst.get_nodeattr("batchSize") * ho * wo), ho * wo)
+        y, x = np.divmod(rest, wo)
+        pixels = b * hi * wi + (y * hi // ho) * wi + x * wi // wo + 1
+        return np.repeat(pixels * words, words)
+    if isinstance(inst, OuterShuffle):
+        perm = list(inst.get_nodeattr("perm"))
+        shape = list(inst.get_nodeattr("transpose_in_shape"))
+        if perm[-1] != len(perm) - 1:
+            return None
+        shape[-1] //= inst.get_nodeattr("SIMD")
+        src = np.arange(int(np.prod(shape))).reshape(shape).transpose(perm).reshape(-1)
+        return np.maximum.accumulate(src) + 1
+    return None
+
+
 def block_writes(write_times, node, in_scheds):
     """Hold output word *j* until the input block it belongs to is complete,
-    for the inputs a node consumes in whole blocks (``get_tav_input_blocks``):
+    for the inputs a node consumes in whole blocks (``tav_input_blocks``):
     word *j* needs the first ``(j // out_words + 1) * in_words`` words of that
     input. Applied over both frames; held words leave at most one per cycle.
 
@@ -405,7 +528,7 @@ def block_writes(write_times, node, in_scheds):
     in1, but its TAV reads in1 alongside the compute.
     """
     try:
-        blocks = registry.getCustomOp(node).get_tav_input_blocks()
+        blocks = tav_input_blocks(registry.getCustomOp(node))
     except Exception:
         return write_times
     out = np.array(write_times, dtype=np.int64, copy=True)
@@ -427,9 +550,9 @@ def block_writes(write_times, node, in_scheds):
 
 def node_latency(node):
     """Cycles a node's writes trail its TAV: ``TAV_PIPELINE_LATENCY`` plus the
-    node's own ``get_tav_extra_latency`` (e.g. an ``InnerShuffle`` page)."""
+    node's own ``tav_extra_latency`` (e.g. an ``InnerShuffle`` page)."""
     try:
-        extra = int(registry.getCustomOp(node).get_tav_extra_latency())
+        extra = int(tav_extra_latency(registry.getCustomOp(node)))
     except Exception:
         extra = 0
     return TAV_PIPELINE_LATENCY + max(0, extra)
@@ -903,8 +1026,8 @@ def join_window_floors(model, nodes, period=None):
     cannot see this when a TAV writes before it reads (MVAU tree models) and
     the fork is transparent.
 
-    Walking back from the join to the fork through ``get_tav_input_window``
-    (``get_tav_input_need`` for a node that reorders a frame) gives
+    Walking back from the join to the fork through ``tav_input_window``
+    (``tav_input_need`` for a node that reorders a frame) gives
     ``need_i(k)``, the fork words input *i* needs for its first *k* tokens.
     Two backlogs are taken over two frames, the larger counts:
 
@@ -950,11 +1073,11 @@ def join_window_floors(model, nodes, period=None):
 
     def input_need(inst, i, k):
         # input words of input i the first k output words need
-        table = inst.get_tav_input_need(i)
+        table = tav_input_need(inst, i)
         if table is not None:
             frames, j = np.divmod(k - 1, len(table))
             return table[j] + frames * _frame_words(inst, i)
-        in_words, out_words = inst.get_tav_input_window(i)
+        in_words, out_words = tav_input_window(inst, i)
         return ceil_div(k, out_words) * in_words
 
     floors = {}

@@ -27,7 +27,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import math
-import numpy as np
 import warnings
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
@@ -43,544 +42,6 @@ from finn.util.basic import Characteristic_Node
 # input 0 is the input tensor, shape NHWC = (1, IFMDim, IFMDim, IFMChannels)
 # output 0 is the output tensor, shape NHWC:
 #     = (1, OFMDim, OFMDim, (ConvKernelDim^2)*IFMChannels)
-
-
-# ---------------------------------------------------------------------------
-# Exact schedule of the RTL sliding-window generator, "default" impl style.
-#
-# The analytical trees further down approximate this hardware with a handful of
-# closed-form special cases, and the commonest of them mispredicts by exactly
-# k_y * (IFMChannels/SIMD) tokens. That is unnecessary: the hardware is
-# swg_controller (finn-rtllib/swg/swg_common.sv) plus the counter block of
-# swg_template_default.sv, a small finite state machine with no data dependence.
-# The characterisation stimulus holds the input stream valid and the output
-# stream ready for the whole run, which removes the only external influence on
-# it, so the schedule is a pure function of the generated parameters.
-#
-# Executing that FSM in Python costs one loop iteration per cycle -- no IP
-# synthesis, no simulator -- and reproduces the rtlsim token access vector
-# exactly, bit for bit, over the configurations covered by
-# test_fpgadataflow_convinputgenerator.py's tree-model test.
-# ---------------------------------------------------------------------------
-
-
-def swg_default_params(ifm_ch, simd, k, ifm_dim, stride, dilation, depthwise, buffer_actual_size):
-    """The parameters that prepare_codegen_default() substitutes into the RTL.
-
-    Deliberately a function of plain numbers rather than of the node: it has to
-    stay diffable against prepare_codegen_default, which is where these
-    expressions come from, and it must be callable without a ModelWrapper.
-    """
-    k_h, k_w = k
-    h, w = ifm_dim
-    stride_h, stride_w = stride
-    dilation_h, dilation_w = dilation
-    channel_factor = ifm_ch // simd
-
-    out_dim_h = compute_conv_output_dim(h, k_h, stride_h, 0, dilation_h)
-    out_dim_w = compute_conv_output_dim(w, k_w, stride_w, 0, dilation_w)
-
-    buffer_min_size = ((k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w + 1) * channel_factor
-
-    kernel_width = (k_w - 1) * dilation_w + 1
-    kernel_height = (k_h - 1) * dilation_h + 1
-    skip_columns = w % (kernel_width + (out_dim_w - 1) * stride_w)
-    skip_rows = h % (kernel_height + (out_dim_h - 1) * stride_h)
-
-    addr_incr_end_simd = 1
-    addr_incr_end_window_elem = (dilation_w - 1) * channel_factor + 1
-    addr_incr_end_window_row = (
-        ((w - kernel_width) * channel_factor) + ((dilation_h - 1) * w * channel_factor) + 1
-    )
-    addr_incr_end_window = -buffer_min_size + stride_w * channel_factor + 1
-    addr_incr_end_row = (
-        -buffer_min_size
-        + ((skip_columns + kernel_width) * channel_factor)
-        + ((stride_h - 1) * w * channel_factor)
-        + 1
-    )
-
-    if depthwise:
-        addr_incr_end_window_elem = dilation_w * channel_factor
-        addr_incr_end_window_row = (
-            channel_factor
-            + (w - kernel_width) * channel_factor
-            + (dilation_h - 1) * w * channel_factor
-        )
-        addr_incr_end_simd = -buffer_min_size + (channel_factor + 1)
-
-    loop_h_iterations = out_dim_h
-    loop_w_iterations = out_dim_w
-    loop_kh_iterations = k_h
-    loop_kw_iterations = k_w
-    loop_simd_iterations = channel_factor
-
-    if depthwise and channel_factor > 1:
-        loop_kh_iterations = channel_factor
-        loop_kw_iterations = k_h
-        loop_simd_iterations = k_w
-        addr_incr_end_simd_ = addr_incr_end_simd
-        addr_incr_end_simd = addr_incr_end_window_elem
-        addr_incr_end_window_elem = addr_incr_end_window_row
-        addr_incr_end_window_row = addr_incr_end_simd_
-        elem_per_window = k_h * k_w
-        tail_incr_w = addr_incr_end_window + buffer_min_size - channel_factor
-        tail_incr_h = addr_incr_end_row + buffer_min_size - channel_factor
-        is_depthwise = 1
-    else:
-        elem_per_window = k_h * k_w * channel_factor
-        tail_incr_w = addr_incr_end_window + buffer_min_size - 1
-        tail_incr_h = addr_incr_end_row + buffer_min_size - 1
-        is_depthwise = 0
-    tail_incr_last_window = buffer_min_size - 1
-
-    if loop_simd_iterations == 1:
-        # the innermost loop always executes at least once, so the state it
-        # starts in is skipped and its counter loses an iteration
-        if loop_kw_iterations == 1:
-            innermost = "KH"
-            loop_kh_iterations -= 1
-        else:
-            innermost = "KW"
-            loop_kw_iterations -= 1
-    else:
-        innermost = "SIMD"
-        loop_simd_iterations -= 1
-
-    return {
-        "LOOP_H_ITERATIONS": loop_h_iterations - 2,
-        "LOOP_W_ITERATIONS": loop_w_iterations - 2,
-        "LOOP_KH_ITERATIONS": loop_kh_iterations - 2,
-        "LOOP_KW_ITERATIONS": loop_kw_iterations - 2,
-        "LOOP_SIMD_ITERATIONS": loop_simd_iterations - 2,
-        "HEAD_INCR_SIMD": addr_incr_end_simd,
-        "HEAD_INCR_KW": addr_incr_end_window_elem,
-        "HEAD_INCR_KH": addr_incr_end_window_row,
-        "HEAD_INCR_W": addr_incr_end_window,
-        "HEAD_INCR_H": addr_incr_end_row,
-        "TAIL_INCR_W": tail_incr_w,
-        "TAIL_INCR_H": tail_incr_h,
-        "TAIL_INCR_LAST": tail_incr_last_window,
-        "IS_DEPTHWISE": is_depthwise,
-        "INNERMOST_STATE": innermost,
-        "LAST_READ_ELEM": h * w * channel_factor - 1,
-        "LAST_WRITE_ELEM": ((h - skip_rows - 1) * w + (w - skip_columns)) * channel_factor - 1,
-        "BUF_ELEM_TOTAL": buffer_actual_size,
-        "ELEM_PER_WINDOW": elem_per_window,
-    }
-
-
-def swg_default_schedule(p, n_feature_maps=4, hard_limit=None):
-    """Per-cycle (input transaction, output transaction) of the default-style SWG.
-
-    Runs the FSM from reset with in0_V_V_TVALID and out_V_V_TREADY tied high.
-    Returns ``(schedule, restarts)`` where ``restarts`` holds the cycle indices
-    at which the generator wrapped round to the next feature map -- the period is
-    the spacing between two of those, once the start-up transient is past.
-    """
-    LAST_READ = p["LAST_READ_ELEM"]
-    LAST_WRITE = p["LAST_WRITE_ELEM"]
-    BUF = p["BUF_ELEM_TOTAL"]
-    EPW = p["ELEM_PER_WINDOW"]
-    IS_DW = p["IS_DEPTHWISE"]
-    INNER = p["INNERMOST_STATE"]
-    TAIL_W = p["TAIL_INCR_W"]
-    TAIL_H = p["TAIL_INCR_H"]
-    TAIL_LAST = p["TAIL_INCR_LAST"]
-    HEAD = {
-        "START": 0,
-        "SIMD": p["HEAD_INCR_SIMD"],
-        "KW": p["HEAD_INCR_KW"],
-        "KH": p["HEAD_INCR_KH"],
-        "W": p["HEAD_INCR_W"],
-        "H": p["HEAD_INCR_H"],
-    }
-    IT_H = p["LOOP_H_ITERATIONS"]
-    IT_W = p["LOOP_W_ITERATIONS"]
-    IT_KH = p["LOOP_KH_ITERATIONS"]
-    IT_KW = p["LOOP_KW_ITERATIONS"]
-    IT_SIMD = p["LOOP_SIMD_ITERATIONS"]
-
-    state = INNER
-    c_h, c_w, c_kh, c_kw, c_simd = IT_H, IT_W, IT_KH, IT_KW, IT_SIMD
-    newest, current, first_next, pos_in_window = -1, 0, 0, 0
-    fetching_done = write_cmd = writing_done = 0
-
-    # a cycle bound that cannot be hit in a healthy configuration, so a bug in
-    # the FSM transcription shows up as a bounded run rather than a hang
-    if hard_limit is None:
-        hard_limit = 64 * (LAST_READ + 1) * (EPW + 4) + 4096
-
-    sched = []
-    restarts = []
-    cycle = 0
-    while cycle < hard_limit and len(restarts) < n_feature_maps:
-        write_ok = write_cmd  # out_V_V_TREADY tied high
-        fetch_cmd = (current <= newest) and not fetching_done
-        reading_done = newest == LAST_READ
-        oldest = newest - (BUF - 1)
-        read_ok = (not reading_done) and (
-            fetching_done or (oldest < first_next and oldest < current)
-        )
-
-        addr_incr = HEAD[state]
-        if IS_DW and c_kh >= 0:
-            tail_incr = 1
-        elif c_w >= 0:
-            tail_incr = TAIL_W
-        elif c_h >= 0:
-            tail_incr = TAIL_H
-        else:
-            tail_incr = TAIL_LAST
-
-        if state != INNER:
-            state_next = INNER
-        elif c_simd < 0:
-            state_next = (
-                "KW"
-                if c_kw >= 0
-                else "KH"
-                if c_kh >= 0
-                else "W"
-                if c_w >= 0
-                else "H"
-                if c_h >= 0
-                else "START"
-            )
-        else:
-            state_next = state
-
-        sched.append((int(read_ok), int(write_ok)))
-
-        # sequential block, in source order so that a later assignment to the
-        # same register wins, as it does in the always_ff
-        n_newest, n_current, n_first, n_pos = newest, current, first_next, pos_in_window
-        n_fetching, n_write_cmd, n_writing = fetching_done, write_cmd, writing_done
-        restarted = False
-
-        if read_ok:
-            n_newest = newest + 1
-            if newest == LAST_READ - 1 and writing_done:
-                n_newest, n_current, n_first = -1, 0, 0
-                n_writing = n_fetching = 0
-                restarted = True
-
-        if fetch_cmd:
-            n_pos = pos_in_window + 1 if pos_in_window != EPW - 1 else 0
-            if pos_in_window == 0:
-                n_first = first_next + tail_incr
-            if current == LAST_WRITE:
-                n_fetching = 1
-            else:
-                n_current = current + addr_incr
-            n_write_cmd = 1
-
-        if write_ok:
-            n_write_cmd = 1 if fetch_cmd else 0
-
-        if write_ok and fetching_done:
-            if reading_done or (read_ok and newest == LAST_READ - 1):
-                n_newest, n_current, n_first, n_fetching = -1, 0, 0, 0
-                restarted = True
-            else:
-                n_writing = 1
-
-        newest, current, first_next, pos_in_window = n_newest, n_current, n_first, n_pos
-        fetching_done, write_cmd, writing_done = n_fetching, n_write_cmd, n_writing
-
-        if fetch_cmd:
-            # the counter cascade is gated on the state *before* the update
-            if state == INNER:
-                if c_simd >= 0:
-                    c_simd -= 1
-                else:
-                    c_simd = IT_SIMD
-                    if c_kw >= 0:
-                        c_kw -= 1
-                    else:
-                        c_kw = IT_KW
-                        if c_kh >= 0:
-                            c_kh -= 1
-                        else:
-                            c_kh = IT_KH
-                            if c_w >= 0:
-                                c_w -= 1
-                            else:
-                                c_w = IT_W
-                                if c_h >= 0:
-                                    c_h -= 1
-                                else:
-                                    c_h = IT_H
-            state = state_next
-
-        if restarted:
-            restarts.append(cycle)
-        cycle += 1
-
-    return sched, restarts
-
-
-def swg_parallel_params(ifm_ch, simd, k, ifm_dim, stride, dilation):
-    """The parameters that prepare_codegen_parallel() substitutes into the RTL."""
-    k_h, k_w = k
-    h, w = ifm_dim
-    stride_h, stride_w = stride
-    dilation_h, dilation_w = dilation
-    channel_factor = ifm_ch // simd
-
-    out_dim_h = compute_conv_output_dim(h, k_h, stride_h, 0, dilation_h)
-    out_dim_w = compute_conv_output_dim(w, k_w, stride_w, 0, dilation_w)
-
-    buffer_min_size = ((k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w) * channel_factor + 1
-    kernel_width = (k_w - 1) * dilation_w + 1
-    kernel_height = (k_h - 1) * dilation_h + 1
-    skip_columns = w % (kernel_width + (out_dim_w - 1) * stride_w)
-    skip_rows = h % (kernel_height + (out_dim_h - 1) * stride_h)
-
-    loop_h_iterations = out_dim_h
-    loop_w_iterations = out_dim_w
-    loop_kh_iterations = channel_factor
-    loop_kw_iterations = 1
-    loop_simd_iterations = 1
-
-    if loop_kh_iterations == 1:
-        if loop_w_iterations == 1:
-            innermost = "H"
-            loop_h_iterations -= 1
-        else:
-            innermost = "W"
-            loop_w_iterations -= 1
-    else:
-        innermost = "KH"
-        loop_kh_iterations -= 1
-
-    addr_incr_end_window = (stride_w - 1) * channel_factor + 1
-    addr_incr_end_row = ((skip_columns + (kernel_width - 1)) * channel_factor + 1) + (
-        (stride_h - 1) * w * channel_factor
-    )
-
-    return {
-        "LOOP_H_ITERATIONS": loop_h_iterations - 2,
-        "LOOP_W_ITERATIONS": loop_w_iterations - 2,
-        "LOOP_KH_ITERATIONS": loop_kh_iterations - 2,
-        "LOOP_KW_ITERATIONS": loop_kw_iterations - 2,
-        "LOOP_SIMD_ITERATIONS": loop_simd_iterations - 2,
-        "HEAD_INCR_SIMD": 1,
-        "HEAD_INCR_KW": 1,
-        "HEAD_INCR_KH": 1,
-        "HEAD_INCR_W": addr_incr_end_window,
-        "HEAD_INCR_H": addr_incr_end_row,
-        "TAIL_INCR_W": 0,
-        "TAIL_INCR_H": 0,
-        "TAIL_INCR_LAST": 0,
-        "IS_DEPTHWISE": 0,
-        "INNERMOST_STATE": innermost,
-        "LAST_READ_ELEM": h * w * channel_factor - 1,
-        "LAST_WRITE_ELEM": ((h - skip_rows - 1) * w + (w - skip_columns)) * channel_factor - 1,
-        "FIRST_WRITE_ELEM": buffer_min_size - 1,
-    }
-
-
-def swg_parallel_schedule(p, n_feature_maps=4, hard_limit=None):
-    """Per-cycle (input transaction, output transaction) of the parallel-style SWG.
-
-    Same convention as swg_default_schedule. With out_V_V_TREADY tied high the
-    ``Write_done`` register can never set -- ``advance`` is asserted in every
-    cycle in which ``write_ok`` is -- so the output transaction is simply
-    ``write_cmd``.
-    """
-    LAST_READ = p["LAST_READ_ELEM"]
-    LAST_WRITE = p["LAST_WRITE_ELEM"]
-    FIRST_WRITE = p["FIRST_WRITE_ELEM"]
-    INNER = p["INNERMOST_STATE"]
-    HEAD = {
-        "START": 0,
-        "SIMD": p["HEAD_INCR_SIMD"],
-        "KW": p["HEAD_INCR_KW"],
-        "KH": p["HEAD_INCR_KH"],
-        "W": p["HEAD_INCR_W"],
-        "H": p["HEAD_INCR_H"],
-    }
-    IT_H = p["LOOP_H_ITERATIONS"]
-    IT_W = p["LOOP_W_ITERATIONS"]
-    IT_KH = p["LOOP_KH_ITERATIONS"]
-    IT_KW = p["LOOP_KW_ITERATIONS"]
-    IT_SIMD = p["LOOP_SIMD_ITERATIONS"]
-
-    state = INNER
-    c_h, c_w, c_kh, c_kw, c_simd = IT_H, IT_W, IT_KH, IT_KW, IT_SIMD
-    newest, current, writing_done = -1, FIRST_WRITE, 0
-
-    if hard_limit is None:
-        hard_limit = 64 * (LAST_READ + 1) + 4096
-
-    sched = []
-    restarts = []
-    cycle = 0
-    while cycle < hard_limit and len(restarts) < n_feature_maps:
-        write_cmd = (current <= newest) and not writing_done
-        write_ok = write_cmd  # out_V_V_TREADY tied high, Write_done never sets
-        reading_done = newest == LAST_READ
-        read_ok = (not reading_done) and (writing_done or newest <= current)
-
-        addr_incr = HEAD[state]
-
-        if state != INNER:
-            state_next = INNER
-        elif c_simd < 0:
-            state_next = (
-                "KW"
-                if c_kw >= 0
-                else "KH"
-                if c_kh >= 0
-                else "W"
-                if c_w >= 0
-                else "H"
-                if c_h >= 0
-                else "START"
-            )
-        else:
-            state_next = state
-
-        sched.append((int(read_ok), int(write_cmd)))
-
-        n_newest, n_current, n_writing = newest, current, writing_done
-        restarted = False
-
-        if read_ok:
-            n_newest = newest + 1
-            if newest == LAST_READ - 1 and writing_done:
-                n_newest, n_current, n_writing = -1, FIRST_WRITE, 0
-                restarted = True
-
-        if write_ok:
-            if current == LAST_WRITE:
-                n_writing = 1
-                if reading_done or (read_ok and newest == LAST_READ - 1):
-                    n_newest, n_current, n_writing = -1, FIRST_WRITE, 0
-                    restarted = True
-            else:
-                n_current = current + addr_incr
-
-        newest, current, writing_done = n_newest, n_current, n_writing
-
-        # advance_controller is write_ok for the parallel style
-        if write_ok:
-            if state == INNER:
-                if c_simd >= 0:
-                    c_simd -= 1
-                else:
-                    c_simd = IT_SIMD
-                    if c_kw >= 0:
-                        c_kw -= 1
-                    else:
-                        c_kw = IT_KW
-                        if c_kh >= 0:
-                            c_kh -= 1
-                        else:
-                            c_kh = IT_KH
-                            if c_w >= 0:
-                                c_w -= 1
-                            else:
-                                c_w = IT_W
-                                if c_h >= 0:
-                                    c_h -= 1
-                                else:
-                                    c_h = IT_H
-            state = state_next
-
-        if restarted:
-            restarts.append(cycle)
-        cycle += 1
-
-    return sched, restarts
-
-
-def swg_default_tree(inst):
-    """Exact Characteristic_Node for this node, or None if the fast path does not apply.
-
-    Applies to the RTL ConvolutionInputGenerator, in either implementation
-    style. The HLS variant is left to the approximations below: its schedule is
-    generated by Vitis and is not this FSM.
-    """
-    if "_rtl" not in type(inst).__name__:
-        return None
-    if inst.get_nodeattr("dynamic_mode"):
-        # the dynamic template takes its loop bounds from AXI-lite at runtime
-        return None
-    try:
-        impl_style = inst.select_impl_style()
-    except (AttributeError, AssertionError):
-        return None
-    if impl_style not in ("default", "parallel"):
-        return None
-
-    ifm_ch = inst.get_nodeattr("IFMChannels")
-    simd = inst.get_nodeattr("SIMD")
-    if simd <= 0 or ifm_ch % simd != 0:
-        return None
-
-    cache_key = (
-        impl_style,
-        ifm_ch,
-        simd,
-        tuple(inst.get_nodeattr("ConvKernelDim")),
-        tuple(inst.get_nodeattr("IFMDim")),
-        tuple(inst.get_nodeattr("Stride")),
-        tuple(inst.get_nodeattr("Dilation")),
-        int(inst.get_nodeattr("depthwise")),
-    )
-    cached = getattr(inst, "_swg_tree_cache", None)
-    if cached is not None and cached[0] == cache_key:
-        return cached[1]
-
-    if impl_style == "default":
-        p = swg_default_params(
-            ifm_ch,
-            simd,
-            inst.get_nodeattr("ConvKernelDim"),
-            inst.get_nodeattr("IFMDim"),
-            inst.get_nodeattr("Stride"),
-            inst.get_nodeattr("Dilation"),
-            inst.get_nodeattr("depthwise"),
-            inst.get_buffer_depth(),
-        )
-        sched, restarts = swg_default_schedule(p, n_feature_maps=4)
-    else:
-        p = swg_parallel_params(
-            ifm_ch,
-            simd,
-            inst.get_nodeattr("ConvKernelDim"),
-            inst.get_nodeattr("IFMDim"),
-            inst.get_nodeattr("Stride"),
-            inst.get_nodeattr("Dilation"),
-        )
-        sched, restarts = swg_parallel_schedule(p, n_feature_maps=4)
-    if len(restarts) < 4:
-        # the FSM did not settle into a repeating schedule; fall back rather
-        # than emit a vector of the wrong length
-        return None
-    period = restarts[3] - restarts[2]
-
-    # rtlsim characterises a node by running several feature maps back to back
-    # and keeping two whole periods out of the middle; the window it keeps
-    # starts one cycle before a period boundary. Reproduce that phase exactly,
-    # otherwise the vector is a correct schedule at the wrong offset, which
-    # reads to the FIFO sizer as a delay that is not there.
-    start = 2 * period - 1
-    if start + period > len(sched):
-        return None
-    window = sched[start : start + period]
-
-    phases = []
-    for rw in window:
-        if phases and phases[-1][1] == rw:
-            phases[-1][0] += 1
-        else:
-            phases.append([1, rw])
-    node = Characteristic_Node("swg_default_exact", [(cnt, list(rw)) for cnt, rw in phases], True)
-    inst._swg_tree_cache = (cache_key, node)
-    return node
 
 
 class ConvolutionInputGenerator(HWCustomOp):
@@ -750,21 +211,6 @@ class ConvolutionInputGenerator(HWCustomOp):
 
         return (ifm_ch, ifm_dim, ofm_dim, k, stride, dilation)
 
-    def get_tav_input_need(self, ind=0):
-        """For the FIFO sizer's join floor: the words of output pixel (y, x)
-        need the input up to the last pixel of its window."""
-        h, w = self.get_nodeattr("IFMDim")
-        k_h, k_w = self.get_nodeattr("ConvKernelDim")
-        s_h, s_w = self.get_nodeattr("Stride")
-        d_h, d_w = self.get_nodeattr("Dilation")
-        oshape = self.get_folded_output_shape()
-        oh, ow = oshape[1], oshape[2]
-        words_in = int(np.prod(self.get_folded_input_shape()[:-1])) // (h * w)
-        words_out = int(np.prod(oshape[:-1])) // (oh * ow)
-        y, x = np.divmod(np.arange(oh * ow), ow)
-        last = (y * s_h + (k_h - 1) * d_h) * w + x * s_w + (k_w - 1) * d_w
-        return np.repeat((np.minimum(last, h * w - 1) + 1) * words_in, words_out)
-
     def get_exp_cycles(self):
         return 0
 
@@ -821,7 +267,7 @@ class ConvolutionInputGenerator(HWCustomOp):
 
         Two tiers, in the order they are tried:
 
-        1. ``swg_default_tree`` -- the RTL generator's "default" style is a small
+        1. ``swg_default_tree`` below -- the RTL generator's "default" style is a small
            deterministic state machine, and with the input always valid and the
            output always ready its schedule follows entirely from the generated
            parameters. Running that FSM reproduces the rtlsim token access vector
@@ -835,6 +281,540 @@ class ConvolutionInputGenerator(HWCustomOp):
         form covers every folding. A folding that neither tier describes returns
         the generic ``swg`` shape built at the end of this method.
         """
+        # ---------------------------------------------------------------------------
+        # Exact schedule of the RTL sliding-window generator, "default" impl style.
+        #
+        # The closed forms further down approximate this hardware with a handful of
+        # special cases, and the commonest of them mispredicts by exactly
+        # k_y * (IFMChannels/SIMD) tokens. That is unnecessary: the hardware is
+        # swg_controller (finn-rtllib/swg/swg_common.sv) plus the counter block of
+        # swg_template_default.sv, a small finite state machine with no data dependence.
+        # The characterisation stimulus holds the input stream valid and the output
+        # stream ready for the whole run, which removes the only external influence on
+        # it, so the schedule is a pure function of the generated parameters.
+        #
+        # Executing that FSM in Python costs one loop iteration per cycle -- no IP
+        # synthesis, no simulator -- and reproduces the rtlsim token access vector
+        # exactly, bit for bit, over the configurations covered by
+        # test_fpgadataflow_convinputgenerator.py's tree-model test.
+        # ---------------------------------------------------------------------------
+
+        def swg_default_params(
+            ifm_ch, simd, k, ifm_dim, stride, dilation, depthwise, buffer_actual_size
+        ):
+            """The parameters that prepare_codegen_default() substitutes into the RTL.
+
+            Deliberately a function of plain numbers rather than of the node: it has to
+            stay diffable against prepare_codegen_default, which is where these
+            expressions come from, and it must be callable without a ModelWrapper.
+            """
+            k_h, k_w = k
+            h, w = ifm_dim
+            stride_h, stride_w = stride
+            dilation_h, dilation_w = dilation
+            channel_factor = ifm_ch // simd
+
+            out_dim_h = compute_conv_output_dim(h, k_h, stride_h, 0, dilation_h)
+            out_dim_w = compute_conv_output_dim(w, k_w, stride_w, 0, dilation_w)
+
+            buffer_min_size = (
+                (k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w + 1
+            ) * channel_factor
+
+            kernel_width = (k_w - 1) * dilation_w + 1
+            kernel_height = (k_h - 1) * dilation_h + 1
+            skip_columns = w % (kernel_width + (out_dim_w - 1) * stride_w)
+            skip_rows = h % (kernel_height + (out_dim_h - 1) * stride_h)
+
+            addr_incr_end_simd = 1
+            addr_incr_end_window_elem = (dilation_w - 1) * channel_factor + 1
+            addr_incr_end_window_row = (
+                ((w - kernel_width) * channel_factor) + ((dilation_h - 1) * w * channel_factor) + 1
+            )
+            addr_incr_end_window = -buffer_min_size + stride_w * channel_factor + 1
+            addr_incr_end_row = (
+                -buffer_min_size
+                + ((skip_columns + kernel_width) * channel_factor)
+                + ((stride_h - 1) * w * channel_factor)
+                + 1
+            )
+
+            if depthwise:
+                addr_incr_end_window_elem = dilation_w * channel_factor
+                addr_incr_end_window_row = (
+                    channel_factor
+                    + (w - kernel_width) * channel_factor
+                    + (dilation_h - 1) * w * channel_factor
+                )
+                addr_incr_end_simd = -buffer_min_size + (channel_factor + 1)
+
+            loop_h_iterations = out_dim_h
+            loop_w_iterations = out_dim_w
+            loop_kh_iterations = k_h
+            loop_kw_iterations = k_w
+            loop_simd_iterations = channel_factor
+
+            if depthwise and channel_factor > 1:
+                loop_kh_iterations = channel_factor
+                loop_kw_iterations = k_h
+                loop_simd_iterations = k_w
+                addr_incr_end_simd_ = addr_incr_end_simd
+                addr_incr_end_simd = addr_incr_end_window_elem
+                addr_incr_end_window_elem = addr_incr_end_window_row
+                addr_incr_end_window_row = addr_incr_end_simd_
+                elem_per_window = k_h * k_w
+                tail_incr_w = addr_incr_end_window + buffer_min_size - channel_factor
+                tail_incr_h = addr_incr_end_row + buffer_min_size - channel_factor
+                is_depthwise = 1
+            else:
+                elem_per_window = k_h * k_w * channel_factor
+                tail_incr_w = addr_incr_end_window + buffer_min_size - 1
+                tail_incr_h = addr_incr_end_row + buffer_min_size - 1
+                is_depthwise = 0
+            tail_incr_last_window = buffer_min_size - 1
+
+            if loop_simd_iterations == 1:
+                # the innermost loop always executes at least once, so the state it
+                # starts in is skipped and its counter loses an iteration
+                if loop_kw_iterations == 1:
+                    innermost = "KH"
+                    loop_kh_iterations -= 1
+                else:
+                    innermost = "KW"
+                    loop_kw_iterations -= 1
+            else:
+                innermost = "SIMD"
+                loop_simd_iterations -= 1
+
+            return {
+                "LOOP_H_ITERATIONS": loop_h_iterations - 2,
+                "LOOP_W_ITERATIONS": loop_w_iterations - 2,
+                "LOOP_KH_ITERATIONS": loop_kh_iterations - 2,
+                "LOOP_KW_ITERATIONS": loop_kw_iterations - 2,
+                "LOOP_SIMD_ITERATIONS": loop_simd_iterations - 2,
+                "HEAD_INCR_SIMD": addr_incr_end_simd,
+                "HEAD_INCR_KW": addr_incr_end_window_elem,
+                "HEAD_INCR_KH": addr_incr_end_window_row,
+                "HEAD_INCR_W": addr_incr_end_window,
+                "HEAD_INCR_H": addr_incr_end_row,
+                "TAIL_INCR_W": tail_incr_w,
+                "TAIL_INCR_H": tail_incr_h,
+                "TAIL_INCR_LAST": tail_incr_last_window,
+                "IS_DEPTHWISE": is_depthwise,
+                "INNERMOST_STATE": innermost,
+                "LAST_READ_ELEM": h * w * channel_factor - 1,
+                "LAST_WRITE_ELEM": ((h - skip_rows - 1) * w + (w - skip_columns)) * channel_factor
+                - 1,
+                "BUF_ELEM_TOTAL": buffer_actual_size,
+                "ELEM_PER_WINDOW": elem_per_window,
+            }
+
+        def swg_default_schedule(p, n_feature_maps=4, hard_limit=None):
+            """Per-cycle (input transaction, output transaction) of the default-style SWG.
+
+            Runs the FSM from reset with in0_V_V_TVALID and out_V_V_TREADY tied high.
+            Returns ``(schedule, restarts)`` where ``restarts`` holds the cycle indices
+            at which the generator wrapped round to the next feature map -- the period is
+            the spacing between two of those, once the start-up transient is past.
+            """
+            LAST_READ = p["LAST_READ_ELEM"]
+            LAST_WRITE = p["LAST_WRITE_ELEM"]
+            BUF = p["BUF_ELEM_TOTAL"]
+            EPW = p["ELEM_PER_WINDOW"]
+            IS_DW = p["IS_DEPTHWISE"]
+            INNER = p["INNERMOST_STATE"]
+            TAIL_W = p["TAIL_INCR_W"]
+            TAIL_H = p["TAIL_INCR_H"]
+            TAIL_LAST = p["TAIL_INCR_LAST"]
+            HEAD = {
+                "START": 0,
+                "SIMD": p["HEAD_INCR_SIMD"],
+                "KW": p["HEAD_INCR_KW"],
+                "KH": p["HEAD_INCR_KH"],
+                "W": p["HEAD_INCR_W"],
+                "H": p["HEAD_INCR_H"],
+            }
+            IT_H = p["LOOP_H_ITERATIONS"]
+            IT_W = p["LOOP_W_ITERATIONS"]
+            IT_KH = p["LOOP_KH_ITERATIONS"]
+            IT_KW = p["LOOP_KW_ITERATIONS"]
+            IT_SIMD = p["LOOP_SIMD_ITERATIONS"]
+
+            state = INNER
+            c_h, c_w, c_kh, c_kw, c_simd = IT_H, IT_W, IT_KH, IT_KW, IT_SIMD
+            newest, current, first_next, pos_in_window = -1, 0, 0, 0
+            fetching_done = write_cmd = writing_done = 0
+
+            # a cycle bound that cannot be hit in a healthy configuration, so a bug in
+            # the FSM transcription shows up as a bounded run rather than a hang
+            if hard_limit is None:
+                hard_limit = 64 * (LAST_READ + 1) * (EPW + 4) + 4096
+
+            sched = []
+            restarts = []
+            cycle = 0
+            while cycle < hard_limit and len(restarts) < n_feature_maps:
+                write_ok = write_cmd  # out_V_V_TREADY tied high
+                fetch_cmd = (current <= newest) and not fetching_done
+                reading_done = newest == LAST_READ
+                oldest = newest - (BUF - 1)
+                read_ok = (not reading_done) and (
+                    fetching_done or (oldest < first_next and oldest < current)
+                )
+
+                addr_incr = HEAD[state]
+                if IS_DW and c_kh >= 0:
+                    tail_incr = 1
+                elif c_w >= 0:
+                    tail_incr = TAIL_W
+                elif c_h >= 0:
+                    tail_incr = TAIL_H
+                else:
+                    tail_incr = TAIL_LAST
+
+                if state != INNER:
+                    state_next = INNER
+                elif c_simd < 0:
+                    state_next = (
+                        "KW"
+                        if c_kw >= 0
+                        else (
+                            "KH" if c_kh >= 0 else "W" if c_w >= 0 else "H" if c_h >= 0 else "START"
+                        )
+                    )
+                else:
+                    state_next = state
+
+                sched.append((int(read_ok), int(write_ok)))
+
+                # sequential block, in source order so that a later assignment to the
+                # same register wins, as it does in the always_ff
+                n_newest, n_current, n_first, n_pos = newest, current, first_next, pos_in_window
+                n_fetching, n_write_cmd, n_writing = fetching_done, write_cmd, writing_done
+                restarted = False
+
+                if read_ok:
+                    n_newest = newest + 1
+                    if newest == LAST_READ - 1 and writing_done:
+                        n_newest, n_current, n_first = -1, 0, 0
+                        n_writing = n_fetching = 0
+                        restarted = True
+
+                if fetch_cmd:
+                    n_pos = pos_in_window + 1 if pos_in_window != EPW - 1 else 0
+                    if pos_in_window == 0:
+                        n_first = first_next + tail_incr
+                    if current == LAST_WRITE:
+                        n_fetching = 1
+                    else:
+                        n_current = current + addr_incr
+                    n_write_cmd = 1
+
+                if write_ok:
+                    n_write_cmd = 1 if fetch_cmd else 0
+
+                if write_ok and fetching_done:
+                    if reading_done or (read_ok and newest == LAST_READ - 1):
+                        n_newest, n_current, n_first, n_fetching = -1, 0, 0, 0
+                        restarted = True
+                    else:
+                        n_writing = 1
+
+                newest, current, first_next, pos_in_window = n_newest, n_current, n_first, n_pos
+                fetching_done, write_cmd, writing_done = n_fetching, n_write_cmd, n_writing
+
+                if fetch_cmd:
+                    # the counter cascade is gated on the state *before* the update
+                    if state == INNER:
+                        if c_simd >= 0:
+                            c_simd -= 1
+                        else:
+                            c_simd = IT_SIMD
+                            if c_kw >= 0:
+                                c_kw -= 1
+                            else:
+                                c_kw = IT_KW
+                                if c_kh >= 0:
+                                    c_kh -= 1
+                                else:
+                                    c_kh = IT_KH
+                                    if c_w >= 0:
+                                        c_w -= 1
+                                    else:
+                                        c_w = IT_W
+                                        if c_h >= 0:
+                                            c_h -= 1
+                                        else:
+                                            c_h = IT_H
+                    state = state_next
+
+                if restarted:
+                    restarts.append(cycle)
+                cycle += 1
+
+            return sched, restarts
+
+        def swg_parallel_params(ifm_ch, simd, k, ifm_dim, stride, dilation):
+            """The parameters that prepare_codegen_parallel() substitutes into the RTL."""
+            k_h, k_w = k
+            h, w = ifm_dim
+            stride_h, stride_w = stride
+            dilation_h, dilation_w = dilation
+            channel_factor = ifm_ch // simd
+
+            out_dim_h = compute_conv_output_dim(h, k_h, stride_h, 0, dilation_h)
+            out_dim_w = compute_conv_output_dim(w, k_w, stride_w, 0, dilation_w)
+
+            buffer_min_size = (
+                (k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w
+            ) * channel_factor + 1
+            kernel_width = (k_w - 1) * dilation_w + 1
+            kernel_height = (k_h - 1) * dilation_h + 1
+            skip_columns = w % (kernel_width + (out_dim_w - 1) * stride_w)
+            skip_rows = h % (kernel_height + (out_dim_h - 1) * stride_h)
+
+            loop_h_iterations = out_dim_h
+            loop_w_iterations = out_dim_w
+            loop_kh_iterations = channel_factor
+            loop_kw_iterations = 1
+            loop_simd_iterations = 1
+
+            if loop_kh_iterations == 1:
+                if loop_w_iterations == 1:
+                    innermost = "H"
+                    loop_h_iterations -= 1
+                else:
+                    innermost = "W"
+                    loop_w_iterations -= 1
+            else:
+                innermost = "KH"
+                loop_kh_iterations -= 1
+
+            addr_incr_end_window = (stride_w - 1) * channel_factor + 1
+            addr_incr_end_row = ((skip_columns + (kernel_width - 1)) * channel_factor + 1) + (
+                (stride_h - 1) * w * channel_factor
+            )
+
+            return {
+                "LOOP_H_ITERATIONS": loop_h_iterations - 2,
+                "LOOP_W_ITERATIONS": loop_w_iterations - 2,
+                "LOOP_KH_ITERATIONS": loop_kh_iterations - 2,
+                "LOOP_KW_ITERATIONS": loop_kw_iterations - 2,
+                "LOOP_SIMD_ITERATIONS": loop_simd_iterations - 2,
+                "HEAD_INCR_SIMD": 1,
+                "HEAD_INCR_KW": 1,
+                "HEAD_INCR_KH": 1,
+                "HEAD_INCR_W": addr_incr_end_window,
+                "HEAD_INCR_H": addr_incr_end_row,
+                "TAIL_INCR_W": 0,
+                "TAIL_INCR_H": 0,
+                "TAIL_INCR_LAST": 0,
+                "IS_DEPTHWISE": 0,
+                "INNERMOST_STATE": innermost,
+                "LAST_READ_ELEM": h * w * channel_factor - 1,
+                "LAST_WRITE_ELEM": ((h - skip_rows - 1) * w + (w - skip_columns)) * channel_factor
+                - 1,
+                "FIRST_WRITE_ELEM": buffer_min_size - 1,
+            }
+
+        def swg_parallel_schedule(p, n_feature_maps=4, hard_limit=None):
+            """Per-cycle (input transaction, output transaction) of the parallel-style SWG.
+
+            Same convention as swg_default_schedule. With out_V_V_TREADY tied high the
+            ``Write_done`` register can never set -- ``advance`` is asserted in every
+            cycle in which ``write_ok`` is -- so the output transaction is simply
+            ``write_cmd``.
+            """
+            LAST_READ = p["LAST_READ_ELEM"]
+            LAST_WRITE = p["LAST_WRITE_ELEM"]
+            FIRST_WRITE = p["FIRST_WRITE_ELEM"]
+            INNER = p["INNERMOST_STATE"]
+            HEAD = {
+                "START": 0,
+                "SIMD": p["HEAD_INCR_SIMD"],
+                "KW": p["HEAD_INCR_KW"],
+                "KH": p["HEAD_INCR_KH"],
+                "W": p["HEAD_INCR_W"],
+                "H": p["HEAD_INCR_H"],
+            }
+            IT_H = p["LOOP_H_ITERATIONS"]
+            IT_W = p["LOOP_W_ITERATIONS"]
+            IT_KH = p["LOOP_KH_ITERATIONS"]
+            IT_KW = p["LOOP_KW_ITERATIONS"]
+            IT_SIMD = p["LOOP_SIMD_ITERATIONS"]
+
+            state = INNER
+            c_h, c_w, c_kh, c_kw, c_simd = IT_H, IT_W, IT_KH, IT_KW, IT_SIMD
+            newest, current, writing_done = -1, FIRST_WRITE, 0
+
+            if hard_limit is None:
+                hard_limit = 64 * (LAST_READ + 1) + 4096
+
+            sched = []
+            restarts = []
+            cycle = 0
+            while cycle < hard_limit and len(restarts) < n_feature_maps:
+                write_cmd = (current <= newest) and not writing_done
+                write_ok = write_cmd  # out_V_V_TREADY tied high, Write_done never sets
+                reading_done = newest == LAST_READ
+                read_ok = (not reading_done) and (writing_done or newest <= current)
+
+                addr_incr = HEAD[state]
+
+                if state != INNER:
+                    state_next = INNER
+                elif c_simd < 0:
+                    state_next = (
+                        "KW"
+                        if c_kw >= 0
+                        else (
+                            "KH" if c_kh >= 0 else "W" if c_w >= 0 else "H" if c_h >= 0 else "START"
+                        )
+                    )
+                else:
+                    state_next = state
+
+                sched.append((int(read_ok), int(write_cmd)))
+
+                n_newest, n_current, n_writing = newest, current, writing_done
+                restarted = False
+
+                if read_ok:
+                    n_newest = newest + 1
+                    if newest == LAST_READ - 1 and writing_done:
+                        n_newest, n_current, n_writing = -1, FIRST_WRITE, 0
+                        restarted = True
+
+                if write_ok:
+                    if current == LAST_WRITE:
+                        n_writing = 1
+                        if reading_done or (read_ok and newest == LAST_READ - 1):
+                            n_newest, n_current, n_writing = -1, FIRST_WRITE, 0
+                            restarted = True
+                    else:
+                        n_current = current + addr_incr
+
+                newest, current, writing_done = n_newest, n_current, n_writing
+
+                # advance_controller is write_ok for the parallel style
+                if write_ok:
+                    if state == INNER:
+                        if c_simd >= 0:
+                            c_simd -= 1
+                        else:
+                            c_simd = IT_SIMD
+                            if c_kw >= 0:
+                                c_kw -= 1
+                            else:
+                                c_kw = IT_KW
+                                if c_kh >= 0:
+                                    c_kh -= 1
+                                else:
+                                    c_kh = IT_KH
+                                    if c_w >= 0:
+                                        c_w -= 1
+                                    else:
+                                        c_w = IT_W
+                                        if c_h >= 0:
+                                            c_h -= 1
+                                        else:
+                                            c_h = IT_H
+                    state = state_next
+
+                if restarted:
+                    restarts.append(cycle)
+                cycle += 1
+
+            return sched, restarts
+
+        def swg_default_tree(inst):
+            """Exact Characteristic_Node for this node, or None if the fast path does not apply.
+
+            Applies to the RTL ConvolutionInputGenerator, in either implementation
+            style. The HLS variant is left to the approximations below: its schedule is
+            generated by Vitis and is not this FSM.
+            """
+            if "_rtl" not in type(inst).__name__:
+                return None
+            if inst.get_nodeattr("dynamic_mode"):
+                # the dynamic template takes its loop bounds from AXI-lite at runtime
+                return None
+            try:
+                impl_style = inst.select_impl_style()
+            except (AttributeError, AssertionError):
+                return None
+            if impl_style not in ("default", "parallel"):
+                return None
+
+            ifm_ch = inst.get_nodeattr("IFMChannels")
+            simd = inst.get_nodeattr("SIMD")
+            if simd <= 0 or ifm_ch % simd != 0:
+                return None
+
+            cache_key = (
+                impl_style,
+                ifm_ch,
+                simd,
+                tuple(inst.get_nodeattr("ConvKernelDim")),
+                tuple(inst.get_nodeattr("IFMDim")),
+                tuple(inst.get_nodeattr("Stride")),
+                tuple(inst.get_nodeattr("Dilation")),
+                int(inst.get_nodeattr("depthwise")),
+            )
+            cached = getattr(inst, "_swg_tree_cache", None)
+            if cached is not None and cached[0] == cache_key:
+                return cached[1]
+
+            if impl_style == "default":
+                p = swg_default_params(
+                    ifm_ch,
+                    simd,
+                    inst.get_nodeattr("ConvKernelDim"),
+                    inst.get_nodeattr("IFMDim"),
+                    inst.get_nodeattr("Stride"),
+                    inst.get_nodeattr("Dilation"),
+                    inst.get_nodeattr("depthwise"),
+                    inst.get_buffer_depth(),
+                )
+                sched, restarts = swg_default_schedule(p, n_feature_maps=4)
+            else:
+                p = swg_parallel_params(
+                    ifm_ch,
+                    simd,
+                    inst.get_nodeattr("ConvKernelDim"),
+                    inst.get_nodeattr("IFMDim"),
+                    inst.get_nodeattr("Stride"),
+                    inst.get_nodeattr("Dilation"),
+                )
+                sched, restarts = swg_parallel_schedule(p, n_feature_maps=4)
+            if len(restarts) < 4:
+                # the FSM did not settle into a repeating schedule; fall back rather
+                # than emit a vector of the wrong length
+                return None
+            period = restarts[3] - restarts[2]
+
+            # rtlsim characterises a node by running several feature maps back to back
+            # and keeping two whole periods out of the middle; the window it keeps
+            # starts one cycle before a period boundary. Reproduce that phase exactly,
+            # otherwise the vector is a correct schedule at the wrong offset, which
+            # reads to the FIFO sizer as a delay that is not there.
+            start = 2 * period - 1
+            if start + period > len(sched):
+                return None
+            window = sched[start : start + period]
+
+            phases = []
+            for rw in window:
+                if phases and phases[-1][1] == rw:
+                    phases[-1][0] += 1
+                else:
+                    phases.append([1, rw])
+            node = Characteristic_Node(
+                "swg_default_exact", [(cnt, list(rw)) for cnt, rw in phases], True
+            )
+            inst._swg_tree_cache = (cache_key, node)
+            return node
+
         exact = swg_default_tree(self)
         if exact is not None:
             return exact

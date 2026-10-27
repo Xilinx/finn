@@ -105,10 +105,6 @@ class StreamingDataWidthConverter(HWCustomOp):
         owidth = self.get_nodeattr("outWidth")
         return self._folded_shape_for_width(owidth)
 
-    def get_number_input_values(self):
-        folded_ishape = self.get_folded_input_shape()
-        return np.prod(folded_ishape[:-1])
-
     def get_instream_width(self, ind=0):
         in_width = self.get_nodeattr("inWidth")
         return in_width
@@ -226,7 +222,7 @@ class StreamingDataWidthConverter(HWCustomOp):
         idle = Characteristic_Node("idle", [(1, [0, 0])], True)
 
         if inWidth > outWidth:
-            numReps = self.get_number_input_values()
+            numReps = int(np.prod(self.get_folded_input_shape()[:-1]))
             # down-conversion
             if inWidth % outWidth != 0:
                 return None  # no support for gcd partial conversion yet
@@ -301,7 +297,7 @@ class StreamingDataWidthConverter(HWCustomOp):
 
         else:
             # pass-through
-            numReps = self.get_number_input_values()
+            numReps = int(np.prod(self.get_folded_input_shape()[:-1]))
 
             pass_through = Characteristic_Node("pass-through", [(1, [1, 1])], True)
 
