@@ -312,9 +312,10 @@ class DataflowBuildConfig:
     fifosim_n_inferences: Optional[int] = 2
 
     #: Enable saving waveforms from simulation-based FIFO sizing.
-    #: Applies to the LARGEFIFO_RTLSIM strategy as well as the characterize
-    #: strategy (used for MLO/FINNLoop models), where it traces the per-node
-    #: characterization simulations.
+    #: Applies to the LARGEFIFO_RTLSIM strategy (including the FIFO sizing of
+    #: MLO/FINNLoop loop bodies) and, for MLO models sized with a heuristic
+    #: strategy, to the per-node characterization simulations that derive the
+    #: token access vectors (HEURISTIC_RTLSIM, or nodes without a tree model).
     fifosim_save_waveform: Optional[bool] = False
 
     #: Enable FIFOs to output log files documenting what they witness.
