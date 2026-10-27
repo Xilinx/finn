@@ -14,7 +14,10 @@ import os
 import sphinx_rtd_theme  # noqa: F401 (imported for theme availability)
 import sys
 
-sys.path.insert(0, os.path.abspath("../../src/"))
+# Autodoc imports source assets as well as Python modules from this checkout.
+finn_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+os.environ["FINN_ROOT"] = finn_root
+sys.path.insert(0, os.path.join(finn_root, "src"))
 
 
 # -- Project information -----------------------------------------------------
