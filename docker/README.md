@@ -39,6 +39,8 @@ The checkout and build directory are mirrored at their host paths. The active
 without dependencies, and checks that its lock matches the image. Setup failure
 stops execution. Rebuild after changing dependencies; source edits reuse the
 same development environment. Identity uses canonical Git executable bits so differing Jenkins umasks do not change it. The image contains `tini` for child reaping.
+Only archives listed by selected `SOURCE=supply` runtime manifests contribute to
+identity. A leftover `docker/packages/slashkit.deb` does not change an XRT-only tag.
 Attached terminals work for explicit commands such as `docker/run -- ipython`
 as well as the default shell; CI invocations remain noninteractive.
 
@@ -212,6 +214,9 @@ for offline use. Read-only execution still requires writable external outputs.
 | `FINN_SKIP_DEP_REPOS`, `FINN_SKIP_BOARD_FILES` | Prepared resource cache/overrides and `FINN_RESOURCES_OFFLINE=1` |
 | `DOCKER_INTERACTIVE` | TTY detection; explicit Docker flags through `FINN_DOCKER_EXTRA` |
 | `FINN_SINGULARITY` | `docker/build --export-sif PATH` and standard Apptainer/Singularity launch |
+
+If `SLASHKIT_DEB_PACKAGE` is set, its file must be readable wherever the launcher
+runs, including prebuilt-image consumers, to stage and hash identical bytes.
 
 Every in-tree consumer is migrated. External job DSL/site wrappers must update
 with this change; there is no second pip/clone-based environment behind a legacy

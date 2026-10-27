@@ -44,6 +44,38 @@ def prepare(runtimes):
     return ",".join(sorted(selected))
 
 
+def supplied_packages(runtimes, root=None):
+    """List the archives actually installed by the selected supply manifests."""
+    root = Path(root) if root is not None else ROOT
+    packages = set()
+    for name in sorted(set(filter(None, runtimes.split(",")))):
+        manifest = root / "docker/runtimes" / (name + ".env")
+        output = subprocess.check_output(
+            [
+                "sh",
+                "-e",
+                "-c",
+                'unset SOURCE FILES; . "$1"; printf "%s\\0%s" "${SOURCE:?}" "${FILES:-}"',
+                "runtime-manifest",
+                str(manifest),
+            ]
+        ).decode()
+        source, files = output.split("\0", 1)
+        if source == "fetch":
+            continue
+        if source != "supply" or not files.split():
+            raise ValueError("Invalid runtime SOURCE/FILES in " + str(manifest))
+        for filename in files.split():
+            relative = Path(filename)
+            if relative.is_absolute() or ".." in relative.parts:
+                raise ValueError("Runtime package must be relative to docker/packages: " + filename)
+            path = Path("docker/packages") / relative
+            if not (root / path).is_file():
+                raise ValueError(f"Runtime {name!r} requires readable package {root / path}")
+            packages.add(path.as_posix())
+    return sorted(packages)
+
+
 def cache_xrt(runtimes):
     """Populate/stage the pinned public package only when a local build needs it."""
     cache = os.environ.get("FINN_XRT_PATH")
@@ -97,13 +129,18 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("runtimes")
     parser.add_argument("--cache-xrt", action="store_true")
+    parser.add_argument("--packages", action="store_true")
+    parser.add_argument("--root", type=Path)
     args = parser.parse_args()
     try:
-        if args.cache_xrt:
+        if args.packages:
+            for package in supplied_packages(args.runtimes, args.root):
+                print(package)
+        elif args.cache_xrt:
             cache_xrt(args.runtimes)
         else:
             print(prepare(args.runtimes))
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, subprocess.CalledProcessError) as error:
         parser.exit(2, "Runtime preparation failed: " + str(error) + "\n")
 
 

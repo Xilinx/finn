@@ -327,6 +327,16 @@ retention also removes `.finn-image-*` staging directories with no writes for
 The per-agent `FINN_XRT_PATH` cache is populated and checksum-verified on local
 builds. `SLASHKIT_DEB_PACKAGE` is staged and selects slashkit before tag/provenance
 resolution, including in the legacy Jenkins entrypoints.
+An explicitly set `SLASHKIT_DEB_PACKAGE` must be readable on every agent that
+runs `docker/run`, including consumers of prebuilt images. Each agent stages and
+hashes the same package bytes. Confirm the deployed Job DSL exposes that file to
+all affected agents before cutover; the deployed definition is external to this
+repository. An absent package is an error, rather than silently selecting XRT only.
+Unused archives left in `docker/packages/` do not affect other runtime profiles.
+
+Cold image loads use `/tmp/finn-docker-load.lock`, owned by its first creator.
+For agents with multiple users, provision a common writable host-local lock file
+and set `FINN_DOCKER_LOAD_LOCK` to that same path for all consumers of one daemon.
 
 The dedicated Brevitas job accepts a full `BREVITAS_COMMIT`. It uses
 `uv run --locked --with "brevitas @ git+...@COMMIT"` without changing the manifest

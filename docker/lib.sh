@@ -25,16 +25,19 @@ finn_image_revision () (
         return 0
     fi
 
-    local repo manifest pattern optional path found bits mode checksum result
+    local repo manifest pattern optional path found bits mode checksum result patterns runtime_reader
     repo="${FINN_IMAGE_INPUT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
     manifest="$repo/docker/image-inputs.txt"
     [ -f "$manifest" ] || { recho "image input manifest not found: $manifest"; return 2; }
+    runtime_reader="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/runtime_inputs.py"
+    patterns=$(cat "$manifest" && python3 "$runtime_reader" "${FINN_RUNTIMES:-}" \
+        --packages --root "$repo") || return 2
 
     result=$(
     (
         cd "$repo" || exit 1
         shopt -s globstar
-        printf 'finn-image-inputs-v4\n'
+        printf 'finn-image-inputs-v5\n'
         while IFS= read -r pattern || [ -n "$pattern" ]; do
             case "$pattern" in ""|\#*) continue ;; esac
             optional=0
@@ -57,7 +60,7 @@ finn_image_revision () (
                 recho "image input pattern matched no files: $pattern"
                 exit 2
             fi
-        done < "$manifest"
+        done <<< "$patterns"
         # Build arguments that change image contents without changing a file.
         # The runtime set is part of the tag suffix instead.
         printf 'arg=UBUNTU_TAG=%s\n' "${UBUNTU_TAG:-noble-20240605}"

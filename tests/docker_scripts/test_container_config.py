@@ -785,6 +785,53 @@ def test_image_revision_changes_with_image_inputs_and_build_args(tmp_path):
     assert changed_file != changed_arg
 
 
+@pytest.mark.parametrize("runtimes", ["", "xrt"])
+def test_unused_private_archives_do_not_change_image_identity(tmp_path, runtimes):
+    root = _make_image_input_fixture(tmp_path)
+    manifests = root / "docker/runtimes"
+    manifests.mkdir()
+    (manifests / "xrt.env").write_text("SOURCE=fetch\n")
+    (manifests / "slashkit.env").write_text("SOURCE=supply\nFILES=slashkit.deb\n")
+    (root / "docker/image-inputs.txt").write_text(
+        "docker/image-inputs.txt\nimage.txt\ndocker/runtimes/*.env\n"
+    )
+    profile = {"FINN_RUNTIMES": runtimes}
+    baseline = _provenance(root, extra_env=profile)[0]
+    packages = root / "docker/packages"
+    packages.mkdir()
+    (packages / "slashkit.deb").write_bytes(b"leftover private package")
+    (packages / "unused.rpm").write_bytes(b"unselected archive")
+    (packages / "unused.rpm").chmod(0)
+    assert _provenance(root, extra_env=profile)[0] == baseline
+    selected = {"FINN_RUNTIMES": "slashkit,xrt,slashkit"}
+    before = _provenance(root, extra_env=selected)[0]
+    assert before == _provenance(root, extra_env={"FINN_RUNTIMES": "xrt,slashkit"})[0]
+    (packages / "slashkit.deb").write_bytes(b"different selected package")
+    assert _provenance(root, extra_env=selected)[0] != before
+    assert _provenance(root, extra_env=profile)[0] == baseline
+
+
+def test_missing_selected_archive_fails_without_an_image_identity(tmp_path):
+    root = _make_image_input_fixture(tmp_path)
+    manifests = root / "docker/runtimes"
+    manifests.mkdir()
+    (manifests / "slashkit.env").write_text("SOURCE=supply\nFILES=slashkit.deb\n")
+    result = subprocess.run(
+        ["bash", "-c", ". docker/lib.sh; finn_image_revision"],
+        cwd=REPO,
+        env={
+            "PATH": os.environ["PATH"],
+            "FINN_IMAGE_INPUT_ROOT": str(root),
+            "FINN_RUNTIMES": "slashkit",
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert result.stdout == ""
+    assert "slashkit.deb" in result.stderr
+
+
 def test_source_commit_changes_without_changing_image_revision(tmp_path):
     image_root = _make_image_input_fixture(tmp_path)
     source_root = tmp_path / "source"
