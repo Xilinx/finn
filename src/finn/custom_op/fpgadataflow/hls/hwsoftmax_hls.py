@@ -11,6 +11,7 @@ import numpy as np
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.hwsoftmax import HWSoftmax
+from finn.util.data_packing import hls_datatype_str
 
 
 class HWSoftmax_hls(HWSoftmax, HLSBackend):
@@ -49,7 +50,7 @@ class HWSoftmax_hls(HWSoftmax, HLSBackend):
             f"""
             constexpr unsigned  SIMD = {simd};
             constexpr unsigned  W = {w};
-            using  TI = {idtype.get_hls_datatype_str()};
+            using  TI = {hls_datatype_str(idtype)};
             using  F = float;
            """
         ]

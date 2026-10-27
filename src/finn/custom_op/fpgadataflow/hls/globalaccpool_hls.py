@@ -28,6 +28,7 @@
 
 from finn.custom_op.fpgadataflow.globalaccpool import GlobalAccPool
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
+from finn.util.data_packing import hls_datatype_str
 
 
 class GlobalAccPool_hls(GlobalAccPool, HLSBackend):
@@ -83,9 +84,9 @@ class GlobalAccPool_hls(GlobalAccPool, HLSBackend):
             """AccPool_Batch<{}, {}, {}, {}, {}> (in0_V, out0_V);""".format(
                 self.get_normal_input_shape()[1],
                 self.get_nodeattr("NumChannels"),
-                self.get_input_datatype().get_hls_datatype_str(),
+                hls_datatype_str(self.get_input_datatype()),
                 self.get_nodeattr("PE"),
-                self.get_output_datatype().get_hls_datatype_str(),
+                hls_datatype_str(self.get_output_datatype()),
             )
         ]
 
@@ -105,8 +106,8 @@ class GlobalAccPool_hls(GlobalAccPool, HLSBackend):
 
     def blackboxfunction(self):
         pe = self.get_nodeattr("PE")
-        idt = self.get_input_datatype().get_hls_datatype_str()
-        odt = self.get_output_datatype().get_hls_datatype_str()
+        idt = hls_datatype_str(self.get_input_datatype())
+        odt = hls_datatype_str(self.get_output_datatype())
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             "void {}(hls::stream<tensor<{}, {}>> &in0_V, "
             "hls::stream<tensor<{}, {}>> &out0_V)".format(self.onnx_node.name, idt, pe, odt, pe)

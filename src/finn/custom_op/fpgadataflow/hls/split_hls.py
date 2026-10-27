@@ -28,6 +28,7 @@
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.split import StreamingSplit
+from finn.util.data_packing import hls_datatype_str
 
 
 class StreamingSplit_hls(StreamingSplit, HLSBackend):
@@ -62,7 +63,7 @@ class StreamingSplit_hls(StreamingSplit, HLSBackend):
         self.code_gen_dict["$DOCOMPUTE$"] = [comp_call]
 
     def blackboxfunction(self):
-        input_elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
+        input_elem_hls_type = hls_datatype_str(self.get_input_datatype())
         n_elems = self.get_folded_input_shape()[-1]
         in_stream = "hls::stream<tensor<%s,%d>> &in0_V" % (input_elem_hls_type, n_elems)
         out_streams = []

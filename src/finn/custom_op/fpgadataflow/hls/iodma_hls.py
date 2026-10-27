@@ -36,6 +36,7 @@ from qonnx.core.datatype import DataType
 from finn.custom_op.fpgadataflow import templates
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.data_packing import hls_datatype_str
 
 # the IODMA inerfaces a memory-mapped AXI interface and an AXI stream
 # direction "in": pulls data from AXI-MM to AXI stream
@@ -198,7 +199,7 @@ class IODMA_hls(HWCustomOp, HLSBackend):
 
     def defines(self, var):
         itype_bits = self.get_input_datatype().bitwidth()
-        elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
+        elem_hls_type = hls_datatype_str(self.get_input_datatype())
         total_bits = itype_bits * np.prod(self.get_normal_input_shape())
         assert total_bits % 8 == 0, "DMA input not a multiple of 1 Byte"
         total_bytes = total_bits // 8
@@ -230,7 +231,7 @@ class IODMA_hls(HWCustomOp, HLSBackend):
         else:
             raise ValueError("Invalid IODMA direction, please set to in or out")
         dma_inst_template = func + "<DmaWord, NumBytes1>(%s, %s, numReps);"
-        elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
+        elem_hls_type = hls_datatype_str(self.get_input_datatype())
         itype_bits = self.get_input_datatype().bitwidth()
         intfw = self.get_nodeattr("intfWidth")
         strmw = self.get_nodeattr("streamWidth")
@@ -296,7 +297,7 @@ class IODMA_hls(HWCustomOp, HLSBackend):
             raise Exception("Unknown IODMA direction: %s" % direction)
 
     def blackboxfunction(self):
-        elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
+        elem_hls_type = hls_datatype_str(self.get_input_datatype())
         itype_bits = self.get_input_datatype().bitwidth()
         intfw = self.get_nodeattr("intfWidth")
         strmw = self.get_nodeattr("streamWidth")

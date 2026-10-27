@@ -13,6 +13,7 @@ from typing import Optional
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.outer_shuffle import OuterShuffle
+from finn.util.data_packing import hls_datatype_str
 
 
 def auto_size_simd(I_dim: int, SIMD: int) -> Optional[int]:
@@ -71,7 +72,7 @@ class OuterShuffle_hls(OuterShuffle, HLSBackend):
         self.code_gen_dict["$DEFINES$"] = [
             f"""
             constexpr unsigned  SIMD = {simd};
-            using  TE = {dtype.get_hls_datatype_str()};
+            using  TE = {hls_datatype_str(dtype)};
             using  TV = tensor<TE, SIMD>;
             """
         ]

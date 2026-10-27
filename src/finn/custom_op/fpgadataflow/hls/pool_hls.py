@@ -30,6 +30,7 @@ import numpy as np
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.pool import Pool
+from finn.util.data_packing import hls_datatype_str
 
 
 class Pool_hls(Pool, HLSBackend):
@@ -71,7 +72,7 @@ class Pool_hls(Pool, HLSBackend):
         fxn = self.get_nodeattr("Function")
         idt = self.get_input_datatype()
         odt = self.get_output_datatype()
-        o_tensor_dt = "tensor<%s, %d>" % (odt.get_hls_datatype_str(), pe)
+        o_tensor_dt = "tensor<%s, %d>" % (hls_datatype_str(odt), pe)
 
         self.code_gen_dict["$DOCOMPUTE$"] = []
         if fxn == "MaxPool":
@@ -108,8 +109,8 @@ class Pool_hls(Pool, HLSBackend):
         pe = self.get_nodeattr("PE")
         idt = self.get_input_datatype()
         odt = self.get_output_datatype()
-        i_tensor_dt = "tensor<%s, %d>" % (idt.get_hls_datatype_str(), pe)
-        o_tensor_dt = "tensor<%s, %d>" % (odt.get_hls_datatype_str(), pe)
+        i_tensor_dt = "tensor<%s, %d>" % (hls_datatype_str(idt), pe)
+        o_tensor_dt = "tensor<%s, %d>" % (hls_datatype_str(odt), pe)
 
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             "void %s(hls::stream<%s> &in0_V, hls::stream<%s> &out0_V)"

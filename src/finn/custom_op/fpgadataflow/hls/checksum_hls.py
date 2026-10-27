@@ -33,6 +33,7 @@ from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.data_packing import hls_datatype_str
 
 
 class CheckSum_hls(HWCustomOp, HLSBackend):
@@ -166,10 +167,10 @@ class CheckSum_hls(HWCustomOp, HLSBackend):
 
     def strm_decl(self):
         dtype = self.get_input_datatype()
-        elem_hls_type = dtype.get_hls_datatype_str()
+        elem_hls_type = hls_datatype_str(dtype)
         i_n = self.get_folded_input_shape()[-1]
         odtype = self.get_output_datatype()
-        o_elem = odtype.get_hls_datatype_str()
+        o_elem = hls_datatype_str(odtype)
         o_n = self.get_folded_output_shape()[-1]
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
@@ -209,7 +210,7 @@ class CheckSum_hls(HWCustomOp, HLSBackend):
 
     def blackboxfunction(self):
         dtype = self.get_input_datatype()
-        elem_hls_type = dtype.get_hls_datatype_str()
+        elem_hls_type = hls_datatype_str(dtype)
         n_elems = self.get_folded_input_shape()[-1]
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             "void {}(hls::stream<tensor<{},{}>> &in0_V, "

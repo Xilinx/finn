@@ -10,6 +10,7 @@ import numpy as np
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.layernorm import LayerNorm
+from finn.util.data_packing import hls_datatype_str
 
 
 class LayerNorm_hls(LayerNorm, HLSBackend):
@@ -35,7 +36,7 @@ class LayerNorm_hls(LayerNorm, HLSBackend):
             f"""
             constexpr unsigned  SIMD = {simd};
             constexpr unsigned  N = {n};
-            using  TI = {idtype.get_hls_datatype_str()};
+            using  TI = {hls_datatype_str(idtype)};
             using  TO = float;
            """
         ]

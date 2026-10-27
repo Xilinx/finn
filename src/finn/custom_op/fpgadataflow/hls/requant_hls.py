@@ -11,7 +11,11 @@ from qonnx.custom_op.general.quant import max_int, min_int
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.requant import Requant
-from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from finn.util.data_packing import (
+    hls_datatype_str,
+    npy_to_rtlsim_input,
+    rtlsim_output_to_npy,
+)
 
 
 class Requant_hls(Requant, HLSBackend):
@@ -104,8 +108,8 @@ class Requant_hls(Requant, HLSBackend):
             f"constexpr unsigned PE1 = {pe};",
             f"constexpr int MIN_VAL = {min_val};",
             f"constexpr int MAX_VAL = {max_val};",
-            f"using TI = {idt.get_hls_datatype_str()};",
-            f"using TO = {odt.get_hls_datatype_str()};",
+            f"using TI = {hls_datatype_str(idt)};",
+            f"using TO = {hls_datatype_str(odt)};",
         ]
 
     def docompute(self):
@@ -115,8 +119,8 @@ class Requant_hls(Requant, HLSBackend):
 
     def blackboxfunction(self):
         pe = self.get_nodeattr("PE")
-        idt = self.get_input_datatype(0).get_hls_datatype_str()
-        odt = self.get_output_datatype().get_hls_datatype_str()
+        idt = hls_datatype_str(self.get_input_datatype(0))
+        odt = hls_datatype_str(self.get_output_datatype())
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             "void {}(hls::stream<tensor<{}, {}>> &in0_V, "
             "hls::stream<tensor<{}, {}>> &out0_V)".format(self.onnx_node.name, idt, pe, odt, pe)

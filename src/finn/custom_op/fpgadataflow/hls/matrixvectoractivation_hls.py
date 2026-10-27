@@ -33,7 +33,11 @@ from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
-from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from finn.util.data_packing import (
+    hls_datatype_str,
+    npy_to_rtlsim_input,
+    rtlsim_output_to_npy,
+)
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation_hls:
 # input 0 is the input tensor, shape (.., i_size) = (..., MW)
@@ -219,14 +223,14 @@ class MVAU_hls(MVAU, HLSBackend):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
 
         idtype = self.get_input_datatype(0)
-        i_elem = idtype.get_hls_datatype_str()
+        i_elem = hls_datatype_str(idtype)
         # 2-D tensor: tensor<TI, MMV=1, SIMD>
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<tensor<{},1,{}>> in0_V ("in0_V");'.format(i_elem, simd)
         )
 
         odtype = self.get_output_datatype()
-        o_elem = odtype.get_hls_datatype_str()
+        o_elem = hls_datatype_str(odtype)
         # 2-D tensor: tensor<TO, MMV=1, PE>
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<tensor<{},1,{}>> out0_V ("out0_V");'.format(o_elem, pe)
@@ -237,7 +241,7 @@ class MVAU_hls(MVAU, HLSBackend):
 
         if mem_mode in ["internal_decoupled", "external", "external_mem", "dynamic"]:
             wdt = self.get_input_datatype(1)
-            w_elem = wdt.get_hls_datatype_str()
+            w_elem = hls_datatype_str(wdt)
             # 2-D tensor: tensor<TW, PE, SIMD>
             self.code_gen_dict["$STREAMDECLARATIONS$"].append(
                 'hls::stream<tensor<{},{},{}>> in1_V ("in1_V");'.format(w_elem, pe, simd)
@@ -251,7 +255,7 @@ class MVAU_hls(MVAU, HLSBackend):
             "dsp": "ap_resource_dsp()",
         }
         if self.calc_tmem() == 0:
-            odtype_hls_str = self.get_output_datatype().get_hls_datatype_str()
+            odtype_hls_str = hls_datatype_str(self.get_output_datatype())
             threshs = "PassThroughActivation<%s>()" % odtype_hls_str
         else:
             threshs = "threshs"
@@ -298,9 +302,9 @@ class MVAU_hls(MVAU, HLSBackend):
         simd = self.get_nodeattr("SIMD")
         pe = self.get_nodeattr("PE")
         idtype = self.get_input_datatype(0)
-        i_elem = idtype.get_hls_datatype_str()
+        i_elem = hls_datatype_str(idtype)
         odtype = self.get_output_datatype()
-        o_elem = odtype.get_hls_datatype_str()
+        o_elem = hls_datatype_str(odtype)
 
         if mem_mode == "internal_embedded":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
@@ -311,7 +315,7 @@ class MVAU_hls(MVAU, HLSBackend):
             ]
         elif mem_mode in ["internal_decoupled", "external", "external_mem", "dynamic"]:
             wdt = self.get_input_datatype(1)
-            w_elem = wdt.get_hls_datatype_str()
+            w_elem = hls_datatype_str(wdt)
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
                 "void {}(hls::stream<tensor<{},1,{}>> &in0_V, "
                 "hls::stream<tensor<{},{},{}>> &in1_V, "

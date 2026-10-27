@@ -33,7 +33,11 @@ from qonnx.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.lookup import Lookup
 from finn.util.basic import get_vivado_version, is_versal
-from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
+from finn.util.data_packing import (
+    hls_datatype_str,
+    numpy_to_hls_code,
+    pack_innermost_dim_as_hex_string,
+)
 
 RAM_STYLES = {"auto": "AUTO", "block": "BRAM", "distributed": "LUTRAM", "ultra": "URAM"}
 
@@ -82,9 +86,9 @@ class Lookup_hls(Lookup, HLSBackend):
 
     def defines(self, var):
         dtype = self.get_input_datatype()
-        elem_hls_type = dtype.get_hls_datatype_str()
+        elem_hls_type = hls_datatype_str(dtype)
         emb_type = DataType[self.get_nodeattr("EmbeddingType")]
-        emb_hls_type = emb_type.get_hls_datatype_str()
+        emb_hls_type = hls_datatype_str(emb_type)
         emb_dim = self.get_nodeattr("EmbeddingDim")
         mem_mode = self.get_nodeattr("mem_mode")
         my_defines = []
@@ -133,9 +137,9 @@ class Lookup_hls(Lookup, HLSBackend):
     def blackboxfunction(self):
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "internal_embedded":
-            i_hls_type = self.get_input_datatype().get_hls_datatype_str()
+            i_hls_type = hls_datatype_str(self.get_input_datatype())
             i_fold = self.get_folded_input_shape()[-1]
-            emb_hls_type = DataType[self.get_nodeattr("EmbeddingType")].get_hls_datatype_str()
+            emb_hls_type = hls_datatype_str(DataType[self.get_nodeattr("EmbeddingType")])
             emb_dim = self.get_nodeattr("EmbeddingDim")
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
                 "void %s(hls::stream<tensor<%s,%d>> &in0_V, "
@@ -188,7 +192,7 @@ class Lookup_hls(Lookup, HLSBackend):
             ).all(), "Embeddings can't be expressed with type %s" % str(edt)
             # aggregate initialization: tensor<EmbeddingType, EmbeddingDim>
             # handles element-to-bit mapping internally, no reversal needed
-            emb_hls_type = edt.get_hls_datatype_str()
+            emb_hls_type = hls_datatype_str(edt)
             emb_dim = self.get_nodeattr("EmbeddingDim")
             num_emb = self.get_nodeattr("NumEmbeddings")
             init_code = numpy_to_hls_code(embeddings, edt, "embeddings", False, True)

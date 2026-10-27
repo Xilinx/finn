@@ -29,6 +29,7 @@
 
 from finn.custom_op.fpgadataflow.concat import StreamingConcat
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
+from finn.util.data_packing import hls_datatype_str
 
 
 class StreamingConcat_hls(StreamingConcat, HLSBackend):
@@ -66,11 +67,11 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
         n_inputs = self.get_n_inputs()
         in_streams = []
         for i in range(n_inputs):
-            elem = self.get_input_datatype(i).get_hls_datatype_str()
+            elem = hls_datatype_str(self.get_input_datatype(i))
             n_elems = self.get_folded_input_shape(i)[-1]
             in_streams.append("hls::stream<tensor<{},{}>> &in{}_V".format(elem, n_elems, i))
         in_streams = ", ".join(in_streams)
-        o_elem = self.get_output_datatype().get_hls_datatype_str()
+        o_elem = hls_datatype_str(self.get_output_datatype())
         o_n_elems = self.get_folded_output_shape()[-1]
         out_stream = "hls::stream<tensor<{},{}>> &out0_V".format(o_elem, o_n_elems)
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [

@@ -34,7 +34,11 @@ from qonnx.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.vectorvectoractivation import VVAU
 from finn.util.basic import is_versal
-from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from finn.util.data_packing import (
+    hls_datatype_str,
+    npy_to_rtlsim_input,
+    rtlsim_output_to_npy,
+)
 
 
 class VVAU_hls(VVAU, HLSBackend):
@@ -309,14 +313,14 @@ class VVAU_hls(VVAU, HLSBackend):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
 
         idtype = self.get_input_datatype(0)
-        i_elem = idtype.get_hls_datatype_str()
+        i_elem = hls_datatype_str(idtype)
         # input: tensor<TI, PE, MMV=1, SIMD>
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<tensor<{},{},1,{}>> in0_V ("in0_V");'.format(i_elem, pe, simd)
         )
 
         odtype = self.get_output_datatype()
-        o_elem = odtype.get_hls_datatype_str()
+        o_elem = hls_datatype_str(odtype)
         # output: tensor<TO, MMV=1, PE>
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<tensor<{},1,{}>> out0_V ("out0_V");'.format(o_elem, pe)
@@ -327,7 +331,7 @@ class VVAU_hls(VVAU, HLSBackend):
 
         if mem_mode == "internal_decoupled" or mem_mode == "external":
             wdt = self.get_input_datatype(1)
-            w_elem = wdt.get_hls_datatype_str()
+            w_elem = hls_datatype_str(wdt)
             # weight stream: tensor<TW, PE, SIMD>
             self.code_gen_dict["$STREAMDECLARATIONS$"].append(
                 'hls::stream<tensor<{},{},{}>> in1_V ("in1_V");'.format(w_elem, pe, simd)
@@ -341,14 +345,14 @@ class VVAU_hls(VVAU, HLSBackend):
             "dsp": "ap_resource_dsp()",
         }
         if self.calc_tmem() == 0:
-            odtype_hls_str = self.get_output_datatype().get_hls_datatype_str()
+            odtype_hls_str = hls_datatype_str(self.get_output_datatype())
             threshs = "PassThroughActivation<%s>()" % odtype_hls_str
         else:
             threshs = "threshs"
 
         if mem_mode == "internal_embedded":
             wdt = self.get_input_datatype(1)
-            w_elem = wdt.get_hls_datatype_str()
+            w_elem = hls_datatype_str(wdt)
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """Vector_Vector_Activate_Batch<Channels1, InnerProdDim, SIMD1, PE1, 1, {}>
                 (in0_V, out0_V, weights, {}, {});""".format(
@@ -390,9 +394,9 @@ class VVAU_hls(VVAU, HLSBackend):
         pe = self.get_nodeattr("PE")
         simd = self.get_nodeattr("SIMD")
         idtype = self.get_input_datatype(0)
-        i_elem = idtype.get_hls_datatype_str()
+        i_elem = hls_datatype_str(idtype)
         odtype = self.get_output_datatype()
-        o_elem = odtype.get_hls_datatype_str()
+        o_elem = hls_datatype_str(odtype)
 
         if mem_mode == "internal_embedded":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
@@ -403,7 +407,7 @@ class VVAU_hls(VVAU, HLSBackend):
             ]
         elif mem_mode == "internal_decoupled" or mem_mode == "external":
             wdt = self.get_input_datatype(1)
-            w_elem = wdt.get_hls_datatype_str()
+            w_elem = hls_datatype_str(wdt)
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
                 "void {}(hls::stream<tensor<{},{},1,{}>> &in0_V, "
                 "hls::stream<tensor<{},{},{}>> &in1_V, "

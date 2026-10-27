@@ -37,6 +37,7 @@ from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.thresholding import Thresholding
 from finn.util.basic import get_vivado_version, is_versal
 from finn.util.data_packing import (
+    hls_datatype_str,
     npy_to_rtlsim_input,
     numpy_to_hls_code,
     pack_innermost_dim_as_hex_string,
@@ -184,8 +185,8 @@ class Thresholding_hls(Thresholding, HLSBackend):
         """Returns the template parameter values according to input, output and weight
         data types."""
         ret = dict()
-        inp_hls_str = self.get_input_datatype(0).get_hls_datatype_str()
-        out_hls_str = self.get_output_datatype().get_hls_datatype_str()
+        inp_hls_str = hls_datatype_str(self.get_input_datatype(0))
+        out_hls_str = hls_datatype_str(self.get_output_datatype())
         # fill in TSrcI
         ret["TSrcI"] = "Slice<%s>" % inp_hls_str
         # fill in TDstI
@@ -218,12 +219,12 @@ class Thresholding_hls(Thresholding, HLSBackend):
             )
             # write thresholds into thresh.h
             f_thresh = open(weight_file_name, "w")
-            tdt_hls = tdt.get_hls_datatype_str()
+            tdt_hls = hls_datatype_str(tdt)
             # use binary to export bipolar activations
             export_odt = self.get_output_datatype()
             if self.get_output_datatype() == DataType["BIPOLAR"]:
                 export_odt = DataType["BINARY"]
-            odt_hls = export_odt.get_hls_datatype_str()
+            odt_hls = hls_datatype_str(export_odt)
             f_thresh.write(
                 "static ThresholdsActivation<{},{},{},{},{},{},{}> threshs \
                 = ".format(
@@ -442,7 +443,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
                 "static constexpr int ActVal1 = %d;" % self.get_nodeattr("ActVal")
             )
             self.code_gen_dict["$DEFINES$"].append(
-                "using ThresType1 = %s;" % self.get_input_datatype(1).get_hls_datatype_str()
+                "using ThresType1 = %s;" % hls_datatype_str(self.get_input_datatype(1))
             )
             self.code_gen_dict["$DEFINES$"].append(
                 "static constexpr unsigned NumSteps1 = %d;" % self.get_nodeattr("numSteps")
@@ -451,7 +452,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_input_datatype(0)
-        elem_hls_type = dtype.get_hls_datatype_str()
+        elem_hls_type = hls_datatype_str(dtype)
         npy_type = "half" if elem_hls_type == "half" else "float"
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
@@ -465,7 +466,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "internal_decoupled":
             tdt = self.get_input_datatype(1)
-            elem_hls_type = tdt.get_hls_datatype_str()
+            elem_hls_type = hls_datatype_str(tdt)
             npy_type = "half" if elem_hls_type == "half" else "float"
             npy_in = "%s/thresholds.npy" % code_gen_dir
             # thresholds must be replicated for every spatial position
@@ -484,13 +485,13 @@ class Thresholding_hls(Thresholding, HLSBackend):
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         idt = self.get_input_datatype(0)
-        i_hls_type = idt.get_hls_datatype_str()
+        i_hls_type = hls_datatype_str(idt)
         pe = self.get_nodeattr("PE")
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<tensor<{},{}>> in0_V ("in0_V");'.format(i_hls_type, pe)
         )
         odt = self.get_output_datatype()
-        o_hls_type = odt.get_hls_datatype_str()
+        o_hls_type = hls_datatype_str(odt)
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<tensor<{},{}>> out0_V ("out0_V");'.format(o_hls_type, pe)
         )
@@ -501,7 +502,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "internal_decoupled":
             tdt = self.get_input_datatype(1)
-            t_hls_type = tdt.get_hls_datatype_str()
+            t_hls_type = hls_datatype_str(tdt)
             n_thres_steps = self.get_nodeattr("numSteps")
             self.code_gen_dict["$STREAMDECLARATIONS$"].append(
                 'hls::stream<tensor<{},{},{}>> in1_V ("in1_V");'.format(
@@ -527,7 +528,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_output_datatype()
-        elem_hls_type = dtype.get_hls_datatype_str()
+        elem_hls_type = hls_datatype_str(dtype)
         npy_type = "half" if elem_hls_type == "half" else "float"
         npy_out = "%s/output_0.npy" % code_gen_dir
         shape = self.get_folded_output_shape()
@@ -544,9 +545,9 @@ class Thresholding_hls(Thresholding, HLSBackend):
 
     def blackboxfunction(self):
         idt = self.get_input_datatype(0)
-        i_hls_type = idt.get_hls_datatype_str()
+        i_hls_type = hls_datatype_str(idt)
         odt = self.get_output_datatype()
-        o_hls_type = odt.get_hls_datatype_str()
+        o_hls_type = hls_datatype_str(odt)
         pe = self.get_nodeattr("PE")
         if self.get_nodeattr("mem_mode") == "internal_embedded":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
@@ -562,7 +563,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
             ]
         elif self.get_nodeattr("mem_mode") == "internal_decoupled":
             tdt = self.get_input_datatype(1)
-            t_hls_type = tdt.get_hls_datatype_str()
+            t_hls_type = hls_datatype_str(tdt)
             n_thres_steps = self.get_nodeattr("numSteps")
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
                 """void {}(hls::stream<tensor<{},{}>> &in0_V,

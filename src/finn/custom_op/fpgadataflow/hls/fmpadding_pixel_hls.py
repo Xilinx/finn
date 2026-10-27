@@ -28,6 +28,7 @@
 
 from finn.custom_op.fpgadataflow.fmpadding_pixel import FMPadding_Pixel
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
+from finn.util.data_packing import hls_datatype_str
 
 
 class FMPadding_Pixel_hls(FMPadding_Pixel, HLSBackend):
@@ -65,7 +66,7 @@ class FMPadding_Pixel_hls(FMPadding_Pixel, HLSBackend):
         ]
 
     def docompute(self):
-        in_t = self.get_input_datatype().get_hls_datatype_str()
+        in_t = hls_datatype_str(self.get_input_datatype())
         odim_h, odim_w = self.get_padded_odim()
         stride_h, stride_w = self.get_nodeattr("Stride")
         hls_call = "FMPadding_Pixel_Nonsquare"
@@ -87,7 +88,7 @@ class FMPadding_Pixel_hls(FMPadding_Pixel, HLSBackend):
         return ["config_compile -pipeline_style flp"]
 
     def blackboxfunction(self):
-        elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
+        elem_hls_type = hls_datatype_str(self.get_input_datatype())
         simd = self.get_nodeattr("SIMD")
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             "void %s(hls::stream<tensor<%s,%d>> &in0_V, hls::stream<tensor<%s,%d>> &out0_V)"
