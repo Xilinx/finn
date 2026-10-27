@@ -405,23 +405,34 @@ cannot be trusted about. The margin changes one depth on the regression set,
 ``Pool_hls_1 -> MVAU_rtl_0`` in resnet50 (272 with the margin, 256 without),
 on no other model.
 
-The cap also needs the slow stages around the edge to take turns: the slowest
-node between the last pacer and the producer and the slowest node at or below
-the consumer (``t_above`` and ``t_below`` of `Decoupled chain`_) take at most
-``CAP_MARGIN`` periods together. Both take most of the period on either side of
-the edge otherwise, and the producer's blocking budget is spent again by the
-slack relaxation of the edges further down the same chain. *Example:*
-cnv-w2a2, small folding (AUP-ZU3, pacer ``MVAU_hls_0`` at 129606 cycles):
-``Pool_hls_0 -> ConvolutionInputGenerator_rtl_3`` (peak 307, burst floor 307,
-allowance 1533) was capped at 256, with 0.88 of the period above it and 0.91
-below. The edge two nodes further down, ``MVAU_hls_2 ->
-ConvolutionInputGenerator_rtl_4``, was relaxed by the whole allowance of the
-chain (3968 to 1715). Stitched-IP rtlsim: 132298 cycles a frame (0.980 of the
-estimate); unbounded FIFOs or the capped edge at 280 or 307: 129606, the
-estimate (the relaxed edge alone needs 2400 instead). cnv-w1a2's small folding
-has the same edge (0.982 to 1.000 at 307). On the other regression models the
-condition changes no depth except two ``StreamingConcat -> MVAU_rtl`` edges of
-yolov8 (small folding).
+Throttled cap between slow stages
+---------------------------------
+
+*What:* the throttled cap only fires where the slow stages around the edge can
+take turns: the slowest node between the last pacer and the producer and the
+slowest node at or below the consumer (``t_above`` and ``t_below`` of
+`Decoupled chain`_) take at most ``CAP_MARGIN`` periods together. Otherwise the
+edge keeps its burst floor.
+
+*Why:* the cap blocks the producer during the consumer's bursts and spends the
+chain's blocking budget (its slack below the period) on it. The slack relaxation
+of the edges further down the same chain spends the same budget again, and with
+slow stages on both sides of the edge nothing is left to absorb the stall: the
+stages stall each other and the pacer loses time.
+
+*Example:* cnv-w2a2, small folding (AUP-ZU3 and U55C, pacer ``MVAU_hls_0`` at
+129606 cycles). ``Pool_hls_0 -> ConvolutionInputGenerator_rtl_3`` (peak 307,
+burst floor 307, allowance 1533) was capped at 256, with 0.88 of the period
+above it and 0.91 below. The edge two nodes further down, ``MVAU_hls_2 ->
+ConvolutionInputGenerator_rtl_4``, was relaxed by the chain's whole allowance
+(3968 to 1715). Stitched-IP rtlsim: 132298 cycles a frame, 0.980 of the estimate
+with both ``heuristic_analytical`` and ``heuristic_rtlsim``. Unbounded FIFOs, or
+only the capped edge at 280 or 307: 129606, the estimate (the relaxed edge alone
+needs 2400). With the rule the edge is 307 and both strategies run at 1.000 on
+both boards (23.5 kbit). cnv-w1a2's small folding has the same edge (0.982 to
+1.000). Offline re-sizing of the saved TAVs changes no other depth except two
+``StreamingConcat -> MVAU_rtl`` edges of yolov8's small folding (256 to 856 and
+2431).
 
 Decoupled chain
 ---------------
@@ -501,7 +512,8 @@ Join window floor
 -----------------
 
 *What:* ``join_window_floors`` gives every input of a two-stream join
-(``ElementwiseAdd`` / ``AddStreams``) a floor that does not come from any TAV.
+(``ElementwiseAdd`` / ``AddStreams``) and of a ``StreamingConcat`` a floor that
+does not come from any TAV (see `Concat joins and sliding windows`_).
 From the join it walks back to the fork its inputs share, composing each
 node's ``tav_input_window()``: output block *b* of ``out_words`` words
 needs the first ``(b + 1) * in_words`` words of the input (default: the ratio
@@ -564,6 +576,42 @@ to 2077), transformer_radioml, _vision and _language +2.5 to 2.6 %, bert
 resnet50 +0.2 %; bnn-pynq, cybersecurity-mlp, gtsrb, kws, mobilenet_v1,
 vgg10-radioml, espcn, resnet18 and yolov8 unchanged (their joins are above
 the floor).
+
+Concat joins and sliding windows
+--------------------------------
+
+*What:* the join window floor also covers ``StreamingConcat``. A join token is
+the greatest common divisor of the input frame sizes, so an add keeps one word a
+token and a concat takes each input's share of a pixel. ``FMPadding``,
+``ConvolutionInputGenerator`` and ``UpsampleNearestNeighbour`` give the input
+each output word needs (``get_tav_input_need``): a padding word the input up to
+the last real pixel before it, a window its last pixel, an upsampled pixel its
+nearest neighbour. Before, all three counted as one-to-one through the frame
+ratio.
+
+*Why:* every C2f, FPN and PAN stage of yolov8 is a fork whose branches meet again
+at a concat, and the long branches run through padding, 3x3 windows, stride-2
+windows and upsampling. A 3x3 window needs a row and a pixel more than its output
+position, so each of these stages delays the long branch by rows of its own
+resolution. Taken as one-to-one the floor never sees that lag, and the timeline
+pass alone has no margin on it.
+
+*Example:* yolov8_4w4a, small folding (U55C, 11.8 M cycles a frame). The PAN
+concat ``StreamingConcat_hls_12`` joins the SPPF output (6x10, shortcut
+``DuplicateStreams_hls_11 -> StreamingConcat_hls_12``) with a path through two
+upsamplings, the FPN and PAN C2f stages and two stride-2 windows. The timeline
+gave the shortcut 9086 words (of a 15360-word frame). Stitched-IP rtlsim: no
+output word in 383 M cycles (the run with unbounded FIFOs finishes the frame
+in 34.9 M cycles and peaks at 15358 on that shortcut). A rerun with monitors
+shows the shortcut full from 22.9 M cycles on, with nothing reaching the concat's
+other input. The structural backlog is 8704 words, the paced one 11073, and the
+floor is 13842. With it the design gives its first output word at 23.7 M cycles.
+Every other join FIFO of this build was already at or above its unbounded-FIFO
+peak. Total FIFO storage (offline re-sizing of the same TAVs): yolov8 +1.5 to
++3.3 % (the C2f shortcuts take the 25 % margin over a window lag the timeline
+already got right), resnet18 +0.2 % (full) and +1.6 % (small), resnet50 +5.6 %
+(full) and +5.9 % (small); the other models are unchanged (no concat, or no
+sliding window between fork and join).
 
 Idle-window floor
 -----------------
