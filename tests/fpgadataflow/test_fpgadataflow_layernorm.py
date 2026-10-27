@@ -169,6 +169,47 @@ def test_fpgadataflow_rtl_layernorm(idt, ishape, simd, sim_style):
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
+def test_fpgadataflow_rtl_layernorm_second_rsqrt_refinement():
+    """The optional second Newton step should closely match exact LayerNorm."""
+    idt = DataType["FLOAT32"]
+    ishape = [1, 4, 48]
+    model = create_layernorm_model(
+        idt, ishape, has_scale=False, has_bias=False, epsilon=9.999999960041972e-13
+    )
+    input_data = gen_finn_dt_tensor(idt, ishape)
+    input_dict = {model.graph.input[0].name: input_data}
+    expected = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
+
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+    model = model.transform(ExtractNormScaleBias())
+    model = model.transform(to_hw.InferLayerNorm())
+    model = model.transform(to_hw.InferElementwiseBinaryOperation())
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+
+    layernorm_node = model.get_nodes_by_op_type("LayerNorm_rtl")[0]
+    layernorm = getCustomOp(layernorm_node)
+    layernorm.set_nodeattr("SIMD", 2)
+    layernorm.set_nodeattr("numRsqrtRefinements", 2)
+    assert layernorm.dsp_estimation() == 14
+
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+    actual = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
+
+    assert np.allclose(expected, actual, rtol=1e-4, atol=1e-3)
+    layernorm_node = model.get_nodes_by_op_type("LayerNorm_rtl")[0]
+    cycles_rtlsim = getCustomOp(layernorm_node).get_nodeattr("cycles_rtlsim")
+    exp_cycles = model.analysis(exp_cycles_per_layer)[layernorm_node.name]
+    assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
+
+
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
 @pytest.mark.parametrize("idt", [DataType["FLOAT32"]])
 @pytest.mark.parametrize(
     "ishape,simd",
