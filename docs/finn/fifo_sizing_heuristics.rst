@@ -584,7 +584,7 @@ Concat joins and sliding windows
 the greatest common divisor of the input frame sizes, so an add keeps one word a
 token and a concat takes each input's share of a pixel. ``FMPadding``,
 ``ConvolutionInputGenerator`` and ``UpsampleNearestNeighbour`` give the input
-each output word needs (``get_tav_input_need``): a padding word the input up to
+each output word needs (``tav_input_need``): a padding word the input up to
 the last real pixel before it, a window its last pixel, an upsampled pixel its
 nearest neighbour. Before, all three counted as one-to-one through the frame
 ratio.
