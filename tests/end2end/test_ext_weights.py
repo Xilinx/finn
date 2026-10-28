@@ -34,13 +34,22 @@ import os
 import shutil
 import subprocess
 import wget
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.infer_shapes import InferShapes
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
-from finn.util.basic import make_build_dir
-from finn.util.test import load_test_checkpoint_or_skip
+from finn.core.onnx_exec import execute_onnx
+from finn.util.basic import get_vivado_version, make_build_dir
+from finn.util.test import (
+    get_example_input,
+    load_test_checkpoint_or_skip,
+    stage_hw_deployment,
+)
 
 target_clk_ns = 10
+# the CI hardware pipeline tests this board's bitfiles under ext_weights_build
+target_board = "AUP-ZU3_8GB"
 build_dir = os.environ["FINN_BUILD_DIR"]
 onnx_zip_url = "https://github.com/Xilinx/finn-examples"
 onnx_zip_url += "/releases/download/v0.0.1a/onnx-models-bnn-pynq.zip"
@@ -83,6 +92,23 @@ def verify_runtime_weights(folding_config_file, runtime_weights_dir):
         assert expected_file in runtime_weights_files
 
 
+def get_golden_io_pair(model_file, topology):
+    """Reference input and output for the board test, from the ONNX model the
+    bitfile is built from. The model takes an NCHW UINT8 image and ends in TopK,
+    while the driver takes the dataflow partition's input, NHWC for cnv and
+    flattened for tfc."""
+    model = ModelWrapper(model_file).transform(InferShapes())
+    iname = model.graph.input[0].name
+    oname = model.graph.output[0].name
+    x = get_example_input(topology).reshape(model.get_tensor_shape(iname))
+    y = execute_onnx(model, {iname: x})[oname]
+    if topology == "cnv":
+        x = x.transpose(0, 2, 3, 1)
+    else:
+        x = x.reshape(1, -1)
+    return x, y
+
+
 @pytest.mark.xdist_group(name="end2end_ext_weights")
 @pytest.mark.end2end
 @pytest.mark.parametrize("topology", ["cnv", "tfc"])
@@ -100,6 +126,9 @@ def test_end2end_ext_weights_download(topology):
 @pytest.mark.end2end
 @pytest.mark.parametrize("topology", ["cnv", "tfc"])
 def test_end2end_ext_weights_build(topology):
+    vivado_version = get_vivado_version()
+    if vivado_version is None or vivado_version < (2024, 1):
+        pytest.skip("AUP-ZU3 board requires at least Vivado 2024.1")
     model_file = get_checkpoint_name("download", topology)
     load_test_checkpoint_or_skip(model_file)
     test_data = os.environ["FINN_ROOT"] + "/src/finn/qnn-data/test_ext_weights"
@@ -114,7 +143,7 @@ def test_end2end_ext_weights_build(topology):
         folding_config_file=folding_config_file,
         specialize_layers_config_file=specialize_layers_config_file,
         synth_clk_period_ns=target_clk_ns,
-        board="ZCU104",
+        board=target_board,
         shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
         generate_outputs=[
             build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
@@ -132,3 +161,8 @@ def test_end2end_ext_weights_build(topology):
     if os.path.isdir(get_checkpoint_name("build", topology)):
         shutil.rmtree(get_checkpoint_name("build", topology))
     shutil.copytree(output_dir + "/deploy", get_checkpoint_name("build", topology))
+    # the board checks the bitfile's output on x against y
+    x, y = get_golden_io_pair(model_file, topology)
+    stage_hw_deployment(
+        output_dir + "/deploy", target_board, "ext_weights_%s_w2a2" % topology, x, y
+    )

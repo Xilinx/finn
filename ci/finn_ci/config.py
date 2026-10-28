@@ -43,15 +43,12 @@ VALID_BOARD_SETUP_SCRIPTS = ("alveo", "pynq")
 # parametrises against. Reordering the keys reorders the test matrix.
 BOARDS = {
     # AUP-ZU3 replaces the retired Pynq-Z1 as the supported academic Zynq
-    # board. The on-board HW half (agentLabel/credentialsId/restartPrep) is a
-    # placeholder pending the physical AUP-ZU3 agent setup: it reuses the
-    # finn-pynq node label and carries no credentials, so the HW test stage
-    # stays dormant while the build-side matrix (bnnMarker) is exercised. When
-    # the board is provisioned, set restartPrep=True and a real credentialsId.
+    # board. It runs the PYNQ image's xilinx account, the same as the ZCU104,
+    # so it shares that board's credential.
     "AUP-ZU3_8GB": {
-        "agentLabel": "finn-pynq",
-        "credentialsId": None,
-        "restartPrep": False,
+        "agentLabel": "finn-aup-zu3",
+        "credentialsId": "pynq-z1-credentials",
+        "restartPrep": True,
         "setupScript": "pynq",
         "marker": "AUP_ZU3",
         "bnnMarker": "bnn_aup_zu3",
@@ -91,8 +88,10 @@ TEST_BOARDS = tuple(BOARDS)
 # stage names. Add a row when introducing a new STAGES.zipArtifacts.hwTestType.
 # validate_config() rejects an hwTestType without a label.
 HW_TEST_TYPE_LABELS = {
-    "bnn_build_sanity": "Sanity",
-    "bnn_build_full": "end2end",
+    "bnn_build_sanity": "BNN Sanity",
+    "bnn_build_full": "BNN end2end",
+    "mlo_build": "MLO",
+    "ext_weights_build": "Ext weights",
 }
 
 # The HW pipeline keys its resolved-zip map on "<hwTestType>::<board>", so neither
@@ -134,19 +133,25 @@ STAGES = [
         "coverage": True,
     },
     {
+        # zipArtifacts carries the MLO DDR bitfiles test_fpgadataflow_finnloop.py
+        # builds for the AUP-ZU3
         "param": "fpgadataflow",
         "stage": "fpgadataflow",
         "marker": "fpgadataflow",
         "shards": 3,
         "workers": 8,
         "coverage": True,
+        "zipArtifacts": {"hwTestType": "mlo_build", "boards": ["AUP-ZU3_8GB"]},
     },
     {
+        # zipArtifacts carries the external-weights bitfiles test_ext_weights.py
+        # builds for the AUP-ZU3
         "param": "end2end",
         "stage": "End2end",
         "marker": "end2end",
         "shards": 3,
         "workers": 6,
+        "zipArtifacts": {"hwTestType": "ext_weights_build", "boards": ["AUP-ZU3_8GB"]},
     },
     {
         "param": "end2end",

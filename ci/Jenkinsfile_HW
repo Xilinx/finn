@@ -143,11 +143,11 @@ pipeline {
     string(name: 'BOARD_FILTER', defaultValue: '',
            description: 'Substring filter for debugging a single board. Matches against the board name. Leave empty for a normal build.')
     string(name: 'TEST_TYPE_FILTER', defaultValue: '',
-           description: 'Substring filter for test types. E.g. "full" to run only bnn_build_full (end2end), skipping sanity. Leave empty for all test types.')
+           description: 'Substring filter for test types (bnn_build_sanity, bnn_build_full, mlo_build, ext_weights_build). E.g. "full" to run only bnn_build_full, "mlo" to run only the MLO tests. Leave empty for all test types.')
     string(name: 'MODEL_EXCLUDE', defaultValue: '',
            description: 'Comma-separated list of model substrings to exclude from testing. E.g. "tfc" to skip all tfc models. Leave empty to test all models.')
     string(name: 'TEST_SKIP', defaultValue: '',
-           description: 'Comma-separated list of test methods to skip. Options: execute, validate, throughput. E.g. "validate" to skip accuracy validation, "execute,throughput" to run only validation. Leave empty to run all tests.')
+           description: 'Comma-separated list of test methods to skip. Options: execute, throughput. E.g. "throughput" to run only the output check against the reference. Leave empty to run all tests.')
   }
   stages {
     stage('Get node status') {
@@ -583,7 +583,8 @@ Map<String, Closure> buildHwStageMap(String testType) {
   String label = hwTestTypeLabel(testType)
   def branches = [:]
   runnableShards(testType).each { row ->
-    String stage = "BNN ${label} - ${row.board}"
+    // the label names the family, e.g. "BNN Sanity" or "MLO"
+    String stage = "${label} - ${row.board}"
     branches[stage] = { runHwShard(row, testType, stage) }
   }
   return branches

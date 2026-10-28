@@ -63,8 +63,8 @@ To start a build, click *Build with Parameters* and select the stage you would l
 | ------------------ | ------------------------ | --------------------------------------------- | -------------------------------------------------------------- |
 | `sanity` (default) | Sanity rows only         | Per-PR quick check                            | Recommended (publishes `bnn_build_sanity` zips for HW handoff) |
 | `full`             | Every CI row except benchmark | Nightly / pre-merge full matrix          | Yes (otherwise no handoff and no timing master update)         |
-| `fpgadataflow`     | fpgadataflow row(s) only | Only build-side debug, no HW handoff produced | No                                                             |
-| `end2end`          | end2end + BNN rows only  | Debugging just the end2end family             | Recommended (BNN rows publish `bnn_build_full` zips)           |
+| `fpgadataflow`     | fpgadataflow row(s) only | Debugging just the fpgadataflow family        | Recommended (publishes `mlo_build` zips)                       |
+| `end2end`          | end2end + BNN rows only  | Debugging just the end2end family             | Recommended (End2end publishes `ext_weights_build`, BNN rows `bnn_build_full` zips) |
 | `benchmark`        | finn-examples suite only | Manual benchmark runs (excluded from `full`)  | No (build-only, no HW handoff yet)                             |
 
 
@@ -162,12 +162,18 @@ choice quantization -> rows ['Quantization - Brevitas']
 
 ### Adding a new HW test type
 
-A new `hwTestType` (today `bnn_build_sanity` or `bnn_build_full`) is a config-only change in [finn_ci/config.py](./finn_ci/config.py):
+A new `hwTestType` (today `bnn_build_sanity`, `bnn_build_full`, `mlo_build` or `ext_weights_build`) is a config-only change in [finn_ci/config.py](./finn_ci/config.py):
 
 1. Add `STAGES` rows whose `zipArtifacts.hwTestType` is the new name.
-2. Add an entry to `HW_TEST_TYPE_LABELS` mapping that name to the label shown in the Jenkins UI, for example `"bnn_build_robust": "Robust"`.
+2. Add an entry to `HW_TEST_TYPE_LABELS` mapping that name to the label shown in the Jenkins UI, for example `"bnn_build_robust": "BNN Robust"`. The HW stages are named `<label> - <board>`.
 
 `hw-config-json` reads them in first-appearance order, so place shorter smoke types before longer ones. `validate_config()` rejects an `hwTestType` declared in `STAGES` without a matching label.
+
+### Adding a board test outside the BNN matrix
+
+Any build test can hand its bitfile to the HW pipeline. Call `finn.util.test.stage_hw_deployment()` with the build's `deploy/` directory, the board, a model title, and a reference input and output. It writes `hw_deployment_*/<board>/<title>/`, which the shard picks up for every board in its row's `zipArtifacts`. On the board, [test_bnn_hw_pytest.py](./test_bnn_hw_pytest.py) runs the driver on the input, compares the result to the reference, and measures throughput. The MLO tests in `tests/fpgadataflow/test_fpgadataflow_finnloop.py` and the external-weights tests in `tests/end2end/test_ext_weights.py` work this way.
+
+Titles must be unique per board within a row, because a duplicate fails the zip aggregation. Only stage after the build's own checks have passed, so a known-bad bitfile never reaches a board.
 
 ### Running tools on LSF (optional)
 
@@ -220,7 +226,7 @@ A `STAGES` row that produces these zips declares a `zipArtifacts` nested key:
 "zipArtifacts": {"hwTestType": "bnn_build_full", "boards": ["U55C"]}
 ```
 
-`hwTestType` (today `bnn_build_sanity` or `bnn_build_full`) selects which HW pipeline category the zip feeds. `boards` lists the board zips the row produces. The nested shape means the pair is either present or absent.
+`hwTestType` (today `bnn_build_sanity`, `bnn_build_full`, `mlo_build` or `ext_weights_build`) selects which HW pipeline category the zip feeds. `boards` lists the board zips the row produces. The nested shape means the pair is either present or absent.
 
 `BUILD_INFO.txt` is simply a human-readable provenance record of the build. The HW pipeline archives each distinct source build's copy as `build_info_<N>.txt` and lists the per-board source builds in the HW build description, so a mixed run stays traceable.
 
