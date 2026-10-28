@@ -26,8 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import numpy as np
-
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.pool import Pool
 from finn.util.data_packing import hls_datatype_str
@@ -127,18 +125,16 @@ class Pool_hls(Pool, HLSBackend):
         #     addr = (oh*SH+kh)*W*CF + (ow*SW+kw)*CF + cf
         # M=2: flit_t last marker fires upon completion of 2 innermost loops
         #       (KW and KH), i.e. every KH*KW = K elements — one kernel window.
-        ig_call = (
-            "input_gen<2, H*W*CF, OH, SH*W*CF, OW, SW*CF, CF, 1, KH, W*CF, KW, CF>"
-        )
+        ig_call = "input_gen<2, H*W*CF, OH, SH*W*CF, OW, SW*CF, CF, 1, KH, W*CF, KW, CF>"
         flit_dt = "flit_t<%s>" % i_tensor_dt
         pool_call = "pool<%s>" % pool_type
 
         if has_padding:
             # Pad value expression
             pad_val = self.get_nodeattr("PadValue")
-            lines.append("static hls::stream<%s>  padded(\"padded\");" % i_tensor_dt)
+            lines.append('static hls::stream<%s>  padded("padded");' % i_tensor_dt)
             lines.append("#pragma HLS stream depth=2 variable=padded")
-            lines.append("static hls::stream<%s>  feed(\"feed\");" % flit_dt)
+            lines.append('static hls::stream<%s>  feed("feed");' % flit_dt)
             lines.append("#pragma HLS stream depth=2 variable=feed")
             # Build pad value initializer
             lines.append("{")
@@ -154,7 +150,7 @@ class Pool_hls(Pool, HLSBackend):
             lines.append("%s(padded, feed);" % ig_call)
             lines.append("%s(feed, out0_V);" % pool_call)
         else:
-            lines.append("static hls::stream<%s>  feed(\"feed\");" % flit_dt)
+            lines.append('static hls::stream<%s>  feed("feed");' % flit_dt)
             lines.append("#pragma HLS stream depth=2 variable=feed")
             lines.append("%s(in0_V, feed);" % ig_call)
             lines.append("%s(feed, out0_V);" % pool_call)

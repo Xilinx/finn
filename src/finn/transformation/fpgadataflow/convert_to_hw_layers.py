@@ -1299,7 +1299,9 @@ class InferPool(Transformation):
                     odt = idt
                     pad_value = idt.min()
                 elif node.op_type == "QuantAvgPool2d":
-                    assert odt.is_integer(), "Output data type for QuantAvgPool2d needs to be integer"
+                    assert (
+                        odt.is_integer()
+                    ), "Output data type for QuantAvgPool2d needs to be integer"
                     assert all(x == 0 for x in pad), "Padding is not supported for QuantAvgPool2d"
                     inst = getCustomOp(node)
                     pool_fxn = "QuantAvgPool"
