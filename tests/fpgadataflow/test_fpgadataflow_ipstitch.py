@@ -291,10 +291,28 @@ def test_fpgadataflow_ipstitch_iodma_floorplan():
         model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))
     model = model.transform(InferDataLayouts())
     model = model.transform(InsertIODMA())
+    model = model.transform(GiveUniqueNodeNames())
     model = model.transform(Floorplan())
-    assert getCustomOp(model.graph.node[0]).get_nodeattr("partition_id") == 0
-    assert getCustomOp(model.graph.node[1]).get_nodeattr("partition_id") == 2
-    assert getCustomOp(model.graph.node[2]).get_nodeattr("partition_id") == 1
+    # Verify that IODMAs and compute nodes get distinct partition_ids.
+    # After DWC externalization, the graph may have more than 3 nodes
+    # (DWC nodes inserted when intfWidth != streamWidth), so we look up
+    # nodes by op_type rather than by positional index.
+    iodma_partitions = set()
+    compute_partitions = set()
+    for node in model.graph.node:
+        node_inst = getCustomOp(node)
+        pid = node_inst.get_nodeattr("partition_id")
+        if node.op_type == "IODMA_hls":
+            iodma_partitions.add(pid)
+        elif node.op_type in ("MVAU_hls", "MVAU_rtl"):
+            compute_partitions.add(pid)
+    # Each IODMA (input + output) gets its own partition
+    assert len(iodma_partitions) == 2, f"Expected 2 IODMA partitions, got {iodma_partitions}"
+    # Compute node(s) get a separate partition from the IODMAs
+    assert len(compute_partitions) >= 1, f"Expected compute partition, got {compute_partitions}"
+    assert iodma_partitions.isdisjoint(compute_partitions), (
+        f"IODMA partitions {iodma_partitions} overlap with compute partitions {compute_partitions}"
+    )
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_iodma_floorplan.onnx")
 
 
