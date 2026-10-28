@@ -243,7 +243,8 @@ class InsertIODMA(Transformation):
                         backend="fpgadataflow",
                     )
                     model.graph.node.insert(0, dma_node)
-                    self._insert_iodma_dwc(model, dma_node)
+                    # protobuf copies on insert; use the in-graph node
+                    self._insert_iodma_dwc(model, model.graph.node[0])
                     modified = True
         # insert IODMAs for graph outputs
         if self.insert_output:
@@ -288,7 +289,8 @@ class InsertIODMA(Transformation):
                         backend="fpgadataflow",
                     )
                     model.graph.node.append(dma_node)
-                    self._insert_iodma_dwc(model, dma_node)
+                    # protobuf copies on append; use the in-graph node
+                    self._insert_iodma_dwc(model, model.graph.node[-1])
                     modified = True
         if self.insert_extmemw:
             # parse matrixvectoractivation layers looking for external weights with no
@@ -341,7 +343,8 @@ class InsertIODMA(Transformation):
                 )
                 fc_node.input[1] = fc_node_in.name
                 model.graph.node.insert(0, dma_node)
-                self._insert_iodma_dwc(model, dma_node)
+                # protobuf copies on insert; use the in-graph node
+                self._insert_iodma_dwc(model, model.graph.node[0])
                 # expand inFIFODepths for new second input of node
                 infifo_depth = fc_inst.get_nodeattr("inFIFODepths")
                 infifo_depth.append(8)
