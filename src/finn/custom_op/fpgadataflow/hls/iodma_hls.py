@@ -226,9 +226,7 @@ class IODMA_hls(HWCustomOp, HLSBackend):
             raise ValueError("Invalid IODMA direction, please set to in or out")
         # Width conversion (if any) is handled by external DWC nodes inserted
         # by InsertIODMA._insert_iodma_dwc, so streamWidth == intfWidth here.
-        self.code_gen_dict["$DOCOMPUTE$"] = [
-            func + "<DmaWord, NumBytes1>(in0_V, out0_V, numReps);"
-        ]
+        self.code_gen_dict["$DOCOMPUTE$"] = [func + "<DmaWord, NumBytes1>(in0_V, out0_V, numReps);"]
 
     def blackboxfunction(self):
         direction = self.get_nodeattr("direction")
