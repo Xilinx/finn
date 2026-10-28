@@ -19,6 +19,7 @@ Usage:
 """
 
 import logging
+import os
 import sys
 from typing import Any, Optional
 
@@ -99,6 +100,20 @@ def _load_modules() -> bool:
                 pass  # Path was already removed somehow
 
 
+def unavailable_message() -> str:
+    """Why finn_xsi cannot be used here, and what to do about it."""
+    if not os.environ.get("XILINX_VIVADO"):
+        return (
+            "RTL simulation needs Vivado, but XILINX_VIVADO is not set. Launch the "
+            "container with `docker/run --fpga`, or configure the Xilinx tools before "
+            "`source scripts/activate.sh`."
+        )
+    return (
+        f"finn_xsi is not built for this Vivado installation and Python environment "
+        f"(expected {build_dir() / 'xsi.so'}). Run: python -m finn.xsi.setup"
+    )
+
+
 # List of functions to wrap from finn_xsi.adapter
 _ADAPTER_FUNCTIONS = [
     "locate_glbl",
@@ -117,7 +132,7 @@ def __getattr__(name: str) -> Any:
 
         def wrapper(*args, **kwargs):
             if not _load_modules():
-                raise ImportError("finn_xsi not available. Run: python -m finn.xsi.setup")
+                raise ImportError(unavailable_message())
             return getattr(_adapter_module, name)(*args, **kwargs)
 
         wrapper.__name__ = name
@@ -132,7 +147,7 @@ class SimEngine:
 
     def __init__(self, *args, **kwargs):
         if not _load_modules():
-            raise ImportError("finn_xsi not available. Run: python -m finn.xsi.setup")
+            raise ImportError(unavailable_message())
         self._engine = _sim_engine_module.SimEngine(*args, **kwargs)
 
     def __getattr__(self, name):

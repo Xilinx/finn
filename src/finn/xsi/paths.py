@@ -59,4 +59,10 @@ def build_dir() -> Path:
         if path.is_file():
             inputs[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
     key = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()[:20]
-    return resources.home() / "xsi" / key
+    return root() / key
+
+
+def root() -> Path:
+    """Where finn_xsi builds are kept: FINN_XSI_PATH, by default ``$FINN_HOME/xsi``."""
+    value = os.environ.get("FINN_XSI_PATH")
+    return Path(value).expanduser() if value else resources.home() / "xsi"

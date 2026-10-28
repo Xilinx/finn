@@ -1,4 +1,4 @@
-# Host-specific mounts and identity are rendered by docker/config.py.
+# Host-specific mounts and identity are rendered by `docker/launcher.py compose`.
 x-common: &common
   image: ${FINN_IMAGE:-xilinx/finn:local}
   platform: linux/amd64

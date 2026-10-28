@@ -25,8 +25,6 @@ done
 cd "$root"
 export UV_PYTHON_DOWNLOADS=${UV_PYTHON_DOWNLOADS:-never}
 export UV_PROJECT_ENVIRONMENT=${FINN_VENV:-$root/.venv}
-export UV_CACHE_DIR=${UV_CACHE_DIR:-$root/.cache/uv}
-export FINN_HOME=${FINN_HOME:-${FINN_HOST_BUILD_DIR:-$root/.cache/build}/.finn}
 [ "$skip_resources" = 0 ] || export FINN_RESOURCES_OFFLINE=1
 uv sync --locked --python "${FINN_PYTHON:-python3.12}"
 if [ "$skip_resources" = 0 ]; then

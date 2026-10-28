@@ -10,10 +10,9 @@ if [ ! -f "$_finn_venv/bin/activate" ]; then
     return 1
 fi
 . "$_finn_venv/bin/activate"
-export FINN_BUILD_DIR=${FINN_HOST_BUILD_DIR:-${FINN_BUILD_DIR:-$FINN_ROOT/.cache/build}}
-export FINN_HOME=${FINN_HOME:-$FINN_BUILD_DIR/.finn}
-_finn_settings=$(python3 "$FINN_ROOT/docker/config.py" inspect --tier auto --workspace-policy mirror --format sh) || return
-# Values are shell-quoted by the stdlib resolver.
+# FINN_HOME (default ~/.finn), FINN_BUILD_DIR (default /tmp/finn_build_<uid>), the
+# selected tools and licence. Values are shell-quoted by the stdlib launcher.
+_finn_settings=$(python3 "$FINN_ROOT/docker/launcher.py" inspect --tier auto --workspace-policy mirror --format sh) || return
 eval "$(printf '%s\n' "$_finn_settings" | sed 's/^/export /')"
 unset FINN_ENV_APPLIED
 . "$FINN_ROOT/docker/finn-toolchain.sh"

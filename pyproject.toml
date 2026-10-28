@@ -95,6 +95,9 @@ docs = [
     "sphinx==5.0.2",
     "sphinx-rtd-theme==2.0.0",
 ]
+# The PyTorch build, selected by the index each group's sources name.
+cpu = ["torch==2.8.0", "torchvision==0.23.0", "torchaudio==2.8.0"]
+cuda = ["torch==2.8.0", "torchvision==0.23.0", "torchaudio==2.8.0"]
 dev = [
     {"include-group" = "docs"},
     "pre-commit==3.5.0",
@@ -108,7 +111,8 @@ dev = [
 
 [tool.uv]
 required-version = "==0.10.0"
-default-groups = ["dev"]
+default-groups = ["dev", "cpu"]
+conflicts = [[{group = "cpu"}, {group = "cuda"}]]
 environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
 build-constraint-dependencies = ["setuptools==68.2.2", "wheel==0.45.1"]
 constraint-dependencies = ["anyio<4.13", "setuptools==68.2.2", "wheel==0.45.1"]
@@ -120,9 +124,15 @@ qonnx = {git = "https://github.com/fastmachinelearning/qonnx.git", rev = "4c1f9b
 brevitas = {git = "https://github.com/Xilinx/brevitas.git", rev = "06133f4778ecedc77020b5e778022cf4e805bc86"}
 finn-experimental = {path = "packaging/finn-experimental"}
 dataset-loading = {git = "https://github.com/fbcotter/dataset_loading.git", rev = "5b9faa226e5f7c857579d31cdd9acde8cdfb816f"}
-torch = {index = "pytorch-cu126"}
-torchvision = {index = "pytorch-cu126"}
-torchaudio = {index = "pytorch-cu126"}
+# PyTorch builds: CPU by default; `uv sync --no-group cpu --group cuda` selects CUDA.
+torch = [{index = "pytorch-cpu", group = "cpu"}, {index = "pytorch-cu126", group = "cuda"}]
+torchvision = [{index = "pytorch-cpu", group = "cpu"}, {index = "pytorch-cu126", group = "cuda"}]
+torchaudio = [{index = "pytorch-cpu", group = "cpu"}, {index = "pytorch-cu126", group = "cuda"}]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [[tool.uv.index]]
 name = "pytorch-cu126"

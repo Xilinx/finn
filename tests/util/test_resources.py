@@ -1,19 +1,15 @@
 """External resources: declarations, caches, fetchers and overrides.
 
-Sources are local git repositories and archives; no network is used.
+Sources are local git repositories; no network is used.
 """
 import pytest
 
-import io
-import logging
 import multiprocessing
 import os
 import shutil
 import subprocess
 import sys
-import tarfile
 import textwrap
-import zipfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from hashlib import sha256
@@ -78,25 +74,26 @@ def digest_of(tmp_path, files):
     return resources.tree_digest(write(root, files))
 
 
-def declare(project, text):
-    (project / "pyproject.toml").write_text(textwrap.dedent(text))
-    resources._cache.clear()
-
-
 @pytest.fixture
 def project(tmp_path, monkeypatch):
-    """An empty project as the working directory, with private caches."""
+    """Private caches, and a declare(text) that replaces FINN's declarations."""
     for variable in list(os.environ):
-        if variable.startswith("FINN_RESOURCES_"):
+        if variable.startswith(("FINN_RESOURCES_", "FINN_BOARD_FILES_PATH")):
             monkeypatch.delenv(variable)
     monkeypatch.setenv("FINN_HOME", str(tmp_path / "finn-home"))
     monkeypatch.setenv("FINN_RESOURCES_SYSTEM_CACHE", str(tmp_path / "system-cache"))
     (tmp_path / "system-cache").mkdir()
-    root = tmp_path / "project"
-    root.mkdir()
-    monkeypatch.chdir(root)
+    monkeypatch.chdir(tmp_path)
+    file = tmp_path / "resources.toml"
+
+    def declare(text):
+        file.write_text(textwrap.dedent(text))
+        monkeypatch.setattr(_declare, "FINN_FILE", file)
+        resources._cache.clear()
+        return file
+
     resources._cache.clear()
-    yield root
+    yield declare
     resources._cache.clear()
 
 
@@ -113,17 +110,17 @@ def boards(tmp_path, project):
         },
     )
     digest = digest_of(tmp_path, {"kv260/board.xml": "k\n"})
-    declare(
-        project,
+    project(
         f"""
-        [tool.finn.resources.kv260-boards]
+        # Test resources.
+        [resources.kv260-boards]
         kind = ["test-boards"]
         git = "{repo.as_uri()}"
         commit = "{revision}"
         subdir = "boards/Xilinx/kv260"
         into = "kv260"
         digest = "{digest}"
-        """,
+        """
     )
     return repo
 
@@ -164,58 +161,6 @@ def test_digest_mismatch_publishes_nothing(boards):
     assert [p.name for p in root.iterdir()] == [f".{wrong.entry}.lock"]
 
 
-def test_archives_are_checked_and_extracted_safely(tmp_path, project):
-    files = {"acme-1.2/rtl/core.v": "module core;\n", "acme-1.2/doc.txt": "doc\n"}
-    content = write(tmp_path / "content", files)
-    tar_path = tmp_path / "acme.tar.gz"
-    with tarfile.open(tar_path, "w:gz") as tar:
-        tar.add(content / "acme-1.2", arcname="acme-1.2")
-    zip_path = tmp_path / "acme.zip"
-    with zipfile.ZipFile(zip_path, "w") as zip_file:
-        for name, text in files.items():
-            zip_file.writestr(name, text)
-    digest = digest_of(tmp_path, {"core.v": "module core;\n"})
-    declare(
-        project,
-        f"""
-        [tool.finn.resources.acme-tar]
-        kind = ["rtl"]
-        url = "{tar_path.as_uri()}"
-        sha256 = "{sha256(tar_path.read_bytes()).hexdigest()}"
-        subdir = "rtl"
-        digest = "{digest}"
-
-        [tool.finn.resources.acme-zip]
-        kind = ["rtl"]
-        url = "{zip_path.as_uri()}"
-        sha256 = "{sha256(zip_path.read_bytes()).hexdigest()}"
-        subdir = "rtl"
-        digest = "{digest}"
-        """,
-    )
-    rtl = resources.paths("rtl")
-    assert [(Path(p) / "core.v").read_text() for p in rtl] == ["module core;\n"] * 2
-
-    # A changed archive is refused before extraction.
-    zip_path.write_bytes(zip_path.read_bytes() + b"\0")
-    with fault("archive-sha256-mismatch", message="sha256"):
-        _store.archive(zip_path.as_uri(), "0" * 64, tmp_path / "changed")
-
-    evil_tar = tmp_path / "evil.tar"
-    with tarfile.open(evil_tar, "w") as tar:
-        info = tarfile.TarInfo("../escape")
-        info.size = 1
-        tar.addfile(info, io.BytesIO(b"x"))
-    evil_zip = tmp_path / "evil.zip"
-    with zipfile.ZipFile(evil_zip, "w") as zip_file:
-        zip_file.writestr("../escape", "x")
-    for number, evil in enumerate((evil_tar, evil_zip)):
-        with fault("archive-unsafe", message="Unsafe"):
-            checksum = sha256(evil.read_bytes()).hexdigest()
-            _store.archive(evil.as_uri(), checksum, tmp_path / f"evil{number}")
-    assert not (tmp_path / "escape").exists()
-
-
 def test_cache_order_and_read_only_system_cache(boards, tmp_path, monkeypatch):
     resource = resources.declarations()["kv260-boards"]
     system = tmp_path / "system-cache"
@@ -233,11 +178,9 @@ def test_cache_order_and_read_only_system_cache(boards, tmp_path, monkeypatch):
         _store.fetch(resource, site)
         assert Path(resources.path("kv260-boards")).parent == site
         assert _store.fetch_root() == site
-        monkeypatch.delenv("FINN_RESOURCES_DIR")
 
         # An incomplete entry (no valid marker) is not a copy.
         (site / resource.entry / ".finn-resource").write_text("sha256:bad\n")
-        monkeypatch.setenv("FINN_RESOURCES_DIR", str(site))
         assert Path(resources.path("kv260-boards")).parent == system
     finally:
         system.chmod(0o755)
@@ -268,11 +211,28 @@ def test_overrides(boards, tmp_path, monkeypatch):
     with fault("override-not-directory", message="FINN_RESOURCES_KV260_BOARDS"):
         resources.path("kv260-boards")
 
-    # The retired names select nothing: only the resource's own variable is read.
-    monkeypatch.setenv("FINN_HLSLIB_PATH", str(local))
-    monkeypatch.setenv("FINN_BOARD_FILES_PATH", str(local))
-    resources._cache.clear()
+
+def test_retired_names_select_nothing(project, tmp_path, monkeypatch):
+    monkeypatch.setenv("FINN_HLSLIB_PATH", str(tmp_path))
     assert resources.status("hlslib").state != "override"
+
+
+def test_url_override_fetches_the_same_content_elsewhere(boards, tmp_path, monkeypatch):
+    """FINN_RESOURCES_<NAME>_URL names a site mirror; the digest still decides."""
+    mirror = tmp_path / "mirror"
+    git(tmp_path, "clone", "--quiet", "--bare", str(boards), str(mirror))
+    git(mirror, "config", "uploadpack.allowReachableSHA1InWant", "true")
+    shutil.rmtree(boards)
+    with fault("fetch-failed", message="git fetch failed"):
+        resources.path("kv260-boards")
+    monkeypatch.setenv("FINN_RESOURCES_KV260_BOARDS_URL", mirror.as_uri())
+    assert (Path(resources.path("kv260-boards")) / "kv260/board.xml").read_text() == "k\n"
+
+
+def test_git_is_required_to_fetch(boards, tmp_path, monkeypatch):
+    monkeypatch.setenv("PATH", str(tmp_path / "no-tools"))
+    with fault("fetch-failed", message="git is required"):
+        resources.path("kv260-boards")
 
 
 def _fetch_in_child(queue):
@@ -301,67 +261,38 @@ def test_parallel_first_use_fetches_once(boards, tmp_path, monkeypatch):
     assert log.read_text() == "kv260-boards\n"
 
 
-def test_project_redefinition_is_logged_and_packages_cannot_redefine(
-    boards, tmp_path, caplog, monkeypatch
-):
-    local = write(tmp_path / "newer-hlslib", {"bnn-library.h": "// newer\n"})
-    extra = tmp_path / "extra.toml"
-    extra.write_text(
-        textwrap.dedent(
-            f"""
-            [resources.hlslib]
-            kind = ["hls-include"]
-            url = "{local.as_uri()}"
-            sha256 = "{"0" * 64}"
-            digest = "{resources.tree_digest(local)}"
-            """
-        )
-    )
-    monkeypatch.setenv("FINN_RESOURCES_FILES", str(extra))
-    with caplog.at_level(logging.WARNING, logger="finn.resources"):
-        declared = resources.declarations()
-    assert declared["hlslib"].origin == str(extra)
-    # A redefinition keeps FINN's position.
-    assert list(declared)[0] == "hlslib"
-    assert f"{extra} redefines resource 'hlslib'" in caplog.text
+def test_fetching_into_another_cache_copies_a_verified_copy(boards, tmp_path):
+    fetched = Path(resources.path("kv260-boards"))
 
-    finn = _declare.load(_declare.FINN_FILE, ("resources",))
-    package = _declare.parse({"hlslib": {"package": "acme", "subdir": "hls"}}, "package acme")
-    with fault(
-        "resource-redeclared", resources.DeclarationError, "already declared by .*resources.toml"
-    ):
-        _declare.merge(finn, package, [])
-    first = _declare.parse({"acme": {"package": "acme", "subdir": "a"}}, "package acme")
-    second = _declare.parse({"acme": {"package": "other", "subdir": "a"}}, "package other")
-    with fault("resource-redeclared", resources.DeclarationError, "package other.*package acme"):
-        _declare.merge([], first + second, [])
+    def no_network(*args):
+        raise AssertionError("fetched from the source")
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(_store, "assemble", no_network)
+        (carried,) = resources.fetch(["kv260-boards"], tmp_path / "carry")
+    assert Path(carried).parent == tmp_path / "carry"
+    assert resources.tree_digest(carried) == resources.tree_digest(fetched)
+
+    # A copy that no longer matches its digest is not propagated: the source is used.
+    (fetched / "kv260/board.xml").write_text("tampered\n")
+    (again,) = resources.fetch(["kv260-boards"], tmp_path / "carry-again")
+    assert (Path(again) / "kv260/board.xml").read_text() == "k\n"
+
+
+VALID = {"git": "u", "commit": "c" * 40, "digest": "sha256:" + "0" * 64}
 
 
 @pytest.mark.parametrize(
     "fields, code, message",
     [
-        ({"git": "u", "commit": "c" * 40}, "digest-invalid", "digest must be"),
-        ({"git": "u"}, "field-required", "commit is required"),
-        ({"git": "u", "url": "u"}, "source-not-one", "exactly one source"),
-        (
-            {"git": "u", "commit": "main", "digest": "sha256:" + "0" * 64},
-            "commit-invalid",
-            "full 40-character",
-        ),
-        (
-            {"url": "u", "sha256": "0" * 64, "digest": "sha256:" + "0" * 64, "subdir": "../x"},
-            "path-not-relative",
-            "relative",
-        ),
-        ({"package": "m", "into": "x"}, "package-fields-invalid", "package source"),
-        ({"package": "m", "kind": "rtl"}, "field-type-invalid", "kind must be a list"),
-        ({"package": "m", "extra": 1}, "field-unknown", "unknown field"),
-        ({"package": "m", "mirrors": ["u"]}, "package-fields-invalid", None),
-        (
-            {"url": "u", "sha256": "0" * 64, "digest": "sha256:" + "0" * 64, "mirrors": "u"},
-            "field-type-invalid",
-            "mirrors",
-        ),
+        ({"git": "u", "commit": "c" * 40}, "field-required", "digest required"),
+        ({"git": "u"}, "field-required", "commit, digest required"),
+        ({**VALID, "digest": "sha256:0"}, "digest-invalid", "digest must be"),
+        ({**VALID, "commit": "main"}, "commit-invalid", "full 40-character"),
+        ({**VALID, "subdir": "../x"}, "path-not-relative", "relative"),
+        ({**VALID, "kind": "rtl"}, "field-type-invalid", "kind must be a list"),
+        ({**VALID, "url": "u"}, "field-unknown", "unknown field"),
+        ({**VALID, "mirrors": ["u"]}, "field-unknown", "unknown field"),
     ],
 )
 def test_invalid_declarations_are_rejected(fields, code, message):
@@ -381,49 +312,7 @@ def test_invalid_declarations_are_rejected(fields, code, message):
 )
 def test_names_are_restricted(name, code):
     with fault(code, resources.DeclarationError):
-        _declare.parse({name: {"package": "m"}}, "test")
-
-
-def test_package_source_resolves_installed_data(project, tmp_path, monkeypatch):
-    write(tmp_path / "site", {"acme_data/__init__.py": "", "acme_data/rtl/core.v": "m\n"})
-    monkeypatch.syspath_prepend(str(tmp_path / "site"))
-    declare(
-        project,
-        '[tool.finn.resources.acme]\nkind = ["rtl"]\npackage = "acme_data"\nsubdir = "rtl"\n',
-    )
-    assert resources.path("acme") == str(tmp_path / "site/acme_data/rtl")
-    assert resources.status("acme").state == "package"
-
-
-def test_package_source_names_a_module_not_a_path(tmp_path):
-    with fault("package-invalid", resources.DeclarationError):
-        _declare.parse({"acme": {"package": "acme_data:rtl"}}, "test")
-    with fault("package-fields-invalid", resources.DeclarationError):
-        _declare.parse({"acme": {"package": "acme_data", "into": "x"}}, "test")
-
-
-def test_path_source_is_used_in_place(project, tmp_path):
-    write(tmp_path / "libs", {"acme-rtl/core.v": "m\n"})
-    declare(project, '[tool.finn.resources.acme]\nkind = ["rtl"]\npath = "../libs/acme-rtl"\n')
-    assert resources.path("acme") == str(tmp_path / "libs/acme-rtl")
-    assert resources.status("acme").state == "path"
-    assert resources.fetch(["acme"]) == []
-    # An override still wins, and a missing directory is an error, not a fetch.
-    declare(project, '[tool.finn.resources.acme]\npath = "/nonexistent/acme"\n')
-    resources._cache.clear()
-    with fault("path-not-directory"):
-        resources.path("acme")
-    with fault("path-fields-invalid", resources.DeclarationError, "a path source is a directory"):
-        _declare.parse({"acme": {"path": "x", "digest": "sha256:" + "0" * 64}}, "test")
-
-
-def test_project_is_the_nearest_pyproject(project, tmp_path):
-    declare(project, '[tool.finn.resources.acme]\npackage = "acme"\nsubdir = "rtl"\n')
-    nested = project / "a/b"
-    nested.mkdir(parents=True)
-    assert [f for f, _ in _declare.project_files(nested)] == [project / "pyproject.toml"]
-    (project / "a/pyproject.toml").write_text("[project]\nname = 'inner'\n")
-    assert [f for f, _ in _declare.project_files(nested)] == [project / "a/pyproject.toml"]
+        _declare.parse({name: VALID}, "test")
 
 
 def test_digest_matches_the_previous_board_file_algorithm(tmp_path):
@@ -500,35 +389,27 @@ def test_cli_list_fetch_verify_and_digest(boards, tmp_path, capsys):
     assert board.exists()
 
 
-def test_cli_update_rewrites_only_the_pin(boards, project, capsys, monkeypatch):
-    before = (project / "pyproject.toml").read_text()
-    (project / "pyproject.toml").write_text(
-        "# A project\n[project]\nname = 'acme'\n" + before + "\n[tool.other]\ncommit = 'keep'\n"
-    )
+def test_cli_update_rewrites_only_the_pin(boards, capsys, monkeypatch):
+    file = _declare.FINN_FILE
+    before = file.read_text()
+    file.write_text(before + '\n[other]\ncommit = "keep"\n')
     old = resources.declarations()["kv260-boards"]
     revision = commit(boards, {"boards/Xilinx/kv260/board.xml": "k2\n"})
     git(boards, "branch", "release")
 
     code, out, _ = cli(capsys, "update", "kv260-boards", "--ref", "release")
     assert code == 0 and revision[:12] in out
-    text = (project / "pyproject.toml").read_text()
+    text = file.read_text()
     resources._cache.clear()
     new = resources.declarations()["kv260-boards"]
     assert new.commit == revision and new.digest != old.digest
     assert text.replace(revision, old.commit).replace(new.digest, old.digest) == (
-        "# A project\n[project]\nname = 'acme'\n" + before + "\n[tool.other]\ncommit = 'keep'\n"
+        before + '\n[other]\ncommit = "keep"\n'
     )
     # update published the new tree, so no fetch is needed.
     monkeypatch.setenv("FINN_RESOURCES_OFFLINE", "1")
     assert (Path(resources.path("kv260-boards")) / "kv260/board.xml").read_text() == "k2\n"
     assert "already at" in cli(capsys, "update", "kv260-boards", "--ref", revision)[1]
-
-    # Declarations inside an installed package are printed, never edited.
-    monkeypatch.setattr("finn.resources._cli._packaged", lambda file: True)
-    commit(boards, {"boards/Xilinx/kv260/board.xml": "k3\n"})
-    code, out, _ = cli(capsys, "update", "kv260-boards")
-    assert code == 0 and "[tool.finn.resources.kv260-boards]" in out
-    assert (project / "pyproject.toml").read_text() == text
 
 
 def test_update_refuses_edits_it_cannot_confine(tmp_path):
@@ -536,37 +417,13 @@ def test_update_refuses_edits_it_cannot_confine(tmp_path):
     inline = '[resources]\nacme = { git = "u", commit = "%s", digest = "d" }\n' % ("a" * 40)
     file.write_text(inline)
     with fault("rewrite-value-missing", resources.DeclarationError, "edit it by hand"):
-        _declare.rewrite(file, ("resources",), "acme", {"commit": "b" * 40})
+        _declare.rewrite(file, "acme", {"commit": "b" * 40})
     # A multi-line string that looks like a field would change another value.
     tricky = '[resources.acme]\nnote = """\ncommit = "x"\n"""\ncommit = "%s"\n' % ("a" * 40)
     file.write_text(tricky)
     with fault("rewrite-changes-more", resources.DeclarationError, "change more than"):
-        _declare.rewrite(file, ("resources",), "acme", {"commit": "b" * 40})
+        _declare.rewrite(file, "acme", {"commit": "b" * 40})
     assert file.read_text() == tricky
-
-
-def test_cli_clean_and_check(boards, tmp_path, capsys, monkeypatch):
-    kept = Path(resources.path("kv260-boards"))
-    stale = kept.parent / "kv260-boards-0123456789abcdef"
-    stale.mkdir()
-    (kept.parent / "unrelated").mkdir()
-    code, out, _ = cli(capsys, "clean", "--unused")
-    assert code == 0 and out == f"removed {stale}\n"
-    assert kept.is_dir() and (kept.parent / "unrelated").is_dir()
-    assert cli(capsys, "clean")[1] == f"removed {kept}\n"
-
-    assert cli(capsys, "check")[0] == 0
-    monkeypatch.setenv("FINN_RESOURCES_KV260_BOARDS_URL", "https://mirror.example/kv260.git")
-    assert cli(capsys, "check")[0] == 0
-    monkeypatch.setenv("FINN_RESOURCES_KV260_BOARDS", str(tmp_path / "missing"))
-    monkeypatch.setenv("FINN_RESOURCES_KV206_BOARDS", str(tmp_path))
-    monkeypatch.setenv("FINN_RESOURCES_OFFLINE", "1")
-    resources._cache.clear()
-    code, out, _ = cli(capsys, "check")
-    assert code == 1
-    assert "FINN_RESOURCES_KV260_BOARDS=" in out and "is not a directory" in out
-    assert "FINN_RESOURCES_KV206_BOARDS matches no declared resource" in out
-    assert "offline, and not in any cache: hlslib" in out
 
 
 def test_cli_runs_as_a_module(project):
@@ -577,189 +434,6 @@ def test_cli_runs_as_a_module(project):
         check=True,
     )
     assert result.stdout.splitlines()[1].startswith("hlslib ")
-
-
-def installed(site, dist, module, declarations):
-    """An installed distribution declaring resources through the finn.resources group."""
-    info = f"{dist.replace('-', '_')}-1.0.dist-info"
-    return write(
-        site,
-        {
-            f"{module}/__init__.py": "",
-            f"{module}/resources.toml": textwrap.dedent(declarations),
-            f"{module}/rtl/core.v": "module core;\n",
-            f"{info}/METADATA": f"Metadata-Version: 2.1\nName: {dist}\nVersion: 1.0\n",
-            f"{info}/entry_points.txt": f"[finn.resources]\n{module} = {module}\n",
-        },
-    )
-
-
-def test_packages_add_resources_but_only_the_project_redefines(
-    project, tmp_path, monkeypatch, caplog
-):
-    site = installed(
-        tmp_path / "site",
-        "acme-finn",
-        "acme_finn",
-        """
-        [resources.acme-rtl]
-        kind = ["rtl"]
-        package = "acme_finn"
-        subdir = "rtl"
-        """,
-    )
-    monkeypatch.syspath_prepend(str(site))
-    declared = resources.declarations()
-    assert list(declared)[-1] == "acme-rtl"
-    assert declared["acme-rtl"].origin == str(site / "acme_finn/resources.toml")
-    assert resources.paths("rtl") == [str(site / "acme_finn/rtl")]
-
-    # The project may redefine a package's resource.
-    declare(project, '[tool.finn.resources.acme-rtl]\nkind = ["rtl"]\npackage = "acme_finn"\n')
-    with caplog.at_level(logging.WARNING, logger="finn.resources"):
-        assert resources.paths("rtl") == [str(site / "acme_finn")]
-    assert "redefines resource 'acme-rtl'" in caplog.text
-
-    # A package may not redefine FINN's resources or another package's.
-    installed(site, "zeta", "zeta_finn", '[resources.hlslib]\npackage = "zeta_finn"\n')
-    resources._cache.clear()
-    with fault("resource-redeclared", resources.DeclarationError, "zeta_finn"):
-        resources.declarations()
-    installed(site, "zeta", "zeta_finn", '[resources.acme-rtl]\npackage = "zeta_finn"\n')
-    resources._cache.clear()
-    with fault("resource-redeclared", resources.DeclarationError, "zeta_finn.*acme_finn"):
-        resources.declarations()
-
-    # A broken entry point is an error, not silently skipped.
-    (site / "zeta_finn/resources.toml").unlink()
-    resources._cache.clear()
-    with fault(
-        "entry-point-no-declarations",
-        resources.DeclarationError,
-        "zeta_finn contains no resources.toml",
-    ):
-        resources.declarations()
-
-
-def test_package_declarations_in_a_virtual_environment(tmp_path):
-    venv = tmp_path / "venv"
-    subprocess.run([sys.executable, "-m", "venv", "--without-pip", venv], check=True)
-    site = next(venv.glob("lib/python*/site-packages"))
-    # FINN's resources package only; it needs nothing else.
-    (site / "finn-src.pth").write_text(SRC + "\n")
-    installed(
-        site,
-        "acme-finn",
-        "acme_finn",
-        '[resources.acme-rtl]\nkind = ["rtl"]\npackage = "acme_finn"\nsubdir = "rtl"\n',
-    )
-
-    def run(*args):
-        return subprocess.run(
-            [venv / "bin/python", "-m", "finn.resources", *args],
-            cwd=tmp_path,
-            env={"PATH": os.defpath, "HOME": str(tmp_path)},
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-
-    assert run("list", "--kind", "rtl").splitlines()[1].split()[:3] == [
-        "acme-rtl",
-        "package",
-        "rtl",
-    ]
-    assert run("path", "acme-rtl").strip() == str(site / "acme_finn/rtl")
-
-
-def test_fetching_into_another_cache_copies_a_verified_copy(boards, tmp_path):
-    fetched = Path(resources.path("kv260-boards"))
-
-    def no_network(*args):
-        raise AssertionError("fetched from the source")
-
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(_store, "assemble", no_network)
-        (carried,) = resources.fetch(["kv260-boards"], tmp_path / "carry")
-    assert Path(carried).parent == tmp_path / "carry"
-    assert resources.tree_digest(carried) == resources.tree_digest(fetched)
-
-    # A copy that no longer matches its digest is not propagated: the source is used.
-    (fetched / "kv260/board.xml").write_text("tampered\n")
-    (again,) = resources.fetch(["kv260-boards"], tmp_path / "carry-again")
-    assert (Path(again) / "kv260/board.xml").read_text() == "k\n"
-
-
-def test_mirrors_and_url_override(boards, project, tmp_path, monkeypatch):
-    text = (project / "pyproject.toml").read_text()
-    mirror = tmp_path / "mirror"
-    git(tmp_path, "clone", "--quiet", "--bare", str(boards), str(mirror))
-    git(mirror, "config", "uploadpack.allowReachableSHA1InWant", "true")
-    missing = (tmp_path / "gone").as_uri()
-    declare(
-        project,
-        text.replace(boards.as_uri(), missing)
-        + f'mirrors = ["{(tmp_path / "gone-too").as_uri()}", "{mirror.as_uri()}"]\n',
-    )
-    path = Path(resources.path("kv260-boards"))
-    assert (path / "kv260/board.xml").read_text() == "k\n"
-
-    # Every source failing names each failure.
-    for directory in _store.roots():
-        shutil.rmtree(directory[0], ignore_errors=True)
-    shutil.rmtree(mirror)
-    with pytest.raises(resources.ResourceError) as error:
-        resources.path("kv260-boards")
-    assert str(error.value).count("git fetch failed") == 3
-
-    # FINN_RESOURCES_<NAME>_URL replaces the declared URL, e.g. with a site mirror.
-    monkeypatch.setenv("FINN_RESOURCES_KV260_BOARDS_URL", boards.as_uri())
-    assert Path(resources.path("kv260-boards")) == path
-
-
-def test_without_git_github_sources_use_the_commit_archive(boards, project, tmp_path, monkeypatch):
-    resource = resources.declarations()["kv260-boards"]
-    tarball = tmp_path / "commit.tar.gz"
-    git(boards, "archive", f"--prefix=store-{resource.commit}/", "-o", str(tarball), "HEAD")
-    requested = []
-
-    def github_archive(url, commit):
-        requested.append((url, commit))
-        return tarball.as_uri()
-
-    monkeypatch.setattr(_store, "github_archive", github_archive)
-    monkeypatch.setenv("PATH", str(tmp_path / "no-tools"))
-    path = Path(resources.path("kv260-boards"))
-    assert (path / "kv260/board.xml").read_text() == "k\n"
-    assert requested == [(boards.as_uri(), resource.commit)]
-
-
-def test_github_archive_urls():
-    commit = "8d979e2bdced486dd25d26607d1ff5ae327ed6a8"
-    for url in (
-        "https://github.com/Xilinx/finn-hlslib.git",
-        "https://github.com/Xilinx/finn-hlslib",
-        "https://github.com/Xilinx/finn-hlslib/",
-    ):
-        assert _store.github_archive(url, commit) == (
-            f"https://github.com/Xilinx/finn-hlslib/archive/{commit}.tar.gz"
-        )
-    assert _store.github_archive("https://gitlab.com/a/b.git", commit) is None
-    assert _store.github_archive("git@github.com:a/b.git", commit) is None
-
-
-def test_the_build_directory_is_a_machine_setting_beside_home(tmp_path, monkeypatch):
-    """FINN_BUILD_DIR, absolute, else $FINN_HOME/build; named, never created."""
-    environ = {"FINN_HOME": str(tmp_path / "home")}
-    assert resources.scratch(environ) == tmp_path / "home" / "build"
-    environ["FINN_BUILD_DIR"] = str(tmp_path / "scratch")
-    assert resources.scratch(environ) == tmp_path / "scratch"
-    monkeypatch.chdir(tmp_path)
-    assert resources.scratch({"FINN_BUILD_DIR": "relative"}) == tmp_path / "relative"
-    monkeypatch.setenv("FINN_BUILD_DIR", str(tmp_path / "from-environment"))
-    assert resources.scratch() == tmp_path / "from-environment"
-    names = {"build", "scratch", "relative", "from-environment"}
-    assert not any(path.name in names for path in tmp_path.rglob("*"))
 
 
 def test_a_resource_fault_names_its_reason_by_a_code_and_keeps_its_message():

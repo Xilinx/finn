@@ -63,5 +63,5 @@ already built and installed SLASH on the host, because the kernel module has to
 be there, so the SLASH and slashkit `.deb` files are by-products they already
 hold. FINN has no V80 to test a build against.
 
-**The Xilinx toolchain.** Vivado and Vitis are host facts. `docker/config.py`
+**The Xilinx toolchain.** Vivado and Vitis are host facts. `docker/launcher.py`
 resolves them at launch and the lane mounts them read-only.

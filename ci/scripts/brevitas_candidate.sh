@@ -19,7 +19,7 @@ uv export --locked --no-emit-project --no-emit-local --no-emit-package brevitas 
 printf '%s\n' '-c base-requirements.txt' > "$FINN_BREVITAS_PROVENANCE/overlay-constraints.txt"
 sha256sum uv.lock > "$FINN_BREVITAS_PROVENANCE/base-lock.sha256"
 status=0
-uv run --locked --index https://download.pytorch.org/whl/cu126 --index-strategy unsafe-best-match \
+uv run --locked --index https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match \
     --with-requirements "$FINN_BREVITAS_PROVENANCE/overlay-constraints.txt" \
     --with "brevitas @ git+https://github.com/Xilinx/brevitas.git@${FINN_BREVITAS_EXPECTED_COMMIT}" \
     python -m pytest -p finn_ci.brevitas_candidate -m brevitas_export "$@" || status=$?

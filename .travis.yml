@@ -38,5 +38,5 @@ script:
   - bash -c 'source scripts/activate.sh && ./scripts/quicktest-local.sh'
 cache:
   directories:
-    - .cache/uv
-    - .cache/build/.finn/resources
+    - $HOME/.cache/uv
+    - $HOME/.finn/resources

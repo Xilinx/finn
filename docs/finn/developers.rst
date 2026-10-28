@@ -69,18 +69,20 @@ ordinary FINN source files. Ubuntu 24.04 and Python 3.12 remain the tested base.
 ``docker/run`` mounts the checkout, installs FINN editable without dependencies,
 and runs the requested argument vector. Failed preparation stops the command.
 
-``--fpga`` requests host tool/licence mounts. Host discovery is standard-library
-Python in ``docker/config.py``; native activation and containers share
-``docker/finn-toolchain.sh``. ``--runtime xrt`` selects accelerator userspace
-independently of host tools. Runtime manifests also support supplied SLASH
-packages. Board kernel drivers remain host responsibilities.
+Configured host tools and licences are mounted automatically; ``--fpga`` makes
+them a requirement and ``--no-tools`` leaves them out. Host discovery is the
+standard-library ``docker/launcher.py`` (Python 3.10 or later); native activation
+and containers share ``docker/finn-toolchain.sh``. ``--runtime xrt`` selects
+accelerator userspace independently of host tools. Runtime manifests also
+support supplied SLASH packages. Board kernel drivers remain host responsibilities.
 
 External source trees live in verified resource caches, declared in
 ``src/finn/resources.toml``. Use ``finn-resources update NAME --ref REF`` to
 change a pin and its digest; use ``FINN_RESOURCES_<NAME>`` for local development.
-The assembled board layout and generated XSI/golden outputs live in writable
-cache/build storage. See ``docker/README.md`` and ``ci/README.md`` for migration
-and validation contracts.
+Persistent, content-keyed state (resources, XSI builds, golden references) lives
+in ``FINN_HOME`` (default ``~/.finn``); build output lives in the disposable
+``FINN_BUILD_DIR`` (default ``/tmp/finn_build_<uid>``). See ``docker/README.md``
+and ``ci/README.md`` for the full variable list, migration and validation contracts.
 
 (Re-)launching builds outside of Docker
 ========================================

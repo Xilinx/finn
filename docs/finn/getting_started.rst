@@ -54,13 +54,15 @@ the mounted FINN checkout editable without resolving dependencies.
 
 Launch interactive shell
 ************************
-For software development::
+Start a shell; configured Vivado/Vitis installations and licences are mounted
+automatically::
 
   ./docker/run
 
-To mount the selected Vivado/Vitis installation and licence inputs::
+To require the tools (failing early if none are configured), or to leave them out::
 
   ./docker/run --fpga
+  ./docker/run --no-tools
 
 Launch a Build with ``build_dataflow``
 **************************************
@@ -95,17 +97,17 @@ Write plain ``NAME=value`` lines, without quotes or expansion::
   FINN_XILINX_VERSION=2024.2
   XILINXD_LICENSE_FILE=2100@licence-server
 
-Both AMD installation layouts are detected. ``--fpga`` explicitly requests the
-tool and licence mounts; software runs work without them.
+Both AMD installation layouts are detected. Software runs work without tools.
 
-* ``PLATFORM_REPO_PATHS`` names colon-separated platform directories.
+* ``PLATFORM_REPO_PATHS`` names colon-separated platform directories (default ``/opt/xilinx/platforms`` where it exists).
 * ``FINN_TOOL_DIR_OVERRIDE`` retains site tool interception, including LSF wrappers.
-* ``FINN_HOST_BUILD_DIR`` selects writable build and cache storage (default ``/tmp/finn_build_<uid>``).
+* ``FINN_HOST_BUILD_DIR`` selects the disposable build directory (default ``/tmp/finn_build_<uid>``).
+* ``FINN_HOME`` selects persistent state such as resources and XSI builds (default ``~/.finn``); ``FINN_RESOURCES_DIR``, ``FINN_XSI_PATH`` and ``FINN_GOLDEN_DIR`` move parts of it elsewhere.
 * ``NUM_DEFAULT_WORKERS`` and ``FINN_XELAB_MT`` retain their existing meanings.
 * ``FINN_DOCKER_EXTRA`` passes shell-quoted Docker flags; they are tokenized without shell evaluation.
 * ``FINN_DOCKER_CACHE_DIR`` retains Torch and Hugging Face download caches.
 * ``FINN_SSH_KEY_DIR`` explicitly mounts deployment keys read-only.
-* ``FINN_VCK190_GOLDEN=1`` prepares the optional golden reference in writable build storage.
+* ``FINN_VCK190_GOLDEN=1`` builds the optional VCK190 golden reference into ``FINN_HOME``.
 
 See ``docker/README.md`` for the full interface migration, resource overrides,
 runtime packages, shared images, and Apptainer/Singularity exports.
@@ -243,7 +245,7 @@ On the target side:
 On the host side:
 
 1. Install Vitis 2024.2 and set up the ``VITIS_PATH`` environment variable to point to your installation.
-2. Install Xilinx XRT. Ensure that the ``XRT_DEB_VERSION`` environment variable reflects which version of XRT you have installed.
+2. Install Xilinx XRT on the host if you want to run accelerators there; the FINN image gets its pinned XRT userspace with ``./docker/build --runtime xrt``.
 3. Install the Vitis platform files for Alveo and set up the ``PLATFORM_REPO_PATHS`` environment variable to point to your installation. *This must be the same path as the target's platform files (target step 2)*
 4. `Set up public key authentication <https://www.digitalocean.com/community/tutorials/how-to-configure-ssh-key-based-authentication-on-a-linux-server>`_. Copy your private key to the ``finn/ssh_keys`` folder on the host to get password-less deployment and remote execution.
 5. Done!
@@ -318,7 +320,7 @@ strong hardware:
 * **Storage.** While going through the build steps, FINN will generate many files as part of
   the process. For larger networks, you may need 10s of GB of space for the temporary
   files generated during the build.
-  By default, these generated files will be placed under ``/tmp/finn_dev_<username>``.
+  By default, these generated files will be placed under ``/tmp/finn_build_<uid>``.
   You can override this location by using the ``FINN_HOST_BUILD_DIR`` environment
   variable.
   Mapping the generated file dir to a fast SSD will result in quicker builds.

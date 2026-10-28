@@ -229,11 +229,13 @@ A `STAGES` row that produces these zips declares a `zipArtifacts` nested key:
 Set `FINN_CI_NFS_ROOT` once on the Jenkins controller (in the job DSL) and the build pipeline derives every shared subtree from it. There are no other CI storage env vars to set. Layout under `FINN_CI_NFS_ROOT`:
 
 ```
-agent_caches/<NODE>/{xrt,finn_cache,vivado_ip_cache}   per-agent caches
+agent_caches/<NODE>/{xrt,finn_cache,finn_home,vivado_ip_cache}   per-agent caches
 docker_images/<jobKey>/<BUILD>/                        shared docker image
 artifacts/ci_runs/<jobKey>/<BUILD>/                    build-to-HW handoff + BUILD_INFO
 _ci_state/<jobKey>/                                    timing master + snapshots
 ```
+
+`finn_home` is the agents' `FINN_HOME`: content-keyed XSI builds, assembled board files and golden references, shared by every shard and build on the agent. Its size is logged whenever the caches are prepared; `finn-resources clean --unused` in the container removes entries the current pins and tools do not use.
 
 Per-shard scratch lives at `${WORKSPACE_TMP}/finn_ci_runs/<BUILD>/<stash>` (falling back to `${WORKSPACE}/tmp/finn_ci_runs/...` only when `WORKSPACE_TMP` is unset). The workspace itself is per-agent and configured on the DSL side: NFS-mounted via `remote_fs` on the lab build hosts, local SSD elsewhere.
 
@@ -276,7 +278,7 @@ These are the other env vars a job DSL typically sets for a build-pipeline job, 
 
 | Env var               | What it sets                                                                                                                                                  |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FINN_XILINX_PATH`    | Path to the Xilinx tools install. `docker/run --fpga` requires this directory; software-only runs do not.                                                       |
+| `FINN_XILINX_PATH`    | Path to the Xilinx tools install. `docker/run` mounts it when set and `--fpga` (as in `ci/scripts/run.sh`) requires it.                                        |
 | `FINN_XILINX_VERSION` | Xilinx tool version (for example `2022.2`).                                                                                                                   |
 | `PLATFORM_REPO_PATHS` | Vitis platform (DSA) files, required for Vitis-based Alveo cards.                                                                                             |
 | `FINN_DOCKER_EXTRA`   | Extra `docker run` arguments (bind mounts, licence, network, and any `-e` vars the tool-dispatch layer needs). The pipeline appends a per-agent `--hostname` and the NFS cache mounts to whatever the DSL sets. |
@@ -305,14 +307,16 @@ local fallback mode. Shared publication retains
 
 - `finn-docker-image.tar.gz` and `finn-docker-tag.txt` retain the existing transport.
 - `finn-image-digest.txt` records the actual Docker image ID.
-- `finn-image-provenance.json` records source/dirty state, lock SHA256, environment
-  input hash, resource pins/digests, runtimes and archive SHA256.
+- `finn-image-provenance.json` records source/dirty state, lock and resource
+  declaration SHA256s, environment input hash, runtimes and archive SHA256.
 
 Publication renames a complete directory into place. Retries verify an existing
 publication; they cannot replace another image or source. Consumers verify metadata
 and actual image identity/labels. A loaded matching image ID is reused without
 reading the archive; a matching tag alone is insufficient. Cache misses take a
-host-local lock, recheck identity, verify the archive checksum and load once.
+host-local lock, recheck identity, and stream the archive into `docker load` once,
+verifying its checksum on the way (one read of the archive). Publication gzips
+with `pigz` on all cores where it is installed, else with Python's gzip.
 Thus corrupt archive bytes fail when loading is necessary, while existing verified
 image bytes remain usable. Missing archives or invalid metadata always fail.
 Authoritative `FINN_DOCKER_PREBUILT=1` fails closed on incomplete or mismatched
@@ -350,7 +354,7 @@ another `uv run` inside that test command: it may restore the default environmen
 
 Before site cutover, validate the deployed Job DSL/required status checks, node
 labels, credentials, LSF wrappers, available tool versions and provisioned boards.
-Native setup bootstraps the pinned uv binary into the workspace cache when needed; GitHub provisions it explicitly. The
+Native setup bootstraps the pinned uv binary into `~/.cache/finn/` when needed; GitHub provisions it explicitly. The
 tracked Travis definition is retained and migrated as a standalone software job;
 its actual deployed status must be confirmed by the CI owner. Licensed tools,
 LSF cancellation and physical-board acceptance require the actual site; local

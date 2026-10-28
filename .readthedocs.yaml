@@ -44,7 +44,7 @@ build:
   jobs:
     install:
       - python -m pip install uv==0.10.0
-      - UV_PROJECT_ENVIRONMENT=$READTHEDOCS_VIRTUALENV_PATH uv sync --locked --inexact --no-default-groups --group docs
+      - UV_PROJECT_ENVIRONMENT=$READTHEDOCS_VIRTUALENV_PATH uv sync --locked --inexact --no-default-groups --group docs --group cpu
 
 formats:
   - pdf

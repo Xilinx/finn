@@ -1015,7 +1015,12 @@ void prepareAgentCaches(String node) {
   if (!cachesDir) { return }
   sh "mkdir -p ${shellQuote(cachesDir + '/xrt')} " +
      "${shellQuote(cachesDir + '/finn_cache')} " +
+     "${shellQuote(cachesDir + '/finn_home')} " +
      "${shellQuote(cachesDir + '/vivado_ip_cache')}"
+  // finn_home keeps content-keyed XSI builds, assembled board files and golden
+  // references across builds; report its size so growth is visible in the log.
+  // `finn-resources clean --unused` inside the container prunes stale entries.
+  sh "du -sh ${shellQuote(cachesDir)}/* 2>/dev/null || true"
 }
 
 // Pure compute: returns the env-var list and FINN_DOCKER_EXTRA addition
@@ -1031,6 +1036,7 @@ Map agentCachesDockerExtra() {
     dockerExtra += " -v ${cachesDir}/vivado_ip_cache:/tmp/vivado_ip_cache"
     envList << "FINN_XRT_PATH=${cachesDir}/xrt"
     envList << "FINN_DOCKER_CACHE_DIR=${cachesDir}/finn_cache"
+    envList << "FINN_HOME=${cachesDir}/finn_home"
   }
   return [envList: envList, dockerExtra: dockerExtra]
 }

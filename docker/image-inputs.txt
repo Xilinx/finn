@@ -18,5 +18,4 @@ docker/finn-bashenv.sh
 docker/finn-toolchain.sh
 docker/install-runtimes.sh
 docker/runtimes/*.env
-docker/runtime_inputs.py
-# Selected supply manifests contribute their FILES through runtime_inputs.py.
+# Selected supply manifests contribute their FILES (docker/launcher.py).

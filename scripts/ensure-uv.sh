@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Copyright (C) 2026, Advanced Micro Devices, Inc.
 # SPDX-License-Identifier: BSD-3-Clause
-# Source this helper. Bootstrap only the pinned tool into the checkout's cache;
+# Source this helper. Bootstrap only the pinned tool into the user's cache;
 # compiler dependencies are installed separately and exclusively from uv.lock.
 _finn_ensure_uv() {
     local root version current tool_dir binary
@@ -9,7 +9,7 @@ _finn_ensure_uv() {
     version=$(cat "$root/.uv-version") || return 1
     current=$(uv --version 2>/dev/null | cut -d' ' -f2) || current=""
     [ "$current" != "$version" ] || return 0
-    tool_dir="$root/.cache/uv-tool/$version"
+    tool_dir="${XDG_CACHE_HOME:-$HOME/.cache}/finn/uv-tool/$version"
     binary="$tool_dir/bin/uv"
     if [ ! -x "$binary" ]; then
         "${FINN_PYTHON:-python3.12}" -m pip install --disable-pip-version-check \

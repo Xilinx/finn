@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # Shared vendor settings for native activation, entrypoint and direct-exec shims.
-# Resolve paths on the host with config.py; source settings only with Bash.
+# Resolve paths on the host with launcher.py; source settings only with Bash.
 
 # Fail LOUDLY rather than silently doing nothing. Sourcing this from dash used
 # to leave PATH untouched and produce a 127 several steps later, which points

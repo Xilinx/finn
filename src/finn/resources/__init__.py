@@ -3,28 +3,23 @@
 
 """External resources: directory trees FINN uses but does not contain.
 
-Each resource (finn-hlslib, Vivado board files, a user's RTL library...) is
-declared with a pinned source and a content digest, fetched on first use, and
-cached by digest; or it is used in place, from an installed package (``package``,
-as FINN's own RTL and HLS sources are) or a local directory (``path``). Consumers ask for
-resources by kind, so they never need to know names::
+Each resource (finn-hlslib, Vivado board files...) is declared in
+``finn/resources.toml`` with a pinned git commit and a content digest, fetched
+on first use, and cached by digest. Consumers ask for resources by name or
+kind::
 
     from finn import resources
 
     resources.path("hlslib")               # one resource, fetched if needed
     resources.paths("vivado-boards")       # every resource of a kind
 
-Declarations come from FINN (``finn/resources.toml``), then installed
-packages (the ``finn.resources`` entry-point group, naming a module that
-contains a ``resources.toml``), then the nearest ``pyproject.toml``
-(``[tool.finn.resources]``) and files listed in FINN_RESOURCES_FILES. Packages
-may only add resources; the project may also redefine them.
-
 ``FINN_RESOURCES_<NAME>=/dir`` replaces a resource with a local directory,
-unverified.
+unverified; ``FINN_RESOURCES_<NAME>_URL`` fetches it from another repository
+(a site mirror), verified against the same digest.
 
-FINN's per-user directory is ``home()`` (FINN_HOME, default ``~/.finn``), its
-build directory ``scratch()`` (FINN_BUILD_DIR, default ``$FINN_HOME/build``).
+FINN's persistent per-user directory is ``home()`` (FINN_HOME, default
+``~/.finn``), its disposable build directory ``scratch()`` (FINN_BUILD_DIR,
+default ``/tmp/finn_build_<uid>``).
 Fetched resources live in FINN_RESOURCES_DIR (default ``$FINN_HOME/resources``);
 the read-only system cache FINN_RESOURCES_SYSTEM_CACHE (default
 /opt/finn/resources, if it exists) is searched too. FINN_RESOURCES_OFFLINE=1
@@ -61,7 +56,7 @@ _cache = {}
 
 @dataclass(frozen=True)
 class Status:
-    """Where a resource comes from: 'override', 'package', 'path', 'cached' or 'missing'."""
+    """Where a resource comes from: 'override', 'cached' or 'missing'."""
 
     name: str
     state: str
@@ -70,17 +65,10 @@ class Status:
 
 
 def declarations():
-    """The merged declarations, by name, in declaration order.
-
-    The project is found from the working directory on first use and kept for
-    the rest of the process, so a later change of directory changes nothing.
-    """
-    key = os.environ.get(PREFIX + "FILES", "")
+    """FINN's declarations, by name, in declaration order."""
+    key = str(_declare.FINN_FILE)
     if key not in _cache:
-        finn = _declare.load(_declare.FINN_FILE, ("resources",))
-        packages = [r for f in _declare.package_files() for r in _declare.load(f, ("resources",))]
-        project = [r for f, keys in _declare.project_files() for r in _declare.load(f, keys)]
-        _cache[key] = _declare.merge(finn, packages, project)
+        _cache[key] = {r.name: r for r in _declare.load(_declare.FINN_FILE)}
     return dict(_cache[key])
 
 
@@ -105,45 +93,12 @@ def _override(resource):
     return resource.env, os.path.realpath(value)
 
 
-def _package_path(resource):
-    from importlib.resources import files  # noqa: PLC0415
-
-    module, subdir = resource.package, resource.subdir
-    try:
-        location = files(module).joinpath(subdir) if subdir else files(module)
-    except ModuleNotFoundError:
-        raise ResourceError(
-            "package-not-installed",
-            f"Resource {resource.name}: module {module} is not installed",
-        ) from None
-    if not os.path.isdir(str(location)):
-        raise ResourceError(
-            "package-not-directory",
-            f"Resource {resource.name}: {resource.source} is not a directory in an "
-            "unpacked installation",
-        )
-    return os.path.realpath(str(location))
-
-
-def _local_path(resource):
-    if not os.path.isdir(resource.location):
-        raise ResourceError(
-            "path-not-directory",
-            f"Resource {resource.name}: {resource.location} is not a directory",
-        )
-    return os.path.realpath(resource.location)
-
-
 def status(name):
     """Report whether a resource is overridden, cached or missing, and where."""
     resource = _get(name)
     override = _override(resource)
     if override:
         return Status(name, "override", override[1], override[0])
-    if resource.package:
-        return Status(name, "package", _package_path(resource), resource.package)
-    if resource.path:
-        return Status(name, "path", _local_path(resource), resource.origin)
     entry = _store.lookup(resource)
     if entry:
         return Status(name, "cached", str(entry), str(entry.parent))
@@ -155,7 +110,6 @@ def path(name: str, fetch: bool = True) -> str:
     current = status(name)
     if current.path:
         return current.path
-    resource = _get(name)
     if not fetch or os.environ.get(PREFIX + "OFFLINE", "") not in ("", "0"):
         searched = ", ".join(str(root) for root, _ in _store.roots())
         raise ResourceError(
@@ -164,7 +118,7 @@ def path(name: str, fetch: bool = True) -> str:
             f"Where the network is available, run `finn-resources fetch {name} --dest DIR`, "
             f"then set {PREFIX}DIR=DIR (or {PREFIX}SYSTEM_CACHE=DIR to use it read-only).",
         )
-    return str(_store.fetch(resource, _store.fetch_root()))
+    return str(_store.fetch(_get(name), _store.fetch_root()))
 
 
 def paths(kind: str, fetch: bool = True) -> list[str]:
@@ -177,8 +131,7 @@ def fetch(names, dest=None):
 
     Unlike path(), this ignores overrides and existing copies elsewhere: it fills
     one cache, e.g. an image's system cache or a directory to carry offline.
-    Package and path resources need no fetching and are skipped. Returns the entries.
+    Returns the entries.
     """
     root = Path(dest) if dest else _store.fetch_root()
-    declared = [_get(name) for name in names]
-    return [str(_store.fetch(r, root)) for r in declared if not r.local]
+    return [str(_store.fetch(_get(name), root)) for name in names]

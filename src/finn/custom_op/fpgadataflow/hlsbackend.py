@@ -41,7 +41,7 @@ from finn.util.basic import CppBuilder, make_build_dir
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 from finn.util.hls import CallHLS
 
-finnxsi = xsi if xsi.is_available() else None
+finnxsi = xsi
 
 
 class HLSBackend(ABC):

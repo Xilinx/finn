@@ -12,8 +12,9 @@ if [ -n "${FINN_CONTAINER_SSH_DIR:-}" ] && [ ! -e "$HOME/.ssh" ]; then
 fi
 export USER=${USER:-finn}
 export LOGNAME=${LOGNAME:-$USER}
-export FINN_BUILD_DIR=${FINN_BUILD_DIR:-/tmp/finn-build-$(id -u)}
-export FINN_HOME=${FINN_HOME:-$FINN_BUILD_DIR/.finn}
+# docker/run mounts the host's FINN_HOME; elsewhere (e.g. Apptainer) it is ~/.finn.
+export FINN_BUILD_DIR=${FINN_BUILD_DIR:-/tmp/finn_build_$(id -u)}
+export FINN_HOME=${FINN_HOME:-$HOME/.finn}
 export UV_CACHE_DIR=${UV_CACHE_DIR:-$FINN_BUILD_DIR/.uv-cache}
 mkdir -p "$FINN_HOME" "$UV_CACHE_DIR"
 # libnss_wrapper is disabled until these variables name real files. Preserve
