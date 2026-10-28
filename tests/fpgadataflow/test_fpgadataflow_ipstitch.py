@@ -310,9 +310,9 @@ def test_fpgadataflow_ipstitch_iodma_floorplan():
     assert len(iodma_partitions) == 2, f"Expected 2 IODMA partitions, got {iodma_partitions}"
     # Compute node(s) get a separate partition from the IODMAs
     assert len(compute_partitions) >= 1, f"Expected compute partition, got {compute_partitions}"
-    assert iodma_partitions.isdisjoint(compute_partitions), (
-        f"IODMA partitions {iodma_partitions} overlap with compute partitions {compute_partitions}"
-    )
+    assert iodma_partitions.isdisjoint(
+        compute_partitions
+    ), f"IODMA partitions {iodma_partitions} overlap with compute partitions {compute_partitions}"
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_iodma_floorplan.onnx")
 
 
