@@ -34,7 +34,7 @@ from finn.util.data_packing import hls_datatype_str
 
 
 class Pool_hls(Pool, HLSBackend):
-    """Consolidated HLS pooling: fuses pad<> + input_gen<> + Pool_batch<K>()
+    """Consolidated HLS pooling: fuses pad<> + input_gen<> + Pool_batch()
     into a single HLS dataflow kernel.
 
     Input shape (BatchSize, IFMDim_H, IFMDim_W, Channels)  — raw feature map
@@ -61,7 +61,6 @@ class Pool_hls(Pool, HLSBackend):
         ch = self.get_nodeattr("Channels")
         cf = ch // pe
         kh, kw = self.get_nodeattr("KernelSize")
-        k = kh * kw
         sh, sw = self.get_nodeattr("Stride")
         ifm_h, ifm_w = self.get_nodeattr("IFMDim")
         ofm_h, ofm_w = self.get_nodeattr("OutImgDims")
@@ -73,7 +72,6 @@ class Pool_hls(Pool, HLSBackend):
         pw = ifm_w + pad[1] + pad[3]
 
         defines = [
-            "static constexpr unsigned K = {};".format(k),
             "static constexpr unsigned PE = {};".format(pe),
             "static constexpr unsigned CF = {};".format(cf),
             "static constexpr unsigned H = {};".format(ph),
@@ -109,9 +107,9 @@ class Pool_hls(Pool, HLSBackend):
 
         lines = []
 
-        # Pool functor instantiation
+        # Pool functor type (used as template parameter to Pool_batch)
         if fxn == "MaxPool":
-            lines.append("MaxPoolFunction<%s> pool_fxn;" % o_tensor_dt)
+            pool_type = "MaxPool<%s>" % o_tensor_dt
         elif fxn == "QuantAvgPool":
             shift = self.get_nodeattr("Size")
             accum_bits = self.get_nodeattr("AccumBits")
@@ -120,25 +118,27 @@ class Pool_hls(Pool, HLSBackend):
                 accum_bits,
                 pe,
             )
-            lines.append(
-                "QuantAvgPoolFunction<%s,%s,%d> pool_fxn;" % (o_tensor_dt, act_tensor_dt, shift)
-            )
+            pool_type = "QuantAvgPool<%s,%s,%d>" % (o_tensor_dt, act_tensor_dt, shift)
         else:
             raise Exception("Pool doesn't currently support " + fxn)
 
         # input_gen loop nest for depthwise 2D pooling with stride:
-        #   for oh in OH: for ow in OW: for kh in KH: for kw in KW: for cf in CF:
+        #   for oh in OH: for ow in OW: for cf in CF: for kh in KH: for kw in KW:
         #     addr = (oh*SH+kh)*W*CF + (ow*SW+kw)*CF + cf
+        # M=2: flit_t last marker fires upon completion of 2 innermost loops
+        #       (KW and KH), i.e. every KH*KW = K elements — one kernel window.
         ig_call = (
-            "input_gen<-1, H*W*CF, OH, SH*W*CF, OW, SW*CF, CF, 1, KH, W*CF, KW, CF>"
+            "input_gen<2, H*W*CF, OH, SH*W*CF, OW, SW*CF, CF, 1, KH, W*CF, KW, CF>"
         )
+        flit_dt = "flit_t<%s>" % i_tensor_dt
+        pool_call = "pool<%s>" % pool_type
 
         if has_padding:
             # Pad value expression
             pad_val = self.get_nodeattr("PadValue")
             lines.append("static hls::stream<%s>  padded(\"padded\");" % i_tensor_dt)
             lines.append("#pragma HLS stream depth=2 variable=padded")
-            lines.append("static hls::stream<%s>  feed(\"feed\");" % i_tensor_dt)
+            lines.append("static hls::stream<%s>  feed(\"feed\");" % flit_dt)
             lines.append("#pragma HLS stream depth=2 variable=feed")
             # Build pad value initializer
             lines.append("{")
@@ -152,12 +152,12 @@ class Pool_hls(Pool, HLSBackend):
             )
             lines.append("}")
             lines.append("%s(padded, feed);" % ig_call)
-            lines.append("Pool_batch<K>(feed, out0_V, pool_fxn);")
+            lines.append("%s(feed, out0_V);" % pool_call)
         else:
-            lines.append("static hls::stream<%s>  feed(\"feed\");" % i_tensor_dt)
+            lines.append("static hls::stream<%s>  feed(\"feed\");" % flit_dt)
             lines.append("#pragma HLS stream depth=2 variable=feed")
             lines.append("%s(in0_V, feed);" % ig_call)
-            lines.append("Pool_batch<K>(feed, out0_V, pool_fxn);")
+            lines.append("%s(feed, out0_V);" % pool_call)
 
         self.code_gen_dict["$DOCOMPUTE$"] = lines
 
