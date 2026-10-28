@@ -578,6 +578,11 @@ class TestEnd2End:
         build_data = get_build_env(board, target_clk_ns)
         prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "convert_to_hw_layers")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
+        # First pass: datatype-only bit width minimization before specialization
+        # Gives specialization realistic bit widths for RTL/HLS decisions
+        model = model.transform(MinimizeWeightBitWidth(datatype_only=True))
+        model = model.transform(MinimizeAccumulatorWidth(datatype_only=True))
+        model = model.transform(InferDataTypes())
         model = model.transform(SpecializeLayers(build_data["part"]))
         model = model.transform(GiveUniqueNodeNames())
         model.save(get_checkpoint_name(board, topology, wbits, abits, "specialize_layers"))
@@ -801,7 +806,7 @@ class TestEnd2End:
             else:
                 model = model.transform(MakePYNQDriver("vitis-xrt"))
         elif build_data["toolchain"] == "pynq":
-            model = model.transform(MakePYNQDriver("zynq-iodma"))
+            model = model.transform(MakePYNQDriver("pynq-iodma"))
         else:
             raise Exception("Unsupported toolchain/topology combination for driver generation")
         model.save(get_checkpoint_name(board, topology, wbits, abits, "driver"))

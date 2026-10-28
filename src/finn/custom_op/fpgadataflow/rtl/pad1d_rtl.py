@@ -144,15 +144,13 @@ class Pad1D_rtl(Pad1D, RTLBackend):
         return ["pad1d.sv", self.get_nodeattr("gen_top_module") + ".v"]
 
     def code_generation_ipi(self):
-        sourcefiles = self.get_rtl_file_list(abspath=True)
-        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
-        cmd = ["file mkdir %s" % source_target]
-        for f in sourcefiles:
-            cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
-        cmd += [
+        cmd = []
+        for f in self.get_rtl_file_list(abspath=True):
+            cmd.append("add_files -norecurse %s" % f)
+        cmd.append(
             "create_bd_cell -type module -reference %s %s"
             % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)
-        ]
+        )
         return cmd
 
     def execute_node(self, context, graph):

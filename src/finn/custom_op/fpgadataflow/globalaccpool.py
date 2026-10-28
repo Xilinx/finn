@@ -138,6 +138,20 @@ class GlobalAccPool(HWCustomOp):
         folds = int(ch / pe)
         return int(np.prod(self.get_folded_input_shape()[:-1]) + folds)
 
+    def minimize_accumulator_width(self, model, datatype_only=False):
+        """Minimize output datatype based on accumulation range.
+
+        Parameters
+        ----------
+        datatype_only : bool
+            Not used - GlobalAccPool has no weights, always uses datatype bounds.
+        """
+        # get_output_datatype() already computes the minimal datatype based on
+        # input datatype and pixel count using DataType.get_smallest_possible()
+        odt = self.get_output_datatype()
+        model.set_tensor_datatype(self.onnx_node.output[0], odt)
+        return odt
+
     def execute_node(self, context, graph):
         # simulate behavior with Python functionality
         node = self.onnx_node

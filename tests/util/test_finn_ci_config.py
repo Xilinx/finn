@@ -133,6 +133,16 @@ def test_enabled_params_full_on_synthetic_stages_picks_up_new_params():
     ]
 
 
+def test_benchmark_excluded_from_full_but_still_selectable():
+    # The finn-examples benchmark suite is full-synthesis and must stay out of the
+    # nightly "full" matrix, yet remain runnable on its own "benchmark" choice.
+    assert "benchmark" in config.FULL_EXCLUDED_PARAMS
+    assert "benchmark" not in config.enabled_params_for_choice("full")
+    assert config.enabled_params_for_choice("benchmark") == ["benchmark"]
+    # still offered as a Jenkins dropdown choice
+    assert "benchmark" in config.jenkins_stage_choices()
+
+
 def test_jenkins_stage_choices_omits_sanity_head_when_param_absent():
     # If a future STAGES has no sanity rows at all, jenkins_stage_choices()
     # must not synthesise a "sanity" choice the dropdown cannot deliver.

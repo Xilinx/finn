@@ -392,9 +392,15 @@ class VVAU(HWCustomOp):
         exp_cycles = ((ch * k_h * k_w) / pe / simd) * batch_size * (dim_h * dim_w) / mmv
         return int(exp_cycles)
 
-    def minimize_accumulator_width(self, model):
+    def minimize_accumulator_width(self, model, datatype_only=False):
         """Minimize the accumulator bit width according to the weight values,
-        input data types, and size of dot product"""
+        input data types, and size of dot product.
+
+        Parameters
+        ----------
+        datatype_only : bool
+            If True, use worst-case datatype bounds instead of actual weight values.
+        """
         weights = model.get_initializer(self.onnx_node.input[1])
         k_h, k_w = self.get_nodeattr("Kernel")
         fm = self.get_nodeattr("Channels")
@@ -407,11 +413,19 @@ class VVAU(HWCustomOp):
 
         idt = self.get_input_datatype(0)
 
-        # if runtime-writeable weights or mem_mode=external, then the values of the weights can
-        # change and we need to use the worst-case values from the datatypes
+        # if datatype_only, runtime-writeable weights, mem_mode=external, or this
+        # is a binary-XNOR node, then we use worst-case values from the datatypes.
+        # binaryXnorMode is special: the hardware replaces the bipolar MAC with
+        # XNOR + popcount, so its accumulator is an unsigned popcount in [0, MW],
+        # not the signed bipolar dot-product. The value-based branch reinterprets
+        # only the weights as bipolar and would describe a signed accumulator
+        # that doesn't match the XNOR hardware (and is no tighter than [0, MW]
+        # anyway), so XNOR nodes use the datatype-bound unsigned range.
         if (
-            self.get_nodeattr("runtime_writeable_weights")
+            datatype_only
+            or self.get_nodeattr("runtime_writeable_weights")
             or self.get_nodeattr("mem_mode") == "external"
+            or self.get_nodeattr("binaryXnorMode")
         ):
             wdt = self.get_input_datatype(1)
             lower_worst = wdt.min() * np.ones((k_h * k_w, fm))
@@ -453,8 +467,17 @@ class VVAU(HWCustomOp):
 
         return DataType[self.get_nodeattr("accDataType")]
 
-    def minimize_weight_bit_width(self, model):
-        """Minimize the bit width based on the values of the weights."""
+    def minimize_weight_bit_width(self, model, datatype_only=False):
+        """Minimize the bit width based on the values of the weights.
+
+        Parameters
+        ----------
+        datatype_only : bool
+            If True, skip value-based minimization.
+        """
+        if datatype_only:
+            return DataType[self.get_nodeattr("weightDataType")]
+
         if not (
             self.get_nodeattr("runtime_writeable_weights")
             or self.get_nodeattr("mem_mode") == "external"
@@ -499,8 +522,18 @@ class VVAU(HWCustomOp):
         inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
         wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
         if inp_is_bipolar and wt_is_bipolar:
-            # ensure all thresholds are nonnegative
-            assert (orig_thres_matrix >= 0).all()
+            # Bipolar-XNOR nodes accumulate an unsigned popcount, so thresholds
+            # reaching HW codegen must be non-negative (a negative threshold means
+            # "always fire" and should already have been clipped to 0 by
+            # RoundAndClipThresholds). A negative here means the accumulator was
+            # minimized as signed (see minimize_accumulator_width) or
+            # RoundAndClipThresholds did not run.
+            assert (orig_thres_matrix >= 0).all(), (
+                "Negative threshold on a bipolar-XNOR node reaching HW codegen; "
+                "expected non-negative (unsigned popcount) thresholds. Check that "
+                "the accumulator was minimized as unsigned and that "
+                "RoundAndClipThresholds ran."
+            )
             # ensure all thresholds are integer
             assert (orig_thres_matrix.astype(np.int32) == orig_thres_matrix).all()
         ret = orig_thres_matrix
@@ -791,8 +824,7 @@ class VVAU(HWCustomOp):
         return intf_names
 
     def code_generation_ipi(self):
-        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
-        cmd = ["file mkdir %s" % source_target]
+        cmd = []
         # add streamer if needed
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "internal_decoupled":
@@ -834,7 +866,7 @@ class VVAU(HWCustomOp):
                 ms_rtllib_dir + "memstream.sv",
             ]
             for f in sourcefiles:
-                cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
+                cmd += ["add_files -norecurse %s" % f]
             strm_inst = node_name + "_wstrm"
             cmd.append(
                 "create_bd_cell -type hier -reference %s /%s/%s"

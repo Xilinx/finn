@@ -15,6 +15,7 @@ import os
 import tempfile
 import torch
 import torch.onnx
+import warnings
 from brevitas.export import export_qonnx
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -38,6 +39,7 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.set_folding import SetFolding
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.fpgadataflow.transpose_decomposition import (
     InferInnerOuterShuffles,
@@ -687,7 +689,9 @@ def test_stitched_ip_shuffle_layer(shuffle_sip_param, datatype, simd, monkeypatc
     assert np.allclose(y_ref, y_hw), "Model output does not match expected output"
 
 
-def test_shuffle_config_consolidation():
+# SIMD set manually or by SetFolding (the Shuffle is still a generic layer there)
+@pytest.mark.parametrize("fold_with", ["manual", "set_folding"])
+def test_shuffle_config_consolidation(fold_with):
     dt = DataType["INT8"]
     model = construct_onnx_model(
         input_shape=(32, 16, 8, 12),
@@ -699,7 +703,22 @@ def test_shuffle_config_consolidation():
 
     model = model.transform(InferShuffle(_filter=lambda *_: True))
     model = model.transform(SpecializeLayers(test_fpga_part))
-    model = model.transform(SetShuffleSIMD(4))
+
+    if fold_with == "manual":
+        model = model.transform(SetShuffleSIMD(4))
+        expected_simd = 4
+    else:
+        # target below the SIMD=1 cycle count, so SetFolding has to raise the SIMD
+        shuffle = getCustomOp(model.get_nodes_by_op_type("Shuffle")[0])
+        target_cycles = shuffle.get_exp_cycles() // 3
+        model = model.transform(
+            SetFolding(target_cycles_per_frame=target_cycles, two_pass_relaxation=False)
+        )
+        shuffle = getCustomOp(model.get_nodes_by_op_type("Shuffle")[0])
+        expected_simd = shuffle.get_nodeattr("SIMD")
+        # SIMD must divide the innermost input (12) and output (16) dimension
+        assert expected_simd > 1 and 12 % expected_simd == 0 and 16 % expected_simd == 0
+        assert shuffle.get_exp_cycles() < target_cycles
 
     original_shuffle_name = None
     for node in model.graph.node:
@@ -729,10 +748,50 @@ def test_shuffle_config_consolidation():
         consolidated_config = json.load(f)
 
     assert original_shuffle_name in consolidated_config
-    assert consolidated_config[original_shuffle_name]["SIMD"] == 4
+    assert consolidated_config[original_shuffle_name]["SIMD"] == expected_simd
     for decomposed_name in decomposed_nodes:
         assert decomposed_name not in consolidated_config
     robust_rmtree(test_dir)
+
+
+@pytest.mark.fpgadataflow
+def test_outer_shuffle_exp_cycles_without_vivado(monkeypatch):
+    """get_exp_cycles must work for estimate-only builds with no Vivado configured.
+
+    With no XILINX_VIVADO the estimate assumes the recommended Vivado 2024.2+
+    behaviour (and warns about it), so it must match the estimate produced with
+    a 2024.2 install configured.
+    """
+    dt = DataType["INT8"]
+    model = construct_onnx_model(
+        input_shape=(1, 128, 384),
+        transpose_perm=(0, 2, 1, 3),
+        reshape1_shape=(1, 128, 12, 32),
+        reshape2_shape=None,
+        dt=dt,
+    )
+    model = model.transform(InferShuffle(_filter=lambda *_: True))
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(ShuffleDecomposition())
+    model = model.transform(InferInnerOuterShuffles())
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+
+    outer_nodes = [n for n in model.graph.node if n.op_type == "OuterShuffle_hls"]
+    assert len(outer_nodes) > 0, "expected at least one OuterShuffle_hls node"
+
+    monkeypatch.setenv("XILINX_VIVADO", "/tools/Xilinx/Vivado/2024.2")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        expected_cycles = [getCustomOp(n).get_exp_cycles() for n in outer_nodes]
+
+    monkeypatch.delenv("XILINX_VIVADO", raising=False)
+    for node, expected in zip(outer_nodes, expected_cycles):
+        with pytest.warns(UserWarning, match="assuming Vivado 2024.2 or newer"):
+            cycles = getCustomOp(node).get_exp_cycles()
+        assert isinstance(cycles, int)
+        assert cycles > 0
+        assert cycles == expected
 
 
 @pytest.mark.fpgadataflow

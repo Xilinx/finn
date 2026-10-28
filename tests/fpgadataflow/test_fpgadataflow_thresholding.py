@@ -34,6 +34,7 @@ from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
+from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import gen_finn_dt_tensor
@@ -152,6 +153,15 @@ def make_single_multithresholding_modelwrapper(
 
     node_inp_list = ["inp", "thresh"]
 
+    # The generated tensors are always channels-last, but qonnx's MultiThreshold
+    # reference now locates the channel axis from the data_layout annotation
+    # (data_layout.index("C")). A fixed "NHWC" only matches rank-4 inputs and
+    # misplaces the channel axis for other ranks, so label the layout to match
+    # the actual tensor rank with C on the last axis.
+    rank = len(num_input_vecs) + 1
+    channels_last_layout = {2: "NC", 3: "NWC", 4: "NHWC", 5: "NDHWC"}
+    data_layout = channels_last_layout.get(rank, "N" + "S" * (rank - 2) + "C")
+
     Multithresholding_node = helper.make_node(
         "MultiThreshold",
         node_inp_list,
@@ -160,7 +170,7 @@ def make_single_multithresholding_modelwrapper(
         out_dtype=output_data_type.name,
         out_bias=float(activation_bias),
         out_scale=1.0,
-        data_layout="NHWC",
+        data_layout=data_layout,
     )
 
     graph = helper.make_graph(
@@ -183,6 +193,110 @@ def make_single_multithresholding_modelwrapper(
     model.set_tensor_datatype("thresh", threshold_data_type)
     model.set_initializer("thresh", thresholds)
     return model
+
+
+@pytest.mark.fpgadataflow
+def test_infer_thresholding_shared_thresholds_after_noncanonical_transpose():
+    """A default NCHW output annotation must not add a one-sided transpose."""
+
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, 3, 2, 4])
+    transposed = helper.make_tensor_value_info("transposed", TensorProto.FLOAT, [1, 2, 3, 4])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, 2, 3, 4])
+    transpose = helper.make_node(
+        "Transpose", ["inp"], ["transposed"], perm=[0, 2, 1, 3], name="transpose"
+    )
+    threshold = helper.make_node(
+        "MultiThreshold",
+        ["transposed", "thresholds"],
+        ["outp"],
+        domain="qonnx.custom_op.general",
+        out_dtype="INT2",
+        out_bias=-2.0,
+        name="threshold",
+    )
+    graph = helper.make_graph(
+        [transpose, threshold],
+        "threshold_after_transpose",
+        [inp],
+        [outp],
+        value_info=[transposed],
+    )
+    model = ModelWrapper(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)]))
+    model.set_initializer("thresholds", np.asarray([[-1.0, 0.0, 1.0]], dtype=np.float32))
+    model.set_tensor_datatype("inp", DataType["FLOAT32"])
+    model.set_tensor_layout("inp", ["N", "H", "W", "C"])
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferDataLayouts())
+
+    assert model.get_tensor_layout("transposed") == ["N", "W", "H", "C"]
+    # qonnx defaults MultiThreshold.data_layout to "", so InferDataLayouts leaves
+    # the output unset; force the stale NCHW annotation this test guards against
+    # so the transform must ignore it rather than add a one-sided transpose.
+    assert model.get_tensor_layout("outp") == []
+    model.set_tensor_layout("outp", ["N", "C", "H", "W"])
+    x = (np.arange(24, dtype=np.float32) % 5 - 2).reshape(1, 3, 2, 4)
+    input_dict = {"inp": x}
+    expected = oxe.execute_onnx(model, input_dict)["outp"]
+
+    model = model.transform(InferThresholdingLayer())
+
+    assert len(model.get_nodes_by_op_type("Transpose")) == 1
+    threshold_node = model.get_nodes_by_op_type("Thresholding")[0]
+    threshold_inst = getCustomOp(threshold_node)
+    assert threshold_inst.get_nodeattr("NumChannels") == 4
+    assert threshold_inst.get_nodeattr("numInputVectors") == [1, 2, 3]
+    produced = oxe.execute_onnx(model, input_dict)["outp"]
+    np.testing.assert_array_equal(produced, expected)
+
+
+@pytest.mark.fpgadataflow
+def test_infer_thresholding_per_channel_nchw_input_unset_data_layout():
+    """Per-channel thresholds on an NCHW input whose data_layout attr and output
+    layout are both unset must still be converted to NHWC (transpose inserted)."""
+
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, 3, 2, 4])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, 3, 2, 4])
+    threshold = helper.make_node(
+        "MultiThreshold",
+        ["inp", "thresholds"],
+        ["outp"],
+        domain="qonnx.custom_op.general",
+        out_dtype="INT2",
+        out_bias=-2.0,
+        name="threshold",
+    )
+    graph = helper.make_graph([threshold], "per_channel_nchw", [inp], [outp])
+    model = ModelWrapper(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)]))
+    # one threshold row per channel (C=3) -> per-channel, not shared
+    model.set_initializer(
+        "thresholds",
+        np.asarray([[-1.0, 0.0, 1.0], [-1.0, 0.0, 1.0], [-1.0, 0.0, 1.0]], dtype=np.float32),
+    )
+    model.set_tensor_datatype("inp", DataType["FLOAT32"])
+    model.set_tensor_layout("inp", ["N", "C", "H", "W"])
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferDataLayouts())
+
+    # the scenario: data_layout attr unset ("") and output layout left unset ([])
+    assert getCustomOp(model.graph.node[0]).get_nodeattr("data_layout") == ""
+    assert model.get_tensor_layout("outp") == []
+
+    x = (np.arange(24, dtype=np.float32) % 5 - 2).reshape(1, 3, 2, 4)
+    input_dict = {"inp": x}
+    expected = oxe.execute_onnx(model, input_dict)["outp"]
+
+    model = model.transform(InferThresholdingLayer())
+
+    # NCHW input -> input+output transposes wrap the NHWC thresholding op
+    assert len(model.get_nodes_by_op_type("Transpose")) == 2
+    threshold_node = model.get_nodes_by_op_type("Thresholding")[0]
+    threshold_inst = getCustomOp(threshold_node)
+    assert threshold_inst.get_nodeattr("NumChannels") == 3
+    assert threshold_inst.get_nodeattr("numInputVectors") == [1, 2, 4]
+    produced = oxe.execute_onnx(model, input_dict)["outp"]
+    np.testing.assert_array_equal(produced, expected)
 
 
 @pytest.mark.parametrize("num_input_channels", [6, 16])

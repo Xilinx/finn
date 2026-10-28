@@ -39,6 +39,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter  PE = $PE$,
 	parameter  SIMD = $SIMD$,
 	parameter  TH = $TH$,
+	parameter  WSIMD = $WSIMD$,
 	parameter  N_REPS = $N_REPS$,
 	parameter  WEIGHT_WIDTH = $WEIGHT_WIDTH$,
 	parameter  N_LAYERS = $N_LAYERS$,
@@ -52,8 +53,8 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter [ADDR_BITS-1:0]  ADDRESS_OFFSET = $ADDRESS_OFFSET$,
 
 	// Safely deducible parameters (parameter due to Verilog port-width visibility)
-	parameter  DS_BITS_BA = (((TH > 1)? ((PE*SIMD)/TH) : SIMD)*WEIGHT_WIDTH+7)/8 * 8,
-	parameter  WS_BITS_BA = (((PE*SIMD)/TH)*WEIGHT_WIDTH+7)/8 * 8
+	parameter  DS_BITS_BA = (((TH > 1)? WSIMD : SIMD)*WEIGHT_WIDTH+7)/8 * 8,
+	parameter  WS_BITS_BA = (((TH > 1)? WSIMD : PE*SIMD)*WEIGHT_WIDTH+7)/8 * 8
 )(
 	// Global Control
 	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF axi_mm:in_idx0_V:out0_V, ASSOCIATED_RESET ap_rst_n" *)
@@ -133,27 +134,38 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 // DMA <-> DWC internal wires
 wire  axis_dma_tvalid;
 wire  axis_dma_tready;
-wire [DATA_BITS  -1:0]  axis_dma_tdata;
-wire [DATA_BITS/8-1:0]  axis_dma_tkeep;
-wire  axis_dma_tlast;
+wire [DATA_BITS-1:0]  axis_dma_tdata;
 
 wire  axis_dwc_tvalid;
 wire  axis_dwc_tready;
-wire [DS_BITS_BA    -1:0]  axis_dwc_tdata;
-wire [(DS_BITS_BA)/8-1:0]  axis_dwc_tkeep;
-wire  axis_dwc_tlast;
+wire [DS_BITS_BA-1:0]  axis_dwc_tdata;
 
-// Width converter
-$DWC_MODULE_NAME$ inst_dwc (
-	.aclk(ap_clk), .aresetn(ap_rst_n),
-	.s_axis_tvalid(axis_dma_tvalid), .s_axis_tready(axis_dma_tready), .s_axis_tdata(axis_dma_tdata), .s_axis_tkeep(axis_dma_tkeep), .s_axis_tlast(axis_dma_tlast),
-	.m_axis_tvalid(axis_dwc_tvalid), .m_axis_tready(axis_dwc_tready), .m_axis_tdata(axis_dwc_tdata), .m_axis_tkeep(axis_dwc_tkeep), .m_axis_tlast(axis_dwc_tlast)
+// Width converter: VPC with N=MH*MW properly crops the partial last AXI beat
+// so that consecutive DMA transfers don't bleed stale data across boundaries.
+// PO is the *logical* group size (one dot-product group for TH=1, one tile for
+// TH>1) of real weight elements, matching fetch_weights' IWSIMD. DS_BITS_BA
+// byte-aligns that group, so the VPC output (IWSIMD*WEIGHT_WIDTH real bits, data
+// in the low bits) is zero-extended up to DS_BITS_BA; the pad bits are unused by
+// fetch_weights. When IWSIMD*WEIGHT_WIDTH is already byte-aligned the pad width
+// is zero and this is a no-op. (Deriving PO from DS_BITS_BA/WEIGHT_WIDTH would
+// wrongly treat the byte-pad bits as extra elements for sub-byte groups.)
+localparam  IWSIMD = (TH > 1)? WSIMD : SIMD;
+localparam  OWSIMD = (TH > 1)? WSIMD : PE*SIMD;
+wire [IWSIMD*WEIGHT_WIDTH-1:0]  vpc_odat;
+vpc #(.W(WEIGHT_WIDTH), .N(MH*MW), .PI(DATA_BITS/WEIGHT_WIDTH), .PO(IWSIMD)) inst_dwc (
+	.clk(ap_clk), .rst(!ap_rst_n),
+	.ivld(axis_dma_tvalid), .irdy(axis_dma_tready),
+	.idat(axis_dma_tdata[DATA_BITS-1:0]),
+	.ovld(axis_dwc_tvalid), .ordy(axis_dwc_tready),
+	.odat(vpc_odat)
 );
+assign  axis_dwc_tdata = { {(DS_BITS_BA - IWSIMD*WEIGHT_WIDTH){1'b0}}, vpc_odat };
 
 fetch_weights #(
 	.PE(PE), .SIMD(SIMD), .TH(TH),
 	.MH(MH), .MW(MW), .N_REPS(N_REPS),
 	.WEIGHT_WIDTH(WEIGHT_WIDTH),
+	.IWSIMD(IWSIMD), .OWSIMD(OWSIMD),
 	.ADDR_BITS(ADDR_BITS), .DATA_BITS(DATA_BITS), .LEN_BITS(LEN_BITS), .IDX_BITS(IDX_BITS),
 	.N_LAYERS(N_LAYERS), .ADDRESS_OFFSET(ADDRESS_OFFSET)
 ) inst (
@@ -204,14 +216,10 @@ fetch_weights #(
 	.axis_dma_tvalid(axis_dma_tvalid),
 	.axis_dma_tready(axis_dma_tready),
 	.axis_dma_tdata(axis_dma_tdata),
-	.axis_dma_tkeep(axis_dma_tkeep),
-	.axis_dma_tlast(axis_dma_tlast),
 
 	.axis_dwc_tvalid(axis_dwc_tvalid),
 	.axis_dwc_tready(axis_dwc_tready),
 	.axis_dwc_tdata(axis_dwc_tdata),
-	.axis_dwc_tkeep(axis_dwc_tkeep),
-	.axis_dwc_tlast(axis_dwc_tlast),
 
 	.m_axis_tvalid(out0_V_tvalid),
 	.m_axis_tready(out0_V_tready),

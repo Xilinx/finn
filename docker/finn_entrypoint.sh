@@ -63,18 +63,18 @@ _qonnx_pyproj_toml="${FINN_ROOT}/deps/qonnx/pyproject.toml"
 _qonnx_pyproj_tmp="${FINN_ROOT}/deps/qonnx/pyproject.tmp"
 mv "$_qonnx_pyproj_toml" "$_qonnx_pyproj_tmp"
 trap 'mv "$_qonnx_pyproj_tmp" "$_qonnx_pyproj_toml" 2>/dev/null || true' EXIT
-pip install --user -e "${FINN_ROOT}/deps/qonnx"
+pip install --break-system-packages --user -e "${FINN_ROOT}/deps/qonnx"
 mv "$_qonnx_pyproj_tmp" "$_qonnx_pyproj_toml"
 trap - EXIT
 
 # finn-experimental
-pip install --user -e "${FINN_ROOT}/deps/finn-experimental"
+pip install --break-system-packages --user -e "${FINN_ROOT}/deps/finn-experimental"
 # brevitas
-pip install --user -e "${FINN_ROOT}/deps/brevitas"
+pip install --break-system-packages --user -e "${FINN_ROOT}/deps/brevitas"
 
 if [ -f "${FINN_ROOT}/setup.py" ];then
   # run pip install for finn
-  pip install --user -e "${FINN_ROOT}"
+  pip install --break-system-packages --user -e "${FINN_ROOT}"
 else
   recho "Unable to find FINN source code in ${FINN_ROOT}"
   recho "Ensure you have passed -v <path-to-finn-repo>:<path-to-finn-repo> to the docker run command"
@@ -93,8 +93,7 @@ if [ -f "$VITIS_PATH/settings64.sh" ];then
     source "$XILINX_XRT/setup.sh" || true
     gecho "Found XRT at $XILINX_XRT"
   else
-    recho "XRT not found on $XILINX_XRT, did you skip the download or did the installation fail?"
-    exit -1
+    yecho "XRT not found on $XILINX_XRT, Alveo U-series devices (U250, U280, U50, U55C, etc.) functionality will not be available."
   fi
 else
   yecho "Unable to find $VITIS_PATH/settings64.sh"
@@ -128,6 +127,28 @@ else
     fi
   fi
   export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/lib/x86_64-linux-gnu/:${XILINX_VIVADO}/lib/lnx64.o
+fi
+
+if [ "$FINN_VCK190_GOLDEN" = "1" ]; then
+  GOLDEN_OUT="${FINN_ROOT}/deps/pynq_golden/vck190"
+  if [ -z "${XILINX_VIVADO}" ]; then
+    yecho "FINN_VCK190_GOLDEN=1 but Vivado was not found, skipping VCK190 golden reference build"
+  elif [ -f "$GOLDEN_OUT/golden_noc.ncr" ] && [ -f "$GOLDEN_OUT/golden_routed.dcp" ] && [ -f "$GOLDEN_OUT/golden_ref.tcl" ]; then
+    gecho "Found existing VCK190 golden reference in $GOLDEN_OUT"
+  else
+    GOLDEN_SRC="${FINN_ROOT}/deps/pynq/boards/VCK190/golden"
+    GOLDEN_LOG="$GOLDEN_SRC/vivado.log"
+    gecho "Building VCK190 golden reference in $GOLDEN_SRC (this takes a while), log: $GOLDEN_LOG"
+    if ! make -C "$GOLDEN_SRC" > /dev/null 2>&1; then
+      tail -n 30 "$GOLDEN_LOG"
+      recho "VCK190 golden reference build failed, see $GOLDEN_LOG"
+      exit 1
+    fi
+    mkdir -p "$GOLDEN_OUT"
+    cp "$GOLDEN_SRC/golden_noc.ncr" "$GOLDEN_SRC/golden_routed.dcp" "$GOLDEN_OUT/"
+    cp "$GOLDEN_SRC/golden.tcl" "$GOLDEN_OUT/golden_ref.tcl"
+    gecho "VCK190 golden reference written to $GOLDEN_OUT"
+  fi
 fi
 
 if [ -f "$HLS_PATH/settings64.sh" ];then

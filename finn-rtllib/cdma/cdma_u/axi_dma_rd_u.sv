@@ -44,7 +44,12 @@ module axi_dma_rd_u #
     // Width of length field
     parameter LEN_WIDTH = 20,
     // ID bits
-    parameter AXI_ID_BITS = 1
+    parameter AXI_ID_BITS = 1,
+    // Credit-based read pacing: gate AR bursts and buffer read data in a FIFO
+    // so that m_axi_rready never deasserts due to downstream backpressure.
+    // Set PACED=0 when the caller guarantees backpressure avoidance externally.
+    bit           PACED = 1,
+    int unsigned  N_OUTSTANDING = 0
 )
 (
     input  logic                       aclk,
@@ -92,6 +97,13 @@ module axi_dma_rd_u #
     input  logic                       m_axi_rvalid,
     output logic                       m_axi_rready
 );
+
+initial begin
+    if (N_OUTSTANDING < 2) begin
+        $error("%m: N_OUTSTANDING (%0d) must be >= 2.", N_OUTSTANDING);
+        $finish;
+    end
+end
 
 localparam AXI_WORD_WIDTH = AXI_STRB_WIDTH;
 localparam AXI_WORD_SIZE = AXI_DATA_WIDTH/AXI_WORD_WIDTH;
@@ -156,8 +168,13 @@ logic [7:0] m_axi_arlen_reg = 8'd0, m_axi_arlen_next;
 logic m_axi_arvalid_reg = 1'b0, m_axi_arvalid_next;
 logic m_axi_rready_reg = 1'b0, m_axi_rready_next;
 
+// AXI read data as consumed by the realignment (through the read-data FIFO if PACED)
+uwire [AXI_DATA_WIDTH-1:0] r_data;
+uwire r_valid;
+uwire r_ready = m_axi_rready_reg;
+
 logic [AXI_DATA_WIDTH-1:0] save_axi_rdata_reg = {AXI_DATA_WIDTH{1'b0}};
-uwire [AXI_DATA_WIDTH-1:0] shift_axi_rdata = {m_axi_rdata, save_axi_rdata_reg} >> ((AXI_STRB_WIDTH-offset_reg)*AXI_WORD_SIZE);
+uwire [AXI_DATA_WIDTH-1:0] shift_axi_rdata = {r_data, save_axi_rdata_reg} >> ((AXI_STRB_WIDTH-offset_reg)*AXI_WORD_SIZE);
 
 // internal datapath
 logic  [AXIS_DATA_WIDTH-1:0] m_axis_read_data_tdata_int;
@@ -166,6 +183,17 @@ logic                        m_axis_read_data_tvalid_int;
 logic                        m_axis_read_data_tready_int_reg = 1'b0;
 logic                        m_axis_read_data_tlast_int;
 logic                        m_axis_read_data_tready_int_early;
+
+// output stage registers
+logic [AXIS_DATA_WIDTH-1:0] m_axis_read_data_tdata_reg  = {AXIS_DATA_WIDTH{1'b0}};
+logic [AXIS_KEEP_WIDTH-1:0] m_axis_read_data_tkeep_reg  = {AXIS_KEEP_WIDTH{1'b0}};
+logic                       m_axis_read_data_tvalid_reg = 1'b0, m_axis_read_data_tvalid_next;
+logic                       m_axis_read_data_tlast_reg  = 1'b0;
+
+logic [AXIS_DATA_WIDTH-1:0] temp_m_axis_read_data_tdata_reg  = {AXIS_DATA_WIDTH{1'b0}};
+logic [AXIS_KEEP_WIDTH-1:0] temp_m_axis_read_data_tkeep_reg  = {AXIS_KEEP_WIDTH{1'b0}};
+logic                       temp_m_axis_read_data_tvalid_reg = 1'b0, temp_m_axis_read_data_tvalid_next;
+logic                       temp_m_axis_read_data_tlast_reg  = 1'b0;
 
 assign m_axis_read_desc_status_valid = m_axis_read_desc_status_valid_reg;
 
@@ -178,14 +206,73 @@ assign m_axi_arlock = 1'b0;
 assign m_axi_arcache = 4'b0011;
 assign m_axi_arprot = 3'b010;
 assign m_axi_arvalid = m_axi_arvalid_reg;
-assign m_axi_rready = m_axi_rready_reg;
+
+// === Credit-based AR pacing (PACED generate) =============================
+// Module-scope bridge signal — assigned inside the generate, referenced
+// by the AR FSM outside it.
+uwire  credit_ok;
+if(PACED) begin : genPaced
+    localparam int unsigned  RDATA_FIFO_DEPTH = N_OUTSTANDING * AXI_MAX_BURST_LEN;
+
+    // FIFO-backed credit: take the beats of each burst, return individual beats
+    //   no credit for full burst | can issue another burst
+    // -AXI_MAX_BURST_LEN, ..., -1, 0, ..., RDATA_FIFO_DEPTH-AXI_MAX_BURST_LEN
+    localparam int signed  CREDIT_INIT = RDATA_FIFO_DEPTH - AXI_MAX_BURST_LEN;
+    logic signed [$clog2(CREDIT_INIT+1):0]  Credit = CREDIT_INIT;
+
+    uwire  ar_accept  = m_axi_arvalid & m_axi_arready;
+    uwire  credit_in = r_valid & r_ready;
+    always_ff @(posedge aclk) begin
+        // Burst debit -(arlen+1), built at the full Credit width. Keeping credit_in a 1-bit
+        // operand lets it map onto the adder's carry-in.
+        automatic type(Credit)  take = '1;
+        take[$bits(m_axi_arlen)-1:0] = ~m_axi_arlen;
+        if (~aresetn)  Credit <= CREDIT_INIT;
+        else           Credit <= Credit + (ar_accept? take : 0) + credit_in;
+    end
+    assign  credit_ok = !Credit[$left(Credit)];
+
+    // Read-data FIFO: absorbs AXI R beats while the realignment and downstream stall.
+    // Every AR burst has its capacity pre-reserved via the credit counter.
+    fifo #(
+        .DEPTH(RDATA_FIFO_DEPTH),
+        .DATA_WIDTH(AXI_DATA_WIDTH)
+    ) inst_rdata_fifo (
+        .clk(aclk), .rst(!aresetn),
+        .count(), .maxcount(),
+        .idat(m_axi_rdata), .ivld(m_axi_rvalid), .irdy(m_axi_rready),
+        .odat(r_data), .ovld(r_valid), .ordy(r_ready)
+    );
+
+    // Check that rready is never backpressured under PACED mode
+    always_ff @(posedge aclk) begin
+        assert(!aresetn || !m_axi_rvalid || m_axi_rready) else begin
+            $error("%m: rready backpressure under PACED — credit invariant violated.");
+            $stop;
+        end
+    end
+
+end : genPaced
+else begin : genBypass
+
+    assign  credit_ok = 1;
+    assign  m_axi_rready = r_ready;
+    assign  r_data  = m_axi_rdata;
+    assign  r_valid = m_axi_rvalid;
+
+end
+
+assign  m_axis_read_data_tdata  = m_axis_read_data_tdata_reg;
+assign  m_axis_read_data_tkeep  = AXIS_KEEP_ENABLE ? m_axis_read_data_tkeep_reg : {AXIS_KEEP_WIDTH{1'b1}};
+assign  m_axis_read_data_tvalid = m_axis_read_data_tvalid_reg;
+assign  m_axis_read_data_tlast  = AXIS_LAST_ENABLE ? m_axis_read_data_tlast_reg : 1'b1;
 
 uwire [AXI_ADDR_WIDTH-1:0] addr_plus_max_burst = addr_reg + AXI_MAX_BURST_SIZE;
 uwire [AXI_ADDR_WIDTH-1:0] addr_plus_count = addr_reg + op_word_count_reg;
 
-// Outstanding queue
+// Outstanding descriptor queue
 fifo #(
-    .DEPTH(8),
+    .DEPTH(N_OUTSTANDING),
     .DATA_WIDTH($bits(cdma_rd_cmd_t))
 ) inst_q_rd (
     .clk(aclk),
@@ -242,7 +329,9 @@ always_comb begin
 
         AXI_STATE_START: begin
             // start state - initiate new AXI transfer
-            if (!m_axi_arvalid) begin
+            // Per-burst reservation: only launch when credit_ok (PACED=1) or
+            // unconditionally (PACED=0, credit_ok is constant 1'b1).
+            if (!m_axi_arvalid && credit_ok) begin
                 if (op_word_count_reg <= AXI_MAX_BURST_SIZE - (addr_reg & OFFSET_MASK) || AXI_MAX_BURST_SIZE >= 4096) begin
                     // packet smaller than max burst size
                     if (addr_reg[12] != addr_plus_count[12]) begin
@@ -338,9 +427,9 @@ always_comb begin
             // handle AXI read data
             m_axi_rready_next = m_axis_read_data_tready_int_early && input_active_reg;
 
-            if (m_axis_read_data_tready_int_reg && ((m_axi_rready && m_axi_rvalid) || !input_active_reg)) begin
+            if (m_axis_read_data_tready_int_reg && ((r_ready && r_valid) || !input_active_reg)) begin
                 // transfer in AXI read data
-                transfer_in_save = m_axi_rready && m_axi_rvalid;
+                transfer_in_save = r_ready && r_valid;
 
                 if (first_cycle_reg && bubble_cycle_reg) begin
                     if (input_active_reg) begin
@@ -428,30 +517,16 @@ always_ff @(posedge aclk) begin
     output_last_cycle_reg <= output_last_cycle_next;
 
     if (transfer_in_save) begin
-        save_axi_rdata_reg <= m_axi_rdata;
+        save_axi_rdata_reg <= r_data;
     end
 end
 
 // output datapath logic
-logic [AXIS_DATA_WIDTH-1:0] m_axis_read_data_tdata_reg  = {AXIS_DATA_WIDTH{1'b0}};
-logic [AXIS_KEEP_WIDTH-1:0] m_axis_read_data_tkeep_reg  = {AXIS_KEEP_WIDTH{1'b0}};
-logic                       m_axis_read_data_tvalid_reg = 1'b0, m_axis_read_data_tvalid_next;
-logic                       m_axis_read_data_tlast_reg  = 1'b0;
-
-logic [AXIS_DATA_WIDTH-1:0] temp_m_axis_read_data_tdata_reg  = {AXIS_DATA_WIDTH{1'b0}};
-logic [AXIS_KEEP_WIDTH-1:0] temp_m_axis_read_data_tkeep_reg  = {AXIS_KEEP_WIDTH{1'b0}};
-logic                       temp_m_axis_read_data_tvalid_reg = 1'b0, temp_m_axis_read_data_tvalid_next;
-logic                       temp_m_axis_read_data_tlast_reg  = 1'b0;
 
 // datapath control
 logic store_axis_int_to_output;
 logic store_axis_int_to_temp;
 logic store_axis_temp_to_output;
-
-assign m_axis_read_data_tdata  = m_axis_read_data_tdata_reg;
-assign m_axis_read_data_tkeep  = AXIS_KEEP_ENABLE ? m_axis_read_data_tkeep_reg : {AXIS_KEEP_WIDTH{1'b1}};
-assign m_axis_read_data_tvalid = m_axis_read_data_tvalid_reg;
-assign m_axis_read_data_tlast  = AXIS_LAST_ENABLE ? m_axis_read_data_tlast_reg : 1'b1;
 
 // enable ready input next cycle if output is ready or the temp reg will not be filled on the next cycle (output reg empty or no input)
 assign m_axis_read_data_tready_int_early = m_axis_read_data_tready || (!temp_m_axis_read_data_tvalid_reg && (!m_axis_read_data_tvalid_reg || !m_axis_read_data_tvalid_int));
@@ -512,12 +587,5 @@ always_ff @(posedge aclk) begin
         temp_m_axis_read_data_tlast_reg <= m_axis_read_data_tlast_int;
     end
 end
-
-/////////////////////////////////////////////////////////////////////////////
-// DEBUG
-/////////////////////////////////////////////////////////////////////////////
-`ifdef DBG_CDMA_RD_U
-
-`endif
 
 endmodule

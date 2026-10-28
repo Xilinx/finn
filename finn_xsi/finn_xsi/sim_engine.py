@@ -622,7 +622,7 @@ class SimEngine:
 
                 # Queue received Write Data
                 if self.wvalid.read().as_bool():
-                    self.wd_queue.append(self.wdata.read().as_hexstr())
+                    self.wd_queue.append(self.wdata.read().as_hexstr_2state())
 
                 # Queue new Read Requests
                 if self.arvalid.read().as_bool():

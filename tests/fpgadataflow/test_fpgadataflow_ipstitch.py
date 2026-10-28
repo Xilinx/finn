@@ -49,7 +49,7 @@ from finn.transformation.fpgadataflow.floorplan import Floorplan
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
-from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
+from finn.transformation.fpgadataflow.make_pynq_proj import PYNQBuild
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.util.basic import (
     make_build_dir,
@@ -226,7 +226,7 @@ def test_fpgadataflow_ipstitch_gen_model(mem_mode):
     model = model.transform(PrepareIP(test_fpga_part, 5))
     model = model.transform(HLSSynthIP())
     assert model.graph.node[0].op_type == "MVAU_hls"
-    assert model.graph.node[-1].op_type == "TLastMarker_hls"
+    assert model.graph.node[-1].op_type == "TLastMarker_rtl"
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model_%s.onnx" % mem_mode)
 
 
@@ -347,8 +347,8 @@ def test_fpgadataflow_ipstitch_zynqbuild_end2end(board):
         assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
         assert os.path.isfile(sdp_node.get_nodeattr("model"))
         model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))
-    # bitfile using ZynqBuild
-    model = model.transform(ZynqBuild(board, 10))
+    # bitfile using PYNQBuild
+    model = model.transform(PYNQBuild(board, 10))
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_customzynq.onnx")
 
     bitfile_name = model.get_metadata_prop("bitfile")

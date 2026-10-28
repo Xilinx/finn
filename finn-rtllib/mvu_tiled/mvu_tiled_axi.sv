@@ -9,8 +9,8 @@
  *  Folding hints:
  *	 - PE scaling should divide MH.
  *   - SIMD scaling should divide MW.
- *   - TH scaling should divide MH_OUTER
- *   - WSIMD * TH <= PE * SIMD
+ *   - TH scaling should divide the number of input vectors (MH_OUTER).
+ *   - WSIMD must divide PE*SIMD and NW = PE*SIMD/WSIMD must be <= TH.
  *	 - Otherwise, keep SIMD and PE somewhat balanced. SIMD scaling tends to
  *	   impact critical paths more than PE scaling. PE scaling implies a
  *	   bigger fanout on the input activations.
@@ -41,8 +41,11 @@ module mvu_tiled_axi #(
 	parameter  COMPUTE_CORE = "mvu_vvu_8sx9_dsp58",
 	int unsigned  N_DCPL_STAGES = 2,
 
+	// WSIMD: weight-stream parallelism, computed by the FINN compiler.
+	// Must divide PE*SIMD; NW = PE*SIMD/WSIMD must be <= TH.
+	int unsigned  WSIMD,
+
 	// Safely deducible parameters
-	localparam int unsigned  WSIMD = (PE * SIMD) / TH,
 	localparam int unsigned  WEIGHT_STREAM_WIDTH    = WSIMD * WEIGHT_WIDTH,
 	localparam int unsigned  WEIGHT_STREAM_WIDTH_BA = (WEIGHT_STREAM_WIDTH + 7)/8 * 8,
 	localparam int unsigned  INPUT_STREAM_WIDTH     = SIMD * ACTIVATION_WIDTH,
@@ -82,8 +85,12 @@ module mvu_tiled_axi #(
 			$error("%m: Matrix height (%0d) is not a multiple of PE (%0d).", MH, PE);
 			$finish;
 		end
-		if((PE * SIMD) % TH != 0) begin
-			$error("%m: Tile (%0d) is not a multiple of TH (%0d).", (PE*SIMD), TH);
+		if((PE * SIMD) % WSIMD != 0) begin
+			$error("%m: WSIMD (%0d) must divide PE*SIMD (%0d).", WSIMD, PE*SIMD);
+			$finish;
+		end
+		if((PE * SIMD) / WSIMD > TH) begin
+			$error("%m: NW=%0d exceeds TH=%0d (weight tile fill exceeds replay window).", (PE*SIMD)/WSIMD, TH);
 			$finish;
 		end
 		if(PUMPED_COMPUTE && (SIMD == 1)) begin

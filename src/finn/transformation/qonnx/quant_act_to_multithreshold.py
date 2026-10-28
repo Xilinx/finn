@@ -76,7 +76,7 @@ class ConvertQuantActToMultiThreshold(Transformation):
     are converted to MultiThreshold nodes. A warning will be emitted when a Quant node
     is not converted to a MultiThreshold node.
 
-    :param filter_function: Each candidate Quant and BinaryQant node is first evaluated
+    :param filter_function: Each candidate Quant and BipolarQuant node is first evaluated
         by this function. If the function returns False,
         then the node is not converted to a MultiTrheshold node.
         The function is given the model and candidate node as parameters.

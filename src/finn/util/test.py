@@ -36,6 +36,7 @@ import onnx.numpy_helper as nph
 import os
 import torchvision.transforms.functional as torchvision_util
 import warnings
+import xml.etree.ElementTree as ET
 from brevitas_examples import bnn_pynq, imagenet_classification
 from pkgutil import get_data
 from qonnx.core.modelwrapper import ModelWrapper
@@ -43,7 +44,7 @@ from qonnx.custom_op.registry import getCustomOp
 
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.alveo_build import VitisLink, VitisOptStrategy
-from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
+from finn.transformation.fpgadataflow.make_pynq_proj import PYNQBuild
 from finn.util.basic import (
     make_build_dir,
     pynq_part_map,
@@ -112,6 +113,18 @@ def load_test_checkpoint_or_skip(filename):
         pytest.skip(filename + " not found from previous test step, skipping")
 
 
+def get_hls_synth_interval(op_inst):
+    """Return the initiation interval of an HLS node's synthesized top function as
+    reported by Vitis HLS. PrepareIP and HLSSynthIP must have been run."""
+    node_name = op_inst.onnx_node.name
+    code_gen_dir = op_inst.get_nodeattr("code_gen_dir_ipgen")
+    report = f"{code_gen_dir}/project_{node_name}/sol1/syn/report/{node_name}_csynth.xml"
+    latency = ET.parse(report).getroot().find("PerformanceEstimates/SummaryOfOverallLatency")
+    # pipelined tops report PipelineInitiationInterval, dataflow tops only Interval-min
+    pii = latency.find("PipelineInitiationInterval")
+    return int(pii.text if pii is not None else latency.find("Interval-min").text)
+
+
 def make_runtime_weight_stream(op_inst, weights):
     """Write runtime weights in FINN's standard format and return the parsed stream."""
     weight_dir = make_build_dir("test_runtime_weights_")
@@ -131,7 +144,7 @@ def get_build_env(board, target_clk_ns):
     if board in pynq_part_map:
         ret["toolchain"] = "pynq"
         ret["part"] = pynq_part_map[board]
-        ret["build_fxn"] = ZynqBuild(board, target_clk_ns)
+        ret["build_fxn"] = PYNQBuild(board, target_clk_ns)
     elif board in vitis_part_map:
         ret["toolchain"] = "vitis-xrt"
         ret["part"] = vitis_part_map[board]

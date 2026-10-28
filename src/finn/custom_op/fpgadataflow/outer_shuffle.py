@@ -9,12 +9,11 @@
 
 import math
 import numpy as np
-import os
-import re
 import warnings
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import get_vivado_version
 
 
 class _NestSim:
@@ -185,11 +184,17 @@ class OuterShuffle(HWCustomOp):
         addr_bits = max(1, math.ceil(math.log2(max(1, nest.max_rp_retract + WP_DELAY + 2))))
         buf_size = 1 << addr_bits
 
-        # Check vivado version
-        vivado_path = os.environ.get("XILINX_VIVADO")
-        match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
-        year, minor = int(match.group(1)), int(match.group(2))
-        if (year, minor) < (2024, 2):
+        # Check vivado version. The pipeline II depends on the Vivado version,
+        # so if none is configured (estimate-only builds) assume the currently
+        # recommended 2024.2+ behaviour and tell the user about it.
+        vivado_version = get_vivado_version()
+        if vivado_version is None:
+            warnings.warn(
+                "%s: XILINX_VIVADO is not set; OuterShuffle cycle estimates are "
+                "Vivado-version dependent, assuming Vivado 2024.2 or newer." % self.onnx_node.name
+            )
+            vivado_version = (2024, 2)
+        if vivado_version < (2024, 2):
             pipeline_ii = 1
         else:
             # Pipeline II: BRAM (depth <= 262144) achieves II=1;

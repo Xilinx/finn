@@ -55,6 +55,9 @@ class MVAU_hls(MVAU, HLSBackend):
         my_attrs.update(HLSBackend.get_nodeattr_types(self))
         # for HLS MVAU default resType to lut
         my_attrs["resType"] = ("s", False, "lut", {"auto", "lut", "dsp"})
+        # the function-pipelined hlslib kernel processes one beat per call,
+        # so cppsim must call it repeatedly until the output runs dry
+        my_attrs["hls_style"] = ("s", False, "freerunning", {"freerunning"})
         return my_attrs
 
     def lut_estimation(self, fpgapart):
@@ -292,6 +295,10 @@ class MVAU_hls(MVAU, HLSBackend):
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<ap_uint<{}>> out0_V ("out0_V");'.format(self.get_outstream_width())
         )
+        # collects the outputs drained from out0_V by the freerunning cppsim loop
+        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+            'hls::stream<ap_uint<{}>> strm0 ("strm0");'.format(self.get_outstream_width())
+        )
 
         if mem_mode in ["internal_decoupled", "external", "external_mem", "dynamic"]:
             iwidth = self.get_instream_width(1)
@@ -317,7 +324,7 @@ class MVAU_hls(MVAU, HLSBackend):
         if mem_mode == "internal_embedded":
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """Matrix_Vector_Activate_Batch<MW1, MH1, SIMD1, PE1, 1, {}, {}, {}>
-                (in0_V, out0_V, weights, {}, numReps, {});""".format(
+                (in0_V, out0_V, weights, {}, {});""".format(
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
                     tmpl_args["TWeightI"],
@@ -334,7 +341,7 @@ class MVAU_hls(MVAU, HLSBackend):
             wdtype_hls_str = export_wdt.get_hls_datatype_str()
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """Matrix_Vector_Activate_Stream_Batch<MW1, MH1, SIMD1, PE1, {}, {}, {}, {} >
-                (in0_V, out0_V, in1_V, {}, numReps, {});""".format(
+                (in0_V, out0_V, in1_V, {}, {});""".format(
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
                     tmpl_args["TWeightI"],
@@ -366,7 +373,7 @@ class MVAU_hls(MVAU, HLSBackend):
 
         # note: the innermost dim is not reversed for the output
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %s>(out0_V, %s, "%s", false);'
+            'apintstream2npy<%s, %s, %s>(strm0, %s, "%s", false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
@@ -420,6 +427,7 @@ class MVAU_hls(MVAU, HLSBackend):
         self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0_V"]
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out0_V")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS dataflow disable_start_propagation")
 
         if mem_mode == "internal_embedded":
             self.code_gen_dict["$PRAGMAS$"].append('#include "params.h"')
@@ -462,6 +470,13 @@ class MVAU_hls(MVAU, HLSBackend):
                 pass
             else:
                 raise Exception("Unrecognized ram_style_thresholds value:" + ram_style_thresholds)
+
+    def timeout_value(self):
+        """Set timeout value for the freerunning cppsim loop. Successive outputs are
+        at most one synapse fold (MW/SIMD calls) apart, so stopping earlier would
+        drop outputs."""
+        sf = self.get_nodeattr("MW") // self.get_nodeattr("SIMD")
+        self.code_gen_dict["$TIMEOUT_VALUE$"] = [str(sf + 100)]
 
     def get_ap_int_max_w(self):
         # base class impl (max of inp/out stream widths)
@@ -594,44 +609,50 @@ class MVAU_hls(MVAU, HLSBackend):
                 )
             )
 
-    def minimize_weight_bit_width(self, model):
+    def minimize_weight_bit_width(self, model, datatype_only=False):
         """Minimize weight and threshold datatypes, with HLS-specific adjustments.
 
         The HLS implementation uses the threshold datatype for comparisons.
         When the threshold datatype is narrower than the accumulator datatype,
         accumulator values get truncated, which can cause incorrect results.
         To prevent this, ensure threshold datatype is at least as wide as
-        accumulator datatype."""
-        # First, call the base class implementation to minimize weight datatype
-        wdt = super().minimize_weight_bit_width(model)
+        accumulator datatype.
+
+        Parameters
+        ----------
+        datatype_only : bool
+            If True, skip value-based minimization. See base class.
+        """
+        wdt = super().minimize_weight_bit_width(model, datatype_only=datatype_only)
 
         # Minimize threshold datatype if node has thresholds (noActivation=0)
         if self.get_nodeattr("noActivation") == 0 and len(self.onnx_node.input) > 2:
             thresholds = model.get_initializer(self.onnx_node.input[2])
             acc_dt = self.get_accumulator_datatype()
+            current_tdt = model.get_tensor_datatype(self.onnx_node.input[2])
 
             # Only minimize if accumulator and thresholds are integer
-            if (
-                acc_dt.is_integer()
-                and model.get_tensor_datatype(self.onnx_node.input[2]).is_integer()
-            ):
-                # Use double precision for intermediate calculations to prevent overflow
-                min_threshold = np.float64(thresholds.min())
-                max_threshold = np.float64(thresholds.max())
-                # Check if accumulator datatype is signed
-                acc_is_signed = acc_dt.signed()
-                if min_threshold < 0:
-                    if abs(min_threshold) > max_threshold:
-                        tdt = DataType.get_smallest_possible(min_threshold)
-                    else:
-                        tdt = DataType.get_smallest_possible(-max_threshold - 1)
+            if acc_dt.is_integer() and current_tdt.is_integer():
+                if datatype_only:
+                    tdt = current_tdt
                 else:
-                    # If accumulator is signed,
-                    # use signed threshold datatype even if thresholds are positive
-                    if acc_is_signed:
-                        tdt = DataType.get_smallest_possible(-max_threshold - 1)
+                    # Use double precision for intermediate calculations to prevent overflow
+                    min_threshold = np.float64(thresholds.min())
+                    max_threshold = np.float64(thresholds.max())
+                    # Check if accumulator datatype is signed
+                    acc_is_signed = acc_dt.signed()
+                    if min_threshold < 0:
+                        if abs(min_threshold) > max_threshold:
+                            tdt = DataType.get_smallest_possible(min_threshold)
+                        else:
+                            tdt = DataType.get_smallest_possible(-max_threshold - 1)
                     else:
-                        tdt = DataType.get_smallest_possible(max_threshold)
+                        # If accumulator is signed,
+                        # use signed threshold datatype even if thresholds are positive
+                        if acc_is_signed:
+                            tdt = DataType.get_smallest_possible(-max_threshold - 1)
+                        else:
+                            tdt = DataType.get_smallest_possible(max_threshold)
 
                 # HLS-specific: ensure threshold datatype is at least as wide as
                 # accumulator datatype to prevent truncation during comparison

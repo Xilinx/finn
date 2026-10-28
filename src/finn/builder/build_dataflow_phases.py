@@ -27,6 +27,7 @@ from finn.builder.build_dataflow_steps import (
     step_create_dataflow_partition,
     step_create_stitched_ip,
     step_deployment_package,
+    step_export_portable_rtl,
     step_generate_estimate_reports,
     step_hw_codegen,
     step_hw_ipgen,
@@ -36,6 +37,7 @@ from finn.builder.build_dataflow_steps import (
     step_make_driver,
     step_measure_rtlsim_performance,
     step_minimize_bit_width,
+    step_minimize_bit_width_datatype_only,
     step_qonnx_to_finn,
     step_set_fifo_depths,
     step_specialize_layers,
@@ -150,6 +152,7 @@ def phase_convert_to_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     Internal steps:
     - step_convert_to_hw: Infer hardware layer types (validates conversion success)
     - step_create_dataflow_partition: Create accelerator subgraph
+    - step_minimize_bit_width_datatype_only: Datatype-based bit width minimization
     - step_specialize_layers: Convert to HLS or RTL variants
     - step_loop_rolling: Process FINNLoop nodes (auto-detects if needed)
 
@@ -165,6 +168,8 @@ def phase_convert_to_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     """
     model = _execute_step(step_convert_to_hw, model, cfg)
     model = _execute_step(step_create_dataflow_partition, model, cfg)
+    model = _execute_step(step_minimize_bit_width_datatype_only, model, cfg)
+
     model = _execute_step(step_specialize_layers, model, cfg)
     model = _execute_step(step_loop_rolling, model, cfg)
 
@@ -176,14 +181,14 @@ def phase_optimize_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     FIFO sizing, generate reports.
 
     This phase configures the hardware parallelism and resource usage. It applies
-    folding configurations, minimizes bit widths (after folding), decomposes
-    transpose/shuffle operations, sizes FIFOs,
+    folding configurations, minimizes bit widths (second pass, value-based, after
+    folding decisions), decomposes transpose/shuffle operations, sizes FIFOs,
     and generates analytical performance/resource reports.
 
     Internal steps (each step checks its own config parameters):
     - step_target_fps_parallelization: Auto-parallelization (if target_fps set)
     - step_apply_folding_config: Apply folding configuration (if config provided)
-    - step_minimize_bit_width: Minimize weight/accumulator bit widths (if enabled)
+    - step_minimize_bit_width: Value-based bit width minimization (second pass)
     - step_transpose_decomposition: Decompose Shuffle nodes
     - step_set_fifo_depths: FIFO sizing (see placement rules below)
     - step_generate_estimate_reports: Generate analytical estimates (if requested)
@@ -208,6 +213,8 @@ def phase_optimize_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     """
     model = _execute_step(step_target_fps_parallelization, model, cfg)
     model = _execute_step(step_apply_folding_config, model, cfg)
+    # Second pass: value-based bit width minimization (not datatype_only) after
+    # folding decisions like runtime_writeable_weights have been made
     model = _execute_step(step_minimize_bit_width, model, cfg)
     model = _execute_step(step_transpose_decomposition, model, cfg)
     if is_mlo(model):
@@ -339,6 +346,7 @@ def phase_generate_outputs(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     Internal steps (each step checks generate_outputs):
     - step_create_stitched_ip: Create stitched IP (includes OOC synth if requested)
+    - step_export_portable_rtl: Export portable RTL project (if requested)
     - step_measure_rtlsim_performance: Measure RTL sim performance (if requested)
     - step_synthesize_bitfile: Full bitfile synthesis (if BITFILE requested)
     - step_make_driver: Generate PYNQ or C++ driver (if BITFILE requested)
@@ -355,6 +363,7 @@ def phase_generate_outputs(model: ModelWrapper, cfg: DataflowBuildConfig):
         ModelWrapper with final hardware artifacts generated
     """
     model = _execute_step(step_create_stitched_ip, model, cfg)
+    model = _execute_step(step_export_portable_rtl, model, cfg)
     model = _execute_step(step_measure_rtlsim_performance, model, cfg)
     model = _execute_step(step_synthesize_bitfile, model, cfg)
     model = _execute_step(step_make_driver, model, cfg)

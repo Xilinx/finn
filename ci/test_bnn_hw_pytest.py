@@ -63,7 +63,7 @@ def delete_file(file_path):
 
 
 def get_platform(board_str):
-    return "vitis-xrt" if "U55C" in board_str else "zynq-iodma"
+    return "vitis-xrt" if "U55C" in board_str else "pynq-iodma"
 
 
 def get_dataset(test_dir):
