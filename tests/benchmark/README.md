@@ -150,8 +150,8 @@ The test resumes the `phase_convert_to_hardware` checkpoint of a cached estimate
 with the committed folding (`$FINN_BUILD_DIR/est_<model>_<board>_*`), builds up to stitched
 IP (no bitfile) and passes if the stitched-IP rtlsim output matches the golden output and
 the rtlsim throughput is at least 98 % of the build's own analytic estimate.
-Numbers (estimated and rtlsim throughput, FIFO storage, FIFO sizing time) are written to
-`report/feature_metrics.json`.
+Numbers (estimated and rtlsim throughput, FIFO storage, step times) are written to
+`report/feature_metrics.json`. The shared code is `run_feature_build` in `benchmark_helpers.py`.
 
 ```bash
 pytest tests/benchmark/gtsrb/test_build_gtsrb.py -m fifo_sizing -k heuristic_analytical
