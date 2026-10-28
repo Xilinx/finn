@@ -32,6 +32,7 @@ from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.streamingdatawidthconverter import (
     StreamingDataWidthConverter,
 )
+from finn.util.data_packing import hls_datatype_str
 
 # does not do anything at the ONNX node-by-node level, and input-output
 # tensor shapes are the same. performs data width conversion at the rtlsim level
@@ -67,7 +68,7 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
         self.code_gen_dict["$DEFINES$"] = []
 
     def docompute(self):
-        elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
+        elem_hls_type = hls_datatype_str(self.get_input_datatype())
         n_in = self.get_folded_input_shape()[-1]
         n_out = self.get_folded_output_shape()[-1]
         op = "StreamingDWC"
@@ -92,7 +93,7 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
             ]
 
     def blackboxfunction(self):
-        elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
+        elem_hls_type = hls_datatype_str(self.get_input_datatype())
         n_in = self.get_folded_input_shape()[-1]
         n_out = self.get_folded_output_shape()[-1]
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [

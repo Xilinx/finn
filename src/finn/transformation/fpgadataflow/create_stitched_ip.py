@@ -413,9 +413,12 @@ class CreateStitchedIP(Transformation):
         ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/memstream")
         if self.signature:
             ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/axi_info")
-        if model.graph.node[0].op_type not in ["StreamingFIFO_rtl", "IODMA_hls"]:
+        first_op = model.graph.node[0].op_type
+        if first_op not in ["StreamingFIFO_rtl", "IODMA_hls"] and not first_op.startswith(
+            "StreamingDataWidthConverter"
+        ):
             warnings.warn(
-                """First node is not StreamingFIFO or IODMA.
+                """First node is not StreamingFIFO, IODMA, or DWC.
                 You may experience incorrect stitched-IP rtlsim or hardware
                 behavior. It is strongly recommended to insert FIFOs prior to
                 calling CreateStitchedIP."""

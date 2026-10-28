@@ -30,6 +30,7 @@ import numpy as np
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.labelselect import LabelSelect
+from finn.util.data_packing import hls_datatype_str
 
 
 class LabelSelect_hls(LabelSelect, HLSBackend):
@@ -109,8 +110,8 @@ class LabelSelect_hls(LabelSelect, HLSBackend):
                 self.get_nodeattr("Labels"),
                 self.get_nodeattr("PE"),
                 self.get_nodeattr("K"),
-                self.get_input_datatype().get_hls_datatype_str(),
-                self.get_output_datatype().get_hls_datatype_str(),
+                hls_datatype_str(self.get_input_datatype()),
+                hls_datatype_str(self.get_output_datatype()),
             )
         ]
 
@@ -120,8 +121,8 @@ class LabelSelect_hls(LabelSelect, HLSBackend):
 
     def blackboxfunction(self):
         pe = self.get_nodeattr("PE")
-        idt = self.get_input_datatype().get_hls_datatype_str()
-        odt = self.get_output_datatype().get_hls_datatype_str()
+        idt = hls_datatype_str(self.get_input_datatype())
+        odt = hls_datatype_str(self.get_output_datatype())
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             "void {}(hls::stream<tensor<{}, {}>> &in0_V, "
             "hls::stream<tensor<{}, 1>> &out0_V)".format(self.onnx_node.name, idt, pe, odt)

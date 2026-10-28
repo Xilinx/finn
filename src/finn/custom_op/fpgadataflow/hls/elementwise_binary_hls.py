@@ -40,6 +40,7 @@ from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.transformation.fpgadataflow.loop_rolling import LoopBodyInputType
 from finn.util.basic import get_vivado_version, is_versal
 from finn.util.data_packing import (
+    hls_datatype_str,
     npy_to_rtlsim_input,
     numpy_to_hls_code,
     pack_innermost_dim_as_hex_string,
@@ -288,9 +289,9 @@ class ElementwiseBinaryOperation_hls(
         # Insert constants and type aliases into the dictionary
         self.code_gen_dict["$DEFINES$"] = [
             # Input and output element datatypes
-            f"using LhsType = {self.lhs_dtype.get_hls_datatype_str()};",
-            f"using RhsType = {self.rhs_dtype.get_hls_datatype_str()};",
-            f"using OutType = {self.out_dtype.get_hls_datatype_str()};",
+            f"using LhsType = {hls_datatype_str(self.lhs_dtype)};",
+            f"using RhsType = {hls_datatype_str(self.rhs_dtype)};",
+            f"using OutType = {hls_datatype_str(self.out_dtype)};",
             # Width of single elements to avoid using ::width attribute which is
             # not present for datatype float
             f"static constexpr auto LhsWidth = {self.lhs_dtype.bitwidth()};",
@@ -331,7 +332,7 @@ class ElementwiseBinaryOperation_hls(
         if self.lhs_style == "input" or lhs_decoupled:
             # Generate function calls for reading the input files into the input
             # streams
-            npy_type = "half" if self.lhs_dtype.get_hls_datatype_str() == "half" else "float"
+            npy_type = "half" if hls_datatype_str(self.lhs_dtype) == "half" else "float"
             self.code_gen_dict["$READNPYDATA$"] += [
                 # Generate function call reading from file into the input stream
                 #   Note: Inputs can be represented as numpy floats or halfs
@@ -345,7 +346,7 @@ class ElementwiseBinaryOperation_hls(
         if self.rhs_style == "input" or rhs_decoupled:
             # Generate function calls for reading the input files into the input
             # streams
-            npy_type = "half" if self.rhs_dtype.get_hls_datatype_str() == "half" else "float"
+            npy_type = "half" if hls_datatype_str(self.rhs_dtype) == "half" else "float"
             self.code_gen_dict["$READNPYDATA$"] += [
                 # Generate function call reading from file into the input stream
                 #   Note: Inputs can be represented as numpy floats or halfs

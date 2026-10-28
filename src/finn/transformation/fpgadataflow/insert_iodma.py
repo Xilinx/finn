@@ -93,6 +93,104 @@ class InsertIODMA(Transformation):
         reshaped_w = np.flip(reshaped_w, axis=-1)
         return reshaped_w
 
+    def _insert_iodma_dwc(self, model, dma_node):
+        """Insert a StreamingDataWidthConverter between an IODMA and its
+        neighbor when the DMA's AXI-MM interface width (intfWidth) differs
+        from the stream-side width (streamWidth).
+
+        DWC insertion is handled here rather than by the generic InsertDWC
+        transformation because the DMA operates at byte granularity: I/O DMA
+        nodes use UINT8 as their element type regardless of the compute
+        nodes' native types (weight DMAs use the actual weight type, but
+        intfWidth is still byte-aligned).  AXI-MM interfaces are inherently
+        byte-addressed, so the DMA moves raw bytes without interpreting
+        element semantics.  The consumer reinterprets the received bit
+        pattern according to its own tensor<T, N> layout.
+
+        A standard InsertDWC-produced DWC would inherit this byte-level
+        datatype and require outWidth % 8 == 0, which does not hold for
+        compute nodes whose stream widths are not byte-aligned (e.g. 7
+        binary elements = 7 bits).  InsertDWC therefore still skips IODMA
+        edges (see insert_dwc.py:_suitable_node); the IODMA-adjacent DWCs
+        are created here instead.
+
+        After this method returns, the IODMA node's streamWidth equals its
+        intfWidth, making it a straight-through DMA with no internal width
+        conversion.
+        """
+        dma_inst = getCustomOp(dma_node)
+        intfw = dma_inst.get_nodeattr("intfWidth")
+        strmw = dma_inst.get_nodeattr("streamWidth")
+        if intfw == strmw:
+            return
+
+        direction = dma_inst.get_nodeattr("direction")
+        dtype = dma_inst.get_nodeattr("dataType")
+        shape = list(dma_inst.get_normal_output_shape())
+
+        if direction == "in":
+            # DMA → DWC → consumer: splice DWC on IODMA's output side
+            dwc_in_width = intfw
+            dwc_out_width = strmw
+            # create intermediate tensor for IODMA → DWC edge
+            orig_out = dma_node.output[0]
+            new_tensor = oh.make_tensor_value_info(
+                model.make_new_valueinfo_name(),
+                TensorProto.FLOAT,
+                shape,
+            )
+            model.graph.value_info.append(new_tensor)
+            dma_node.output[0] = new_tensor.name
+            dwc_node = oh.make_node(
+                "StreamingDataWidthConverter",
+                [new_tensor.name],
+                [orig_out],
+                domain="finn.custom_op.fpgadataflow",
+                backend="fpgadataflow",
+                shape=shape,
+                inWidth=dwc_in_width,
+                outWidth=dwc_out_width,
+                dataType=dtype,
+            )
+            model.graph.node.append(dwc_node)
+        else:
+            # producer → DWC → DMA: splice DWC on IODMA's input side
+            dwc_in_width = strmw
+            dwc_out_width = intfw
+            # create intermediate tensor for DWC → IODMA edge
+            orig_in = dma_node.input[0]
+            new_tensor = oh.make_tensor_value_info(
+                model.make_new_valueinfo_name(),
+                TensorProto.FLOAT,
+                shape,
+            )
+            model.graph.value_info.append(new_tensor)
+            dma_node.input[0] = new_tensor.name
+            dwc_node = oh.make_node(
+                "StreamingDataWidthConverter",
+                [orig_in],
+                [new_tensor.name],
+                domain="finn.custom_op.fpgadataflow",
+                backend="fpgadataflow",
+                shape=shape,
+                inWidth=dwc_in_width,
+                outWidth=dwc_out_width,
+                dataType=dtype,
+            )
+            model.graph.node.append(dwc_node)
+
+        # make IODMA straight-through: adjust streamWidth, NumChannels, and
+        # numInputVectors so that total_bytes is preserved.
+        old_vecs = list(dma_inst.get_nodeattr("numInputVectors"))
+        old_nc = dma_inst.get_nodeattr("NumChannels")
+        itype_bits = dma_inst.get_input_datatype().bitwidth()
+        new_nc = intfw // itype_bits
+        total_elems = int(np.prod(old_vecs)) * old_nc
+        assert total_elems % new_nc == 0, "Total element count must be divisible by new NumChannels"
+        dma_inst.set_nodeattr("streamWidth", intfw)
+        dma_inst.set_nodeattr("NumChannels", new_nc)
+        dma_inst.set_nodeattr("numInputVectors", [total_elems // new_nc])
+
     def apply(self, model):
         modified = False
         # only makes sense for a pure fpgadataflow graph -- so we check!
@@ -130,8 +228,6 @@ class InsertIODMA(Transformation):
                     model.graph.value_info.append(first_node_in)
                     model.set_tensor_datatype(first_node_in.name, in_dtype)
                     # reroute first node input
-                    # FIXME: currently always using 8-bit dtypes to work around the
-                    # padding problems for i/o DMA
                     first_node.input[0] = first_node_in.name
                     dma_node = oh.make_node(
                         "IODMA_hls",
@@ -147,6 +243,8 @@ class InsertIODMA(Transformation):
                         backend="fpgadataflow",
                     )
                     model.graph.node.insert(0, dma_node)
+                    # protobuf copies on insert; use the in-graph node
+                    self._insert_iodma_dwc(model, model.graph.node[0])
                     modified = True
         # insert IODMAs for graph outputs
         if self.insert_output:
@@ -177,8 +275,6 @@ class InsertIODMA(Transformation):
                     model.set_tensor_datatype(final_node_out.name, out_dtype)
                     # reroute final node output to final_node_out_name
                     final_node.output[0] = final_node_out.name
-                    # FIXME: currently always using 8-bit dtypes to work around the
-                    # padding problems for i/o DMA
                     dma_node = oh.make_node(
                         "IODMA_hls",
                         [final_node_out.name],
@@ -193,6 +289,8 @@ class InsertIODMA(Transformation):
                         backend="fpgadataflow",
                     )
                     model.graph.node.append(dma_node)
+                    # protobuf copies on append; use the in-graph node
+                    self._insert_iodma_dwc(model, model.graph.node[-1])
                     modified = True
         if self.insert_extmemw:
             # parse matrixvectoractivation layers looking for external weights with no
@@ -245,6 +343,8 @@ class InsertIODMA(Transformation):
                 )
                 fc_node.input[1] = fc_node_in.name
                 model.graph.node.insert(0, dma_node)
+                # protobuf copies on insert; use the in-graph node
+                self._insert_iodma_dwc(model, model.graph.node[0])
                 # expand inFIFODepths for new second input of node
                 infifo_depth = fc_inst.get_nodeattr("inFIFODepths")
                 infifo_depth.append(8)

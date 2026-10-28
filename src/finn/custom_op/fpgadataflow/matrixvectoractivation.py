@@ -42,7 +42,11 @@ from qonnx.util.basic import (
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 from finn.util.basic import fifo_rtl_files, is_versal, least_divisor_at_most
-from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
+from finn.util.data_packing import (
+    hls_datatype_str,
+    numpy_to_hls_code,
+    pack_innermost_dim_as_hex_string,
+)
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation:
 # input 0 is the input tensor, shape (.., i_size) = (..., MW)
@@ -792,7 +796,7 @@ class MVAU(HWCustomOp):
             f_weights = open(weight_file_name, "w")
             f_weights.write(
                 "const tensor<{}, {}, {}> weights[{}] = ".format(
-                    export_wdt.get_hls_datatype_str(), pe, simd, wmem
+                    hls_datatype_str(export_wdt), pe, simd, wmem
                 )
             )
             f_weights.write(weight_hls_code)
@@ -988,12 +992,12 @@ class MVAU(HWCustomOp):
                 )
                 # write thresholds into thresh.h
                 f_thresh = open("{}/thresh.h".format(code_gen_dir), "w")
-                tdt_hls = tdt.get_hls_datatype_str()
+                tdt_hls = hls_datatype_str(tdt)
                 # use binary to export bipolar activations
                 export_odt = self.get_output_datatype()
                 if self.get_output_datatype() == DataType["BIPOLAR"]:
                     export_odt = DataType["BINARY"]
-                odt_hls = export_odt.get_hls_datatype_str()
+                odt_hls = hls_datatype_str(export_odt)
                 f_thresh.write(
                     "static ThresholdsActivation<{},{},{},{},{},{},{}> threshs \
                     = ".format(

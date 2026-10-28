@@ -27,7 +27,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import math
 import numpy as np
 import os
 import warnings
@@ -36,6 +35,7 @@ from qonnx.core.datatype import DataType
 from finn.custom_op.fpgadataflow import templates
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.data_packing import hls_datatype_str
 
 # the IODMA inerfaces a memory-mapped AXI interface and an AXI stream
 # direction "in": pulls data from AXI-MM to AXI stream
@@ -192,13 +192,11 @@ class IODMA_hls(HWCustomOp, HLSBackend):
         return ovalues
 
     def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "dma.hpp"']
-        self.code_gen_dict["$GLOBALS$"].append('#include "dwc.hpp"')
-        self.code_gen_dict["$GLOBALS$"].append("#include <hls_task.h>")
+        self.code_gen_dict["$GLOBALS$"] = ['#include "dma.hpp"', '#include "tensor.hpp"']
 
     def defines(self, var):
         itype_bits = self.get_input_datatype().bitwidth()
-        elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
+        elem_hls_type = hls_datatype_str(self.get_input_datatype())
         total_bits = itype_bits * np.prod(self.get_normal_input_shape())
         assert total_bits % 8 == 0, "DMA input not a multiple of 1 Byte"
         total_bytes = total_bits // 8
@@ -212,10 +210,7 @@ class IODMA_hls(HWCustomOp, HLSBackend):
 
     def get_ap_int_max_w(self):
         "Return the maximum width of any ap_int used in this module."
-        instream = self.get_instream_width()
-        outstream = self.get_outstream_width()
-        width_lcm = (instream * outstream) // math.gcd(instream, outstream)
-        return width_lcm
+        return self.get_nodeattr("intfWidth")
 
     def docompute(self):
         direction = self.get_nodeattr("direction")
@@ -229,91 +224,21 @@ class IODMA_hls(HWCustomOp, HLSBackend):
             func = "Stream2Mem_Batch"
         else:
             raise ValueError("Invalid IODMA direction, please set to in or out")
-        dma_inst_template = func + "<DmaWord, NumBytes1>(%s, %s, numReps);"
-        elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
-        itype_bits = self.get_input_datatype().bitwidth()
-        intfw = self.get_nodeattr("intfWidth")
-        strmw = self.get_nodeattr("streamWidth")
-        width_lcm = (strmw * intfw) // math.gcd(strmw, intfw)
-        n_intf = intfw // itype_bits
-        n_strm = strmw // itype_bits
-        n_lcm = width_lcm // itype_bits
-
-        if direction == "in":
-            # AXI MM -> IODMA -> (DWCs) -> out
-            if strmw == intfw:
-                # case 0: no DWC needed
-                self.code_gen_dict["$DOCOMPUTE$"] = [dma_inst_template % ("in0_V", "out0_V")]
-            elif (strmw % intfw == 0) or (intfw % strmw == 0):
-                # case 1: single DWC wrapped as hls::task
-                self.code_gen_dict["$DOCOMPUTE$"] = [
-                    "hls_thread_local hls::stream<tensor<%s, %d>> dma2dwc;"
-                    % (elem_hls_type, n_intf),
-                    "hls_thread_local hls::task t1("
-                    "StreamingDWC<%s, %d, %d>, dma2dwc, out0_V);" % (elem_hls_type, n_intf, n_strm),
-                    dma_inst_template % ("in0_V", "dma2dwc"),
-                ]
-            else:
-                # case 2: two DWCs through LCM width, each as hls::task
-                self.code_gen_dict["$DOCOMPUTE$"] = [
-                    "hls_thread_local hls::stream<tensor<%s, %d>> dma2lcm;"
-                    % (elem_hls_type, n_intf),
-                    "hls_thread_local hls::stream<tensor<%s, %d>> lcm2out;"
-                    % (elem_hls_type, n_lcm),
-                    "hls_thread_local hls::task t1("
-                    "StreamingDWC<%s, %d, %d>, dma2lcm, lcm2out);" % (elem_hls_type, n_intf, n_lcm),
-                    "hls_thread_local hls::task t2("
-                    "StreamingDWC<%s, %d, %d>, lcm2out, out0_V);" % (elem_hls_type, n_lcm, n_strm),
-                    dma_inst_template % ("in0_V", "dma2lcm"),
-                ]
-        elif direction == "out":
-            # in0 -> (DWCs) -> IODMA -> AXI MM
-            if strmw == intfw:
-                # case 0: no DWC needed
-                self.code_gen_dict["$DOCOMPUTE$"] = [dma_inst_template % ("in0_V", "out0_V")]
-            elif (strmw % intfw == 0) or (intfw % strmw == 0):
-                # case 1: single DWC wrapped as hls::task
-                self.code_gen_dict["$DOCOMPUTE$"] = [
-                    "hls_thread_local hls::stream<tensor<%s, %d>> dwc2dma;"
-                    % (elem_hls_type, n_intf),
-                    "hls_thread_local hls::task t1("
-                    "StreamingDWC<%s, %d, %d>, in0_V, dwc2dma);" % (elem_hls_type, n_strm, n_intf),
-                    dma_inst_template % ("dwc2dma", "out0_V"),
-                ]
-            else:
-                # case 2: two DWCs through LCM width, each as hls::task
-                self.code_gen_dict["$DOCOMPUTE$"] = [
-                    "hls_thread_local hls::stream<tensor<%s, %d>> in2lcm;" % (elem_hls_type, n_lcm),
-                    "hls_thread_local hls::stream<tensor<%s, %d>> lcm2dma;"
-                    % (elem_hls_type, n_intf),
-                    "hls_thread_local hls::task t1("
-                    "StreamingDWC<%s, %d, %d>, in0_V, in2lcm);" % (elem_hls_type, n_strm, n_lcm),
-                    "hls_thread_local hls::task t2("
-                    "StreamingDWC<%s, %d, %d>, in2lcm, lcm2dma);" % (elem_hls_type, n_lcm, n_intf),
-                    dma_inst_template % ("lcm2dma", "out0_V"),
-                ]
-        else:
-            raise Exception("Unknown IODMA direction: %s" % direction)
+        # Width conversion (if any) is handled by external DWC nodes inserted
+        # by InsertIODMA._insert_iodma_dwc, so streamWidth == intfWidth here.
+        self.code_gen_dict["$DOCOMPUTE$"] = [func + "<DmaWord, NumBytes1>(in0_V, out0_V, numReps);"]
 
     def blackboxfunction(self):
-        elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
-        itype_bits = self.get_input_datatype().bitwidth()
-        intfw = self.get_nodeattr("intfWidth")
-        strmw = self.get_nodeattr("streamWidth")
-        n_intf = intfw // itype_bits
-        n_strm = strmw // itype_bits
-        tensor_intf = "tensor<%s, %d>" % (elem_hls_type, n_intf)
-        tensor_strm = "tensor<%s, %d>" % (elem_hls_type, n_strm)
         direction = self.get_nodeattr("direction")
         if direction == "in":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                "void %s(%s *in0_V, hls::stream<%s> &out0_V, unsigned int numReps)"
-                % (self.onnx_node.name, tensor_intf, tensor_strm)
+                "void %s(DmaWord *in0_V, hls::stream<DmaWord> &out0_V, unsigned int numReps)"
+                % self.onnx_node.name
             ]
         elif direction == "out":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                "void %s(hls::stream<%s> &in0_V, %s *out0_V, unsigned int numReps)"
-                % (self.onnx_node.name, tensor_strm, tensor_intf)
+                "void %s(hls::stream<DmaWord> &in0_V, DmaWord *out0_V, unsigned int numReps)"
+                % self.onnx_node.name
             ]
         else:
             raise ValueError("Invalid IODMA direction, please set to in or out")

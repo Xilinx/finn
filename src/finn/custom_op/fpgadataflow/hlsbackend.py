@@ -38,7 +38,11 @@ from qonnx.core.datatype import DataType
 from finn import xsi
 from finn.custom_op.fpgadataflow import templates
 from finn.util.basic import CppBuilder, make_build_dir
-from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from finn.util.data_packing import (
+    hls_datatype_str,
+    npy_to_rtlsim_input,
+    rtlsim_output_to_npy,
+)
 from finn.util.hls import CallHLS
 
 finnxsi = xsi if xsi.is_available() else None
@@ -433,7 +437,7 @@ compilation transformations?
             if not self.get_instream_width(i):
                 continue
             dtype = self.get_input_datatype(i)
-            npy_type = "half" if dtype.get_hls_datatype_str() == "half" else "float"
+            npy_type = "half" if hls_datatype_str(dtype) == "half" else "float"
             npy_in = "%s/input_%s.npy" % (code_gen_dir, i)
             self.code_gen_dict["$READNPYDATA$"].append(
                 'npy2tensorstream<%s>("%s", in%s_V);' % (npy_type, npy_in, i)
@@ -448,7 +452,7 @@ compilation transformations?
         for i, inp in enumerate(node.input):
             if self.get_instream_width(i):
                 dtype = self.get_input_datatype(i)
-                elem_hls_type = dtype.get_hls_datatype_str()
+                elem_hls_type = hls_datatype_str(dtype)
                 n_elems = self.get_folded_input_shape(i)[-1]
                 self.code_gen_dict["$STREAMDECLARATIONS$"].append(
                     'hls::stream<tensor<{},{}>> in{}_V ("in{}_V");'.format(
@@ -458,7 +462,7 @@ compilation transformations?
         for o, outp in enumerate(node.output):
             if self.get_outstream_width(o):
                 dtype = self.get_output_datatype(o)
-                elem_hls_type = dtype.get_hls_datatype_str()
+                elem_hls_type = hls_datatype_str(dtype)
                 n_elems = self.get_folded_output_shape(o)[-1]
                 self.code_gen_dict["$STREAMDECLARATIONS$"].append(
                     'hls::stream<tensor<{},{}>> out{}_V ("out{}_V");'.format(
@@ -488,7 +492,7 @@ compilation transformations?
 
         for o, outp in enumerate(self.onnx_node.output):
             dtype = self.get_output_datatype(o)
-            elem_hls_type = dtype.get_hls_datatype_str()
+            elem_hls_type = hls_datatype_str(dtype)
             npy_type = "half" if elem_hls_type == "half" else "float"
             npy_out = "%s/output_%s.npy" % (code_gen_dir, o)
             oshape = self.get_folded_output_shape(o)

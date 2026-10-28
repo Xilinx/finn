@@ -35,6 +35,7 @@ from qonnx.core.modelwrapper import ModelWrapper
 
 from finn.custom_op.fpgadataflow import register_custom_op
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.data_packing import hls_datatype_str
 
 
 # Generic implementation for elementwise binary operations
@@ -925,7 +926,7 @@ class ElementwiseMax(ElementwiseBinaryOperation):
     # C++ operation template available as property
     @property
     def cpp_op(self) -> str:
-        odt_hls_name = self.out_dtype.get_hls_datatype_str()
+        odt_hls_name = hls_datatype_str(self.out_dtype)
         return "({0} >= {1} ? (%s){0} : (%s){1})" % (odt_hls_name, odt_hls_name)
 
     # RTL operation template available as property

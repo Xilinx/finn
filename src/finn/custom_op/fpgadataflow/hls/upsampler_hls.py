@@ -28,6 +28,7 @@
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour
+from finn.util.data_packing import hls_datatype_str
 
 
 class UpsampleNearestNeighbour_hls(UpsampleNearestNeighbour, HLSBackend):
@@ -71,8 +72,8 @@ class UpsampleNearestNeighbour_hls(UpsampleNearestNeighbour, HLSBackend):
         ]
 
     def blackboxfunction(self):
-        input_elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
-        output_elem_hls_type = self.get_output_datatype().get_hls_datatype_str()
+        input_elem_hls_type = hls_datatype_str(self.get_input_datatype())
+        output_elem_hls_type = hls_datatype_str(self.get_output_datatype())
         i_n_elems = self.get_folded_input_shape()[-1]
         o_n_elems = self.get_folded_output_shape()[-1]
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
