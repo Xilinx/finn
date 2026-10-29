@@ -218,7 +218,9 @@ ${FINN_CI_NFS_ROOT}/artifacts/ci_runs/<jobKey>/<BUILD>/
 
 The `.READY` marker is the build-to-HW handshake. It is touched only after the aggregated zip has been renamed into place, so a half-written zip or an aborted shard never leaves a READY pointing at incomplete bytes. `FINN_CI_NFS_ROOT` is required for any build run that expects bitstream inputs (for example, Jenkinsfile_HW).
 
-HW resolves each `(testType, board)` pair independently to the newest build under `ci_runs/<jobKey>/` whose `<board>.zip.READY` sibling is present. A board whose build failed has no READY this build, so HW falls back to that board's previous READY. Fallback is measured per test type, against the newest build that published a READY zip for that test type, so a build that published none of them does not make every board look stale. It marks the HW build UNSTABLE unless `allow_fallback` is set on the HW job. There is no global READY marker, so the per-board markers are the whole handshake.
+A shard stages its deployments whether or not all of its tests passed, because a test only writes a package after its own checks passed. A board whose shards had failures still gets a zip of the models that built, and only an aborted or timed-out shard stages nothing.
+
+HW resolves each `(testType, board)` pair independently to the newest build under `ci_runs/<jobKey>/` whose `<board>.zip.READY` sibling is present. A board with no staged deployment in a build has no READY that build, so HW falls back to that board's previous READY. Fallback is measured per test type, against the newest build that published a READY zip for that test type, so a build that published none of them does not make every board look stale. It marks the HW build UNSTABLE unless `allow_fallback` is set on the HW job. There is no global READY marker, so the per-board markers are the whole handshake.
 
 A `STAGES` row that produces these zips declares a `zipArtifacts` nested key:
 
