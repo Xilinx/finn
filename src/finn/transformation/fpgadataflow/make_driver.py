@@ -481,8 +481,14 @@ class MakePYNQDriver(Transformation):
                     dma_sdp_output = sdp_inst.onnx_node.output[0]
                     dma_target_sdp = getCustomOp(model.find_consumer(dma_sdp_output))
                     dma_target_model = ModelWrapper(dma_target_sdp.get_nodeattr("model"))
-                    iodma_output_tensor = iodma_node.onnx_node.output[0]
-                    dma_consumer = dma_target_model.find_consumer(iodma_output_tensor)
+                    # the DMA partition may also hold a DWC after the IODMA, so follow
+                    # the partition output (not the IODMA output) into the target
+                    # partition. Use the name inside the partition files, the parent
+                    # graph's tensors are renamed after partitioning. Skip the FIFOs
+                    # inserted per kernel to reach the layer consuming the weights.
+                    dma_consumer = dma_target_model.find_consumer(df_model.graph.output[0].name)
+                    while dma_consumer.op_type.startswith("StreamingFIFO"):
+                        dma_consumer = dma_target_model.find_consumer(dma_consumer.output[0])
                     ext_weight_shapes_dict[idma_name] = dma_target_model.get_tensor_shape(
                         dma_consumer.output[0]
                     )
