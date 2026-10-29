@@ -29,12 +29,35 @@ model_dir_markers = ("driver.py", "input.npy")
 packaging_skip_prefix = "incomplete deployment package:"
 
 
+def should_skip_test(test_name):
+    """Check if a test method should be skipped based on FINN_CI_TEST_SKIP env var.
+
+    Args:
+        test_name: Name of the test method ("execute" or "throughput")
+
+    Returns:
+        True if the test should be skipped, False otherwise.
+    """
+    test_skip_raw = os.environ.get("FINN_CI_TEST_SKIP", "")
+    if not test_skip_raw:
+        return False
+    skip_list = [x.strip().lower() for x in test_skip_raw.split(",") if x.strip()]
+    return test_name.lower() in skip_list
+
+
 def find_model_dirs(parent_dir):
     # Maps each model directory to the markers it lacks, empty when it is whole.
     # A directory carrying none of them is a cache, or anything else the unpacked
     # board zip happens to contain, and was never a test.
     dirs = {}
+    # Get model exclusion list from environment (comma-separated substrings)
+    model_exclude_raw = os.environ.get("FINN_CI_MODEL_EXCLUDE", "")
+    model_exclude = [x.strip() for x in model_exclude_raw.split(",") if x.strip()]
     for name in os.listdir(parent_dir):
+        # Skip models matching any exclusion pattern
+        if model_exclude and any(excl in name for excl in model_exclude):
+            logger.info(f"Excluding model directory '{name}' (matches FINN_CI_MODEL_EXCLUDE)")
+            continue
         missing = [
             m for m in model_dir_markers if not os.path.isfile(os.path.join(parent_dir, name, m))
         ]
@@ -57,6 +80,20 @@ def delete_file(file_path):
 
 def get_platform(board_str):
     return "vitis-xrt" if "U55C" in board_str else "pynq-iodma"
+
+
+def get_bitfile(platform):
+    """Name the bitfile shipped in the current model directory.
+
+    BNN packages carry the legacy resizer.bit, while build_dataflow deployment
+    packages carry finn-accel.bit, so a Zynq bitfile is looked up rather than
+    assumed. Alveo packages always ship a.xclbin.
+    """
+    if platform == "vitis-xrt":
+        return "a.xclbin"
+    bitfiles = sorted(f for f in os.listdir(".") if f.endswith(".bit"))
+    assert len(bitfiles) == 1, f"expected one .bit file in {os.getcwd()}, found {bitfiles}"
+    return bitfiles[0]
 
 
 def get_full_parameterized_test_list(marker, test_dir_list, batch_size_list, platform_list):
@@ -138,12 +175,14 @@ def pytest_generate_tests(metafunc):
 @pytest.mark.KV260_SOM
 class TestBnn:
     def test_type_execute(self, test_dir, batch_size, platform):
+        if should_skip_test("execute"):
+            pytest.skip("Skipped via FINN_CI_TEST_SKIP=execute")
         # Enter into test directory and clean any files from a potential previous run
         os.chdir(os.path.join(base_dir_global, test_dir))
         delete_file(output_execute_results_file)
 
         # Run test option: execute
-        bitfile = "a.xclbin" if platform == "vitis-xrt" else "resizer.bit"
+        bitfile = get_bitfile(platform)
         result = subprocess.run(
             [
                 "python",
@@ -173,11 +212,13 @@ class TestBnn:
             raise
 
     def test_type_throughput(self, test_dir, batch_size, platform):
+        if should_skip_test("throughput"):
+            pytest.skip("Skipped via FINN_CI_TEST_SKIP=throughput")
         os.chdir(os.path.join(base_dir_global, test_dir))
         delete_file(output_throughput_results_file)
 
         # Run test option: throughput
-        bitfile = "a.xclbin" if platform == "vitis-xrt" else "resizer.bit"
+        bitfile = get_bitfile(platform)
         result = subprocess.run(
             [
                 "python",
