@@ -1271,9 +1271,6 @@ class InferPool(Transformation):
                 if not idt.is_integer():
                     continue
 
-                if (kh < sh) or (kw < sw):
-                    continue
-
                 odt = model.get_tensor_datatype(node_output)
 
                 if dlayout == "NCHW":

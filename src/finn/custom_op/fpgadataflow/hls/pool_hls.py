@@ -136,17 +136,11 @@ class Pool_hls(Pool, HLSBackend):
             lines.append("#pragma HLS stream depth=2 variable=padded")
             lines.append('static hls::stream<%s>  feed("feed");' % flit_dt)
             lines.append("#pragma HLS stream depth=2 variable=feed")
-            # Build pad value initializer
-            lines.append("{")
-            lines.append("  %s pad_val;" % i_tensor_dt)
+            # Build pad value initializer (broadcasting constructor)
             lines.append(
-                "  for(unsigned i = 0; i < PE; i++) pad_val[i] = %s(%d);"
-                % (hls_datatype_str(idt), pad_val)
+                "pad<IFM_H, IFM_W, CF, PAD_N, PAD_E, PAD_S, PAD_W>"
+                "(in0_V, padded, %s(%s(%d)));" % (i_tensor_dt, hls_datatype_str(idt), pad_val)
             )
-            lines.append(
-                "  pad<IFM_H, IFM_W, CF, PAD_N, PAD_E, PAD_S, PAD_W>(in0_V, padded, pad_val);"
-            )
-            lines.append("}")
             lines.append("%s(padded, feed);" % ig_call)
             lines.append("%s(feed, out0_V);" % pool_call)
         else:

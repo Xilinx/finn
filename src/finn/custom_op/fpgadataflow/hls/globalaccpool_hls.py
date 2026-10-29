@@ -32,7 +32,7 @@ from finn.util.data_packing import hls_datatype_str
 
 
 class GlobalAccPool_hls(GlobalAccPool, HLSBackend):
-    """Class that corresponds to finn-hlslib AccPool_Batch function."""
+    """Class that corresponds to finn-hlslib pool_global function."""
 
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
@@ -61,11 +61,11 @@ class GlobalAccPool_hls(GlobalAccPool, HLSBackend):
             self.get_nodeattr("inputDataType")
             info_messages.append("All necessary attributes exist")
         except Exception:
-            info_messages.append("""The required GlobalAccPool_Batch attributes do not exist.""")
+            info_messages.append("""The required GlobalAccPool attributes do not exist.""")
 
         # verify that input data is 2D
         if len(self.get_nodeattr("numInputVectors")) != 3:
-            info_messages.append("""GlobalAccPool_Batch requires 2D data input.""")
+            info_messages.append("""GlobalAccPool requires 2D data input.""")
             raise Exception
 
         return info_messages
@@ -77,27 +77,34 @@ class GlobalAccPool_hls(GlobalAccPool, HLSBackend):
         self.code_gen_dict["$GLOBALS$"] = ['#include "pool.hpp"']
 
     def defines(self, var):
-        self.code_gen_dict["$DEFINES$"] = []
+        pe = self.get_nodeattr("PE")
+        ch = self.get_nodeattr("NumChannels")
+        cf = ch // pe
+        ishape = self.get_normal_input_shape()
+        pixels = ishape[1] * ishape[2]
+        self.code_gen_dict["$DEFINES$"] = [
+            "static constexpr unsigned PE = {};".format(pe),
+            "static constexpr unsigned CF = {};".format(cf),
+            "static constexpr unsigned PIXELS = {};".format(pixels),
+        ]
 
     def docompute(self):
+        pe = self.get_nodeattr("PE")
+        odt = self.get_output_datatype()
+        o_tensor_dt = "tensor<%s, %d>" % (hls_datatype_str(odt), pe)
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """AccPool_Batch<{}, {}, {}, {}, {}> (in0_V, out0_V);""".format(
-                self.get_normal_input_shape()[1],
-                self.get_nodeattr("NumChannels"),
-                hls_datatype_str(self.get_input_datatype()),
-                self.get_nodeattr("PE"),
-                hls_datatype_str(self.get_output_datatype()),
-            )
+            "pool_global<SumPool<%s>, CF, PIXELS>(in0_V, out0_V);" % (o_tensor_dt)
         ]
 
     def timeout_value(self):
-        """AccPool_Batch is function-pipelined and processes one input per call.
-        It needs NumChannels/PE * ImgDim^2 calls before the first output, so the
+        """pool_global is function-pipelined and processes one input per call.
+        It needs CF * PIXELS calls before the first output, so the
         default timeout of 1000 is insufficient for large configurations."""
-        img_dim = self.get_normal_input_shape()[1]
+        ishape = self.get_normal_input_shape()
+        pixels = ishape[1] * ishape[2]
         num_ch = self.get_nodeattr("NumChannels")
         pe = self.get_nodeattr("PE")
-        total_inputs = (num_ch // pe) * img_dim * img_dim
+        total_inputs = (num_ch // pe) * pixels
         self.code_gen_dict["$TIMEOUT_VALUE$"] = [str(total_inputs + 1000)]
 
     def ipgen_extra_directives(self):
