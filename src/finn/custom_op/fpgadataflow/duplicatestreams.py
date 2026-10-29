@@ -31,7 +31,6 @@ import warnings
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
-from finn.util.basic import Characteristic_Node
 
 
 class DuplicateStreams(HWCustomOp):
@@ -148,29 +147,6 @@ class DuplicateStreams(HWCustomOp):
         output = np.asarray([output], dtype=np.float32).reshape(*exp_shape)
         for outp in node.output:
             context[outp] = output
-
-    def get_tree_model(self):
-        """A fork is transparent: every output beat leaves on the cycle it arrives.
-
-        ``DuplicateStreams`` has no storage and no rate change. Its HLS loop reads
-        one folded word and writes the same word to each output in the same
-        iteration, pipelined at II=1, so the schedule is one solid run of
-        read-and-write cycles as long as the folded frame -- no wind-up, no gap,
-        and nothing that depends on the number of outputs.
-
-        The single run is also why this node is in ``_TRANSPARENT_OPS`` in the
-        chained-TAV pass: with writes on the same cycle as the read, the fork's
-        own output edges can never accumulate occupancy, so sizing them from this
-        schedule alone would say every branch needs depth 1. What a branch really
-        needs is decided at the *join*, from the imbalance between the two paths.
-        """
-
-        dim = np.prod(self.get_folded_output_shape()[1:-1])
-
-        read_write = Characteristic_Node("passing duplicate layer", [(dim, [1, 1])], True)
-        duplicatestreams_top = Characteristic_Node("compute duplicate", [(1, read_write)], False)
-
-        return duplicatestreams_top  # top level phase of this node
 
     def derive_token_access_vectors(
         self, model, period, strategy, fpga_part, clk_period, op_type, override_dict=None

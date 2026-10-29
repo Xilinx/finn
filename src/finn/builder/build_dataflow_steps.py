@@ -110,11 +110,13 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
 )
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.derive_characteristic import (
-    DeriveFIFOSizes,
     DeriveTokenAccessVectors,
     JustInTimeSynthesize,
 )
 from finn.transformation.fpgadataflow.export_portable_rtl import ExportPortableRTL
+from finn.transformation.fpgadataflow.fifo_sizing.derive_fifo_sizes import (
+    DeriveFIFOSizes,
+)
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO

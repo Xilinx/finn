@@ -28,6 +28,7 @@ from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferCrop
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.fifo_sizing.tree_models.base import get_tree_model
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
@@ -300,7 +301,7 @@ def test_crop_rtl_tree_model_token_counts():
         config = param.values[0]
         model = make_crop_rtl_tree_model(config, part)
         crop = getCustomOp(model.graph.node[0])
-        tree = crop.get_tree_model()
+        tree = get_tree_model(crop)
         assert tree is not None, config
         cum = tree.cumulative(periods=1)
         n_in = int(np.prod(crop.get_folded_input_shape()[:-1]))
@@ -312,4 +313,4 @@ def test_crop_rtl_tree_model_token_counts():
     # the backend-agnostic node is no circuit and so has no schedule
     model = make_crop_modelwrapper([1, 8, 16], 1, [0, 1, 2, 3], DataType["INT8"])
     model = model.transform(InferCrop())
-    assert getCustomOp(model.graph.node[0]).get_tree_model() is None
+    assert get_tree_model(getCustomOp(model.graph.node[0])) is None

@@ -15,6 +15,7 @@ import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferSelectTokenLayer
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.fifo_sizing.tree_models.base import get_tree_model
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
@@ -218,7 +219,7 @@ def test_selecttoken_rtl_tree_model_token_counts():
         num_tokens, num_channels, token_index, simd, _ = config
         model = make_selecttoken_rtl_tree_model(config, part)
         node = getCustomOp(model.graph.node[0])
-        tree = node.get_tree_model()
+        tree = get_tree_model(node)
         assert tree is not None, config
         cum = tree.cumulative(periods=1)
         cf = num_channels // simd
@@ -228,6 +229,6 @@ def test_selecttoken_rtl_tree_model_token_counts():
         # the writes are the selected token's folds, in order, one per cycle
         selected = token_index % num_tokens
         wr = np.flatnonzero(np.diff(np.concatenate(([0], cum[:, 1]))))
-        # the core's 2-cycle read-to-write latency; see Crop.get_tree_model
+        # the core's 2-cycle read-to-write latency; see CropModel
         first = (selected * cf + 2) % cum.shape[0]
         assert np.array_equal(np.sort(wr), np.sort((first + np.arange(cf)) % cum.shape[0]))

@@ -51,6 +51,8 @@ from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_es
 from finn.core.rtlsim_exec import rtlsim_exec
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.fifo_sizing.tav import load_tav_npy
+from finn.transformation.fpgadataflow.fifo_sizing.tree_models.base import get_tree_model
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
@@ -66,7 +68,7 @@ from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODep
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.general import ApplyConfig
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import is_versal, load_tav_npy
+from finn.util.basic import is_versal
 from finn.util.test import (
     get_hls_synth_interval,
     make_runtime_weight_stream,
@@ -1123,7 +1125,7 @@ def test_fpgadataflow_analytical_characterization_mvau_tiled(mw_pe_simd_th, mem_
     Compared *up to one shared phase offset*: the tiled schedule's steady state
     is modelled exactly but its wind-up is not, so the tree model places the
     frame at its natural phase rather than at the one rtlsim's two-period window
-    happens to cut. See the tiled branch of ``MVAU.get_tree_model``. Everything
+    happens to cut. See the tiled branch of ``MVAURtlModel.tiled_schedule``. Everything
     that phase offset does not cover -- token counts per period, the period
     itself, and the read-to-write relationship the sizer integrates -- is still
     asserted exactly.
@@ -1179,7 +1181,7 @@ def test_mvau_tree_model_declines_unmodelled_mem_modes(mem_mode, simd):
     when its ``dynamic_load`` cannot refill a matrix while the other one is
     replayed (``numInputVectors[-1] < SIMD``).
 
-    ``get_tree_model`` must decline them and let the node fall back to rtlsim
+    the tree model must decline them and let the node fall back to rtlsim
     rather than hand out the internal_decoupled shape. No Vivado: this only asks
     what the tree model returns.
     """
@@ -1190,7 +1192,7 @@ def test_mvau_tree_model_declines_unmodelled_mem_modes(mem_mode, simd):
     inst = getCustomOp(model.graph.node[0])
     inst.set_nodeattr("numInputVectors", [18])
     inst.set_nodeattr("mem_mode", mem_mode)
-    assert inst.get_tree_model() is None
+    assert get_tree_model(inst) is None
 
 
 def make_dynamic_mvau_model(heads, n_vec, mw, mh, pe, simd, impl_style):
@@ -1223,7 +1225,7 @@ def test_mvau_dynamic_tav_streams():
     model = model.transform(SpecializeLayers("xcvc1902-vsva2197-2MP-e-S"))
     node = model.graph.node[0]
     inst = getCustomOp(node)
-    assert inst.get_tree_model() is not None
+    assert get_tree_model(inst) is not None
     inst.derive_token_access_vectors(model, 0, "tree_model", None, None, node.op_type)
     rows = np.atleast_2d(load_tav_npy(inst.get_nodeattr("io_chrc_in")))
     period = inst.get_nodeattr("io_chrc_period")
@@ -1269,7 +1271,7 @@ def test_mvau_tiled_tree_model_token_counts():
     mh, n_vec = 18, 18
 
     def tiled_tree(sf, nf, n_vec, simd, th):
-        """get_tree_model of a bare tiled MVAU_rtl node (PE 1, so NF = MH)."""
+        """Tree model of a bare tiled MVAU_rtl node (PE 1, so NF = MH)."""
         node = helper.make_node(
             "MVAU_rtl",
             ["inp", "weights"],
@@ -1287,7 +1289,7 @@ def test_mvau_tiled_tree_model_token_counts():
             numInputVectors=[n_vec],
             noActivation=1,
         )
-        return getCustomOp(node).get_tree_model()
+        return get_tree_model(getCustomOp(node))
 
     for mw, pe, simd, th in TILED_TAV_CONFIGS:
         sf, nf = mw // simd, mh // pe

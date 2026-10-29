@@ -52,6 +52,8 @@ from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.derive_characteristic import (
     DeriveTokenAccessVectors,
 )
+from finn.transformation.fpgadataflow.fifo_sizing.tav import load_tav_npy
+from finn.transformation.fpgadataflow.fifo_sizing.tree_models.base import get_tree_model
 from finn.transformation.fpgadataflow.make_pynq_proj import PYNQBuild
 from finn.transformation.fpgadataflow.prepare_ip import _codegen_single_node
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
@@ -59,7 +61,6 @@ from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
 )
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import (
-    load_tav_npy,
     make_build_dir,
     pynq_part_map,
     robust_rmtree,
@@ -353,7 +354,7 @@ def get_characteristic_fnc(model, node0, part, target_clk_ns, strategy, caching=
         node = model.graph.node[0]
         inst = getCustomOp(node)
         if (is_hls_node(node) or is_rtl_node(node)) and (
-            inst.get_tree_model() is None or strategy == "rtlsim"
+            get_tree_model(inst) is None or strategy == "rtlsim"
         ):
             _codegen_single_node(node, model, part, target_clk_ns)
 
@@ -390,7 +391,7 @@ def get_characteristic_fnc(model, node0, part, target_clk_ns, strategy, caching=
         node = model.graph.node[0]
         inst = getCustomOp(node)
         if (is_hls_node(node) or is_rtl_node(node)) and (
-            inst.get_tree_model() is None or strategy == "rtlsim"
+            get_tree_model(inst) is None or strategy == "rtlsim"
         ):
             try:
                 inst.prepare_rtlsim()

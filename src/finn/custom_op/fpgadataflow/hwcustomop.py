@@ -33,7 +33,9 @@ from qonnx.custom_op.base import CustomOp
 from qonnx.util.basic import get_by_name, roundup_to_integer_multiple
 
 from finn import xsi
-from finn.util.basic import get_watchdog_timeout_cycles, is_versal, save_tav_npy
+from finn.transformation.fpgadataflow.fifo_sizing.tav import save_tav_npy
+from finn.transformation.fpgadataflow.fifo_sizing.tree_models.base import get_tree_model
+from finn.util.basic import get_watchdog_timeout_cycles, is_versal
 
 finnxsi = xsi if xsi.is_available() else None
 
@@ -313,12 +315,6 @@ class HWCustomOp(CustomOp):
         out_width = self.get_outstream_width(ind=ind)
         return roundup_to_integer_multiple(out_width, 8)
 
-    def get_tree_model(self):
-        """Returns the characteristic function of a node, default is None and forces
-        to skip the analytical characterization of the node and fallback to rtlsim.
-        Implemented in each node, potentially overriding between rtl and hls"""
-        return None
-
     def derive_token_access_vectors(
         self,
         model,
@@ -343,7 +339,7 @@ class HWCustomOp(CustomOp):
             io_dict = override_dict
         if strategy == "tree_model":
             # check for override function
-            if self.get_tree_model() is not None:
+            if get_tree_model(self) is not None:
                 self.derive_token_access_vectors_using_tree_model(period, io_dict=io_dict)
                 return
         # RTL-based flow
@@ -362,7 +358,7 @@ class HWCustomOp(CustomOp):
 
     def derive_token_access_vectors_using_tree_model(self, period, io_dict):
         # Analytical flow
-        chr_node = self.get_tree_model()
+        chr_node = get_tree_model(self)
 
         # The schedule is run-length encoded, so both periods come from one
         # np.repeat plus one cumsum rather than a Python loop per cycle -- the

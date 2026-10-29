@@ -7,7 +7,9 @@ Analytical FIFO sizing from TAVs
 This page describes how ``step_set_fifo_depths`` sizes the FIFOs between
 dataflow layers when ``auto_fifo_strategy`` is ``heuristic_analytical`` or
 ``heuristic_rtlsim``: the *chained-TAV* sizer in
-:py:mod:`finn.transformation.fpgadataflow.derive_characteristic`. The core of
+:py:mod:`finn.transformation.fpgadataflow.fifo_sizing.derive_fifo_sizes`
+(``DeriveFIFOSizes``), from the token access vectors that
+:py:mod:`finn.transformation.fpgadataflow.derive_characteristic` generates. The core of
 the sizer is a schedule simulation; everything on top of it is a rule that
 trades depth for a stated assumption. Each rule is listed below with a measured
 example from a finn-examples model, so that it can be judged (and removed) on
@@ -27,8 +29,9 @@ clock cycle of a frame, how many tokens (stream words, not bits) it has read on
 each input stream and written on each output stream, cumulatively, assuming it
 is never made to wait. Two back-to-back frames are stored, so the second frame
 shows the steady-state phase after the first frame's wind-up. A TAV comes from
-the node's *tree model* (``get_tree_model``, a run-length encoded schedule, used
-by ``heuristic_analytical``) or from an rtlsim of the node alone
+the node's *tree model* (a run-length encoded schedule registered for the
+node's op in :py:mod:`finn.transformation.fpgadataflow.fifo_sizing.tree_models`,
+used by ``heuristic_analytical``) or from an rtlsim of the node alone
 (``heuristic_rtlsim``); ``DeriveTokenAccessVectors`` stores it in the
 ``io_chrc_in`` / ``io_chrc_out`` node attributes and nothing modifies it
 afterwards.
@@ -183,11 +186,11 @@ Node latency
 ------------
 
 *What:* every characterized node's write times are delayed by
-``TAV_PIPELINE_LATENCY`` (32 cycles) plus ``tav_extra_latency()`` of the node
+``TAV_PIPELINE_LATENCY`` (32 cycles) plus the ``extra_latency()`` of the node's tree model
 (``node_latency``; ``InnerShuffle``: one page, ``I * J / SIMD`` cycles, since no
 word of a page leaves before the whole page is in its bank). In the causal pass
 a node's writes are also held to the input blocks of
-``tav_input_blocks()`` (``block_writes``; a dynamic ``MVAU`` computes on the
+its tree model's ``input_blocks()`` (``block_writes``; a dynamic ``MVAU`` computes on the
 whole matrix ``dynamic_load`` buffered from in1, while its TAV reads in1 alongside
 the compute); held words leave at most one per cycle. ``DeriveFIFOSizes`` keeps
 the passes without latency too, so no edge gets smaller than without the rule.
@@ -515,13 +518,13 @@ Join window floor
 (``ElementwiseAdd`` / ``AddStreams``) and of a ``StreamingConcat`` a floor that
 does not come from any TAV (see `Concat joins and sliding windows`_).
 From the join it walks back to the fork its inputs share, composing each
-node's ``tav_input_window()``: output block *b* of ``out_words`` words
+node's ``input_window()`` (from its tree model): output block *b* of ``out_words`` words
 needs the first ``(b + 1) * in_words`` words of the input (default: the ratio
 of the folded frame sizes in lowest terms, so a 48:1 width converter needs 48
 words a word; ``MVAU`` in0 ``(MW / SIMD, MH / PE)``, a vector (TH vectors when tiled); ``HWSoftmax`` a
 row; ``InnerShuffle`` a page; a dynamic ``MVAU``'s in1 the whole matrix; a node
 that reorders a frame gives the need of every output word instead,
-``tav_input_need()``, e.g. ``OuterShuffle`` from its permutation). That
+``input_need()``, e.g. ``OuterShuffle`` from its permutation). That
 gives ``need_i(k)``, the fork words input *i* needs for its first *k* tokens,
 and two backlogs over two frames:
 
@@ -584,7 +587,7 @@ Concat joins and sliding windows
 the greatest common divisor of the input frame sizes, so an add keeps one word a
 token and a concat takes each input's share of a pixel. ``FMPadding``,
 ``ConvolutionInputGenerator`` and ``UpsampleNearestNeighbour`` give the input
-each output word needs (``tav_input_need``): a padding word the input up to
+each output word needs (``input_need()``): a padding word the input up to
 the last real pixel before it, a window its last pixel, an upsampled pixel its
 nearest neighbour. Before, all three counted as one-to-one through the frame
 ratio.

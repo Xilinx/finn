@@ -29,7 +29,7 @@
 
 from qonnx.custom_op.registry import getCustomOp
 
-from finn.util.basic import load_tav_npy
+from finn.transformation.fpgadataflow.fifo_sizing.tav import load_tav_npy
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 

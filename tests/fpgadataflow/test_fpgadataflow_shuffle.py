@@ -34,6 +34,7 @@ from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferShuffle
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.fifo_sizing.tree_models.base import get_tree_model
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
@@ -1045,7 +1046,7 @@ def test_outer_shuffle_tree_model_declines_small_buffer(declining_param):
 
     There the writer waits on the free pointer of its own frame rather than the
     previous one, several times over, so a period stops being one wait of each
-    kind. ``get_tree_model`` must decline and let the node fall back to rtlsim
+    kind. the tree model must decline and let the node fall back to rtlsim
     instead of handing out the three-phase shape. No Vivado: this only asks what
     the tree model returns.
     """
@@ -1066,4 +1067,4 @@ def test_outer_shuffle_tree_model_declines_small_buffer(declining_param):
 
     outer = [n for n in model.graph.node if n.op_type.startswith("OuterShuffle")]
     assert len(outer) == 1, "expected exactly one OuterShuffle to characterize"
-    assert getCustomOp(outer[0]).get_tree_model() is None
+    assert get_tree_model(getCustomOp(outer[0])) is None
