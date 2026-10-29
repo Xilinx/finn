@@ -108,9 +108,10 @@ class InsertFIFO(Transformation):
                     consumer = consumers[0]
                     if _suitable_node(consumer) is True:
                         n0 = getCustomOp(first_node)
-                        # determine fifo node attributes
-                        fld_shape = n0.get_folded_output_shape()
-                        dtype = n0.get_output_datatype()
+                        # determine fifo node attributes, from the output this
+                        # fifo buffers (a split's outputs differ in shape)
+                        fld_shape = n0.get_folded_output_shape(idx_out)
+                        dtype = n0.get_output_datatype(idx_out)
                         n0_otensor = model.get_tensor_valueinfo(output_name)
                         n0_tensor_dtype = n0_otensor.type.tensor_type.elem_type
 
@@ -127,7 +128,7 @@ class InsertFIFO(Transformation):
                         folded output shape of the first node is not the same as the
                         folded output shape of the second node. A streaming fifo can't
                         be implemented in between these nodes."""
-                        n_shape = n0.get_normal_output_shape()
+                        n_shape = n0.get_normal_output_shape(idx_out)
 
                         # check if outFIFOdepths attribute of first node
                         # and inFIFOdepths attribute of consumer node is equal
@@ -145,7 +146,7 @@ class InsertFIFO(Transformation):
                             fifo_output_tensor = oh.make_tensor_value_info(
                                 model.make_new_valueinfo_name(),
                                 n0_tensor_dtype,
-                                n0.get_normal_output_shape(),
+                                n_shape,
                             )
                             graph.value_info.append(fifo_output_tensor)
                             model.set_tensor_datatype(fifo_output_tensor.name, dtype)
