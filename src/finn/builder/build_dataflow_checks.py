@@ -12,6 +12,7 @@ from enum import Enum
 from typing import List, Optional, Tuple
 
 from finn.builder.build_dataflow_config import (
+    AutoFIFOSizingMethod,
     DataflowBuildConfig,
     DataflowOutputType,
     ShellFlowType,
@@ -431,6 +432,33 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                             "this entry from verify_steps",
                         )
                     )
+
+    # === FIFO Sizing Strategy ===
+    # an unknown auto_fifo_strategy only fails in step_set_fifo_depths, partway into
+    # the build, so catch it here
+    if cfg.auto_fifo_depths:
+        strategy = cfg.auto_fifo_strategy
+        valid = [m.value for m in AutoFIFOSizingMethod]
+        checks.append(
+            _check(
+                "auto_fifo_strategy",
+                Severity.ERROR,
+                strategy in valid or strategy == "characterize",
+                f"auto_fifo_strategy={strategy!r} is not a FIFO sizing strategy",
+                "Set auto_fifo_strategy to one of " + ", ".join(valid),
+            )
+        )
+        if strategy == "characterize":
+            checks.append(
+                _check(
+                    "auto_fifo_strategy_deprecated",
+                    Severity.WARNING,
+                    False,
+                    "auto_fifo_strategy 'characterize' has been replaced by 'heuristic_rtlsim' "
+                    "(which it now runs) and will be removed in a future release",
+                    "Set auto_fifo_strategy to 'heuristic_rtlsim' or 'heuristic_analytical'",
+                )
+            )
 
     # === FIFO Debug Logging ===
     # fifo_log_flush_cycles reaches the RTL via int() in _attach_fifo_debug_logs and

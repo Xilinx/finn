@@ -29,6 +29,7 @@
 
 import numpy as np
 import os
+import warnings
 from dataclasses import dataclass, field
 from dataclasses_json import dataclass_json
 from enum import Enum
@@ -54,7 +55,10 @@ class AutoFIFOSizingMethod(str, Enum):
     model, which needs no IP generation and no simulator; ``heuristic_rtlsim``
     measures it per node with rtlsim, which is far slower but covers operators
     that have no tree model. Both then size the FIFOs with the chained-TAV pass
-    in ``derive_characteristic``.
+    (``DeriveFIFOSizes``).
+
+    ``"characterize"``, the name of the rtlsim-based strategy these replaced, is
+    still accepted as a deprecated alias of ``heuristic_rtlsim``.
     """
 
     #: token access vectors from the operators' tree models
@@ -63,6 +67,18 @@ class AutoFIFOSizingMethod(str, Enum):
     HEURISTIC_RTLSIM = "heuristic_rtlsim"
     #: set every FIFO large, rtlsim the whole graph, then trim to the high-water mark
     LARGEFIFO_RTLSIM = "largefifo_rtlsim"
+
+    @classmethod
+    def _missing_(cls, value):
+        if value == "characterize":
+            warnings.warn(
+                "auto_fifo_strategy 'characterize' has been replaced by 'heuristic_rtlsim' "
+                "and will be removed in a future release; use 'heuristic_rtlsim' "
+                "(or 'heuristic_analytical') instead.",
+                DeprecationWarning,
+            )
+            return cls.HEURISTIC_RTLSIM
+        return None
 
 
 class ShellFlowType(str, Enum):
@@ -497,6 +513,13 @@ class DataflowBuildConfig:
             n_clock_cycles_per_sec = 10**9 / self.synth_clk_period_ns
             n_cycles_per_frame = n_clock_cycles_per_sec / self.target_fps
             return int(n_cycles_per_frame)
+
+    def _resolve_auto_fifo_strategy(self):
+        """The ``AutoFIFOSizingMethod`` for ``auto_fifo_strategy``, which may be
+        given as the enum or its string value. Maps the deprecated
+        ``"characterize"`` to ``HEURISTIC_RTLSIM``; raises ValueError for an
+        unknown strategy."""
+        return AutoFIFOSizingMethod(self.auto_fifo_strategy)
 
     def _resolve_vitis_opt_strategy(self):
         # convert human-readable enum to value expected by v++

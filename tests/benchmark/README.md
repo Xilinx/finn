@@ -113,7 +113,7 @@ GTSRB_BUILDS = [
     # estimate-only variant (stop before synth):
     ("AUP-ZU3_8GB", {"generate_outputs": [DataflowOutputType.ESTIMATE_REPORTS]}),
     # a FIFO-sizing strategy variant:
-    ("AUP-ZU3_8GB", {"auto_fifo_depths": False, "auto_fifo_strategy": "characterize"}),
+    ("AUP-ZU3_8GB", {"auto_fifo_strategy": "heuristic_analytical"}),
     # reuse a cached synthesized model with a different FIFO-annotated folding JSON:
     ("AUP-ZU3_8GB", {"folding_config_file": my_strategy_json}),
 ]

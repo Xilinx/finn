@@ -1045,7 +1045,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     """
 
     if cfg.auto_fifo_depths:
-        strategy = cfg.auto_fifo_strategy
+        strategy = cfg._resolve_auto_fifo_strategy()
         # the two heuristic strategies differ only in where the token access
         # vectors come from
         tav_strategy = "tree_model" if strategy == "heuristic_analytical" else "rtlsim"
@@ -1176,7 +1176,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
             # InsertAndSetFIFODepths internally removes any shallow FIFOs
             # so no need to call RemoveShallowFIFOs here
         else:
-            assert "Unsupported auto_fifo_strategy: " + cfg.auto_fifo_strategy
+            raise ValueError("Unsupported auto_fifo_strategy: %s" % strategy)
     else:
         print("auto_fifo_depths is set to False, assume folding cfg json contains FIFO sizes.")
         # assume folding cfg json contains FIFO sizes too
