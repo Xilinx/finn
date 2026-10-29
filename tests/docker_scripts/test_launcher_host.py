@@ -152,20 +152,26 @@ def test_vendor_port_comes_from_a_licence_file_or_the_environment(tmp_path, monk
     assert launcher.vendor_daemon_port([]) is None
 
 
-def test_node_locked_license_dir_is_mounted(tmp_path):
+def test_node_locked_licences_are_mounted_exactly(tmp_path):
+    """A licence file is mounted alone: its parent, e.g. /etc, would hide the
+    image's own files. A licence directory is mounted as itself."""
     root = make_tree(tmp_path / "Xilinx", "new", "2025.1")
     licdir = tmp_path / "lic"
     licdir.mkdir()
     (licdir / "Xilinx.lic").write_text("x")
+    sitedir = tmp_path / "site-licences"
+    sitedir.mkdir()
     data = inspect(
         {
             "FINN_XILINX_PATH": root,
             "FINN_XILINX_VERSION": "2025.1",
             "XILINXD_LICENSE_FILE": str(licdir / "Xilinx.lic"),
+            "LM_LICENSE_FILE": str(sitedir),
         },
         "build",
     )
-    assert any(m["source"] == str(licdir) and m["reason"] == "license-file" for m in data["mounts"])
+    licences = [m["source"] for m in data["mounts"] if m["reason"] == "license-file"]
+    assert licences == [str(licdir / "Xilinx.lic"), str(sitedir)]
     assert data["egress"] == []
 
 
@@ -689,6 +695,16 @@ def test_site_inputs_are_mounted(host, tmp_path, monkeypatch):
     assert argv[-1] == "bash"
 
 
+def test_ssh_keys_default_to_the_checkouts_directory(host, tmp_path, monkeypatch):
+    """Upstream's default, so existing setups keep password-less deployment."""
+    monkeypatch.setattr(launcher, "REPO", tmp_path)
+    argv = launcher.docker_run_argv(launcher.resolve_host("dev"), "image", run_options(), [])
+    assert not any(arg.endswith(":/run/finn-ssh:ro") for arg in argv)
+    (tmp_path / "ssh_keys").mkdir()
+    argv = launcher.docker_run_argv(launcher.resolve_host("dev"), "image", run_options(), [])
+    assert "%s:/run/finn-ssh:ro" % (tmp_path / "ssh_keys") in argv
+
+
 def test_tool_libraries_are_in_the_creation_environment(host, tmp_path, monkeypatch):
     """Direct docker exec does not run the entrypoint."""
     root = tmp_path / "tools"
@@ -790,7 +806,8 @@ def test_compose_override_consumes_resolved_mounts(tmp_path):
     service = json.loads(proc.stdout)["services"]["build"]
     mounts = {m["target"]: m for m in service["volumes"]}
     assert mounts[root]["read_only"] is True
-    assert mounts[str(licdir)]["read_only"] is True
+    assert mounts[str(licence)]["read_only"] is True
+    assert str(licdir) not in mounts
     assert "read_only" not in mounts[str(tmp_path / ".finn")]
     assert service["environment"]["XILINXD_LICENSE_FILE"] == str(licence)
     assert service["environment"]["FINN_HOME"] == str(tmp_path / ".finn")

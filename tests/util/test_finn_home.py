@@ -5,11 +5,13 @@ build directory (disposable), with per-cache overrides."""
 import pytest
 
 import os
+import shutil
+import subprocess
 from pathlib import Path
 
 from finn import resources, xsi
 from finn.resources import _cli, prepare
-from finn.util.basic import get_pynq_golden_dir, make_build_dir
+from finn.util.basic import get_pynq_golden_dir, make_build_dir, tcl_string
 from finn.xsi import paths
 
 pytestmark = pytest.mark.util
@@ -85,6 +87,27 @@ def test_xsi_builds_are_keyed_under_finn_home(state, tmp_path, monkeypatch):
     monkeypatch.setenv("FINN_XSI_PATH", str(tmp_path / "shared xsi"))
     assert paths.build_dir().parent == tmp_path / "shared xsi"
     assert not original.exists()
+
+
+def test_xsi_key_ignores_the_checkout_location(state, tmp_path, monkeypatch):
+    """Identical sources in workspace and workspace@2 share one build."""
+    for name in ("checkout", "checkout@2"):
+        (tmp_path / name / "finn_xsi").mkdir(parents=True)
+        (tmp_path / name / "finn_xsi/xsi_finn.cpp").write_text("// same")
+    monkeypatch.setenv("FINN_ROOT", str(tmp_path / "checkout"))
+    first = paths.build_dir()
+    monkeypatch.setenv("FINN_ROOT", str(tmp_path / "checkout@2"))
+    assert paths.build_dir() == first
+
+
+@pytest.mark.skipif(not shutil.which("tclsh"), reason="tclsh is not installed")
+def test_resource_paths_reach_tcl_literally(tmp_path):
+    path = str(tmp_path / 'odd $HOME [exec touch pwned] "q" \\ {b} ;x')
+    script = tmp_path / "probe.tcl"
+    script.write_text("set p %s\nputs -nonewline $p\n" % tcl_string(path))
+    result = subprocess.run(["tclsh", str(script)], capture_output=True, text=True, cwd=tmp_path)
+    assert (result.returncode, result.stdout) == (0, path), result.stderr
+    assert not (tmp_path / "pwned").exists()
 
 
 def test_xsi_key_changes_with_flags_and_pybind_version(state, monkeypatch):

@@ -131,7 +131,7 @@ puts "HLS project: $config_proj_name"
 set config_hwsrcdir "$HWSRCDIR$"
 puts "HW source dir: $config_hwsrcdir"
 set config_proj_part "$FPGAPART$"
-set config_bnnlibdir "$HLSLIB$"
+set config_bnnlibdir $HLSLIB$
 puts "finn-hlslib dir: $config_bnnlibdir"
 set config_customhlsdir "$::env(FINN_ROOT)/custom_hls"
 puts "custom HLS dir: $config_customhlsdir"

@@ -217,6 +217,11 @@ def get_rtlsim_timeout_error_message(threshold, cycles_estimate=None):
     )
 
 
+def tcl_string(value):
+    """Quote a value as one Tcl word, free of variable and command substitution."""
+    return '"%s"' % re.sub(r'([\\$\[\]"])', r"\\\1", str(value))
+
+
 def make_build_dir(prefix=""):
     """Creates a folder with given prefix to be used as a build dir.
     Use this function instead of tempfile.mkdtemp to ensure any generated files

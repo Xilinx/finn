@@ -450,19 +450,16 @@ def add_licenses(out):
                 grant["ports"] = sorted({server["advertised_port"], vendor})
                 grant["vendor_port"] = vendor
             out["egress"].append(grant)
+        # Mount exactly the named file or directory: a licence's parent, such as
+        # /etc, would hide the image's own files.
         for path in files:
-            directory = os.path.dirname(hostpath(path))
-            if not os.path.isdir(directory):
+            source = hostpath(path)
+            if not os.path.exists(source):
                 warn("licence path %s not found on the host; not mounted" % path)
                 continue
-            if not any(m["source"] == directory for m in out["mounts"]):
+            if not any(m["source"] == source for m in out["mounts"]):
                 out["mounts"].append(
-                    {
-                        "source": directory,
-                        "target": directory,
-                        "mode": "ro",
-                        "reason": "license-file",
-                    }
+                    {"source": source, "target": source, "mode": "ro", "reason": "license-file"}
                 )
 
 
@@ -682,7 +679,10 @@ def docker_run_argv(data, image, options, command):
             HF_HOME="/finn_cache/huggingface",
             UV_CACHE_DIR="/finn_cache/uv",
         )
+    # Upstream's default: the checkout's ssh_keys directory, when it exists.
     ssh = os.environ.get("FINN_SSH_KEY_DIR")
+    if not ssh and (REPO / "ssh_keys").is_dir():
+        ssh = str(REPO / "ssh_keys")
     if ssh:
         ssh = hostpath(ssh)
         if not os.path.isdir(ssh):
@@ -1271,6 +1271,17 @@ def publish_image(directory, reference, workspace, request):
         ):
             raise LaunchError(
                 "Build directory already contains another image/source: %s" % directory
+            )
+        # Shards load the archive, so a retry must not accept a damaged one.
+        archive = directory / ARCHIVE
+        try:
+            intact = sha256(archive) == previous.get("archive_sha256")
+        except OSError:
+            intact = False
+        if not intact:
+            raise LaunchError(
+                "Existing publication at %s has a missing or damaged archive; "
+                "remove the directory and publish again" % directory
             )
         write_metadata(workspace, previous_ref, previous)
 

@@ -81,7 +81,8 @@ elif [ "${FINN_ENV_APPLIED:-}" != "1" ]; then
     case ":${LD_PRELOAD:-}:" in
         *libudev.so.1*) ;;
         *)
-            _finn_libudev=$(find /lib -path '*-linux-gnu/libudev.so.1' -print -quit 2>/dev/null)
+            # -H: /lib is a symlink to usr/lib on merged-/usr hosts.
+            _finn_libudev=$(find -H /lib -maxdepth 2 -path '*-linux-gnu/libudev.so.1' -print -quit 2>/dev/null)
             if [ -n "$_finn_libudev" ]; then
                 LD_PRELOAD="${LD_PRELOAD:+$LD_PRELOAD:}$_finn_libudev"
                 export LD_PRELOAD

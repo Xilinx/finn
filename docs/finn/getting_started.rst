@@ -106,7 +106,7 @@ Both AMD installation layouts are detected. Software runs work without tools.
 * ``NUM_DEFAULT_WORKERS`` and ``FINN_XELAB_MT`` retain their existing meanings.
 * ``FINN_DOCKER_EXTRA`` passes shell-quoted Docker flags; they are tokenized without shell evaluation.
 * ``FINN_DOCKER_CACHE_DIR`` retains Torch and Hugging Face download caches.
-* ``FINN_SSH_KEY_DIR`` explicitly mounts deployment keys read-only.
+* ``FINN_SSH_KEY_DIR`` (default: the checkout's ``ssh_keys`` directory, where it exists) is mounted read-only as the container's ``~/.ssh``.
 * ``FINN_VCK190_GOLDEN=1`` builds the optional VCK190 golden reference into ``FINN_HOME``.
 
 See ``docker/README.md`` for the full interface migration, resource overrides,
@@ -221,7 +221,7 @@ Start on the target side:
 
 Continue on the host side (replace the ``<PYNQ_IP>`` and ``<PYNQ_USERNAME>`` with the IP address and username of your board from the first step):
 
-1. Launch the Docker container from where you cloned finn with ``./docker/run --fpga``
+1. Create the ``ssh_keys`` directory where you cloned finn (``mkdir ssh_keys``), then launch the Docker container from there with ``./docker/run --fpga``
 2. Go into the `ssh_keys` directory  (e.g. ``cd /path/to/finn/ssh_keys``)
 3. Run ``ssh-keygen`` to create a key pair e.g. ``id_rsa`` private and ``id_rsa.pub`` public key
 4. Run ``ssh-copy-id -i id_rsa.pub <PYNQ_USERNAME>@<PYNQ_IP>`` to install the keys on the remote system

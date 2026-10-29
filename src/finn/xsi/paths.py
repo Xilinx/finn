@@ -33,6 +33,15 @@ def build_dir() -> Path:
     source = source_dir()
     vivado = Path(os.environ.get("XILINX_VIVADO", "/missing-vivado")).resolve()
     includes, compiler, flags = get_build_paths()
+    # pybind11's headers are identified by its version below. Their location is
+    # the venv's, which differs between otherwise identical checkouts.
+    try:
+        import pybind11  # noqa: PLC0415
+
+        venv_includes = {pybind11.get_include(), pybind11.get_include(user=True)}
+    except ImportError:
+        venv_includes = set()
+    includes = [path for path in includes if path not in venv_includes]
     executable = shutil.which(compiler)
     compiler_info = {"command": compiler}
     if executable:
@@ -55,9 +64,13 @@ def build_dir() -> Path:
         "link_flags": LINK_ARGS,
         "pybind11": pybind11_version,
     }
-    for path in [*source.glob("*.cpp"), *source.glob("*.hpp"), vivado / "data/xsim/include/xsi.h"]:
+    # Sources by name and content, so copies of a checkout share one build.
+    for name, path in [
+        *(("finn_xsi/" + path.name, path) for path in source.glob("*.[ch]pp")),
+        ("xsi.h", vivado / "data/xsim/include/xsi.h"),
+    ]:
         if path.is_file():
-            inputs[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
+            inputs[name] = hashlib.sha256(path.read_bytes()).hexdigest()
     key = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()[:20]
     return root() / key
 

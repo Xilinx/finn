@@ -58,6 +58,7 @@ from finn.util.basic import (
     pynq_native_port_width,
     pynq_part_map,
     resolve_xilinx_tool,
+    tcl_string,
 )
 
 from . import templates
@@ -133,7 +134,7 @@ class MakePYNQProject(Transformation):
             rst_pin = "smartconnect_0/aresetn"
             template = templates.custom_zynq_shell_template
 
-        template = template.replace("$BOARD_FILES$", board_files())
+        template = template.replace("$BOARD_FILES$", tcl_string(board_files()))
 
         # create a config file and empty list of xo files
         config = []

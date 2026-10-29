@@ -78,8 +78,9 @@ def build_xsi(force: bool = False, verbose: bool = True) -> bool:
         return False
 
     # Check if already built
+    xsi_so = xsi_path / "xsi.so"
+    stale = force or xsi_so.exists()
     if not force:
-        xsi_so = xsi_path / "xsi.so"
         if xsi_so.exists():
             # Try importing to see if it works
             sys.path.insert(0, str(xsi_path))
@@ -126,6 +127,11 @@ def build_xsi(force: bool = False, verbose: bool = True) -> bool:
 
     # Run the compilation
     with _store.locked(xsi_path.parent, xsi_path.name):
+        if not stale and xsi_so.exists():
+            # A concurrent cold start completed this build while we waited.
+            if verbose:
+                print("xsi.so was built by a concurrent setup.")
+            return True
         xsi_path.mkdir(parents=True, exist_ok=True)
         cmd[cmd.index("-o") + 1] = "xsi.so.tmp"
         result = subprocess.run(cmd, cwd=xsi_path, capture_output=True, text=True)

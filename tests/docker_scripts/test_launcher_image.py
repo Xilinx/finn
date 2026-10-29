@@ -333,6 +333,25 @@ def test_metadata_rejects_partial_stale_and_legacy_publications(request_, tmp_pa
         launcher.read_metadata(directory, request_)
 
 
+def test_republication_accepts_only_an_intact_archive(request_, tmp_path, monkeypatch):
+    """A retry reuses the existing publication only if shards can load it."""
+    directory = tmp_path / "publication"
+    info = publication(directory, request_)
+    monkeypatch.setattr(launcher, "image_metadata", lambda reference, request: dict(info))
+    monkeypatch.setattr(launcher, "docker", lambda *args: pytest.fail("republished"))
+    workspace = tmp_path / "workspace"
+    launcher.publish_image(directory, IMAGE_ID, workspace, request_)
+    assert json.loads((workspace / launcher.FILES[2]).read_text()) == info
+    shutil.rmtree(workspace)
+    (directory / launcher.ARCHIVE).write_bytes(b"truncated")
+    with pytest.raises(launcher.LaunchError, match="missing or damaged archive"):
+        launcher.publish_image(directory, IMAGE_ID, workspace, request_)
+    (directory / launcher.ARCHIVE).unlink()
+    with pytest.raises(launcher.LaunchError, match="missing or damaged archive"):
+        launcher.publish_image(directory, IMAGE_ID, workspace, request_)
+    assert not workspace.exists()
+
+
 def test_cached_image_avoids_archive_read_and_load(request_, tmp_path, monkeypatch):
     directory = tmp_path / "publication"
     publication(directory, request_)

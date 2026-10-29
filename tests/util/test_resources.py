@@ -363,6 +363,9 @@ def test_cli_list_fetch_verify_and_digest(boards, tmp_path, capsys):
         "missing",
         "test-boards",
     ]
+    # A named resource must be present; unfetched ones are fine otherwise.
+    assert cli(capsys, "verify", "kv260-boards")[:2] == (1, "missing  kv260-boards\n")
+    assert cli(capsys, "verify")[0] == 0
     code, out, err = cli(capsys, "fetch", "--kind", "test-boards", "--redistributable-only")
     assert (code, out, err) == (0, "", "")
     dest = tmp_path / "carry"

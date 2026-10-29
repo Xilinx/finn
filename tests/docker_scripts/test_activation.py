@@ -4,6 +4,7 @@
 scripts/activate.sh, container identity and the installers."""
 import pytest
 
+import glob
 import json
 import os
 import re
@@ -93,6 +94,15 @@ def test_toolchain_dedupes_path_variables():
     )
 
 
+@pytest.mark.skipif(
+    not glob.glob("/lib/*-linux-gnu/libudev.so.1"), reason="no system libudev to preload"
+)
+def test_toolchain_preloads_libudev_on_merged_usr_hosts():
+    """/lib is a symlink on merged-/usr hosts; discovery must follow it."""
+    preload = apply_toolchain({}, 'printf "%s" "$LD_PRELOAD"')
+    assert preload.endswith("-linux-gnu/libudev.so.1")
+
+
 def test_toolchain_is_idempotent_and_silent():
     """BASH_ENV sources this before every `bash -c`, so a stray echo corrupts
     the output of every command in the image."""
@@ -168,8 +178,8 @@ def make_old_layout(root, version):
     return root
 
 
-def test_activation_resolves_tools_without_allocating(tmp_path):
-    """Activation in a stand-in checkout: no installation, no directories."""
+def standin_checkout(tmp_path):
+    """Activation's own files, with a test-owned virtual environment."""
     checkout = tmp_path / "finn"
     for relative in (
         "scripts/activate.sh",
@@ -183,6 +193,12 @@ def test_activation_resolves_tools_without_allocating(tmp_path):
     (checkout / ".venv/bin/activate").write_text(": # test-owned virtual environment stand-in\n")
     (tmp_path / "hlslib").mkdir()
     (tmp_path / "boards").mkdir()
+    return checkout
+
+
+def test_activation_resolves_tools_without_allocating(tmp_path):
+    """Activation in a stand-in checkout: no installation, no directories."""
+    checkout = standin_checkout(tmp_path)
     root = make_old_layout(tmp_path / "Xilinx", "2022.2")
     proc = subprocess.run(
         [
@@ -210,6 +226,45 @@ def test_activation_resolves_tools_without_allocating(tmp_path):
         capture_output=True,
     )
     assert proc.returncode == 0, proc.stderr
+
+
+def test_reactivation_recomputes_what_activation_computed(tmp_path):
+    """Activation's outputs are not read back as overrides: a changed version
+    selects the new tools. A value the caller sets in between still wins."""
+    checkout = standin_checkout(tmp_path)
+    root = make_old_layout(tmp_path / "Xilinx", "2024.2")
+    make_old_layout(root, "2025.2")
+    proc = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$FINN_ROOT/scripts/activate.sh" && echo "$VIVADO_PATH" '
+            '&& FINN_XILINX_VERSION=2025.2 && source "$FINN_ROOT/scripts/activate.sh" '
+            '&& echo "$VIVADO_PATH" && echo "$XILINX_VIVADO" '
+            '&& VITIS_PATH=$1 && source "$FINN_ROOT/scripts/activate.sh" && echo "$XILINX_VITIS"',
+            "test",
+            str(root / "Vitis/2024.2"),
+        ],
+        env={
+            "PATH": os.path.dirname(sys.executable) + os.pathsep + os.environ["PATH"],
+            "HOME": str(tmp_path / "home"),
+            "FINN_ROOT": str(checkout),
+            "FINN_XILINX_ENV": "",
+            "FINN_RESOURCES_HLSLIB": str(tmp_path / "hlslib"),
+            "FINN_BOARD_FILES_PATH": str(tmp_path / "boards"),
+            "FINN_XILINX_PATH": str(root),
+            "FINN_XILINX_VERSION": "2024.2",
+        },
+        text=True,
+        capture_output=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.splitlines() == [
+        str(root / "Vivado/2024.2"),
+        str(root / "Vivado/2025.2"),
+        str(root / "Vivado/2025.2"),
+        str(root / "Vitis/2024.2"),
+    ]
 
 
 def test_native_hls_only_activation_does_not_fetch_boards(clean_env, tmp_path, monkeypatch):

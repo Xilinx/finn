@@ -645,7 +645,7 @@ void aggregateReports() {
   publishStageMap()
   catchError(buildResult: null, stageResult: 'UNSTABLE',
              message: 'pytest_html_merger failed, per-stage HTMLs still archived') {
-    runDockerCommand('FINN_RUNTIMES=${FINN_RUNTIMES:-xrt} ./docker/run -- pytest_html_merger -i reports/ -o reports/test_report_final.html')
+    runDockerCommand('./docker/run -- pytest_html_merger -i reports/ -o reports/test_report_final.html')
   }
   catchError(buildResult: null, stageResult: 'UNSTABLE',
              message: 'archiveArtifacts (xml) failed') {
@@ -687,7 +687,7 @@ done
     '''
     // pytest-cov ships its own coverage. Run via the same docker image so
     // the merge uses the same Python/library versions as the per-shard runs.
-    runDockerCommand("./docker/run --runtime xrt -- bash -c 'cd coverage_data && coverage combine && " +
+    runDockerCommand("./docker/run -- bash -c 'cd coverage_data && coverage combine && " +
                      "coverage html -d ../coverage_combined'")
     archiveArtifacts artifacts: 'coverage_combined/**/*', allowEmptyArchive: true
   }

@@ -258,7 +258,7 @@ and fails. The launcher warns about retired variables it sees.
 | `DOCKER_INTERACTIVE` | terminal detection; Docker flags in `FINN_DOCKER_EXTRA` |
 | `FINN_INST_NAME` | `docker/run --name NAME` |
 | `FINN_SINGULARITY` | `docker/build --export-sif PATH`, then Apptainer/Singularity |
-| `FINN_DOCKER_PREBUILT`, `FINN_DOCKER_SHARED_IMAGE_DIR`, `FINN_DOCKER_CACHE_DIR`, `FINN_DOCKER_RUN_AS_ROOT`, `FINN_SSH_KEY_DIR`, `VERIFICATION_*`, `FINN_XRT_PATH` | retained |
+| `FINN_DOCKER_PREBUILT`, `FINN_DOCKER_SHARED_IMAGE_DIR`, `FINN_DOCKER_CACHE_DIR`, `FINN_DOCKER_RUN_AS_ROOT`, `FINN_SSH_KEY_DIR` (mounted read-only; default `ssh_keys/` in the checkout when it exists, no longer created), `VERIFICATION_*`, `FINN_XRT_PATH` | retained |
 | `SLASHKIT_DEB_PACKAGE` | retained: staged into `docker/packages/` and selects the `slashkit` runtime |
 
 If `SLASHKIT_DEB_PACKAGE` is set, its file must be readable wherever the launcher

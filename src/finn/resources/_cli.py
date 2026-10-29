@@ -176,7 +176,13 @@ def _verify(args):
         copies = [r / resource.entry for r, _ in _store.roots()]
         copies = [entry for entry in copies if _store.complete(entry, resource.digest)]
         if not copies and args.names:
-            print(f"missing  {name}")
+            # A resource named explicitly must be usable; unnamed ones may be unfetched.
+            current = api.status(name)
+            if current.state == "override":
+                print(f"override  {name}  {current.path}")
+            else:
+                print(f"missing  {name}")
+                failed = True
         for entry in copies:
             actual = api.tree_digest(entry)
             ok = actual == resource.digest
