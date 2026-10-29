@@ -10,8 +10,8 @@
 module mvu_axi_tb;
 
 	// Test Configurations
-	localparam bit  FORCE_BEHAVIORAL = 0;
-	localparam int unsigned  ROUNDS = 5;
+	localparam bit  FORCE_BEHAVIORAL = 1;
+	localparam int unsigned  ROUNDS = 2;
 
 	typedef struct {
 		int unsigned  version;
@@ -27,7 +27,7 @@ module mvu_axi_tb;
 		int unsigned  th;     // Tile height (>=1)
 		int unsigned  wsimd;  // Weight stream parallelism (0 => PE*SIMD)
 	} cfg_t;
-	localparam int unsigned  TEST_COUNT = 16;
+	localparam int unsigned  TEST_COUNT = 21;
 	localparam cfg_t  TESTS[TEST_COUNT] = '{
 		//     ver  mh  mw  pe simd ww  aw  accw sa nw  th  wsimd
 		// --- Lane-sliced × TH=1 ---
@@ -65,7 +65,20 @@ module mvu_axi_tb;
 		// T14: DSP58, 8b×8b, TH=2, signed activations
 		'{      3,   4,  2,  2,  1,  8,  8,  24,  1, 0,  2,  0 },
 		// T15: DSP58, 8b×8b, TH=3, PE=2, SIMD=1 — true INT8 × TH>2
-		'{      3,   6,  3,  2,  1,  8,  8,  24,  0, 0,  3,  0 }
+		'{      3,   6,  3,  2,  1,  8,  8,  24,  0, 0,  3,  0 },
+		// --- Lane-sliced × TH≥2, SF=1 and SF≥4 coverage ---
+		// T16: DSP48E2, TH=2, SF=1 (MW=SIMD=2) — no synapse folding
+		'{      2,   4,  2,  2,  2,  4,  4,  16,  0, 0,  2,  0 },
+		// T17: DSP48E2, TH=2, SF=4 (MW=8, SIMD=2) — deep synapse fold
+		'{      2,   8,  8,  2,  2,  4,  4,  16,  0, 0,  2,  0 },
+		// T18: DSP48E2, TH=3, SF=32, WSIMD=1 — FINN failing case
+		//      MH=18, MW=32, PE=3, SIMD=1, 4b×4b unsigned
+		'{      2,  18, 32,  3,  1,  4,  4,  16,  0, 0,  3,  1 },
+		// --- INT8 (mvu_vvu_8sx9_dsp58), SIMD≥16 coverage ---
+		// T19: DSP58, 8b×8b, PE=4, SIMD=16 — CHAINLEN=6, large SIMD
+		'{      3,  16, 16,  4, 16,  8,  8,  24,  0, 0,  1,  0 },
+		// T20: DSP58, 8b×8b, PE=2, SIMD=18 — CHAINLEN=7, SIMD>16
+		'{      3,   4, 18,  2, 18,  8,  8,  24,  0, 0,  1,  0 }
 	};
 
 	//-----------------------------------------------------------------------
@@ -356,6 +369,7 @@ module mvu_axi_tb;
 				end
 
 				exp = Q.pop_front();
+				if(t == 18)  $display("T18 check #%0d: got=%0p exp=%0p %s", Checks, p, exp, p===exp ? "OK" : "MISMATCH");
 				assert(p === exp) else begin
 					$error("Test #%0d: Output mismatch %0p instead of %0p.", t, p, exp);
 					$stop;

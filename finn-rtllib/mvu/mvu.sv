@@ -240,8 +240,8 @@ module mvu #(
 	localparam int unsigned  HI_WIDTH_MAX = hi_width(NUM_LANES < 2? 0 : NUM_LANES-2);
 
 	// Pipeline for last indicator flag
-	// Depth: 3 cycles for DSP + external SIMD reduction
-	localparam int unsigned  PIPELINE_DEPTH = 3 + $clog2(SIMD) + (SIMD == 1) + 1;
+	// Depth: 4 cycles for DSP (B1/INMODE + AD/B2 + M + P) + external SIMD reduction
+	localparam int unsigned  PIPELINE_DEPTH = 4 + $clog2(SIMD) + (SIMD == 1) + 1;
 /* verilator lint_off LITENDIAN */
 	logic [1:PIPELINE_DEPTH] L = '0;
 /* verilator lint_on LITENDIAN */
@@ -270,14 +270,14 @@ module mvu #(
 				$error("%m: TH must be non-zero.");
 				$finish;
 			end
-			1: assign  clr = L[2];
-			2: assign  clr = L[3];
+			1: assign  clr = L[3];
+			2: assign  clr = L[4];
 			default: begin
 				logic  ClrLine[TH-2] = '{ default: 1 };
 				always_ff @(posedge clk) begin
 					if(rst)  ClrLine <= '{ default: 1 };
 					else if(en) begin
-						ClrLine[$high(ClrLine)] <= L[3];
+						ClrLine[$high(ClrLine)] <= L[4];
 						for(int unsigned  i = 0; i < $high(ClrLine); i++)  ClrLine[i] <= ClrLine[i+1];
 					end
 				end
@@ -383,39 +383,44 @@ module mvu #(
 				end : blkCtx
 
 				// External Canary Pipeline
-				// X1, X2: LSB expectation for MUL
-				// X3: LSB expectation upon accumulation
+				// X1: input capture (aligns with DSP stage 1: A1/B1/D1/INMODE)
+				// X2: pre-adder (aligns with AD2/B2)
+				// X3: multiply (aligns with M3)
+				// X4: LSB expectation upon accumulation (aligns with P4)
 				logic [1:0]  X1[NUM_LANES-1:1] = '{ default: 0 };
 				logic [1:0]  X2[NUM_LANES-1:1] = '{ default: 0 };
 				logic [1:0]  X3[NUM_LANES-1:1] = '{ default: 0 };
-				logic  Clr2 = 1;
+				logic [1:0]  X4[NUM_LANES-1:1] = '{ default: 0 };
+				logic  Clr4 = 1;
 				always_ff @(posedge clk) begin
 					if(rst) begin
 						X1 <= '{ default: 0 };
 						X2 <= '{ default: 0 };
 						X3 <= '{ default: 0 };
-						Clr2 <= 1;
+						X4 <= '{ default: 0 };
+						Clr4 <= 1;
 					end
 					else if(en) begin
 						X1 <= xx;
 						X2 <= X1;
-						foreach(X3[i]) begin
-							X3[i] <= X2[i] + (Clr2? 0 : pp_ctx_suf[i]);
+						X3 <= X2;
+						foreach(X4[i]) begin
+							X4[i] <= X3[i] + (Clr4? 0 : pp_ctx_suf[i]);
 						end
-						Clr2 <= clr;
+						Clr4 <= clr;
 					end
 				end
 
 				// Derive actual cross-lane overflows
 				for(genvar  i = 0; i < NUM_LANES-1; i++) begin
-					assign	h3[s][i] = pp[OFFSETS[i+1]+:2] - X3[i+1];
+					assign	h3[s][i] = pp[OFFSETS[i+1]+:2] - X4[i+1];
 				end
 
 				// Overflow out of high lane
 				logic  PZ = 0;
 				always_ff @(posedge clk) begin
 					if(rst)      PZ <= 0;
-					else if(en)  PZ <= Clr2? 0 : pp_ctx_msb;
+					else if(en)  PZ <= Clr4? 0 : pp_ctx_msb;
 				end
 				assign	h3[s][NUM_LANES-1] =
 					( PZ && !pp[$left(pp)-:2])? +1 :
@@ -444,63 +449,93 @@ module mvu #(
 				endcase
 			end : blkAccCycling
 
-			// Note: Since the product B * AD is computed,
-			//       rst can be only applied to AD and zero only to B
-			//       with the same effect as zeroing both.
+			// Zeroing the partial product:
+			//   The `zero` input suppresses the current partial product.
+			//   Implemented via INMODE[2:1] controlling the pre-adder AD path:
+			//     Normal: INMODE[1]=0 (A through), INMODE[2]=1 (D enabled) → AD = D − A
+			//     Zero:   INMODE[1]=1 (A gated 0), INMODE[2]=0 (D off)    → AD = 0
+			//   INMODEREG=1 latches zero in stage 1, aligning with A1/B1/D1.
+			//   Stage 2 computes AD using the registered INMODE → no pipeline hazard.
 			if(BEHAVIORAL) begin : genBehav
 
-				// Stage #1: Input Refine
-				logic signed [B_WIDTH-1:0]  B1  = 0;
+				// Stage #1: Input Capture (A1REG, B1REG, DREG, INMODEREG)
+				logic signed [B_WIDTH-1:0]  B1 = 0;
 				always_ff @(posedge clk) begin
-					if(zero)     B1  <= 0;
-					else if(en)  B1  <= bb;
+					if(rst)      B1    <= 0;
+					else if(en)  B1    <= bb;
+				end
+				logic signed [A_WIDTH-1:0]  A1 = 'x;
+				logic signed [A_WIDTH-1:0]  D1 = 'x;
+				logic  Zero1 = 'x;
+				always_ff @(posedge clk) begin
+					if(en) begin
+						A1 <= aa;
+						D1 <= dd;
+						Zero1 <= zero;
+					end
 				end
 
-				logic signed [A_WIDTH-1:0]  AD1 = 0;
+				// Stage #2: Pre-adder + B pipeline (ADREG, B2REG)
+				logic signed [B_WIDTH-1:0]  B2  = 0;
 				always_ff @(posedge clk) begin
-					if(rst)      AD1 <= 0;
-					else if(en)  AD1 <= dd - aa;
+					if(rst)      B2    <= 0;
+					else if(en)  B2    <= B1;
+				end
+				logic signed [A_WIDTH-1:0]  AD2 = 'x;
+				always_ff @(posedge clk) begin
+					if(en)  AD2 <= Zero1? 0 : (D1 - A1);
 				end
 
-				// Stage #2: Multiply / Accumulator Staging
-				logic signed [A_WIDTH+B_WIDTH-1:0]  M2 = 0;
-				logic signed [P_WIDTH-1:0]  C2 = 0;
-				logic  ClrOp2 = 0;	// OPMODE Reg
+				// Stage #3: Multiply + Accumulator Staging (MREG, CREG, OPMODEREG)
+				logic signed [A_WIDTH+B_WIDTH-1:0]  M3 = 0;
+				logic signed [P_WIDTH-1:0]  C3 = 0;
+				logic  First3 = 0;
 				always_ff @(posedge clk) begin
 					if(rst) begin
-						M2 <= 0;
-						C2 <= 0;
-						ClrOp2 <= 0;
+						M3     <= 0;
+						C3     <= 0;
+						First3 <= 0;
 					end
 					else if(en) begin
-						M2 <=
+						M3 <=
 // synthesis translate off
-							(B1 === '0) || (AD1 === '0)? 0 :
+							(B2 === '0)? 0 :
 // synthesis translate on
-							B1 * AD1;
-						C2 <= cc;
-						ClrOp2 <= clr;
+							AD2 * B2;
+						C3     <= cc;
+						First3 <= clr;
 					end
 				end
 
-				// Stage #3: Accumulate
-				logic signed [P_WIDTH-1:0]  P3 = 0;
+				// Stage #4: Accumulate (PREG)
+				logic signed [P_WIDTH-1:0]  P4 = 0;
 				always_ff @(posedge clk) begin
-					if(rst)      P3 <= 0;
-					else if(en)  P3 <= M2 + (ClrOp2? 0 : (TH==1? P3 : C2));
+					if(rst)      P4 <= 0;
+					else if(en)  P4 <= M3 + (First3? 0 : (TH==1? P4 : C3));
 				end
-				assign	pp = P3;
+				assign	pp = P4;
 
 				end : genBehav
 `ifndef VERILATOR
 			else begin : genDSP
 
-				// Dynamic OPMODE: clr toggles Z between accumulation source and 0.
+				// Dynamic OPMODE: clr toggles Z-mux between accumulation source and 0.
 				// TH=1:   Z=P(010) or Z=0(000). Single-bit toggle on bit[5].
 				// TH>=2:  Z=C(011) or Z=0(000). Two-bit toggle on bits[5:4].
-				// clr from blkClr → OPMODEREG (1-beat delay) → controls P3.
+				// clr from blkClr → OPMODEREG (1-beat delay) → controls P4.
 				localparam logic [6:0]  OPMODE_INVERSION = TH <= 1? 7'b010_01_01 : 7'b011_01_01;
 				uwire [6:0]  opmode = { 1'b0, clr, TH <= 1? 1'b0 : clr, 4'b00_00 };
+
+				// Dynamic INMODE: zero controls AD-path zeroing via INMODE[2:1].
+				//   Effective (after IS_INMODE_INVERTED):
+				//     Normal (zero=0): {0, 1, 1, 0, 1} → B2, D−A, D enabled, A through, A1
+				//     Zero   (zero=1): {0, 1, 0, 1, 1} → B2, D−A, D off,    A gated,   A1
+				//   Externally driven: only `zero` on bits [2:1], all else 0.
+				//   INMODEREG=1 captures in stage 1 alongside A1/B1/D1.
+				//   Stage 2 pre-adder sees the registered INMODE → no pipeline hazard.
+				localparam logic [4:0]  INMODE_INVERSION = 5'b0_1_1_0_1;
+				uwire [4:0]  inmode = { 3'b0, zero, zero };
+
 				case(VERSION)
 				DSP48E1: DSP48E1 #(
 					// Feature Control Attributes: Data Path Selection
@@ -518,21 +553,25 @@ module mvu #(
 					.SEL_PATTERN("PATTERN"),			// Select pattern value ("PATTERN" or "C")
 					.USE_PATTERN_DETECT("NO_PATDET"),	// Enable pattern detect ("PATDET" or "NO_PATDET")
 
+					// Programmable Inversion Attributes
+					.IS_INMODE_INVERTED(INMODE_INVERSION),
+					.IS_OPMODE_INVERTED(OPMODE_INVERSION),
+
 					// Register Control Attributes: Pipeline Register Configuration
-					.ACASCREG(0),		// Number of pipeline stages between A/ACIN and ACOUT (0, 1 or 2)
-					.ADREG(1),			// Number of pipeline stages for pre-adder (0 or 1)
+					.ACASCREG(1),		// A-cascade tap after A1REG
+					.ADREG(1),			// Pre-adder output register (stage 2)
 					.ALUMODEREG(0),		// Number of pipeline stages for ALUMODE (0 or 1)
-					.AREG(0),			// Number of pipeline stages for A (0, 1 or 2)
-					.BCASCREG(1),		// Number of pipeline stages between B/BCIN and BCOUT (0, 1 or 2)
-					.BREG(1),			// Number of pipeline stages for B (0, 1 or 2)
+					.AREG(2),			// A1REG (stage 1) + A2REG (stage 2)
+					.BCASCREG(1),		// B-cascade tap after B1REG
+					.BREG(2),			// B1REG (stage 1) + B2REG (stage 2)
 					.CARRYINREG(0),		// Number of pipeline stages for CARRYIN (0 or 1)
 					.CARRYINSELREG(0),	// Number of pipeline stages for CARRYINSEL (0 or 1)
 					.CREG(TH > 1),		// C register: enabled for TH>=2 (C-port feedback)
-					.DREG(0),			// Number of pipeline stages for D (0 or 1)
-					.INMODEREG(0),		// Number of pipeline stages for INMODE (0 or 1)
-					.MREG(1),			// Number of multiplier pipeline stages (0 or 1)
-					.OPMODEREG(1),		// Dynamic OPMODE for clear control
-					.PREG(1)			// Number of pipeline stages for P (0 or 1)
+					.DREG(1),			// D register (stage 1)
+					.INMODEREG(1),		// INMODE register (stage 1)
+					.MREG(1),			// Multiplier register (stage 3)
+					.OPMODEREG(1),		// OPMODE register for clear control
+					.PREG(1)			// Accumulator register (stage 4)
 				) dsp (
 					// Cascade: 30-bit (each) output: Cascade Ports
 					.ACOUT(),			// 30-bit output: A port cascade output
@@ -562,8 +601,8 @@ module mvu #(
 					.CLK(clk),				// 1-bit input: Clock input
 					.ALUMODE('0),			// 4-bit input: ALU control input
 					.CARRYINSEL('0),		// 3-bit input: Carry select input
-					.INMODE(5'b01100),		// 5-bit input: INMODE control input
-					.OPMODE(opmode ^ OPMODE_INVERSION), // 7-bit input: Operation mode input
+					.INMODE(inmode),		// 5-bit input: INMODE control input
+					.OPMODE(opmode),			// 7-bit input: Operation mode input
 
 					// Data: 30-bit (each) input: Data Ports
 					.A({5'b0, aa}),	// 30-bit input: A data input
@@ -578,39 +617,29 @@ module mvu #(
 					.D(dd),			// 25-bit input: D data input
 
 					// Reset/Clock Enable: 1-bit (each) input: Reset/Clock Enable Inputs
-					.CEA1('0),			// 1-bit input: Clock enable input for 1st stage AREG
-					.CEA2('0),			// 1-bit input: Clock enable input for 2nd stage AREG
-					.CEAD(en),			// 1-bit input: Clock enable input for ADREG
-					.CEALUMODE('0),		// 1-bit input: Clock enable input for ALUMODERE
-					.CEB1('0),			// 1-bit input: Clock enable input for 1st stage BREG
-					.CEB2(en),			// 1-bit input: Clock enable input for 2nd stage BREG
-					.CEC(TH > 1? en : 1'b0),	// 1-bit input: Clock enable input for CREG
-					.CECARRYIN('0),		// 1-bit input: Clock enable input for CARRYINREG
-					.CECTRL(en),		// 1-bit input: Clock enable input for OPMODEREG and CARRYINSELREG
-					.CED('0),			// 1-bit input: Clock enable input for DREG
-					.CEINMODE('0),		// 1-bit input: Clock enable input for INMODEREG
-					.CEM(en),			// 1-bit input: Clock enable input for MREG
-					.CEP(en),			// 1-bit input: Clock enable input for PREG
-					.RSTA('0),			// 1-bit input: Reset input for AREG
-					.RSTB(				// 1-bit input: Reset for BREG
-// synthesis translate_off
-						rst ||
-// synthesis translate_on
-						zero
-					),
-					.RSTC(TH > 1? rst : 1'b0),	// 1-bit input: Reset for CREG
-					.RSTD(				// 1-bit input: Reset for DREG and ADREG
-// synthesis translate_off
-						zero ||
-// synthesis translate_on
-						rst
-					),
-					.RSTALLCARRYIN('0),	// 1-bit input: Reset for CARRYINREG
-					.RSTALUMODE('0),	// 1-bit input: Reset for ALUMODEREG
-					.RSTCTRL('0),		// 1-bit input: Reset for OPMODEREG and CARRYINSELREG
-					.RSTINMODE('0),		// 1-bit input: Reset for INMODE register
-					.RSTM(rst),			// 1-bit input: Reset for MREG
-					.RSTP(rst)			// 1-bit input: Reset for PREG
+					.CEA1(en),			// Stage 1: A1REG
+					.CEA2(en),			// Stage 2: A2REG (unused by pre-adder, INMODE[0]=1 selects A1)
+					.CEAD(en),			// Stage 2: ADREG
+					.CEALUMODE('0),
+					.CEB1(en),			// Stage 1: B1REG
+					.CEB2(en),			// Stage 2: B2REG
+					.CEC(TH > 1? en : 1'b0),	// Stage 3: CREG (TH≥2 feedback)
+					.CECARRYIN('0),
+					.CECTRL(en),		// OPMODEREG
+					.CED(en),			// Stage 1: DREG
+					.CEINMODE(en),		// Stage 1: INMODEREG
+					.CEM(en),			// Stage 3: MREG
+					.CEP(en),			// Stage 4: PREG
+					.RSTA('0),			// A path: no reset
+					.RSTB(rst),			// B path: reset (B1=B2=0 after rst)
+					.RSTC(TH > 1? rst : 1'b0),
+					.RSTD('0),			// D path: no reset
+					.RSTALLCARRYIN('0),
+					.RSTALUMODE('0),
+					.RSTCTRL('0),
+					.RSTINMODE('0),		// INMODE: no reset (B=0 masks first-beat hazard)
+					.RSTM(rst),
+					.RSTP(rst)
 				);
 				DSP48E2: DSP48E2 #(
 					// Feature Control Attributes: Data Path Selection
@@ -634,38 +663,38 @@ module mvu #(
 					.SEL_PATTERN("PATTERN"),           // Select pattern value (C, PATTERN)
 					.USE_PATTERN_DETECT("NO_PATDET"),  // Enable pattern detect (NO_PATDET, PATDET)
 
-					// Programmable Inversion Attributes: Specifies built-in programmable inversion on specific pins
-					.IS_ALUMODE_INVERTED('0),							// Optional inversion for ALUMODE
-					.IS_CARRYIN_INVERTED('0),							// Optional inversion for CARRYIN
-					.IS_CLK_INVERTED('0),								// Optional inversion for CLK
-					.IS_INMODE_INVERTED('0),							// Optional inversion for INMODE
-					.IS_OPMODE_INVERTED({ 2'b00, OPMODE_INVERSION}),	// Optional inversion for OPMODE
-					.IS_RSTALLCARRYIN_INVERTED('0),						// Optional inversion for RSTALLCARRYIN
-					.IS_RSTALUMODE_INVERTED('0),						// Optional inversion for RSTALUMODE
-					.IS_RSTA_INVERTED('0),								// Optional inversion for RSTA
-					.IS_RSTB_INVERTED('0),								// Optional inversion for RSTB
-					.IS_RSTCTRL_INVERTED('0),							// Optional inversion for STCONJUGATE_A
-					.IS_RSTC_INVERTED('0),								// Optional inversion for RSTC
-					.IS_RSTD_INVERTED('0),								// Optional inversion for RSTD
-					.IS_RSTINMODE_INVERTED('0),							// Optional inversion for RSTINMODE
-					.IS_RSTM_INVERTED('0),								// Optional inversion for RSTM
-					.IS_RSTP_INVERTED('0),								// Optional inversion for RSTP
+					// Programmable Inversion Attributes
+					.IS_ALUMODE_INVERTED('0),
+					.IS_CARRYIN_INVERTED('0),
+					.IS_CLK_INVERTED('0),
+					.IS_INMODE_INVERTED(INMODE_INVERSION),
+					.IS_OPMODE_INVERTED({ 2'b00, OPMODE_INVERSION}),
+					.IS_RSTALLCARRYIN_INVERTED('0),
+					.IS_RSTALUMODE_INVERTED('0),
+					.IS_RSTA_INVERTED('0),
+					.IS_RSTB_INVERTED('0),
+					.IS_RSTCTRL_INVERTED('0),
+					.IS_RSTC_INVERTED('0),
+					.IS_RSTD_INVERTED('0),
+					.IS_RSTINMODE_INVERTED('0),
+					.IS_RSTM_INVERTED('0),
+					.IS_RSTP_INVERTED('0),
 
 					// Register Control Attributes: Pipeline Register Configuration
-					.ACASCREG(0),                      // Number of pipeline stages between A/ACIN and ACOUT (0-2)
-					.ADREG(1),                         // Pipeline stages for pre-adder (0-1)
-					.ALUMODEREG(0),                    // Pipeline stages for ALUMODE (0-1)
-					.AREG(0),                          // Pipeline stages for A (0-2)
-					.BCASCREG(1),                      // Number of pipeline stages between B/BCIN and BCOUT (0-2)
-					.BREG(1),                          // Pipeline stages for B (0-2)
-					.CARRYINREG(0),                    // Pipeline stages for CARRYIN (0-1)
-					.CARRYINSELREG(0),                 // Pipeline stages for CARRYINSEL (0-1)
-					.CREG(TH > 1),                     // Pipeline stages for C (0-1)
-					.DREG(0),                          // Pipeline stages for D (0-1)
-					.INMODEREG(0),                     // Pipeline stages for INMODE (0-1)
-					.MREG(1),                          // Multiplier pipeline stages (0-1)
-					.OPMODEREG(1),                     // Pipeline stages for OPMODE (0-1)
-					.PREG(1)                           // Number of pipeline stages for P (0-1)
+					.ACASCREG(1),		// A-cascade tap after A1REG
+					.ADREG(1),			// Pre-adder output register (stage 2)
+					.ALUMODEREG(0),
+					.AREG(2),			// A1REG (stage 1) + A2REG (stage 2)
+					.BCASCREG(1),		// B-cascade tap after B1REG
+					.BREG(2),			// B1REG (stage 1) + B2REG (stage 2)
+					.CARRYINREG(0),
+					.CARRYINSELREG(0),
+					.CREG(TH > 1),		// C register (stage 3, TH≥2 feedback)
+					.DREG(1),			// D register (stage 1)
+					.INMODEREG(1),		// INMODE register (stage 1)
+					.MREG(1),			// Multiplier register (stage 3)
+					.OPMODEREG(1),		// OPMODE register for clear control
+					.PREG(1)			// Accumulator register (stage 4)
 				) dsp (
 					// Cascade outputs: Cascade Ports
 					.ACOUT(),			// 34-bit output: A port cascade
@@ -696,7 +725,7 @@ module mvu #(
 					.CLK(clk),					// 1-bit input: Clock
 					.ALUMODE(4'h0),				// 4-bit input: ALU control
 					.CARRYINSEL('0),			// 3-bit input: Carry select
-					.INMODE(5'b01100),			// 5-bit input: INMODE control
+					.INMODE(inmode),			// 5-bit input: INMODE control
 					.OPMODE({ 2'b00, opmode }),	// 9-bit input: Operation mode
 
 					// Data inputs: Data Ports
@@ -711,40 +740,30 @@ module mvu #(
 					.CARRYIN('0),	// 1-bit input: Carry-in
 					.D(dd),			// 27-bit input: D data
 
-					// Reset/Clock Enable inputs: Reset/Clock Enable Inputs
-					.CEA1('0),			// 1-bit input: Clock enable for 1st stage AREG
-					.CEA2('0),			// 1-bit input: Clock enable for 2nd stage AREG
-					.CEAD(en),			// 1-bit input: Clock enable for ADREG
-					.CEALUMODE('0),		// 1-bit input: Clock enable for ALUMODE
-					.CEB1('0),			// 1-bit input: Clock enable for 1st stage BREG
-					.CEB2(en),			// 1-bit input: Clock enable for 2nd stage BREG
-					.CEC(TH > 1? en : 1'b0),	// 1-bit input: Clock enable for CREG
-					.CECARRYIN('0),		// 1-bit input: Clock enable for CARRYINREG
-					.CECTRL(en),		// 1-bit input: Clock enable for OPMODEREG and CARRYINSELREG
-					.CED('0),			// 1-bit input: Clock enable for DREG
-					.CEINMODE('0),		// 1-bit input: Clock enable for INMODEREG
-					.CEM(en),			// 1-bit input: Clock enable for MREG
-					.CEP(en),			// 1-bit input: Clock enable for PREG
-					.RSTA('0),			// 1-bit input: Reset for AREG
-					.RSTB(				// 1-bit input: Reset for BREG
-// synthesis translate_off
-						rst ||
-// synthesis translate_on
-						zero
-					),
-					.RSTC(TH > 1? rst : 1'b0),	// 1-bit input: Reset for CREG
-					.RSTD(				// 1-bit input: Reset for DREG and ADREG
-// synthesis translate_off
-						zero ||
-// synthesis translate_on
-						rst
-					),
-					.RSTALLCARRYIN('0),	// 1-bit input: Reset for CARRYINREG
-					.RSTALUMODE('0),	// 1-bit input: Reset for ALUMODEREG
-					.RSTCTRL('0),		// 1-bit input: Reset for OPMODEREG and CARRYINSELREG
-					.RSTINMODE('0),		// 1-bit input: Reset for INMODE register
-					.RSTM(rst),			// 1-bit input: Reset for MREG
-					.RSTP(rst)			// 1-bit input: Reset for PREG
+					// Reset/Clock Enable inputs
+					.CEA1(en),			// Stage 1: A1REG
+					.CEA2(en),			// Stage 2: A2REG
+					.CEAD(en),			// Stage 2: ADREG
+					.CEALUMODE('0),
+					.CEB1(en),			// Stage 1: B1REG
+					.CEB2(en),			// Stage 2: B2REG
+					.CEC(TH > 1? en : 1'b0),	// Stage 3: CREG (TH≥2 feedback)
+					.CECARRYIN('0),
+					.CECTRL(en),		// OPMODEREG
+					.CED(en),			// Stage 1: DREG
+					.CEINMODE(en),		// Stage 1: INMODEREG
+					.CEM(en),			// Stage 3: MREG
+					.CEP(en),			// Stage 4: PREG
+					.RSTA('0),			// A path: no reset
+					.RSTB(rst),			// B path: reset (B1=B2=0 after rst)
+					.RSTC(TH > 1? rst : 1'b0),
+					.RSTD('0),			// D path: no reset
+					.RSTALLCARRYIN('0),
+					.RSTALUMODE('0),
+					.RSTCTRL('0),
+					.RSTINMODE('0),		// INMODE: no reset (B=0 masks first-beat hazard)
+					.RSTM(rst),
+					.RSTP(rst)
 				);
 				DSP58: DSP58 #(
 					// Feature Control Attributes: Data Path Selection
@@ -769,40 +788,40 @@ module mvu #(
 					.SEL_PATTERN("PATTERN"),			// Select pattern value (C, PATTERN)
 					.USE_PATTERN_DETECT("NO_PATDET"),	// Enable pattern detect (NO_PATDET, PATDET)
 
-					// Programmable Inversion Attributes: Specifies built-in programmable inversion on specific pins
-					.IS_ALUMODE_INVERTED('0),							// Optional inversion for ALUMODE
-					.IS_CARRYIN_INVERTED('0),							// Optional inversion for CARRYIN
-					.IS_CLK_INVERTED('0),								// Optional inversion for CLK
-					.IS_INMODE_INVERTED('0),							// Optional inversion for INMODE
-					.IS_NEGATE_INVERTED('0),							// Optional inversion for NEGATE
-					.IS_OPMODE_INVERTED({ 2'b00, OPMODE_INVERSION}),	// Optional inversion for OPMODE
-					.IS_RSTALLCARRYIN_INVERTED('0),						// Optional inversion for RSTALLCARRYIN
-					.IS_RSTALUMODE_INVERTED('0),						// Optional inversion for RSTALUMODE
-					.IS_RSTA_INVERTED('0),								// Optional inversion for RSTA
-					.IS_RSTB_INVERTED('0),								// Optional inversion for RSTB
-					.IS_RSTCTRL_INVERTED('0),							// Optional inversion for STCONJUGATE_A
-					.IS_RSTC_INVERTED('0),								// Optional inversion for RSTC
-					.IS_RSTD_INVERTED('0),								// Optional inversion for RSTD
-					.IS_RSTINMODE_INVERTED('0),							// Optional inversion for RSTINMODE
-					.IS_RSTM_INVERTED('0),								// Optional inversion for RSTM
-					.IS_RSTP_INVERTED('0),								// Optional inversion for RSTP
+					// Programmable Inversion Attributes
+					.IS_ALUMODE_INVERTED('0),
+					.IS_CARRYIN_INVERTED('0),
+					.IS_CLK_INVERTED('0),
+					.IS_INMODE_INVERTED(INMODE_INVERSION),
+					.IS_NEGATE_INVERTED('0),
+					.IS_OPMODE_INVERTED({ 2'b00, OPMODE_INVERSION}),
+					.IS_RSTALLCARRYIN_INVERTED('0),
+					.IS_RSTALUMODE_INVERTED('0),
+					.IS_RSTA_INVERTED('0),
+					.IS_RSTB_INVERTED('0),
+					.IS_RSTCTRL_INVERTED('0),
+					.IS_RSTC_INVERTED('0),
+					.IS_RSTD_INVERTED('0),
+					.IS_RSTINMODE_INVERTED('0),
+					.IS_RSTM_INVERTED('0),
+					.IS_RSTP_INVERTED('0),
 
 					// Register Control Attributes: Pipeline Register Configuration
-					.ACASCREG(0),		// Number of pipeline stages between A/ACIN and ACOUT (0-2)
-					.ADREG(1),			// Pipeline stages for pre-adder (0-1)
-					.ALUMODEREG(0),		// Pipeline stages for ALUMODE (0-1)
-					.AREG(0),			// Pipeline stages for A (0-2)
-					.BCASCREG(1),		// Number of pipeline stages between B/BCIN and BCOUT (0-2)
-					.BREG(1),			// Pipeline stages for B (0-2)
-					.CARRYINREG(0),		// Pipeline stages for CARRYIN (0-1)
-					.CARRYINSELREG(0),	// Pipeline stages for CARRYINSEL (0-1)
-					.CREG(TH > 1),		// Pipeline stages for C (0-1)
-					.DREG(0),			// Pipeline stages for D (0-1)
-					.INMODEREG(0),		// Pipeline stages for INMODE (0-1)
-					.MREG(1),			// Multiplier pipeline stages (0-1)
-					.OPMODEREG(1),		// Pipeline stages for OPMODE (0-1)
-					.PREG(1),			// Number of pipeline stages for P (0-1)
-					.RESET_MODE("SYNC")	// Selection of synchronous or asynchronous reset. (ASYNC, SYNC)
+					.ACASCREG(1),		// A-cascade tap after A1REG
+					.ADREG(1),			// Pre-adder output register (stage 2)
+					.ALUMODEREG(0),
+					.AREG(2),			// A1REG (stage 1) + A2REG (stage 2)
+					.BCASCREG(1),		// B-cascade tap after B1REG
+					.BREG(2),			// B1REG (stage 1) + B2REG (stage 2)
+					.CARRYINREG(0),
+					.CARRYINSELREG(0),
+					.CREG(TH > 1),		// C register (stage 3, TH≥2 feedback)
+					.DREG(1),			// D register (stage 1)
+					.INMODEREG(1),		// INMODE register (stage 1)
+					.MREG(1),			// Multiplier register (stage 3)
+					.OPMODEREG(1),		// OPMODE register for clear control
+					.PREG(1),			// Accumulator register (stage 4)
+					.RESET_MODE("SYNC")
 				) dsp (
 					// Cascade outputs: Cascade Ports
 					.ACOUT(),			// 34-bit output: A port cascade
@@ -833,7 +852,7 @@ module mvu #(
 					.CLK(clk),					// 1-bit input: Clock
 					.ALUMODE(4'h0),				// 4-bit input: ALU control
 					.CARRYINSEL('0),			// 3-bit input: Carry select
-					.INMODE(5'b01100),			// 5-bit input: INMODE control
+					.INMODE(inmode),			// 5-bit input: INMODE control
 					.NEGATE('0),				// 3-bit input: Negates the input of the multiplier
 					.OPMODE({ 2'b00, opmode }),	// 9-bit input: Operation mode
 
@@ -849,41 +868,31 @@ module mvu #(
 					.CARRYIN('0),				// 1-bit input: Carry-in
 					.D(dd),						// 27-bit input: D data
 
-					// Reset/Clock Enable inputs: Reset/Clock Enable Inputs
-					.ASYNC_RST('0),		// 1-bit input: Asynchronous reset for all registers
-					.CEA1('0),			// 1-bit input: Clock enable for 1st stage AREG
-					.CEA2('0),			// 1-bit input: Clock enable for 2nd stage AREG
-					.CEAD(en),			// 1-bit input: Clock enable for ADREG
-					.CEALUMODE('0),		// 1-bit input: Clock enable for ALUMODE
-					.CEB1('0),			// 1-bit input: Clock enable for 1st stage BREG
-					.CEB2(en),			// 1-bit input: Clock enable for 2nd stage BREG
-					.CEC(TH > 1? en : 1'b0),	// 1-bit input: Clock enable for CREG
-					.CECARRYIN('0),		// 1-bit input: Clock enable for CARRYINREG
-					.CECTRL(en),		// 1-bit input: Clock enable for OPMODEREG and CARRYINSELREG
-					.CED('0),			// 1-bit input: Clock enable for DREG
-					.CEINMODE('0),		// 1-bit input: Clock enable for INMODEREG
-					.CEM(en),			// 1-bit input: Clock enable for MREG
-					.CEP(en),			// 1-bit input: Clock enable for PREG
-					.RSTA('0),			// 1-bit input: Reset for AREG
-					.RSTB(				// 1-bit input: Reset for BREG
-// synthesis translate_off
-						rst ||
-// synthesis translate_on
-						zero
-					),
-					.RSTC(TH > 1? rst : 1'b0),	// 1-bit input: Reset for CREG
-					.RSTD(				// 1-bit input: Reset for DREG and ADREG
-// synthesis translate_off
-						zero ||
-// synthesis translate_on
-						rst
-					),
-					.RSTALLCARRYIN('0),	// 1-bit input: Reset for CARRYINREG
-					.RSTALUMODE('0),	// 1-bit input: Reset for ALUMODEREG
-					.RSTCTRL('0),		// 1-bit input: Reset for OPMODEREG and CARRYINSELREG
-					.RSTINMODE('0),		// 1-bit input: Reset for INMODE register
-					.RSTM(rst),			// 1-bit input: Reset for MREG
-					.RSTP(rst)			// 1-bit input: Reset for PREG
+					// Reset/Clock Enable inputs
+					.ASYNC_RST('0),
+					.CEA1(en),			// Stage 1: A1REG
+					.CEA2(en),			// Stage 2: A2REG
+					.CEAD(en),			// Stage 2: ADREG
+					.CEALUMODE('0),
+					.CEB1(en),			// Stage 1: B1REG
+					.CEB2(en),			// Stage 2: B2REG
+					.CEC(TH > 1? en : 1'b0),	// Stage 3: CREG (TH≥2 feedback)
+					.CECARRYIN('0),
+					.CECTRL(en),		// OPMODEREG
+					.CED(en),			// Stage 1: DREG
+					.CEINMODE(en),		// Stage 1: INMODEREG
+					.CEM(en),			// Stage 3: MREG
+					.CEP(en),			// Stage 4: PREG
+					.RSTA('0),			// A path: no reset
+					.RSTB(rst),			// B path: reset (B1=B2=0 after rst)
+					.RSTC(TH > 1? rst : 1'b0),
+					.RSTD('0),			// D path: no reset
+					.RSTALLCARRYIN('0),
+					.RSTALUMODE('0),
+					.RSTCTRL('0),
+					.RSTINMODE('0),		// INMODE: no reset (B=0 masks first-beat hazard)
+					.RSTM(rst),
+					.RSTP(rst)
 				);
 				default: initial begin
 					$error("Unknown DSP version.");
@@ -900,7 +909,7 @@ module mvu #(
 		// - balanced tree construction with all fully occupied levels pipelined
 
 		// Context-aligned clear for Hi4 accumulator.
-		// Fixed offset PIPELINE_DEPTH-3 from clr (P3 stage) to Hi4 stage.
+		// Fixed offset PIPELINE_DEPTH-4 from clr (P4 stage) to Hi4 stage.
 		// For TH>=2, delay L[PIPELINE_DEPTH-1] by TH-1 beats to match Hi4 ring depth.
 		// Reset to 'x (Hi4 has explicit rst) so the delay line maps to SRL.
 		uwire  hi_clr;
@@ -936,7 +945,7 @@ module mvu #(
 
 					uwire [1:0]  arg[SIMD];
 					uwire [SUM_WIDTH-1:0]  sum;
-					add_multi #(.N(SIMD), .DEPTH(PIPELINE_DEPTH-5), .ARG_WIDTH(2), .ARG_LO(-1), .ARG_HI(1)) reduce (
+					add_multi #(.N(SIMD), .DEPTH(PIPELINE_DEPTH-6), .ARG_WIDTH(2), .ARG_LO(-1), .ARG_HI(1)) reduce (
 						.clk, .rst, .en,
 						.arg, .sum
 					);
@@ -990,7 +999,7 @@ module mvu #(
 				uwire [LO_WIDTH -1:0]  arg[SIMD];
 				uwire [SUM_WIDTH-1:0]  sum;
 				add_multi #(
-					.N(SIMD), .DEPTH(PIPELINE_DEPTH-4),
+					.N(SIMD), .DEPTH(PIPELINE_DEPTH-5),
 					.ARG_WIDTH(LO_WIDTH),
 					.RESET_ZERO(0)
 				) reduce (

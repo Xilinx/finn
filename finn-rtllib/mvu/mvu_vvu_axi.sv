@@ -273,7 +273,7 @@ module mvu_vvu_axi #(
 		localparam bit           IS_INT8   = !IS_MVU || ((VERSION > 2) && (NUM_LANES <= 3) && (WEIGHT_WIDTH <= 8) && (ACTIVATION_WIDTH <= 9));
 		localparam int unsigned  CORE_PIPELINE_DEPTH =
 			IS_INT8 ? 2 + MPS :
-			/* else */ 3 + $clog2(DSP_SIMD) + (DSP_SIMD == 1) + 1;
+			/* else */ 4 + $clog2(DSP_SIMD) + (DSP_SIMD == 1) + 1;
 
 		uwire  dsp_last;
 		uwire  dsp_zero;
