@@ -737,42 +737,42 @@ the models the rule changes, the largest change of the total depth, and the
 worst rtlsim throughput change measured when the rule is removed):
 
 ====================================  ==========  ======  =============  ==========  ===========  ================  =====================================================================
-rule                                  class       models  median kbit %  max kbit %  max depth %  worst fps %       models affected                                                      
+rule                                  class       models  median kbit %  max kbit %  max depth %  worst fps %       models affected
 ====================================  ==========  ======  =============  ==========  ===========  ================  =====================================================================
-paced graph input                     minimizing  5       +189.9         +969.5      +213.3       none (3 sim.)     cnv-w1a1, cnv-w2a2, gtsrb, mobilenet_v1, resnet50                    
-slack relaxation                      minimizing  5       +11.5          +460.1      +587.4       none (3 sim.)     cnv-w2a2, gtsrb, vgg10-radioml, mobilenet_v1, resnet50               
-slack reset past the pacer            minimizing  2       +204.9         +398.4      +584.8       none (1 sim.)     vgg10-radioml, mobilenet_v1                                          
-pacer tolerance                       minimizing  2       +204.9         +398.4      +584.8       none (1 sim.)     vgg10-radioml, mobilenet_v1                                          
-throttled cap                         minimizing  1       +371.6         +371.6      +582.5       -                 mobilenet_v1                                                         
-two-frame split                       minimizing  6       +35.6          +87.8       +113.6       none (4 sim.)     cnv-w1a1, cnv-w2a2, gtsrb, vgg10-radioml, mobilenet_v1, resnet50     
-join/branch edges never relaxed       protecting  1       -79.6          -79.6       -85.0        -                 resnet50                                                             
+paced graph input                     minimizing  5       +189.9         +969.5      +213.3       none (3 sim.)     cnv-w1a1, cnv-w2a2, gtsrb, mobilenet_v1, resnet50
+slack relaxation                      minimizing  5       +11.5          +460.1      +587.4       none (3 sim.)     cnv-w2a2, gtsrb, vgg10-radioml, mobilenet_v1, resnet50
+slack reset past the pacer            minimizing  2       +204.9         +398.4      +584.8       none (1 sim.)     vgg10-radioml, mobilenet_v1
+pacer tolerance                       minimizing  2       +204.9         +398.4      +584.8       none (1 sim.)     vgg10-radioml, mobilenet_v1
+throttled cap                         minimizing  1       +371.6         +371.6      +582.5       -                 mobilenet_v1
+two-frame split                       minimizing  6       +35.6          +87.8       +113.6       none (4 sim.)     cnv-w1a1, cnv-w2a2, gtsrb, vgg10-radioml, mobilenet_v1, resnet50
+join/branch edges never relaxed       protecting  1       -79.6          -79.6       -85.0        -                 resnet50
 burst floor                           protecting  7       -18.6          -78.0       -94.2        -46.1 (cnv-w2a2)  kws, cnv-w1a1, cnv-w2a2, gtsrb, vgg10-radioml, mobilenet_v1, resnet50
-idle-window floor (branch edges)      protecting  1       -9.7           -9.7        -8.9         -                 resnet50                                                             
-fill frame only on join/branch edges  minimizing  1       +5.3           +5.3        +4.2         -                 resnet50                                                             
-non-causal pass (max of two passes)   protecting  1       -1.6           -1.6        -2.0         -                 resnet50                                                             
-causal pass (max of two passes)       protecting  4       -0.0           -0.1        -0.4         none (3 sim.)     cnv-w1a1, gtsrb, mobilenet_v1, resnet50                              
-cap margin                            protecting  1       -0.0           -0.0        -0.0         -                 resnet50                                                             
-measured global period                protecting  0       +0.0           +0.0        +0.0         -                 none                                                                 
+idle-window floor (branch edges)      protecting  1       -9.7           -9.7        -8.9         -                 resnet50
+fill frame only on join/branch edges  minimizing  1       +5.3           +5.3        +4.2         -                 resnet50
+non-causal pass (max of two passes)   protecting  1       -1.6           -1.6        -2.0         -                 resnet50
+causal pass (max of two passes)       protecting  4       -0.0           -0.1        -0.4         none (3 sim.)     cnv-w1a1, gtsrb, mobilenet_v1, resnet50
+cap margin                            protecting  1       -0.0           -0.0        -0.0         -                 resnet50
+measured global period                protecting  0       +0.0           +0.0        +0.0         -                 none
 ====================================  ==========  ======  =============  ==========  ===========  ================  =====================================================================
 
 Per model, the change of total depth / total storage / rtlsim throughput when
 the rule is removed (``=`` no change; throughput only where simulated):
 
 ====================================  ====================  ======================  ======================  ======================  ===================  ===============  =============
-rule removed                          kws                   cnv-w1a1                cnv-w2a2                gtsrb                   vgg10-radioml        mobilenet_v1     resnet50     
+rule removed                          kws                   cnv-w1a1                cnv-w2a2                gtsrb                   vgg10-radioml        mobilenet_v1     resnet50
 ====================================  ====================  ======================  ======================  ======================  ===================  ===============  =============
 paced graph input                     =                     +213.3 / +113.7 / +0.0  +189.0 / +258.3 / +0.0  +117.5 / +189.9 / +0.0  =                    +40.8 / +969.5   +34.1 / +61.8
-slack relaxation                      =                     =                       +40.5 / +25.1 / +0.0    +9.0 / +9.3 / +0.0      +3.8 / +11.5 / +0.0  +587.4 / +460.1  =            
-slack reset past the pacer            =                     =                       =                       =                       +3.8 / +11.5 / +0.0  +584.8 / +398.4  =            
-pacer tolerance                       =                     =                       =                       =                       +3.8 / +11.5 / +0.0  +584.8 / +398.4  =            
-throttled cap                         =                     =                       =                       =                       =                    +582.5 / +371.6  =            
+slack relaxation                      =                     =                       +40.5 / +25.1 / +0.0    +9.0 / +9.3 / +0.0      +3.8 / +11.5 / +0.0  +587.4 / +460.1  =
+slack reset past the pacer            =                     =                       =                       =                       +3.8 / +11.5 / +0.0  +584.8 / +398.4  =
+pacer tolerance                       =                     =                       =                       =                       +3.8 / +11.5 / +0.0  +584.8 / +398.4  =
+throttled cap                         =                     =                       =                       =                       =                    +582.5 / +371.6  =
 two-frame split                       =                     +53.5 / +54.2 / +0.0    +113.6 / +76.5 / +0.0   +41.6 / +17.1 / +0.0    +3.1 / +1.7 / +0.0   +4.6 / +11.3     +89.4 / +87.8
-fill frame only on join/branch edges  =                     =                       =                       =                       =                    =                +4.2 / +5.3  
-burst floor                           -94.2 / -78.0 / +0.0  -35.1 / -18.6 / -1.4    -37.2 / -13.1 / -46.1   -59.9 / -23.6 / -17.0   -6.1 / -1.8 / +0.0   -68.2 / -65.0    -1.1 / -2.1  
-causal pass (max of two passes)       =                     -0.4 / -0.0 / +0.0      =                       -0.1 / -0.1 / +0.0      =                    =                =            
-non-causal pass (max of two passes)   =                     =                       =                       =                       =                    =                -2.0 / -1.6  
+fill frame only on join/branch edges  =                     =                       =                       =                       =                    =                +4.2 / +5.3
+burst floor                           -94.2 / -78.0 / +0.0  -35.1 / -18.6 / -1.4    -37.2 / -13.1 / -46.1   -59.9 / -23.6 / -17.0   -6.1 / -1.8 / +0.0   -68.2 / -65.0    -1.1 / -2.1
+causal pass (max of two passes)       =                     -0.4 / -0.0 / +0.0      =                       -0.1 / -0.1 / +0.0      =                    =                =
+non-causal pass (max of two passes)   =                     =                       =                       =                       =                    =                -2.0 / -1.6
 join/branch edges never relaxed       =                     =                       =                       =                       =                    =                -85.0 / -79.6
-idle-window floor (branch edges)      =                     =                       =                       =                       =                    =                -8.9 / -9.7  
+idle-window floor (branch edges)      =                     =                       =                       =                       =                    =                -8.9 / -9.7
 ====================================  ====================  ======================  ======================  ======================  ===================  ===============  =============
 
 What the numbers say:

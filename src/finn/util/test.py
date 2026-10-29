@@ -35,9 +35,7 @@ import numpy as np
 import onnx
 import onnx.numpy_helper as nph
 import os
-import qonnx.custom_op.registry as registry
-
-# import time
+import shutil
 import torchvision.transforms.functional as torchvision_util
 import warnings
 import xml.etree.ElementTree as ET
@@ -221,6 +219,27 @@ def execute_parent(parent_path, child_path, input_tensor_npy, return_full_ctx=Fa
         return ret[oname]
 
 
+def stage_hw_deployment(deploy_dir, board, model_title, input_npy, reference_npy):
+    """Stage a build_dataflow deployment package for the CI hardware pipeline.
+
+    The CI build pipeline zips every hw_deployment_*/<board>/<model_title>
+    directory under FINN_BUILD_DIR into the board's zip, and the HW pipeline runs
+    driver.py in each on input.npy and compares the result to
+    output_reference.npy. deploy_dir is the build's deploy/ output, whose bitfile
+    and driver (with its weights/ folder) are copied flat into that directory.
+    model_title must be unique per board within one CI row."""
+
+    deployment_dir = os.path.join(
+        make_build_dir("hw_deployment_" + board + "_"), board, model_title
+    )
+    os.makedirs(deployment_dir)
+    shutil.copytree(os.path.join(deploy_dir, "bitfile"), deployment_dir, dirs_exist_ok=True)
+    shutil.copytree(os.path.join(deploy_dir, "driver"), deployment_dir, dirs_exist_ok=True)
+    np.save(os.path.join(deployment_dir, "input.npy"), input_npy)
+    np.save(os.path.join(deployment_dir, "output_reference.npy"), reference_npy)
+    return deployment_dir
+
+
 def resize_smaller_side(target_pixels, img):
     """Resizes smallest side of image to target pixels and resizes larger side with
     same ratio. Expects a PIL image."""
@@ -332,7 +351,7 @@ def get_characteristic_fnc(model, node0, part, target_clk_ns, strategy, caching=
         model = model.transform(GiveUniqueNodeNames())
 
         node = model.graph.node[0]
-        inst = registry.getCustomOp(node)
+        inst = getCustomOp(node)
         if (is_hls_node(node) or is_rtl_node(node)) and (
             inst.get_tree_model() is None or strategy == "rtlsim"
         ):
@@ -369,7 +388,7 @@ def get_characteristic_fnc(model, node0, part, target_clk_ns, strategy, caching=
         model = model.transform(ReplaceVerilogRelPaths())
 
         node = model.graph.node[0]
-        inst = registry.getCustomOp(node)
+        inst = getCustomOp(node)
         if (is_hls_node(node) or is_rtl_node(node)) and (
             inst.get_tree_model() is None or strategy == "rtlsim"
         ):
