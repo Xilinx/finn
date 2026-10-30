@@ -161,5 +161,6 @@ class LabelSelect(HWCustomOp):
     def get_exp_cycles(self):
         nlabels = self.get_nodeattr("Labels")
         pe = self.get_nodeattr("PE")
-        exp_cycles = nlabels / pe
+        K = self.get_nodeattr("K")
+        exp_cycles = nlabels // pe + K
         return int(exp_cycles)

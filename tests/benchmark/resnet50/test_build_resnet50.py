@@ -3,6 +3,8 @@
 
 import pytest
 
+import functools
+
 # custom steps for resnet50v1.5
 import os
 from benchmark_helpers import (
@@ -11,6 +13,7 @@ from benchmark_helpers import (
     check_build_outputs,
     get_verify_steps,
     make_benchmark_cfg,
+    run_feature_build,
     verification_io_dir,
 )
 from custom_steps_resnet50 import step_resnet50_streamline, step_resnet50_tidy
@@ -119,3 +122,26 @@ def test_resnet50(board, bench_recorder):
         "report/rtlsim_performance.json",
     ]
     check_build_outputs(output_dir, build_output_files)
+
+
+# --- feature tests: FIFO sizing ----------------------------------------------
+# The committed folding with FIFOs sized by each strategy; see "FIFO sizing tests"
+# in tests/benchmark/README.md and run_feature_build in benchmark_helpers.py.
+
+
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.finn_examples
+@pytest.mark.fifo_sizing
+@pytest.mark.xdist_group("resnet50")
+@pytest.mark.parametrize("strategy", ["heuristic_analytical", "heuristic_rtlsim"])
+@pytest.mark.parametrize("board", ["V80"])
+def test_resnet50_fifo_sizing(board, strategy):
+    run_feature_build(
+        f"resnet50_{board}",
+        functools.partial(configure_build, board),
+        model_file,
+        f"fifo-{strategy}",
+        auto_fifo_depths=True,
+        auto_fifo_strategy=strategy,
+    )

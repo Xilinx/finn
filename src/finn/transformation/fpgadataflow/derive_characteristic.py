@@ -28,45 +28,141 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-import qonnx.custom_op.registry as registry
-from qonnx.transformation.base import NodeLocalTransformation
+"""FIFO sizing from token access vectors (TAVs): generating the TAVs.
 
+The flow, as ``step_set_fifo_depths`` runs it:
+
+1. ``JustInTimeSynthesize`` builds IP for the nodes that have to be simulated.
+2. ``DeriveTokenAccessVectors`` gives every characterizable node its token
+   access vectors (TAVs) ``io_chrc_in``/``io_chrc_out``: cumulative
+   per-cycle transaction counts over two periods, one row per stream. This is
+   the only place a TAV is written. Nothing below modifies one. A TAV comes
+   from the node's tree model (``fifo_sizing.tree_models``) or from rtlsim.
+3. ``DeriveFIFOSizes`` (``fifo_sizing.derive_fifo_sizes``) reads the TAVs,
+   derives a wall-clock schedule for every edge with the chained-TAV pass and
+   writes the resulting depths to ``inFIFODepths``/``outFIFODepths``.
+
+This module holds steps 1 and 2.
+"""
+
+import os
+import qonnx.custom_op.registry as registry
+import warnings
+from qonnx.transformation.base import NodeLocalTransformation, Transformation
+
+from finn.transformation.fpgadataflow.fifo_sizing.tree_models.base import get_tree_model
+from finn.transformation.fpgadataflow.prepare_ip import _codegen_single_node
+from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
+    ReplaceVerilogRelPaths,
+)
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
+#: Ops that are never characterized: the fork and the FIFOs themselves. Joins
+#: are not characterized either, see ``is_stream_join``.
+_UNCHARACTERIZED_OPS = [
+    "DuplicateStreams_hls",
+    "StreamingFIFO_hls",
+    "StreamingFIFO_rtl",
+]
 
-def _assert_no_reconvergent_residuals(model):
-    """Raise if the model contains a reconvergent residual, i.e. a two-stream
-    ElementwiseAdd join.
 
-    Characterization-based FIFO sizing derives each consumer's requirement from
-    its first input characteristic only (io_chrc_in[0]), so a node that joins
-    two live streams (a residual add fed by a stream fork) cannot be sized
-    correctly. Detect this up front and fail with a clear message rather than
-    after the (potentially hours-long) characterization rtlsim. FINNLoop bodies
-    are opaque here (the loop is an IP core at this stage), so no descent into
-    subgraphs is needed.
+def is_stream_join(node):
+    """True if ``node`` merges two streamed inputs into one output: an
+    elementwise binary operation (``ElementwiseAdd``, ``ElementwiseMul``, ...)
+    whose inputs are *both* streams. Joins are not characterized: rtlsim
+    characterization drives ``in0`` only and would stall waiting on the second
+    stream. The sizer treats them as transparent (output token *k* leaves once
+    token *k* is in on both inputs) and gives their inputs the join window floor.
     """
-    for node in model.graph.node:
-        if "ElementwiseAdd" in node.op_type:
+    if node is None or not node.op_type.startswith("Elementwise"):
+        return False
+    if len(node.input) < 2:
+        return False
+    inst = registry.getCustomOp(node)
+    return inst.get_nodeattr("lhs_style") == "input" and inst.get_nodeattr("rhs_style") == "input"
+
+
+class JustInTimeSynthesize(Transformation):
+    def __init__(self, part, clk_period, only_without_tree_model=False):
+        super().__init__()
+        self.part = part
+        self.clk_period = clk_period
+        self.only_without_tree_model = only_without_tree_model
+
+    def apply(self, model):
+        for node in model.graph.node:
             inst = registry.getCustomOp(node)
-            if inst.get_nodeattr("lhs_style") == "input" and (
-                inst.get_nodeattr("rhs_style") == "input"
+            if (is_hls_node(node) or is_rtl_node(node)) and (
+                (
+                    (get_tree_model(inst) is None and self.only_without_tree_model)
+                    or not self.only_without_tree_model
+                )
+                and (inst.get_nodeattr("io_chrc_in") == "")
             ):
-                raise RuntimeError(
-                    "Characterize FIFO sizing is not supported for models with "
-                    "reconvergent residual paths (two-stream ElementwiseAdd '%s' "
-                    "fed by a stream fork). Use a different auto_fifo_strategy." % node.name
+                _codegen_single_node(
+                    node,
+                    model,
+                    self.part,
+                    self.clk_period,
                 )
 
+                op_type = node.op_type
+                if is_hls_node(node):
+                    try:
+                        # ensure that code is generated
+                        assert (
+                            inst.get_nodeattr("code_gen_dir_ipgen") != ""
+                        ), """Node
+                        attribute "code_gen_dir_ipgen" is empty. Please run
+                        transformation PrepareIP first."""
+                        if os.path.isdir(inst.get_nodeattr("ipgen_path")) or inst.get_nodeattr(
+                            "code_gen_dir_ipgen"
+                        ) not in inst.get_nodeattr("ipgen_path"):
+                            # call the compilation function for this node
+                            inst.ipgen_singlenode_code()
+                        else:
+                            warnings.warn("Using pre-existing IP for %s" % node.name)
+                        # ensure that executable path is now set
+                        assert (
+                            inst.get_nodeattr("ipgen_path") != ""
+                        ), """Transformation
+                        HLSSynthIP was not successful. Node attribute "ipgen_path"
+                        is empty."""
+                    except KeyError:
+                        raise Exception("Custom op_type %s is currently not supported." % op_type)
 
-class DeriveCharacteristic(NodeLocalTransformation):
-    """For each node in the graph, run rtlsim to obtain the i/o
-    characteristic function for FIFO sizing and set the attribute.
-    It is assumed that the PrepareRTLSim transformation was already
-    called on the graph.
+        model = model.transform(ReplaceVerilogRelPaths())
+        for node in model.graph.node:
+            inst = registry.getCustomOp(node)
+            if (
+                (is_hls_node(node) or is_rtl_node(node))
+                and (
+                    (get_tree_model(inst) is None and self.only_without_tree_model)
+                    or not self.only_without_tree_model
+                )
+                and node.op_type not in _UNCHARACTERIZED_OPS
+                and not is_stream_join(node)
+                and (inst.get_nodeattr("rtlsim_so") == "")
+            ):
+                try:
+                    inst.prepare_rtlsim()
+                    # ensure that executable path is now set
+                    assert (
+                        inst.get_nodeattr("rtlsim_so") != ""
+                    ), "Failed to prepare RTLSim, no rtlsim_so attribute found."
+                except KeyError:
+                    raise Exception("Custom op_type %s is currently not supported." % op_type)
 
-    This transformation performs rtlsim for each node, so it will run for
-    some time (minutes to hours depending on configuration).
+        model = model.transform(SetExecMode("rtlsim"))
+
+        return (model, False)
+
+
+class DeriveTokenAccessVectors(NodeLocalTransformation):
+    """For each node in the graph, derive the token access vectors, either from
+    the node's tree model or by rtlsim of the node in isolation, and store them
+    in ``io_chrc_in``/``io_chrc_out``.
 
     * period (int) desired period over which the characteristic function
       will be derived.
@@ -75,93 +171,42 @@ class DeriveCharacteristic(NodeLocalTransformation):
       NodeLocalTransformation for more details.
     """
 
-    def __init__(self, period, num_workers=None):
+    def __init__(
+        self,
+        model,
+        period,
+        strategy,
+        fpga_part,
+        clk_period,
+        num_workers=None,
+        nodes_to_ignore=[],
+    ):
         super().__init__(num_workers=num_workers)
+        self.model = model
         self.period = period
-
-    def apply(self, model):
-        # fail fast on unsupported topologies before the (long) characterization
-        _assert_no_reconvergent_residuals(model)
-        return super().apply(model)
+        self.strategy = strategy
+        self.fpga_part = fpga_part
+        self.clk_period = clk_period
+        self.nodes_to_ignore = set(nodes_to_ignore)
 
     def applyNodeLocal(self, node):
         op_type = node.op_type
         if is_hls_node(node) or is_rtl_node(node):
             try:
-                # lookup op_type in registry of CustomOps
                 inst = registry.getCustomOp(node)
-                inst.derive_characteristic_fxns(period=self.period)
-            except KeyError:
-                # exception if op_type is not supported
-                raise Exception("Custom op_type %s is currently not supported." % op_type)
-        return (node, False)
-
-
-class DeriveFIFOSizes(NodeLocalTransformation):
-    """Prerequisite: DeriveCharacteristic already called on graph.
-    For each node in the graph, use the accumulated I/O characteristic function
-    to perform FIFO sizing, setting the in/outFIFODepths attributes of HLSCustomOp
-    nodes.
-
-    * num_workers (int or None) number of parallel workers, see documentation in
-      NodeLocalTransformation for more details.
-    """
-
-    def __init__(self, num_workers=None, io_fifo_depth=32):
-        super().__init__(num_workers=num_workers)
-        self.io_fifo_depth = io_fifo_depth
-
-    def applyNodeLocal(self, node):
-        op_type = node.op_type
-        if is_hls_node(node) or is_rtl_node(node):
-            try:
-                # lookup op_type in registry of CustomOps
-                prod = registry.getCustomOp(node)
-                assert not (op_type.startswith("StreamingFIFO")), "Found existing FIFOs"
-                period = prod.get_nodeattr("io_chrc_period")
-                prod_chrc = prod.get_io_chrc_out()[0]
-                assert len(prod_chrc) == 2 * period, "Found unexpected characterization attribute"
-                if any([x > 2 for x in prod.get_nodeattr("outFIFODepths")]):
-                    # FIFO depth already set, can skip this node
+                if node.name in self.nodes_to_ignore:
                     return (node, False)
-
-                # find consumers
-                model = self.ref_input_model
-                out_fifo_depths = []
-                for output_name in node.output:
-                    cons_node = model.find_consumer(output_name)
-                    if cons_node is None:
-                        # could be final node, will be overridden if so
-                        # need an entry in the list anyway
-                        out_fifo_depths.append(self.io_fifo_depth)
-                        continue
-                    cons = registry.getCustomOp(cons_node)
-                    cons_chrc = cons.get_io_chrc_in()[0]
-                    # find minimum phase shift satisfying the constraint
-                    pshift_min = period - 1
-                    for pshift_cand in range(period):
-                        prod_chrc_part = prod_chrc[pshift_cand:period]
-                        cons_chrc_part = cons_chrc[: period - pshift_cand]
-                        if (prod_chrc_part >= cons_chrc_part).all():
-                            pshift_min = pshift_cand
-                            break
-                    prod_chrc_part = prod_chrc[pshift_min : (pshift_min + period)]
-                    cons_chrc_part = cons_chrc[:period]
-                    fifo_depth = int((prod_chrc_part - cons_chrc_part).max())
-                    out_fifo_depths.append(fifo_depth)
-                # set output FIFO depth for this (producing) node
-                # InsertFIFO looks at the max of (outFIFODepths, inFIFODepths)
-                # for each tensor
-                prod.set_nodeattr("outFIFODepths", out_fifo_depths)
-
-                # finally, check node inputs to ensure FIFOs are added to
-                # any top-level inputs (at least self.io_fifo_depth deep)
-                in_fifo_depths = prod.get_nodeattr("inFIFODepths")
-                for i, input_name in enumerate(node.input):
-                    if input_name in [x.name for x in model.graph.input]:
-                        in_fifo_depths[i] = max(self.io_fifo_depth, in_fifo_depths[i])
-                prod.set_nodeattr("inFIFODepths", in_fifo_depths)
-
+                # Forks, joins and FIFOs get no TAV; the sizing pass treats
+                # them as transparent.
+                if op_type not in _UNCHARACTERIZED_OPS and not is_stream_join(node):
+                    inst.derive_token_access_vectors(
+                        model=self.model,
+                        period=self.period,
+                        strategy=self.strategy,
+                        fpga_part=self.fpga_part,
+                        clk_period=self.clk_period,
+                        op_type=op_type,
+                    )
             except KeyError:
                 # exception if op_type is not supported
                 raise Exception("Custom op_type %s is currently not supported." % op_type)

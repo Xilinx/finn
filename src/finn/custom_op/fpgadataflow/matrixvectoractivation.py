@@ -41,6 +41,7 @@ from qonnx.util.basic import (
 )
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.transformation.fpgadataflow.fifo_sizing.tav import load_tav_npy, save_tav_npy
 from finn.util.basic import fifo_rtl_files, is_versal, least_divisor_at_most
 from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
 
@@ -1049,21 +1050,6 @@ class MVAU(HWCustomOp):
             ret_dict[thres_param_type] = thres_count
         return ret_dict
 
-    def derive_characteristic_fxns(self, period):
-        n_inps = np.prod(self.get_folded_input_shape()[:-1])
-        io_dict = {
-            "inputs": {
-                "in0": [0 for i in range(n_inps)],
-            },
-            "outputs": {"out0": []},
-        }
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode in ["internal_decoupled", "external"]:
-            n_weight_inps = self.calc_wmem()
-            num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
-            io_dict["inputs"]["in1"] = [0 for i in range(num_w_reps * n_weight_inps)]
-        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
-
     def get_verilog_top_module_intf_names(self):
         # intf_names = super().get_verilog_top_module_intf_names()
         intf_names = {}
@@ -1411,6 +1397,55 @@ class MVAU(HWCustomOp):
             raise Exception("Unrecognized mem_mode for MatrixVectorActivation")
 
         return cmd
+
+    def derive_token_access_vectors(
+        self, model, period, strategy, fpga_part, clk_period, op_type, override_dict=None
+    ):
+        n_inps = np.prod(self.get_folded_input_shape()[:-1])
+        io_dict = {
+            "inputs": {
+                "in0": [i for i in range(n_inps)],
+            },
+            "outputs": {"out0": []},
+        }
+
+        mem_mode = self.get_nodeattr("mem_mode")
+        # a dynamic node's rtlsim is the bare MVU without its dynamic_load, so
+        # its in1 also takes one weight tile per compute cycle
+        if mem_mode in ["internal_decoupled", "external", "dynamic"]:
+            n_weight_inps = self.calc_wmem()
+            num_w_reps = int(np.prod(self.get_nodeattr("numInputVectors")))
+            io_dict["inputs"]["in1"] = [i for i in range(num_w_reps * n_weight_inps)]
+
+        super().derive_token_access_vectors(
+            model, period, strategy, fpga_part, clk_period, op_type, override_dict=io_dict
+        )
+        if mem_mode == "dynamic":
+            # Add the TAV row of the streamed second operand. Both
+            # characterizations describe only in0 and out0. In hardware, in1 feeds
+            # ``dynamic_load``, which buffers one ``MW x MH`` matrix
+            # (``MW * MH / PE`` words) in one of two banks and replays it for
+            # ``numInputVectors[-1]`` input vectors. So in1 is read as one burst of
+            # a matrix, one word per cycle, at the start of the in0 reads of every
+            # ``numInputVectors[-1]`` vectors. The row is placed modulo the period,
+            # like the tree models, and stored after the in0 row, the order
+            # ``stream_curves`` binds rows in.
+            rows = np.atleast_2d(load_tav_npy(self.get_nodeattr("io_chrc_in")))
+            cum0 = rows[0].astype(np.int64)
+            period = cum0.shape[0] // 2
+            n_reps = self.get_nodeattr("numInputVectors")[-1]
+            n_mats = int(np.prod(self.get_nodeattr("numInputVectors"))) // n_reps
+            burst = self.get_nodeattr("MW") * self.get_nodeattr("MH") // self.get_nodeattr("PE")
+            sf = self.get_nodeattr("MW") // self.get_nodeattr("SIMD")
+            # cycle of the first in0 read of each matrix's vectors in the first period
+            first = np.arange(n_mats) * n_reps * sf + 1
+            starts = np.searchsorted(cum0[:period], first, side="left")
+            rd = np.zeros(period, dtype=np.int64)
+            # add rather than set, so the count stays exact even if bursts overlap
+            np.add.at(rd, ((starts[:, None] + np.arange(burst)[None, :]) % period).ravel(), 1)
+            cum1 = np.cumsum(np.tile(rd, 2))
+            save = np.stack([cum0, cum1]).astype(np.int32)
+            self.set_nodeattr("io_chrc_in", save_tav_npy(self, "io_chrc_in", save))
 
     def get_weight_mem_bytes(self):
         """Return (size, offs) in bytes for one layer's weight matrix.

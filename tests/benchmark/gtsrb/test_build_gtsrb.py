@@ -3,6 +3,7 @@
 
 import pytest
 
+import functools
 import numpy as np
 import os
 from benchmark_helpers import (
@@ -13,6 +14,7 @@ from benchmark_helpers import (
     check_build_outputs,
     get_verify_steps,
     make_benchmark_cfg,
+    run_feature_build,
     verification_io_dir,
 )
 from onnx import helper as oh
@@ -109,3 +111,26 @@ def test_gtsrb(board, bench_recorder):
     # builds on AUP-ZU3_8GB via the Vivado/Zynq flow (.bit/.hwh).
     build_output_files = CORE_BUILD_OUTPUT_FILES + bitfile_output_files(board)
     check_build_outputs(output_dir, build_output_files)
+
+
+# --- feature tests: FIFO sizing ----------------------------------------------
+# The committed folding with FIFOs sized by each strategy; see "FIFO sizing tests"
+# in tests/benchmark/README.md and run_feature_build in benchmark_helpers.py.
+
+
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.finn_examples
+@pytest.mark.fifo_sizing
+@pytest.mark.xdist_group("gtsrb")
+@pytest.mark.parametrize("strategy", ["heuristic_analytical", "heuristic_rtlsim"])
+@pytest.mark.parametrize("board", ["AUP-ZU3_8GB"])
+def test_gtsrb_fifo_sizing(board, strategy):
+    run_feature_build(
+        f"gtsrb_{board}",
+        functools.partial(configure_build, board),
+        model_file,
+        f"fifo-{strategy}",
+        auto_fifo_depths=True,
+        auto_fifo_strategy=strategy,
+    )

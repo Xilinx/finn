@@ -3,12 +3,24 @@
 
 import csv
 import datetime
+import fcntl
+import glob
 import json
 import os
+import shutil
 import subprocess
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
 
+import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
-from finn.util.basic import is_versal, pynq_part_map, slash_part_map, vitis_part_map
+from finn.util.basic import (
+    is_versal,
+    make_build_dir,
+    pynq_part_map,
+    slash_part_map,
+    vitis_part_map,
+)
 
 
 def benchmark_root():
@@ -150,8 +162,7 @@ def find_cached_build(prefix, build_dir=None):
     Generic caching hook for flows that reuse a previously built/synthesized model
     (e.g. re-running only a later step such as FIFO sizing) instead of rebuilding
     from scratch: scan ``FINN_BUILD_DIR`` (or ``build_dir``) for a matching build
-    directory. Unused by the current benchmark suite. Returns the directory path,
-    or ``None`` if no match exists.
+    directory. Returns the directory path, or ``None`` if no match exists.
     """
     if build_dir is None:
         build_dir = os.environ.get("FINN_BUILD_DIR", ".")
@@ -205,6 +216,121 @@ def check_build_outputs(output_dir, expected_files, write_report=True):
         len(expected),
         missing,
     )
+
+
+# --- feature tests ---------------------------------------------------------
+#
+# A feature test resumes the convert-phase checkpoint of a cached estimate-only
+# build (committed folding) with the feature's settings, builds the stitched IP
+# (no bitfile) and checks it in rtlsim: output equal to the golden output and
+# throughput at least 98 % of the build's own analytic estimate.
+
+# the phase whose output checkpoint the feature builds start from
+CHECKPOINT_PHASE = "phase_convert_to_hardware"
+
+FEATURE_OUTPUTS = [
+    build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
+    build_cfg.DataflowOutputType.STITCHED_IP,
+    build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
+]
+
+
+def estimate_build(tag, configure, model_file):
+    """Return the cached estimate-only build ``est_<tag>_*`` of ``model_file``,
+    building it if there is none. ``configure(output_dir, **overrides)`` returns
+    the model's ``DataflowBuildConfig``. A file lock keeps concurrent tests of the
+    same model from building it twice."""
+    prefix = f"est_{tag}_"
+    report = "report/estimate_network_performance.json"
+    with open(os.path.join(os.environ["FINN_BUILD_DIR"], prefix + "lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        output_dir = find_cached_build(prefix)
+        if output_dir is None or not os.path.isfile(os.path.join(output_dir, report)):
+            output_dir = make_build_dir(prefix)
+            cfg = configure(
+                output_dir,
+                generate_outputs=[build_cfg.DataflowOutputType.ESTIMATE_REPORTS],
+                stop_step="phase_optimize_hardware",
+                verify_steps=[],
+            )
+            assert build.build_dataflow_cfg(model_file, cfg) == 0
+        return output_dir
+
+
+def run_feature_build(tag, configure, model_file, name, **overrides):
+    """Resume the convert-phase checkpoint of ``estimate_build(tag, configure,
+    model_file)`` with ``overrides`` and check the stitched IP in rtlsim.
+    Returns the metrics."""
+    ref_dir = estimate_build(tag, configure, model_file)
+    output_dir = make_build_dir(f"{name}_{tag}_")
+    cfg = configure(
+        output_dir,
+        generate_outputs=FEATURE_OUTPUTS,
+        verify_steps=["stitched_ip_rtlsim"],
+        stitched_ip_gen_dcp=False,
+        save_intermediate_models=True,
+    )
+    # set here, not passed on: make_benchmark_cfg drops None values
+    for key, value in overrides.items():
+        setattr(cfg, key, value)
+    # only the steps after the checkpoint
+    steps = list(cfg.steps or build_cfg.default_build_dataflow_steps)
+    cfg.steps = steps[steps.index(CHECKPOINT_PHASE) + 1 :]
+    # stitched-IP verification needs the dataflow parent model next to the checkpoint
+    parent = "intermediate_models/dataflow_parent.onnx"
+    os.makedirs(os.path.join(output_dir, "intermediate_models"), exist_ok=True)
+    shutil.copy(os.path.join(ref_dir, parent), os.path.join(output_dir, parent))
+    checkpoint = os.path.join(ref_dir, "intermediate_models", CHECKPOINT_PHASE + ".onnx")
+    ret = build.build_dataflow_cfg(checkpoint, cfg)
+    metrics = feature_metrics(output_dir, test=name)
+    assert ret == 0, f"build failed, see {output_dir}/build_dataflow.log"
+    assert metrics["verified"], "stitched-IP rtlsim output differs from the golden output"
+    assert (metrics["rtlsim_vs_est"] or 0) >= 0.98, "rtlsim %s fps, estimate %s fps" % (
+        metrics["rtlsim_fps"],
+        metrics["est_fps"],
+    )
+    return metrics
+
+
+def feature_metrics(output_dir, **extra):
+    """Collect a feature build's numbers (throughput, FIFO storage, step times),
+    store them as ``report/feature_metrics.json`` and return them."""
+    report_dir = os.path.join(output_dir, "report")
+    est = _load_json(os.path.join(report_dir, "estimate_network_performance.json")) or {}
+    est = est.get("estimated_throughput_fps")
+    rtlsim = _load_json(os.path.join(report_dir, "rtlsim_performance.json")) or {}
+    rtlsim = rtlsim.get("stable_throughput[images/s]")
+    verify_dir = os.path.join(output_dir, "verification_output")
+    results = glob.glob(os.path.join(verify_dir, "verify_stitched_ip_rtlsim_*"))
+    row = dict(
+        output_dir=output_dir,
+        est_fps=est,
+        rtlsim_fps=rtlsim,
+        rtlsim_vs_est=rtlsim / est if rtlsim and est else None,
+        verified=bool(results) and all("_SUCCESS." in os.path.basename(r) for r in results),
+    )
+    # a step's time runs from the checkpoint saved before it to its own; the first
+    # is the dataflow parent model, copied in when the build started
+    models_dir = os.path.join(output_dir, "intermediate_models")
+    saved = sorted(glob.glob(os.path.join(models_dir, "*.onnx")), key=os.path.getmtime)
+    row["step_times_s"] = {
+        os.path.basename(b)[: -len(".onnx")]: os.path.getmtime(b) - os.path.getmtime(a)
+        for a, b in zip(saved, saved[1:])
+    }
+    sized = os.path.join(models_dir, "step_set_fifo_depths.onnx")
+    if os.path.isfile(sized):
+        fifos = [
+            getCustomOp(node)
+            for node in ModelWrapper(sized).graph.node
+            if node.op_type.startswith("StreamingFIFO")
+        ]
+        bits = sum(f.get_nodeattr("depth") * f.get_instream_width() for f in fifos)
+        row["fifo_kbit"] = bits / 1024
+    row.update(extra)
+    os.makedirs(report_dir, exist_ok=True)
+    with open(os.path.join(report_dir, "feature_metrics.json"), "w") as f:
+        json.dump(row, f, indent=2)
+    return row
 
 
 # --- benchmark aggregation -------------------------------------------------

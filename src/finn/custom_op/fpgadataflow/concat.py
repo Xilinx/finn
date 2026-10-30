@@ -152,3 +152,19 @@ class StreamingConcat(HWCustomOp):
             inp_values.append(context[inp])
         result = np.concatenate(inp_values, axis=-1)
         context[node.output[0]] = result
+
+    def derive_token_access_vectors(
+        self, model, period, strategy, fpga_part, clk_period, op_type, override_dict=None
+    ):
+        # rtlsim has to feed every input: the round-robin stalls on the first
+        # one that runs dry
+        io_dict = {
+            "inputs": {
+                "in%d" % i: [0 for j in range(np.prod(self.get_folded_input_shape(i)[:-1]))]
+                for i in range(self.get_n_inputs())
+            },
+            "outputs": {"out0": []},
+        }
+        super().derive_token_access_vectors(
+            model, period, strategy, fpga_part, clk_period, op_type, override_dict=io_dict
+        )
