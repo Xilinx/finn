@@ -11,7 +11,6 @@
 import errno
 import os
 import os.path
-import re
 from finn_xsi.sim_engine import SimEngine
 from finn_xsi.srcutil import order_pkg_first
 from typing import Optional
@@ -21,6 +20,7 @@ from finn.util.basic import (
     launch_process_helper,
     resolve_xilinx_tool,
 )
+from finn.util.launcher import ToolUnavailable
 
 
 def locate_glbl() -> Optional[str]:
@@ -134,15 +134,17 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False, beha
 
 
 def get_simkernel_so():
+    """Return the file name of the XSI simulation kernel library of the Vivado
+    installation in XILINX_VIVADO. Vivado 2024.2 renamed it from
+    librdi_simulator_kernel.so to libxv_simulator_kernel.so."""
     vivado_path = os.environ.get("XILINX_VIVADO")
-    # xsi kernel lib name depends on Vivado version (renamed in 2024.2)
-    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
-    year, minor = int(match.group(1)), int(match.group(2))
-    if (year, minor) > (2024, 1):
-        simkernel_so = "libxv_simulator_kernel.so"
-    else:
-        simkernel_so = "librdi_simulator_kernel.so"
-    return simkernel_so
+    if not vivado_path:
+        raise ToolUnavailable("vivado", "XILINX_VIVADO is not set")
+    lib_dir = os.path.join(vivado_path, "lib", "lnx64.o")
+    for simkernel_so in ("libxv_simulator_kernel.so", "librdi_simulator_kernel.so"):
+        if os.path.isfile(os.path.join(lib_dir, simkernel_so)):
+            return simkernel_so
+    raise ToolUnavailable("vivado", f"no XSI simulation kernel library in {lib_dir}")
 
 
 def load_sim_obj(sim_out_dir, out_so_relative_path, tracefile=None, simkernel_so=None):

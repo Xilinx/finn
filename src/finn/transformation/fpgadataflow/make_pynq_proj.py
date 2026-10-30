@@ -29,7 +29,6 @@
 
 import multiprocessing as mp
 import os
-import subprocess
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
@@ -58,6 +57,7 @@ from finn.util.basic import (
     pynq_part_map,
     resolve_xilinx_tool,
 )
+from finn.util.launcher import run_tool
 
 from . import templates
 
@@ -290,20 +290,12 @@ class MakePYNQProject(Transformation):
         with open(ipcfg, "w") as f:
             f.write(template)
 
-        # create a shell script to launch the synthesis
-        synth_project_sh = vivado_pynq_proj_dir + "/synth_project.sh"
-        working_dir = os.environ["PWD"]
-        vivado_cmd = resolve_xilinx_tool("vivado")
-        with open(synth_project_sh, "w") as f:
-            f.write("#!/bin/bash \n")
-            f.write("cd {}\n".format(vivado_pynq_proj_dir))
-            f.write("%s -mode batch -source %s\n" % (vivado_cmd, ipcfg))
-            f.write("cd {}\n".format(working_dir))
-
-        # call the synthesis script
-        bash_command = ["bash", synth_project_sh]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
+        # launch the synthesis; synth_project.sh repeats the run by hand
+        run_tool(
+            [resolve_xilinx_tool("vivado"), "-mode", "batch", "-source", ipcfg],
+            cwd=vivado_pynq_proj_dir,
+            replay=vivado_pynq_proj_dir + "/synth_project.sh",
+        )
         deliverables = [
             vivado_pynq_proj_dir + "/finn_link/finn_link.runs/impl_1/finn_link_wrapper.bit",
             vivado_pynq_proj_dir + "/finn_link/finn_link.runs/impl_1/finn_link_wrapper_pld.pdi",
