@@ -10,7 +10,8 @@ from brevitas.export import export_qonnx
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
-from finn.util.basic import make_build_dir, part_map, robust_rmtree
+from finn.platform import get_board
+from finn.util.basic import make_build_dir, robust_rmtree
 from finn.util.test import get_trained_network_and_ishape
 
 # deep enough to need more than one BRAM/URAM primitive, and not a power of two,
@@ -59,7 +60,7 @@ def test_large_fifo_is_not_split(board, ram_style):
         target_fps=10000,
         synth_clk_period_ns=10.0,
         board=None if versal else board,
-        fpga_part=part_map[board] if versal else None,
+        fpga_part=get_board(board).part if versal else None,
         rtlsim_batch_size=100,
         shell_flow_type=None if versal else build_cfg.ShellFlowType.VIVADO_ZYNQ,
         generate_outputs=[

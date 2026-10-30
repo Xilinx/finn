@@ -35,7 +35,8 @@ from qonnx.util.basic import roundup_to_integer_multiple
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.thresholding import Thresholding
-from finn.util.basic import get_vivado_version, is_versal
+from finn.platform import is_versal
+from finn.util.basic import get_vivado_version
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,

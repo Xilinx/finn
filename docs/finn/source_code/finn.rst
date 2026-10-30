@@ -15,5 +15,6 @@ Modules
    finn.builder
    finn.core
    finn.custom_op
+   finn.platform
    finn.transformation
    finn.util

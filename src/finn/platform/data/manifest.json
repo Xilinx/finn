@@ -1,0 +1,14 @@
+{
+  "name": "built-in",
+  "source": {
+    "kind": "vivado",
+    "release": "2025.2",
+    "build": "SW Build 6299465 on Fri Nov 14 12:34:56 MST 2025"
+  },
+  "counts": {
+    "parts": 5601,
+    "devices": 351,
+    "resources": 122,
+    "capped": 10
+  }
+}

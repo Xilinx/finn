@@ -21,15 +21,11 @@ import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.fifo_transaction_counts import fifo_transaction_counts
+from finn.platform import golden_dir, missing_golden_files
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.util.basic import (
-    get_pynq_golden_dir,
-    get_vivado_version,
-    make_build_dir,
-    pynq_golden_files,
-)
+from finn.util.basic import get_vivado_version, make_build_dir
 from finn.util.rtlsim import check_fifo_log_consistency, read_fifo_log_snapshot
 from finn.util.test import stage_hw_deployment
 
@@ -1053,11 +1049,10 @@ def test_finnloop_end2end_mlo_ddr(
     if board == "VCK190":
         if vivado_version != (2025, 2):
             pytest.skip("Vivado version 2025.2 required for the VIVADO_VERSAL flow.")
-        golden_dir = get_pynq_golden_dir(board)
-        missing = [f for f in pynq_golden_files if not os.path.isfile(os.path.join(golden_dir, f))]
+        missing = missing_golden_files(board)
         if missing:
             pytest.skip(
-                f"VCK190 golden reference files missing from {golden_dir}: "
+                f"VCK190 golden reference files missing from {golden_dir(board)}: "
                 f"{', '.join(missing)}. Build them with FINN_VCK190_GOLDEN=1 ./run-docker.sh"
             )
     loop_body_models = create_chained_loop_bodies(

@@ -39,6 +39,7 @@ from qonnx.util.cleanup import cleanup as qonnx_cleanup
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
+from finn.platform import get_board
 from finn.transformation.fpgadataflow.absorb_into_requant import (
     AbsorbElementwiseOpsIntoRequant,
 )
@@ -61,10 +62,10 @@ from finn.transformation.qonnx.quant_act_to_multithreshold import (
     default_filter_function_generator,
 )
 from finn.transformation.streamline.absorb import AbsorbScalarBiasIntoMultiThreshold
-from finn.util.basic import make_build_dir, pynq_part_map
+from finn.util.basic import make_build_dir
 
 test_pynq_board = "ZCU104"
-test_fpga_part = pynq_part_map[test_pynq_board]
+test_fpga_part = get_board(test_pynq_board).part
 target_clk_ns = 10
 
 

@@ -44,15 +44,10 @@ from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 
 from finn.core.onnx_exec import execute_onnx
+from finn.platform import get_board
 from finn.transformation.fpgadataflow.alveo_build import VitisLink, VitisOptStrategy
 from finn.transformation.fpgadataflow.make_pynq_proj import PYNQBuild
-from finn.util.basic import (
-    make_build_dir,
-    pynq_part_map,
-    robust_rmtree,
-    vitis_default_platform,
-    vitis_part_map,
-)
+from finn.util.basic import make_build_dir, robust_rmtree
 
 # map of (wbits,abits) -> model
 example_map = {
@@ -139,22 +134,26 @@ def make_runtime_weight_stream(op_inst, weights):
 
 def get_build_env(board, target_clk_ns):
     """Get board-related build environment for testing. Only relevant for bnn_pynq tests
-    - board = any from pynq_part_map, vitis_part_map
+    - board = a board of the VIVADO_ZYNQ, VIVADO_VERSAL or VITIS_ALVEO shell flow
     """
     ret = {}
-    if board in pynq_part_map:
+    row = get_board(board)
+    if row.shell in ("VIVADO_ZYNQ", "VIVADO_VERSAL"):
         ret["toolchain"] = "pynq"
-        ret["part"] = pynq_part_map[board]
+        ret["part"] = row.part
         ret["build_fxn"] = PYNQBuild(board, target_clk_ns)
-    elif board in vitis_part_map:
+    elif row.shell == "VITIS_ALVEO":
         ret["toolchain"] = "vitis-xrt"
-        ret["part"] = vitis_part_map[board]
-        ret["vitis_platform"] = vitis_default_platform[board]
+        ret["part"] = row.part
+        ret["vitis_platform"] = row.vitis_platform
         ret["build_fxn"] = VitisLink(
-            vitis_default_platform[board], target_clk_ns, strategy=VitisOptStrategy.BUILD_SPEED
+            row.vitis_platform,
+            target_clk_ns,
+            strategy=VitisOptStrategy.BUILD_SPEED,
+            mem_port=row.mem_port,
         )
     else:
-        raise Exception("Unknown board specified")
+        raise Exception("Board %s has no shell flow get_build_env supports" % board)
     return ret
 
 

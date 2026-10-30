@@ -41,7 +41,8 @@ from qonnx.util.basic import (
 )
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
-from finn.util.basic import fifo_rtl_files, is_versal, least_divisor_at_most
+from finn.platform import is_versal
+from finn.util.basic import fifo_rtl_files, least_divisor_at_most
 from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation:

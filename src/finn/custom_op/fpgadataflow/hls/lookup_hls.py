@@ -32,7 +32,8 @@ from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.lookup import Lookup
-from finn.util.basic import get_vivado_version, is_versal
+from finn.platform import is_versal
+from finn.util.basic import get_vivado_version
 from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
 
 RAM_STYLES = {"auto": "AUTO", "block": "BRAM", "distributed": "LUTRAM", "ultra": "URAM"}

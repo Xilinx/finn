@@ -21,6 +21,8 @@ from qonnx.custom_op.registry import getCustomOp
 
 from finn.builder.build_dataflow_config import DataflowBuildConfig, DataflowOutputType
 from finn.builder.build_dataflow_steps import (
+    driver_making_steps,
+    part_reading_steps,
     step_apply_folding_config,
     step_assign_ddr_weight_offsets,
     step_convert_to_hw,
@@ -46,6 +48,7 @@ from finn.builder.build_dataflow_steps import (
     step_target_fps_parallelization,
     step_tidy_up,
     step_transpose_decomposition,
+    tool_running_steps,
 )
 from finn.util.fpgadataflow import is_mlo
 
@@ -176,6 +179,15 @@ def phase_convert_to_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
+def _fifo_sizing_skipped(cfg: DataflowBuildConfig):
+    only_estimates = all(out == DataflowOutputType.ESTIMATE_REPORTS for out in cfg.generate_outputs)
+    sizing_needs_synthesis = not cfg.auto_fifo_depths or cfg.auto_fifo_strategy in (
+        "characterize",
+        "largefifo_rtlsim",
+    )
+    return only_estimates and sizing_needs_synthesis
+
+
 def phase_optimize_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Phase: Configure parallelism, apply folding, optimize bit widths,
     FIFO sizing, generate reports.
@@ -226,14 +238,7 @@ def phase_optimize_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
         # auto strategies or the folding-config path). This keeps the estimate flow
         # fast and synthesis-free. A future analytical (non-synthesis) strategy would
         # not be skipped, so it could still feed FIFO resources into the estimates.
-        only_estimates = all(
-            out == DataflowOutputType.ESTIMATE_REPORTS for out in cfg.generate_outputs
-        )
-        sizing_needs_synthesis = not cfg.auto_fifo_depths or cfg.auto_fifo_strategy in (
-            "characterize",
-            "largefifo_rtlsim",
-        )
-        if only_estimates and sizing_needs_synthesis:
+        if _fifo_sizing_skipped(cfg):
             print(
                 "Skipping step_set_fifo_depths: only estimate reports requested and "
                 "the configured FIFO sizing strategy requires synthesis. FIFO sizing "
@@ -370,6 +375,43 @@ def phase_generate_outputs(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = _execute_step(step_deployment_package, model, cfg)
     return model
 
+
+#: Like build_dataflow_steps.tool_running_steps, for the phases.
+tool_running_phases = {
+    "phase_optimize_hardware": lambda cfg: (
+        not _fifo_sizing_skipped(cfg) or tool_running_steps["step_minimize_bit_width"](cfg)
+    ),
+    "phase_build_hardware": lambda cfg: True,
+    "phase_generate_outputs": lambda cfg: any(
+        tool_running_steps[name](cfg)
+        for name in (
+            "step_create_stitched_ip",
+            "step_export_portable_rtl",
+            "step_measure_rtlsim_performance",
+            "step_synthesize_bitfile",
+        )
+    ),
+}
+
+#: Like build_dataflow_steps.part_reading_steps, for the phases.
+part_reading_phases = {
+    "phase_convert_to_hardware": lambda cfg: True,
+    "phase_optimize_hardware": lambda cfg: True,
+    "phase_build_hardware": lambda cfg: True,
+    "phase_generate_outputs": lambda cfg: any(
+        part_reading_steps[name](cfg)
+        for name in (
+            "step_create_stitched_ip",
+            "step_export_portable_rtl",
+            "step_synthesize_bitfile",
+        )
+    ),
+}
+
+#: Like build_dataflow_steps.driver_making_steps, for the phases.
+driver_making_phases = {
+    "phase_generate_outputs": driver_making_steps["step_make_driver"],
+}
 
 #: Map phase name strings to phase functions
 build_dataflow_phase_lookup = {
