@@ -26,22 +26,18 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from finn.custom_op.fpgadataflow.rtl.convolutioninputgenerator_rtl import (
-    ConvolutionInputGenerator_rtl,
-)
 from finn.custom_op.fpgadataflow.rtl.crop_rtl import Crop_rtl
+from finn.custom_op.fpgadataflow.rtl.dotprod_rtl import DotProd_rtl
 from finn.custom_op.fpgadataflow.rtl.elementwise_binary_rtl import (
     ElementwiseAdd_rtl,
     ElementwiseMul_rtl,
     ElementwiseSub_rtl,
 )
 from finn.custom_op.fpgadataflow.rtl.finn_loop import FINNLoop
-from finn.custom_op.fpgadataflow.rtl.fmpadding_rtl import FMPadding_rtl
 from finn.custom_op.fpgadataflow.rtl.hwsoftmax_rtl import HWSoftmax_rtl
 from finn.custom_op.fpgadataflow.rtl.hwwhere_rtl import HWWhere_rtl
 from finn.custom_op.fpgadataflow.rtl.inner_shuffle_rtl import InnerShuffle_rtl
 from finn.custom_op.fpgadataflow.rtl.layernorm_rtl import LayerNorm_rtl
-from finn.custom_op.fpgadataflow.rtl.matrixvectoractivation_rtl import MVAU_rtl
 from finn.custom_op.fpgadataflow.rtl.pad1d_rtl import Pad1D_rtl
 from finn.custom_op.fpgadataflow.rtl.pwpolyf_rtl import PWPolyF_rtl
 from finn.custom_op.fpgadataflow.rtl.requant_rtl import Requant_rtl
@@ -52,24 +48,20 @@ from finn.custom_op.fpgadataflow.rtl.streamingdatawidthconverter_rtl import (
 from finn.custom_op.fpgadataflow.rtl.streamingfifo_rtl import StreamingFIFO_rtl
 from finn.custom_op.fpgadataflow.rtl.thresholding_rtl import Thresholding_rtl
 from finn.custom_op.fpgadataflow.rtl.tlastmarker_rtl import TLastMarker_rtl
-from finn.custom_op.fpgadataflow.rtl.vectorvectoractivation_rtl import VVAU_rtl
 
 custom_op = dict()
 
 # make sure new HLSCustomOp subclasses are imported here so that they get
 # registered and plug in correctly into the infrastructure
-custom_op["ConvolutionInputGenerator_rtl"] = ConvolutionInputGenerator_rtl
 custom_op["Crop_rtl"] = Crop_rtl
+custom_op["DotProd_rtl"] = DotProd_rtl
 custom_op["ElementwiseAdd_rtl"] = ElementwiseAdd_rtl
 custom_op["ElementwiseSub_rtl"] = ElementwiseSub_rtl
 custom_op["ElementwiseMul_rtl"] = ElementwiseMul_rtl
-custom_op["FMPadding_rtl"] = FMPadding_rtl
 custom_op["LayerNorm_rtl"] = LayerNorm_rtl
 custom_op["StreamingDataWidthConverter_rtl"] = StreamingDataWidthConverter_rtl
 custom_op["StreamingFIFO_rtl"] = StreamingFIFO_rtl
-custom_op["MVAU_rtl"] = MVAU_rtl
 custom_op["Pad1D_rtl"] = Pad1D_rtl
-custom_op["VVAU_rtl"] = VVAU_rtl
 custom_op["PWPolyF_rtl"] = PWPolyF_rtl
 custom_op["Thresholding_rtl"] = Thresholding_rtl
 custom_op["HWSoftmax_rtl"] = HWSoftmax_rtl

@@ -44,7 +44,6 @@ from finn_ci.config import BOARDS, TEST_BOARDS
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
-from qonnx.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from qonnx.transformation.fold_constants import FoldConstants
 from qonnx.transformation.general import (
     GiveReadableTensorNames,
@@ -56,7 +55,6 @@ from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.insert_topk import InsertTopK
-from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.transformation.merge_onnx_models import MergeONNXModels
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 from shutil import copy, copytree
@@ -127,7 +125,7 @@ def get_checkpoint_name(board, topology, wbits, abits, step):
 
 
 def fold_tfc(model):
-    fc_layers = model.get_nodes_by_op_type("MVAU_hls")
+    fc_layers = model.get_nodes_by_op_type("DotProd_hls")
     # (PE, SIMD, ramstyle) for each layer
     config = [(16, 49, "block"), (8, 8, "auto"), (8, 8, "auto"), (10, 8, "distributed")]
     for fcl, (pe, simd, ramstyle) in zip(fc_layers, config):
@@ -146,7 +144,7 @@ def fold_tfc(model):
 
 
 def fold_lfc(model):
-    fc_layers = model.get_nodes_by_op_type("MVAU_hls")
+    fc_layers = model.get_nodes_by_op_type("DotProd_hls")
     # (PE, SIMD, ramstyle) for each layer
     config = [
         (32, 49, "block"),
@@ -170,8 +168,9 @@ def fold_lfc(model):
 
 
 def fold_cnv_large(model):
-    fc_layers = model.get_nodes_by_op_type("MVAU_hls")
-    # each tuple is (PE, SIMD) for a layer
+    # DotProd subsumes both ConvolutionInputGenerator and MVAU
+    dp_layers = model.get_nodes_by_op_type("DotProd_hls")
+    # each tuple is (PE, SIMD) for each DotProd layer
     folding = [
         (16, 3),
         (32, 32),
@@ -183,26 +182,20 @@ def fold_cnv_large(model):
         (1, 8),
         (5, 1),
     ]
-    for fcl, (pe, simd) in zip(fc_layers, folding):
+    for fcl, (pe, simd) in zip(dp_layers, folding):
         fcl_inst = getCustomOp(fcl)
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
         fcl_inst.set_nodeattr("resType", "lut")
-
-    swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")
-    for i in range(len(swg_layers)):
-        swg_inst = getCustomOp(swg_layers[i])
-        if not swg_inst.get_nodeattr("depthwise"):
-            simd = folding[i][1]
-            swg_inst.set_nodeattr("SIMD", simd)
-        swg_inst.set_nodeattr("ram_style", "distributed")
+        fcl_inst.set_nodeattr("ram_style", "distributed")
     return model
 
 
 def fold_cnv_small(model):
-    fc_layers = model.get_nodes_by_op_type("MVAU_hls")
-    # each tuple is (PE, SIMD) for a layer
+    # DotProd subsumes both ConvolutionInputGenerator and MVAU
+    dp_layers = model.get_nodes_by_op_type("DotProd_hls")
+    # each tuple is (PE, SIMD, ramstyle) for each DotProd layer
     folding = [
         (8, 3, "distributed"),
         (16, 16, "distributed"),
@@ -214,21 +207,13 @@ def fold_cnv_small(model):
         (2, 2, "auto"),
         (5, 1, "distributed"),
     ]
-    for fcl, (pe, simd, ramstyle) in zip(fc_layers, folding):
+    for fcl, (pe, simd, ramstyle) in zip(dp_layers, folding):
         fcl_inst = getCustomOp(fcl)
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
         fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
         fcl_inst.set_nodeattr("resType", "lut")
-
-    swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")
-    for i in range(len(swg_layers)):
-        swg_inst = getCustomOp(swg_layers[i])
-        if not swg_inst.get_nodeattr("depthwise"):
-            simd = folding[i][1]
-            swg_inst.set_nodeattr("SIMD", simd)
-        swg_inst.set_nodeattr("ram_style", "distributed")
     inp_qnt_node = model.get_nodes_by_op_type("Thresholding_rtl")[0]
     inp_qnt = getCustomOp(inp_qnt_node)
     inp_qnt.set_nodeattr("depth_trigger_uram", 32000)
@@ -503,10 +488,11 @@ class TestEnd2End:
         model = model.transform(MoveScalarLinearPastInvariants())
         model = model.transform(Streamline())
         if "fc" not in topology:
-            model = model.transform(LowerConvsToMatMul())
+            # Conv lowering is no longer needed -- InferDotProd handles Conv
+            # nodes directly. Bipolar XNOR detection is also handled inside
+            # InferDotProd.
             model = model.transform(MakeMaxPoolNHWC())
             model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
-        model = model.transform(ConvertBipolarMatMulToXnorPopcount())
         model = model.transform(Streamline())
         # absorb final add-mul nodes into TopK
         model = model.transform(absorb.AbsorbScalarMulAddIntoTopK())
@@ -520,10 +506,10 @@ class TestEnd2End:
         if topology == "tfc" and wbits == 1 and abits == 1:
             # use standalone thresholds for tfc-w1a1 to also exercise that option
             model = model.transform(to_hw.InferThresholdingLayer())
-        # needed for bipolar MatMul layers
-        model = model.transform(to_hw.InferBinaryMatrixVectorActivation())
-        # needed for non-bipolar MatMul layers
-        model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
+        # InferDotProd replaces InferBinaryMatrixVectorActivation,
+        # InferQuantizedMatrixVectorActivation, InferVectorVectorActivation,
+        # and InferConvInpGen. It handles Conv nodes directly.
+        model = model.transform(to_hw.InferDotProd())
         # TopK to LabelSelect
         model = model.transform(to_hw.InferLabelSelectLayer())
         # input quantization (if any) to standalone thresholding
@@ -531,7 +517,6 @@ class TestEnd2End:
         # needed for convolutions
         if "fc" not in topology:
             model = model.transform(to_hw.InferPool())
-            model = model.transform(to_hw.InferConvInpGen())
             model = model.transform(RemoveCNVtoFCFlatten())
         # get rid of Tranpose -> Tranpose identity seq
         model = model.transform(absorb.AbsorbConsecutiveTransposes())
@@ -542,26 +527,25 @@ class TestEnd2End:
             "tfc": [
                 ("Reshape", 1),
                 ("Thresholding", 1),
-                ("MVAU", 4),
+                ("DotProd", 4),
                 ("LabelSelect", 1),
             ],
             "tfc-1-1": [
                 ("Reshape", 1),
                 ("Thresholding", 4),
-                ("MVAU", 4),
+                ("DotProd", 4),
                 ("LabelSelect", 1),
             ],
             "lfc": [
                 ("Reshape", 1),
                 ("Thresholding", 1),
-                ("MVAU", 4),
+                ("DotProd", 4),
                 ("LabelSelect", 1),
             ],
             "cnv": [
                 ("Transpose", 1),
                 ("Thresholding", 1),
-                ("ConvolutionInputGenerator", 8),
-                ("MVAU", 9),
+                ("DotProd", 9),
                 ("Pool", 2),
                 ("LabelSelect", 1),
             ],
@@ -590,26 +574,25 @@ class TestEnd2End:
             "tfc": [
                 ("Reshape", 1),
                 ("Thresholding_rtl", 1),
-                ("MVAU_hls", 4),
+                ("DotProd_hls", 4),
                 ("LabelSelect_hls", 1),
             ],
             "tfc-1-1": [
                 ("Reshape", 1),
                 ("Thresholding_rtl", 4),
-                ("MVAU_hls", 4),
+                ("DotProd_hls", 4),
                 ("LabelSelect_hls", 1),
             ],
             "lfc": [
                 ("Reshape", 1),
                 ("Thresholding_rtl", 1),
-                ("MVAU_hls", 4),
+                ("DotProd_hls", 4),
                 ("LabelSelect_hls", 1),
             ],
             "cnv": [
                 ("Transpose", 1),
                 ("Thresholding_rtl", 1),
-                ("ConvolutionInputGenerator_rtl", 8),
-                ("MVAU_hls", 9),
+                ("DotProd_hls", 9),
                 ("Pool_hls", 2),
                 ("LabelSelect_hls", 1),
             ],

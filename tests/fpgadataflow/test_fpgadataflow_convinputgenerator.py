@@ -27,6 +27,16 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+"""Tests for the sliding-window path inside DotProd.
+
+Historically this file tested the standalone ConvolutionInputGenerator
+(SWG) custom op.  That op has been consolidated into DotProd, which
+handles padding, im2col, and the dot product in a single node.  The
+tests below exercise the same convolution configurations (asymmetric
+kernels, dilations, non-square inputs, depthwise) by building ONNX
+Conv models and lowering them via ``InferDotProd``.
+"""
+
 import pytest
 
 import numpy as np
@@ -36,6 +46,8 @@ from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
+from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
@@ -53,47 +65,72 @@ from finn.util.basic import get_watchdog_timeout_cycles
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
-def make_single_im2col_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, stride, dilation, idt, dw):
+def make_conv_model(k, ifm_ch, ifm_dim, stride, dilation, idt, wdt, dw):
+    """Build an ONNX Conv model (NCHW layout) suitable for InferDotProd.
+
+    For depthwise (dw=1): group=ifm_ch, ofm_ch=ifm_ch, weight shape [ifm_ch,1,kH,kW].
+    For standard (dw=0): group=1, ofm_ch=ifm_ch (keep simple), weight shape [ofm_ch,ifm_ch,kH,kW].
+    """
     k_h, k_w = k
     ifm_dim_h, ifm_dim_w = ifm_dim
     stride_h, stride_w = stride
     dilation_h, dilation_w = dilation
-    ofm_dim_h, ofm_dim_w = ofm_dim
 
-    odt = idt
-    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ifm_dim_h, ifm_dim_w, ifm_ch])
-    outp = helper.make_tensor_value_info(
-        "outp", TensorProto.FLOAT, [1, ofm_dim_h, ofm_dim_w, k_h * k_w * ifm_ch]
+    ofm_dim_h = compute_conv_output_dim(ifm_dim_h, k_h, stride_h, 0, dilation_h)
+    ofm_dim_w = compute_conv_output_dim(ifm_dim_w, k_w, stride_w, 0, dilation_w)
+
+    if dw:
+        group = ifm_ch
+        ofm_ch = ifm_ch
+        weight_shape = [ofm_ch, 1, k_h, k_w]
+    else:
+        group = 1
+        ofm_ch = ifm_ch  # keep output channels = input channels for simplicity
+        weight_shape = [ofm_ch, ifm_ch, k_h, k_w]
+
+    input_shape = [1, ifm_ch, ifm_dim_h, ifm_dim_w]
+    output_shape = [1, ofm_ch, ofm_dim_h, ofm_dim_w]
+
+    conv_config = {
+        "dilations": [dilation_h, dilation_w],
+        "group": group,
+        "kernel_shape": [k_h, k_w],
+        "pads": [0, 0, 0, 0],
+        "strides": [stride_h, stride_w],
+    }
+
+    top_in = helper.make_tensor_value_info("top_in", TensorProto.FLOAT, input_shape)
+    top_out = helper.make_tensor_value_info("top_out", TensorProto.FLOAT, output_shape)
+    weight_vi = [helper.make_tensor_value_info("W", TensorProto.FLOAT, weight_shape)]
+
+    modelproto = qonnx_make_model(
+        helper.make_graph(
+            name="conv_test",
+            inputs=[top_in],
+            outputs=[top_out],
+            value_info=weight_vi,
+            nodes=[helper.make_node("Conv", ["top_in", "W"], ["top_out"], **conv_config)],
+        )
     )
 
-    im2col_node = helper.make_node(
-        "Im2Col",
-        ["inp"],
-        ["outp"],
-        domain="finn.custom_op.general",
-        stride=[stride_h, stride_w],
-        kernel_size=[k_h, k_w],
-        input_shape=str((1, ifm_dim_h, ifm_dim_w, ifm_ch)),
-        dilations=[dilation_h, dilation_w],
-        pad_amount=[0, 0, 0, 0],
-        pad_value=0,
-        depthwise=dw,
-    )
-    graph = helper.make_graph(
-        nodes=[im2col_node], name="im2col_graph", inputs=[inp], outputs=[outp]
-    )
+    model = ModelWrapper(modelproto)
+    model.set_tensor_datatype("top_in", idt)
+    model.set_tensor_datatype("top_out", DataType["INT32"])
+    model.set_tensor_datatype("W", wdt)
+    model.set_initializer("W", gen_finn_dt_tensor(wdt, weight_shape))
 
-    model = qonnx_make_model(graph, producer_name="im2col-model")
-    model = ModelWrapper(model)
-
-    model.set_tensor_datatype("inp", idt)
-    model.set_tensor_datatype("outp", odt)
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
 
     return model
 
 
-def prepare_inputs(input_tensor):
-    return {"inp": input_tensor}
+def _find_dotprod_node(model):
+    """Return the first DotProd_hls or DotProd_rtl node in the graph."""
+    for n in model.graph.node:
+        if n.op_type.startswith("DotProd_"):
+            return n
+    return None
 
 
 # input datatype
@@ -110,14 +147,8 @@ def prepare_inputs(input_tensor):
 @pytest.mark.parametrize("dilation", [[1, 1], [2, 2], [2, 1]])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
-# input channel parallelism ("SIMD")
-@pytest.mark.parametrize("simd", [1, 2, 4])
 # depthwise
 @pytest.mark.parametrize("dw", [0, 1])
-# parallel_window enable (MMV_out = M*K)
-@pytest.mark.parametrize("parallel_window", [0, 1])
-# in/out MMV ("M")
-@pytest.mark.parametrize("m", [1])
 # Flip dimensions
 @pytest.mark.parametrize("flip", [False])
 @pytest.mark.fpgadataflow
@@ -131,10 +162,7 @@ def test_fpgadataflow_slidingwindow(
     stride,
     dilation,
     exec_mode,
-    simd,
     dw,
-    parallel_window,
-    m,
     flip,
 ):
     if flip:
@@ -158,131 +186,184 @@ def test_fpgadataflow_slidingwindow(
     kernel_width = (k_w - 1) * dilation_w + 1  # incl. dilation
     kernel_height = (k_h - 1) * dilation_h + 1  # incl. dilation
 
-    if simd > ifm_ch:
-        pytest.skip("SIMD cannot be larger than number of input channels")
-    if ifm_ch % simd != 0:
-        pytest.skip("SIMD must divide number of input channels")
     if kernel_height > ifm_dim_h or stride_h > ifm_dim_h:
         pytest.skip("Illegal convolution configuration: kernel or stride > FM dimension")
     if kernel_width > ifm_dim_w or stride_w > ifm_dim_w:
         pytest.skip("Illegal convolution configuration: kernel or stride > FM dimension")
     if (k_h == 1 and dilation_h != 1) or (k_w == 1 and dilation_w != 1):
         pytest.skip("Illegal convolution configuration: dilation for unitary kernel dim")
-    if ((stride_h > k_h) or (stride_w > k_w)) and not (parallel_window or (k_h == 1 and k_w == 1)):
-        pytest.skip("Not all combinations for stride > k edge case supported in default mode")
-    if parallel_window and simd != ifm_ch and not (dw or (k_h == 1 and k_w == 1)):
-        pytest.skip("Parallel window requires SIMD=C for non-depthwise case")
 
-    ofm_dim_h = compute_conv_output_dim(ifm_dim_h, k_h, stride_h, 0, dilation_h)
-    ofm_dim_w = compute_conv_output_dim(ifm_dim_w, k_w, stride_w, 0, dilation_w)
-    ofm_dim = [ofm_dim_h, ofm_dim_w]
+    wdt = DataType["INT2"]
+    fpga_part = "xc7z020clg400-1"
 
-    x = gen_finn_dt_tensor(idt, (1, ifm_dim_h, ifm_dim_w, ifm_ch))
-    # prepare input data
-    input_dict = prepare_inputs(x)
-    model = make_single_im2col_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, stride, dilation, idt, dw)
-    y_expected = oxe.execute_onnx(model, input_dict)["outp"]
+    model = make_conv_model(k, ifm_ch, ifm_dim, stride, dilation, idt, wdt, dw)
 
-    model = model.transform(to_hw.InferConvInpGen())
-    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
-    assert (y_produced == y_expected).all()
-    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
-    # set simd
-    inst = getCustomOp(model.graph.node[0])
-    inst.set_nodeattr("SIMD", simd)
-    optype = model.graph.node[0].op_type
-    if optype == "ConvolutionInputGenerator_rtl":
-        inst.set_nodeattr("parallel_window", parallel_window)
-        inst.set_nodeattr("M", m)
+    # Reference: execute the plain ONNX Conv
+    x = gen_finn_dt_tensor(idt, [1, ifm_ch, ifm_dim_h, ifm_dim_w])
+    input_dict = {"top_in": x}
+    y_expected = oxe.execute_onnx(model, input_dict)["top_out"]
+
+    # Convert to HW: InferDotProd handles Conv nodes directly
+    hw_model = model.transform(to_hw.InferDotProd())
+    hw_model = hw_model.transform(InferShapes())
+    hw_model = hw_model.transform(InferDataTypes())
+
+    # Verify DotProd HW-op produces the same output as the reference
+    y_hwop = oxe.execute_onnx(hw_model, input_dict)["top_out"]
+    assert (y_hwop == y_expected).all(), "DotProd HW-op output mismatch vs ONNX Conv reference"
+
+    # Specialize to HLS/RTL backend
+    hw_model = hw_model.transform(SpecializeLayers(fpga_part))
+
+    dp_node = _find_dotprod_node(hw_model)
+    assert dp_node is not None, "No DotProd_hls/DotProd_rtl node found after SpecializeLayers"
 
     if exec_mode == "cppsim":
-        model = model.transform(SetExecMode("cppsim"))
-        model = model.transform(PrepareCppSim())
-        model = model.transform(CompileCppSim())
+        hw_model = hw_model.transform(SetExecMode("cppsim"))
+        hw_model = hw_model.transform(PrepareCppSim())
+        hw_model = hw_model.transform(CompileCppSim())
     elif exec_mode == "rtlsim":
-        model = model.transform(SetExecMode("rtlsim"))
-        model = model.transform(GiveUniqueNodeNames())
-        model = model.transform(PrepareIP("xc7z020clg400-1", 5))
-        model = model.transform(HLSSynthIP())
-        model = model.transform(PrepareRTLSim())
+        hw_model = hw_model.transform(SetExecMode("rtlsim"))
+        hw_model = hw_model.transform(GiveUniqueNodeNames())
+        hw_model = hw_model.transform(PrepareIP(fpga_part, 5))
+        hw_model = hw_model.transform(HLSSynthIP())
+        hw_model = hw_model.transform(PrepareRTLSim())
     else:
         raise Exception("Unknown exec_mode in test_fpgadataflow_slidingwindow")
 
-    # execute model
-    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
-
-    if dw == 0:
-        assert (y_produced == y_expected).all()
-    else:
-        y_expected = y_expected.reshape(1, ofm_dim_h, ofm_dim_w, k_h * k_w, ifm_ch // simd, simd)
-        y_expected = y_expected.transpose(0, 1, 2, 4, 3, 5)
-        y_expected = y_expected.reshape(1, ofm_dim_h, ofm_dim_w, ifm_ch * k_h * k_w)
-        assert (y_produced == y_expected).all()
+    # Execute the specialized model
+    y_produced = oxe.execute_onnx(hw_model, input_dict)["top_out"]
+    assert (y_produced == y_expected).all(), (
+        "DotProd specialized output mismatch vs ONNX Conv reference "
+        f"(exec_mode={exec_mode}, dw={dw}, k={k}, ifm_dim={ifm_dim})"
+    )
 
     if exec_mode == "rtlsim":
-        nodes = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")
-        node = nodes[0]
-        inst = getCustomOp(node)
+        dp_node = _find_dotprod_node(hw_model)
+        inst = getCustomOp(dp_node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
-        exp_cycles_dict = model.analysis(exp_cycles_per_layer)
-        exp_cycles = exp_cycles_dict[node.name]
+        exp_cycles_dict = hw_model.analysis(exp_cycles_per_layer)
+        exp_cycles = exp_cycles_dict[dp_node.name]
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=10, rtol=1.1)
         assert exp_cycles != 0
 
 
-def _run_swg_depthwise_throttle_check(k, ifm_dim, ifm_ch, simd, throttle):
-    """Build a depthwise ConvolutionInputGenerator_rtl (reusing the file's
-    im2col model builder), drive its input stream with the given throttle
-    profile via XSI rtlsim, and assert it neither deadlocks (watchdog) nor
-    mismatches the reordered im2col reference."""
+def _make_depthwise_conv_model_for_throttle(k, ifm_dim, ifm_ch, idt, wdt):
+    """Build a depthwise ONNX Conv model for the throttle deadlock tests.
+
+    Uses stride=1, dilation=1, no padding. Returns the model and its weight
+    tensor (for reference calculation).
+    """
+    k_h, k_w = k
+    ifm_dim_h, ifm_dim_w = ifm_dim
+    ofm_dim_h = compute_conv_output_dim(ifm_dim_h, k_h, 1, 0, 1)
+    ofm_dim_w = compute_conv_output_dim(ifm_dim_w, k_w, 1, 0, 1)
+
+    weight_shape = [ifm_ch, 1, k_h, k_w]
+    input_shape = [1, ifm_ch, ifm_dim_h, ifm_dim_w]
+    output_shape = [1, ifm_ch, ofm_dim_h, ofm_dim_w]
+
+    conv_config = {
+        "dilations": [1, 1],
+        "group": ifm_ch,
+        "kernel_shape": [k_h, k_w],
+        "pads": [0, 0, 0, 0],
+        "strides": [1, 1],
+    }
+
+    top_in = helper.make_tensor_value_info("top_in", TensorProto.FLOAT, input_shape)
+    top_out = helper.make_tensor_value_info("top_out", TensorProto.FLOAT, output_shape)
+    weight_vi = [helper.make_tensor_value_info("W", TensorProto.FLOAT, weight_shape)]
+
+    modelproto = qonnx_make_model(
+        helper.make_graph(
+            name="dw_conv_throttle",
+            inputs=[top_in],
+            outputs=[top_out],
+            value_info=weight_vi,
+            nodes=[helper.make_node("Conv", ["top_in", "W"], ["top_out"], **conv_config)],
+        )
+    )
+
+    model = ModelWrapper(modelproto)
+    model.set_tensor_datatype("top_in", idt)
+    model.set_tensor_datatype("W", wdt)
+    W = gen_finn_dt_tensor(wdt, weight_shape)
+    model.set_initializer("W", W)
+
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+
+    return model
+
+
+def _run_swg_depthwise_throttle_check(k, ifm_dim, ifm_ch, pe, throttle):
+    """Build a depthwise DotProd_rtl via InferDotProd, drive its input stream
+    with the given throttle profile via XSI rtlsim, and assert it neither
+    deadlocks (watchdog) nor mismatches the ONNX Conv reference.
+
+    This exercises the sliding-window datapath inside DotProd for depthwise
+    convolutions under realistic (non-back-to-back) input conditions.
+
+    The ``pe`` parameter controls channel folding (``cf = ifm_ch // pe``),
+    which is the DotProd equivalent of the old ConvolutionInputGenerator's
+    SIMD-based channel factor.  The original SWG deadlock was triggered by
+    large channel factors, so PE=1 (max cf) is the worst case.
+    """
     fpga_part = "xc7z020clg400-1"
     clk_ns = 5
-    stride = [1, 1]
-    dilation = [1, 1]
     idt = DataType["INT4"]
+    wdt = DataType["INT4"]
     k_h, k_w = k
-    ofm_dim_h = compute_conv_output_dim(ifm_dim[0], k_h, stride[0], 0, dilation[0])
-    ofm_dim_w = compute_conv_output_dim(ifm_dim[1], k_w, stride[1], 0, dilation[1])
-    ofm_dim = [ofm_dim_h, ofm_dim_w]
 
-    # build the im2col model once and take the reference before converting to HW
-    model = make_single_im2col_modelwrapper(
-        k, ifm_ch, ifm_dim, ofm_dim, stride, dilation, idt, dw=1
-    )
-    x = gen_finn_dt_tensor(idt, (1, ifm_dim[0], ifm_dim[1], ifm_ch))
-    y_ref = oxe.execute_onnx(model, prepare_inputs(x))["outp"]
-    # reorder im2col output into the SWG depthwise channel/window layout
-    y_ref = y_ref.reshape(1, ofm_dim_h, ofm_dim_w, k_h * k_w, ifm_ch // simd, simd)
-    y_ref = y_ref.transpose(0, 1, 2, 4, 3, 5)
-    y_ref = y_ref.reshape(1, ofm_dim_h, ofm_dim_w, ifm_ch * k_h * k_w)
+    model = _make_depthwise_conv_model_for_throttle(k, ifm_dim, ifm_ch, idt, wdt)
 
-    model = model.transform(to_hw.InferConvInpGen())
-    # force the RTL variant so we exercise the swg_template_default.sv datapath
-    getCustomOp(model.graph.node[0]).set_nodeattr("preferred_impl_style", "rtl")
+    # Reference output from the plain ONNX Conv
+    x_nchw = gen_finn_dt_tensor(idt, [1, ifm_ch, ifm_dim[0], ifm_dim[1]])
+    input_dict = {"top_in": x_nchw}
+    y_ref = oxe.execute_onnx(model, input_dict)["top_out"]
+
+    # Convert to DotProd HW op
+    model = model.transform(to_hw.InferDotProd())
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+
+    # Force RTL variant to exercise swg_template_default.sv datapath,
+    # and set PE for channel folding (depthwise: cf = ifm_ch // PE).
+    for n in model.graph.node:
+        if n.op_type == "DotProd":
+            getCustomOp(n).set_nodeattr("preferred_impl_style", "rtl")
+            if ifm_ch % pe == 0:
+                getCustomOp(n).set_nodeattr("PE", pe)
+
     model = model.transform(SpecializeLayers(fpga_part))
-    assert model.graph.node[0].op_type == "ConvolutionInputGenerator_rtl"
-    getCustomOp(model.graph.node[0]).set_nodeattr("SIMD", simd)
-    model = model.transform(GiveUniqueNodeNames())
 
+    dp_node = _find_dotprod_node(model)
+    assert dp_node is not None, "No DotProd_hls/DotProd_rtl node after SpecializeLayers"
+
+    model = model.transform(GiveUniqueNodeNames())
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(PrepareIP(fpga_part, clk_ns))
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim())
 
-    inst = getCustomOp(model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")[0])
-    in_dt, in_w, in_folded = (
-        inst.get_input_datatype(0),
-        inst.get_instream_width(0),
-        inst.get_folded_input_shape(0),
-    )
-    out_dt, out_w, out_folded = (
-        inst.get_output_datatype(0),
-        inst.get_outstream_width(0),
-        inst.get_folded_output_shape(0),
-    )
+    # Find the specialized DotProd node for XSI driving
+    dp_node = _find_dotprod_node(model)
+    inst = getCustomOp(dp_node)
+
+    in_dt = inst.get_input_datatype(0)
+    in_w = inst.get_instream_width(0)
+    in_folded = inst.get_folded_input_shape(0)
+    out_dt = inst.get_output_datatype(0)
+    out_w = inst.get_outstream_width(0)
+    out_folded = inst.get_folded_output_shape(0)
     num_out = inst.get_number_output_values()
 
-    packed_in = npy_to_rtlsim_input(np.asarray(x, dtype=np.float32).reshape(in_folded), in_dt, in_w)
+    # DotProd input is NHWC; transpose from NCHW
+    x_nhwc = x_nchw.transpose(0, 2, 3, 1)
+    packed_in = npy_to_rtlsim_input(
+        np.asarray(x_nhwc, dtype=np.float32).reshape(in_folded), in_dt, in_w
+    )
     hex_in = map(lambda v: f"{v:0x}", packed_in)
 
     sim = inst.get_rtlsim()
@@ -293,8 +374,8 @@ def _run_swg_depthwise_throttle_check(k, ifm_dim, ifm_ch, simd, throttle):
         out_buf = sim.collect_output(
             "out0_V", num_out, watchdog=sim.create_watchdog("out0_V timeout", liveness)
         )
-        cfg = "k=%s, ifm_ch=%s, simd=%s, throttle=%s" % (k, ifm_ch, simd, throttle)
-        assert not sim.run(), "rtlsim watchdog timed out -> SWG deadlock (%s)" % cfg
+        cfg = "k=%s, ifm_ch=%s, pe=%s, throttle=%s" % (k, ifm_ch, pe, throttle)
+        assert not sim.run(), "rtlsim watchdog timed out -> DotProd deadlock (%s)" % cfg
         packed_out = [int(v, base=16) for v in out_buf]
     finally:
         inst.close_rtlsim(sim)
@@ -302,7 +383,9 @@ def _run_swg_depthwise_throttle_check(k, ifm_dim, ifm_ch, simd, throttle):
     got = rtlsim_output_to_npy(packed_out, None, out_dt, out_folded, out_w, out_dt.bitwidth())
     got = np.asarray(got, dtype=np.float32).reshape(inst.get_normal_output_shape(0))
 
-    assert (got.reshape(y_ref.shape) == y_ref).all(), "SWG output mismatch (%s)" % cfg
+    # Compare: DotProd output is NHWC accumulator; reference is NCHW
+    got_nchw = got.transpose(0, 3, 1, 2)
+    assert (got_nchw.reshape(y_ref.shape) == y_ref).all(), "DotProd output mismatch (%s)" % cfg
 
 
 # throttle=(count_txns, wait_cycles): a back-to-back producer masks the bug,
@@ -322,39 +405,49 @@ def test_fpgadataflow_swg_depthwise_slow_producer_deadlock(k, throttle, monkeypa
     appears when the producer feeds input no faster than the SWG's window rate,
     so a back-to-back stream (``throttle=(inf, 0)``) passes even on the buggy RTL
     while a bursty stream (``throttle=(1, 32)``) deadlocks. Post-fix both must
-    complete and return the reference im2col output.
+    complete and return the reference conv output.
+
+    Now exercises the SWG datapath inside DotProd_rtl rather than the former
+    standalone ConvolutionInputGenerator_rtl.
     """
     if not finnxsi.is_available():
         pytest.skip("finn_xsi (XSI rtlsim) not available")
     # keep the default watchdog bound so a genuine deadlock aborts quickly
     monkeypatch.delenv("LIVENESS_THRESHOLD", raising=False)
-    _run_swg_depthwise_throttle_check(k, [4, 4], ifm_ch=4, simd=1, throttle=throttle)
+    _run_swg_depthwise_throttle_check(k, [4, 4], ifm_ch=4, pe=1, throttle=throttle)
 
 
-# Wider channels / SIMD>1
+# Wider channels / PE>1
 # (e.g. 4x4 depthwise over 4x4 with 512 channels, plus 3x3 / 2x2 variants).
+# PE controls channel folding in DotProd depthwise (cf = ifm_ch // PE),
+# analogous to the old ConvInpGen SIMD-based channel_factor.
 @pytest.mark.parametrize("throttle", [(float("inf"), 0), (1, 16)], ids=["backtoback", "bursty"])
 @pytest.mark.parametrize(
-    "k, ifm_dim, ifm_ch, simd",
+    "k, ifm_dim, ifm_ch, pe",
     [
         ([4, 4], [4, 4], 512, 64),
-        ([4, 4], [4, 4], 512, 1),  # SIMD=1 (max channel_factor -> largest overflow)
+        ([4, 4], [4, 4], 512, 1),  # PE=1 (max channel_factor -> largest overflow)
         ([3, 3], [4, 4], 256, 32),
         ([2, 2], [4, 4], 128, 4),
     ],
-    ids=["k4_ch512_simd64", "k4_ch512_simd1", "k3_ch256_simd32", "k2_ch128_simd4"],
+    ids=["k4_ch512_pe64", "k4_ch512_pe1", "k3_ch256_pe32", "k2_ch128_pe4"],
 )
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_fpgadataflow_swg_depthwise_slow_producer_deadlock_wide(
-    k, ifm_dim, ifm_ch, simd, throttle, monkeypatch
+    k, ifm_dim, ifm_ch, pe, throttle, monkeypatch
 ):
-    """Wide-channel / SIMD>1 coverage of the depthwise SWG deadlock (PR #1698),
+    """Wide-channel / PE>1 coverage of the depthwise SWG deadlock (PR #1698),
     matching the author's xsim sweep. Same trigger as the light test: the bursty
     producer exposes the ``First_elem_next_window`` overflow, back-to-back masks
-    it."""
+    it.
+
+    Now exercises the SWG datapath inside DotProd_rtl rather than the former
+    standalone ConvolutionInputGenerator_rtl. The ``pe`` parameter controls
+    channel folding (cf = ifm_ch // PE), equivalent to the old ConvInpGen SIMD.
+    """
     if not finnxsi.is_available():
         pytest.skip("finn_xsi (XSI rtlsim) not available")
     monkeypatch.delenv("LIVENESS_THRESHOLD", raising=False)
-    _run_swg_depthwise_throttle_check(k, ifm_dim, ifm_ch, simd, throttle)
+    _run_swg_depthwise_throttle_check(k, ifm_dim, ifm_ch, pe, throttle)

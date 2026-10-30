@@ -36,7 +36,6 @@ from qonnx.custom_op.general.im2col import compute_conv_output_dim
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.util.basic import gen_finn_dt_tensor
 
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
@@ -103,8 +102,6 @@ def build_model(is_1d, in_dim, k, stride, dt_in, dt_w, pad_half=0, flip_1d=False
     model.set_tensor_datatype("param_w_conv0", dt_w)
     model.set_initializer("param_w_conv0", gen_finn_dt_tensor(dt_w, shape_w))
     model = model.transform(InferShapes())
-    model = model.transform(LowerConvsToMatMul())
-    model = model.transform(InferShapes())
     return model
 
 
@@ -126,8 +123,8 @@ def test_fpgadataflow_downsampler(is_1d, flip_1d, exec_mode):
     inp = gen_finn_dt_tensor(dt_in, model.get_tensor_shape("in0"))
     idict = {"in0": inp}
     y_expected = execute_onnx(model, idict)["out0"]
-    model = model.transform(to_hw.InferConvInpGen())
-    assert len(model.get_nodes_by_op_type("ConvolutionInputGenerator")) == 1
+    model = model.transform(to_hw.InferDotProd())
+    assert len(model.get_nodes_by_op_type("DotProd")) == 1
     y_produced = execute_onnx(model, idict)["out0"]
     assert (y_produced == y_expected).all()
     model = model.transform(SpecializeLayers("xc7z020clg400-1"))
@@ -146,7 +143,7 @@ def test_fpgadataflow_downsampler(is_1d, flip_1d, exec_mode):
     y_produced = execute_onnx(model, idict)["out0"]
     assert (y_produced == y_expected).all()
     if exec_mode == "rtlsim":
-        node = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")[0]
+        node = model.get_nodes_by_op_type("DotProd_rtl")[0]
         inst = getCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)

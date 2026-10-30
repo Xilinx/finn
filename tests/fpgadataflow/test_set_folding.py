@@ -52,8 +52,7 @@ def make_multi_fclayer_model(ch, wdt, adt, tdt, nnodes):
     W = np.random.randint(wdt.min(), wdt.max() + 1, size=(ch, ch))
     W = W.astype(np.float32)
 
-    T = np.random.randint(tdt.min(), tdt.max() + 1, size=(ch, 2 ** adt.bitwidth() - 1))
-    T = T.astype(np.float32)
+    odt = DataType["INT32"]
 
     tensors = []
     tensors.append(helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ch]))
@@ -68,20 +67,26 @@ def make_multi_fclayer_model(ch, wdt, adt, tdt, nnodes):
         simd = 1
         FCLayer_nodes += [
             helper.make_node(
-                "MVAU_hls",
-                [tensors[i].name, "weights_" + str(i), "thresh_" + str(i)],
+                "DotProd_hls",
+                [tensors[i].name, "weights_" + str(i)],
                 [tensors[i + 1].name],
                 domain="finn.custom_op.fpgadataflow.hls",
                 backend="fpgadataflow",
-                MW=ch,
-                MH=ch,
+                IFMChannels=ch,
+                OFMChannels=ch,
+                IFMDim=[1, 1],
+                OFMDim=[1, 1],
+                KernelSize=[1, 1],
+                Stride=[1, 1],
+                Dilation=[1, 1],
+                Padding=[0, 0, 0, 0],
+                depthwise=0,
                 SIMD=simd,
                 PE=pe,
                 inputDataType=adt.name,
                 weightDataType=wdt.name,
-                outputDataType=adt.name,
-                ActVal=0,
-                noActivation=0,
+                outputDataType=odt.name,
+                mem_mode="internal_decoupled",
             )
         ]
 
@@ -96,15 +101,13 @@ def make_multi_fclayer_model(ch, wdt, adt, tdt, nnodes):
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", adt)
-    model.set_tensor_datatype("outp", adt)
+    model.set_tensor_datatype("outp", odt)
 
     for i in range(1, nnodes + 1):
         if tensors[i].name != "outp":
             model.graph.value_info.append(tensors[i])
         model.set_initializer("weights_" + str(i - 1), W)
-        model.set_initializer("thresh_" + str(i - 1), T)
         model.set_tensor_datatype("weights_" + str(i - 1), wdt)
-        model.set_tensor_datatype("thresh_" + str(i - 1), tdt)
 
     return model
 

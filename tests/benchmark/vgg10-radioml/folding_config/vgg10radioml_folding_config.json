@@ -1,14 +1,7 @@
 {
+  "_comment": "NOTE: Node names/indices need regeneration after InferDotProd consolidation. FMPadding+ConvInpGen+MVAU entries merged into DotProd. Indices are approximate.",
   "Defaults": {},
-  "FMPadding_rtl_0": {
-    "SIMD": 2
-  },
-  "ConvolutionInputGenerator_rtl_0": {
-    "SIMD": 2,
-    "parallel_window": 1,
-    "ram_style": "distributed"
-  },
-  "MVAU_rtl_0": {
+  "DotProd_rtl_0": {
     "PE": 32,
     "SIMD": 6,
     "ram_style": "auto",
@@ -22,23 +15,10 @@
     "depth_trigger_uram": 0,
     "depth_trigger_bram": 0
   },
-  "ConvolutionInputGenerator_rtl_1": {
-    "SIMD": 32,
-    "parallel_window": 0,
-    "ram_style": "distributed"
-  },
   "Pool_hls_0": {
     "PE": 32
   },
-  "FMPadding_rtl_1": {
-    "SIMD": 32
-  },
-  "ConvolutionInputGenerator_rtl_2": {
-    "SIMD": 32,
-    "parallel_window": 1,
-    "ram_style": "distributed"
-  },
-  "MVAU_rtl_1": {
+  "DotProd_rtl_1": {
     "PE": 16,
     "SIMD": 96,
     "ram_style": "auto",
@@ -52,23 +32,10 @@
     "depth_trigger_uram": 0,
     "depth_trigger_bram": 0
   },
-  "ConvolutionInputGenerator_rtl_3": {
-    "SIMD": 32,
-    "parallel_window": 0,
-    "ram_style": "distributed"
-  },
   "Pool_hls_1": {
     "PE": 32
   },
-  "FMPadding_rtl_2": {
-    "SIMD": 32
-  },
-  "ConvolutionInputGenerator_rtl_4": {
-    "SIMD": 32,
-    "parallel_window": 1,
-    "ram_style": "distributed"
-  },
-  "MVAU_rtl_2": {
+  "DotProd_rtl_2": {
     "PE": 8,
     "SIMD": 96,
     "ram_style": "auto",
@@ -82,23 +49,10 @@
     "depth_trigger_uram": 0,
     "depth_trigger_bram": 0
   },
-  "ConvolutionInputGenerator_rtl_5": {
-    "SIMD": 32,
-    "parallel_window": 0,
-    "ram_style": "distributed"
-  },
   "Pool_hls_2": {
     "PE": 32
   },
-  "FMPadding_rtl_3": {
-    "SIMD": 32
-  },
-  "ConvolutionInputGenerator_rtl_6": {
-    "SIMD": 32,
-    "parallel_window": 1,
-    "ram_style": "distributed"
-  },
-  "MVAU_rtl_3": {
+  "DotProd_rtl_3": {
     "PE": 4,
     "SIMD": 96,
     "ram_style": "auto",
@@ -112,23 +66,10 @@
     "depth_trigger_uram": 0,
     "depth_trigger_bram": 0
   },
-  "ConvolutionInputGenerator_rtl_7": {
-    "SIMD": 32,
-    "parallel_window": 0,
-    "ram_style": "distributed"
-  },
   "Pool_hls_3": {
     "PE": 32
   },
-  "FMPadding_rtl_4": {
-    "SIMD": 32
-  },
-  "ConvolutionInputGenerator_rtl_8": {
-    "SIMD": 32,
-    "parallel_window": 1,
-    "ram_style": "distributed"
-  },
-  "MVAU_rtl_4": {
+  "DotProd_rtl_4": {
     "PE": 2,
     "SIMD": 96,
     "ram_style": "auto",
@@ -142,23 +83,10 @@
     "depth_trigger_uram": 0,
     "depth_trigger_bram": 0
   },
-  "ConvolutionInputGenerator_rtl_9": {
-    "SIMD": 32,
-    "parallel_window": 0,
-    "ram_style": "distributed"
-  },
   "Pool_hls_4": {
     "PE": 32
   },
-  "FMPadding_rtl_5": {
-    "SIMD": 32
-  },
-  "ConvolutionInputGenerator_rtl_10": {
-    "SIMD": 32,
-    "parallel_window": 1,
-    "ram_style": "distributed"
-  },
-  "MVAU_rtl_5": {
+  "DotProd_rtl_5": {
     "PE": 1,
     "SIMD": 96,
     "ram_style": "auto",
@@ -172,23 +100,10 @@
     "depth_trigger_uram": 0,
     "depth_trigger_bram": 0
   },
-  "ConvolutionInputGenerator_rtl_11": {
-    "SIMD": 32,
-    "parallel_window": 0,
-    "ram_style": "distributed"
-  },
   "Pool_hls_5": {
     "PE": 32
   },
-  "FMPadding_rtl_6": {
-    "SIMD": 32
-  },
-  "ConvolutionInputGenerator_rtl_12": {
-    "SIMD": 32,
-    "parallel_window": 1,
-    "ram_style": "distributed"
-  },
-  "MVAU_rtl_6": {
+  "DotProd_rtl_6": {
     "PE": 1,
     "SIMD": 96,
     "ram_style": "auto",
@@ -202,15 +117,10 @@
     "depth_trigger_uram": 0,
     "depth_trigger_bram": 0
   },
-  "ConvolutionInputGenerator_rtl_13": {
-    "SIMD": 32,
-    "parallel_window": 0,
-    "ram_style": "distributed"
-  },
   "Pool_hls_6": {
     "PE": 32
   },
-  "MVAU_rtl_7": {
+  "DotProd_rtl_7": {
     "PE": 2,
     "SIMD": 32,
     "ram_style": "auto",
@@ -224,7 +134,7 @@
     "depth_trigger_uram": 0,
     "depth_trigger_bram": 0
   },
-  "MVAU_rtl_8": {
+  "DotProd_rtl_8": {
     "PE": 1,
     "SIMD": 32,
     "ram_style": "auto",
@@ -238,7 +148,7 @@
     "depth_trigger_uram": 0,
     "depth_trigger_bram": 0
   },
-  "MVAU_rtl_9": {
+  "DotProd_rtl_9": {
     "PE": 1,
     "SIMD": 8,
     "ram_style": "auto",

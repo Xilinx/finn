@@ -40,10 +40,7 @@ from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.convert_to_hw_layers import (
-    InferConvInpGen,
-    InferQuantizedMatrixVectorActivation,
-)
+from finn.transformation.fpgadataflow.convert_to_hw_layers import InferDotProd
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.infer_pixel_padding_deconv import (
     InferPixelPaddingDeconv,
@@ -160,8 +157,7 @@ def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding,
     y_expected = oxe.execute_onnx(ref_model, input_dict)["outp"]
 
     model = ref_model.transform(InferPixelPaddingDeconv())
-    model = model.transform(InferConvInpGen())
-    model = model.transform(InferQuantizedMatrixVectorActivation())
+    model = model.transform(InferDotProd())
     model = model.transform(InferShapes())
     model = model.transform(GiveUniqueNodeNames())
 
@@ -172,13 +168,10 @@ def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding,
     model = model.transform(MinimizeAccumulatorWidth())
 
     for n in model.graph.node:
-        if n.op_type.startswith("ConvolutionInputGenerator"):
-            convinputgen_node = getCustomOp(n)
-            convinputgen_node.set_nodeattr("SIMD", simd)
-        elif n.op_type.startswith("MVAU"):
-            mvau_node = getCustomOp(n)
-            mvau_node.set_nodeattr("PE", pe)
-            mvau_node.set_nodeattr("SIMD", simd)
+        if n.op_type.startswith("DotProd"):
+            dp_node = getCustomOp(n)
+            dp_node.set_nodeattr("PE", pe)
+            dp_node.set_nodeattr("SIMD", simd)
 
     expected_oshape = (1, ofm_ch, odim_h, odim_w)
 

@@ -511,14 +511,14 @@ class MakePYNQDriver(Transformation):
                 fl_body = fl_inst.get_nodeattr("body")
                 for idx, lb_inp in enumerate(fl_body.graph.input):
                     consumer = fl_body.find_consumer(lb_inp.name)
-                    if consumer is None or not consumer.op_type.startswith("MVAU"):
+                    if consumer is None or not consumer.op_type.startswith("DotProd"):
                         continue
-                    dat_src = "%s/memblock_MVAU_rtl_id_%d.dat" % (fl_code_gen_dir, idx)
+                    dat_src = "%s/memblock_DotProd_rtl_id_%d.dat" % (fl_code_gen_dir, idx)
                     if not os.path.isfile(dat_src):
                         continue
                     address_offset = int(getCustomOp(consumer).get_nodeattr("address_offset"))
                     num_bytes = int(dat_file_to_numpy_array(dat_src).shape[0])
-                    dat_name = "%s_memblock_MVAU_rtl_id_%d.dat" % (node.name, idx)
+                    dat_name = "%s_memblock_DotProd_rtl_id_%d.dat" % (node.name, idx)
                     os.makedirs(mlo_weights_dir, exist_ok=True)
                     shutil.copy(dat_src, mlo_weights_dir + "/" + dat_name)
                     mlo_weight_entries.append(
@@ -587,7 +587,7 @@ class MakePYNQDriver(Transformation):
             dataflow_model = ModelWrapper(dataflow_model_filename)
             rt_layer_ind = 0
             for node in dataflow_model.graph.node:
-                if node.op_type.startswith("MVAU") or node.op_type.startswith("Thresholding"):
+                if node.op_type.startswith("DotProd") or node.op_type.startswith("Thresholding"):
                     node_inst = getCustomOp(node)
                     is_rt_weights = node_inst.get_nodeattr("runtime_writeable_weights")
                     if is_rt_weights == 1:

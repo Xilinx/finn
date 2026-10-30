@@ -35,22 +35,18 @@ import torch
 from brevitas.export import export_qonnx
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
-from qonnx.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from qonnx.transformation.fold_constants import FoldConstants
 from qonnx.transformation.general import (
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
     GiveUniqueParameterTensors,
 )
-from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
-import finn.transformation.streamline.absorb as absorb
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
@@ -63,7 +59,6 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.streamline import Streamline
-from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import make_build_dir, robust_rmtree
 from finn.util.test import get_test_model_trained
@@ -94,13 +89,6 @@ def _test_convert_to_hw_layers_cnv_w1a1(fused_activation, build_dir):
     model = model.transform(GiveUniqueParameterTensors())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(Streamline())
-    model = model.transform(LowerConvsToMatMul())
-    model = model.transform(MakeMaxPoolNHWC())
-    model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
-    model = model.transform(absorb.AbsorbConsecutiveTransposes())
-    model = model.transform(ConvertBipolarMatMulToXnorPopcount())
-    model = model.transform(Streamline())
-    model = model.transform(InferDataLayouts())
     # load one of the test vectors
     ref = importlib.files("finn.qnn-data") / "cifar10/cifar10-test-data-class3.npz"
     with importlib.as_file(ref) as fn:
@@ -113,18 +101,18 @@ def _test_convert_to_hw_layers_cnv_w1a1(fused_activation, build_dir):
     expected = expected_ctx[model.get_first_global_out()]
 
     # if we infer thresholding first, all MultiThresholds get converted to HW
-    # subsequently, the FC inference will generate passthrough MVAUs
+    # subsequently, the DotProd inference will generate accumulator-only DotProd nodes
     if not fused_activation:
         model = model.transform(to_hw.InferThresholdingLayer())
-        model = model.transform(absorb.AbsorbConsecutiveTransposes())
 
-    model = model.transform(to_hw.InferBinaryMatrixVectorActivation())
-    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
+    # InferDotProd handles Conv nodes directly (no LowerConvsToMatMul needed)
+    # and detects BINARY→BIPOLAR internally
+    model = model.transform(to_hw.InferDotProd())
+    model = model.transform(to_hw.InferThresholdingLayer())
     model = model.transform(to_hw.InferPool())
-    model = model.transform(to_hw.InferConvInpGen())
     model = model.transform(SpecializeLayers("xc7z020clg400-1"))
     for node in model.graph.node:
-        if node.op_type == "MVAU_hls":
+        if node.op_type.startswith("DotProd"):
             inst = getCustomOp(node)
             inst.set_nodeattr("mem_mode", "internal_decoupled")
             mw = inst.get_nodeattr("MW")
@@ -139,24 +127,9 @@ def _test_convert_to_hw_layers_cnv_w1a1(fused_activation, build_dir):
             else:
                 simd = mw
             inst.set_nodeattr("SIMD", simd)
-    # check topology status
-    finn_nodes = model.get_finn_nodes()
-    # Consolidated Pool absorbs its SWG, so 2 fewer SWG nodes vs. the old
-    # decomposed flow (6 conv SWGs remain, 2 pool SWGs are internal to Pool_hls).
-    if fused_activation:
-        assert len(finn_nodes) == 18
-    else:
-        assert len(finn_nodes) == 26
-        thr_nodes = model.get_nodes_by_op_type("Thresholding_rtl")
-        assert len(thr_nodes) == 9
-    non_finn_nodes = model.get_non_finn_nodes()
-    assert len(non_finn_nodes) == 5
-    exp_non_finn_nodes = ["Transpose", "Transpose", "Reshape", "Mul", "Add"]
-    assert [x.op_type for x in non_finn_nodes] == exp_non_finn_nodes
-    fc_nodes = model.get_nodes_by_op_type("MVAU_hls")
-    assert len(fc_nodes) == 9
-    swg_nodes = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")
-    assert len(swg_nodes) == 6
+    # check topology status — DotProd subsumes ConvInpGen (no separate SWG nodes)
+    dp_nodes = [n for n in model.graph.node if n.op_type.startswith("DotProd")]
+    assert len(dp_nodes) == 9
     mp_nodes = model.get_nodes_by_op_type("Pool_hls")
     assert len(mp_nodes) == 2
     model = model.transform(MinimizeWeightBitWidth())

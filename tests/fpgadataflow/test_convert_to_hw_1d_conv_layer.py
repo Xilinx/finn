@@ -38,7 +38,6 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
@@ -133,27 +132,22 @@ def test_convert_to_hw_1d_conv_layer(conv_config, depthwise, use_rtl_swg, exec_m
     model = model.transform(InferShapes())
     model = model.transform(InferDataTypes())
 
-    new_model = model.transform(LowerConvsToMatMul())
-    new_model = new_model.transform(to_hw.InferConvInpGen())
+    new_model = model.transform(to_hw.InferDotProd())
     if not use_rtl_swg:
         for node in new_model.graph.node:
             if is_fpgadataflow_node(node):
                 inst = getCustomOp(node)
                 inst.set_nodeattr("preferred_impl_style", "hls")
-    if depthwise is True:
-        new_model = new_model.transform(to_hw.InferVectorVectorActivation())
-        new_model = new_model.transform(SpecializeLayers("xc7z020clg400-1"))
-    else:
-        new_model = new_model.transform(to_hw.InferQuantizedMatrixVectorActivation())
-        new_model = new_model.transform(SpecializeLayers("xc7z020clg400-1"))
-        # set folding parameters for MVAU
-        if new_model.get_nodes_by_op_type("MVAU_hls"):
-            fc_node = new_model.get_nodes_by_op_type("MVAU_hls")[0]
+    new_model = new_model.transform(SpecializeLayers("xc7z020clg400-1"))
+    if not depthwise:
+        # set folding parameters for DotProd
+        if new_model.get_nodes_by_op_type("DotProd_hls"):
+            fc_node = new_model.get_nodes_by_op_type("DotProd_hls")[0]
         else:
-            fc_node = new_model.get_nodes_by_op_type("MVAU_rtl")[0]
+            fc_node = new_model.get_nodes_by_op_type("DotProd_rtl")[0]
         fc_inst = getCustomOp(fc_node)
-        mw = fc_inst.get_nodeattr("MW")
-        mh = fc_inst.get_nodeattr("MH")
+        mw = fc_inst.MW
+        mh = fc_inst.MH
         pe_cands = list(filter(lambda x: mh % x == 0, range(2, mh + 1)))
         simd_cands = list(filter(lambda x: mw % x == 0, range(2, mw + 1)))
         fc_inst.set_nodeattr("PE", pe_cands[0])
@@ -180,13 +174,11 @@ def test_convert_to_hw_1d_conv_layer(conv_config, depthwise, use_rtl_swg, exec_m
     inp_dict = {model.get_first_global_in(): x}
     assert oxe.compare_execution(model, new_model, inp_dict)
 
-    if pad_h == 1 and pad_w == 1:
-        padding_node = new_model.get_nodes_by_op_type("FMPadding_rtl")[0]
-        padding_inst = getCustomOp(padding_node)
-        assert padding_inst.get_nodeattr("SIMD") == in_chn
-
     if depthwise is True and exec_mode == "rtlsim":
-        node = new_model.get_nodes_by_op_type("VVAU_hls")[0]
+        if new_model.get_nodes_by_op_type("DotProd_hls"):
+            node = new_model.get_nodes_by_op_type("DotProd_hls")[0]
+        else:
+            node = new_model.get_nodes_by_op_type("DotProd_rtl")[0]
         inst = getCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = new_model.analysis(exp_cycles_per_layer)

@@ -145,10 +145,12 @@ class CapConvolutionFIFODepths(Transformation):
 
     Background:
     The simulation-based rtlsim_exec tends to overestimate the required depth
-    of FIFOs between the ConvolutionInputGenerator (here called SWG) and the
-    MatrixVectorActivation (here called MVAU). As the SWG has an internal buffer of 1
-    image row, we use this as a rule of thumb to set FIFO depth to be no larger
-    than 1 row.
+    of FIFOs between a sliding-window generator and its consumer (DotProd).
+    As the SWG has an internal buffer of 1 image row, we use this as a rule
+    of thumb to set FIFO depth to be no larger than 1 row.
+
+    Note: With the DotProd consolidation, standalone ConvolutionInputGenerator
+    nodes no longer exist in new graphs, so this transform is a no-op.
     """
 
     # TODO add unit test
@@ -157,7 +159,7 @@ class CapConvolutionFIFODepths(Transformation):
         # TODO move this to own transformation
         for node in model.graph.node:
             # look for following pattern:
-            # ConvolutionInputGenerator -> StreamingFIFO -> MatrixVectorActivation
+            # ConvolutionInputGenerator -> StreamingFIFO -> DotProd
             if node.op_type.startswith("StreamingFIFO"):
                 fifo_prod = model.find_producer(node.input[0])
                 fifo_cons = model.find_consumer(node.output[0])
@@ -167,7 +169,7 @@ class CapConvolutionFIFODepths(Transformation):
                     continue
                 if fifo_cons is None:
                     continue
-                if not fifo_cons.op_type.startswith("MVAU"):
+                if not fifo_cons.op_type.startswith("DotProd"):
                     continue
                 op_inst = getCustomOp(node)
                 depth = op_inst.get_nodeattr("depth")
@@ -298,14 +300,14 @@ class InsertAndSetFIFODepths(Transformation):
         # these optypes may potentially use external weights
         # but don't have the param input exposed as a graph input
         # we'll temporarily change them to use decoupled mode for FIFO sizing
-        extw_optypes = ["MVAU_hls", "MVAU_rtl", "VVAU_hls", "VVAU_rtl"]
+        extw_optypes = ["DotProd_hls", "DotProd_rtl"]
         modified_extw_nodes = []
 
         # these optypes may potentially be param nodes in an mlo
         # we'll temporarily change them to use external mode for FIFO sizing
         mlo_optypes = [
-            "MVAU_hls",
-            "MVAU_rtl",
+            "DotProd_hls",
+            "DotProd_rtl",
             "Thresholding_rtl",
             "ElementwiseAdd_hls",
             "ElementwiseMul_hls",
@@ -365,7 +367,7 @@ class InsertAndSetFIFODepths(Transformation):
                         "saved_initializer": None,
                     }
                     node.set_nodeattr("mlo_max_iter", 0)
-                    if node.onnx_node.op_type.startswith("MVAU"):
+                    if node.onnx_node.op_type.startswith("DotProd"):
                         node.set_nodeattr("mem_mode", "external")
                         # If the weight tensor has an initializer and is not
                         # already a graph input, we must promote it so that
@@ -521,7 +523,7 @@ class InsertAndSetFIFODepths(Transformation):
                         modified_extw_nodes.remove(node.name)
                 # do the same resetting for mlo / external_mem nodes
                 if node.op_type in mlo_optypes:
-                    if node.name in modified_mlo_nodes and node.op_type.startswith("MVAU"):
+                    if node.name in modified_mlo_nodes and node.op_type.startswith("DotProd"):
                         node_inst = getCustomOp(node)
                         node_mlo_info = modified_mlo_nodes[node.name]
                         node_inst.set_nodeattr("mlo_max_iter", node_mlo_info["orig_mlo_max_iter"])

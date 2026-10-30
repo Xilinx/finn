@@ -70,7 +70,7 @@ def test_runtime_weights_single_layer():
     layer_spec_list = [layer_spec]
     model = hls_random_mlp_maker(layer_spec_list)
     model = model.transform(SpecializeLayers(test_fpga_part))
-    fcl = model.get_nodes_by_op_type("MVAU_hls")[0]
+    fcl = model.get_nodes_by_op_type("DotProd_hls")[0]
     op_inst = getCustomOp(fcl)
     op_inst.set_nodeattr("mem_mode", "internal_decoupled")
     op_inst.set_nodeattr("runtime_writeable_weights", 1)

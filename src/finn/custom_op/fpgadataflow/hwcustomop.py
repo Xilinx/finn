@@ -329,7 +329,10 @@ class HWCustomOp(CustomOp):
         separately) can pass explicit ``name``, ``depth``, ``width``,
         ``init_file`` and ``ram_style`` to emit a named streamer without relying
         on the op-specific defaults."""
-        ops = ["MVAU_hls", "MVAU_rtl", "VVAU_hls", "VVAU_rtl", "Thresholding_hls", "Requant_rtl"]
+        ops = [
+            "DotProd_hls", "DotProd_rtl",
+            "Thresholding_hls", "Requant_rtl",
+        ]
         if self.onnx_node.op_type in ops or self.onnx_node.op_type.startswith("Elementwise"):
             template_path = (
                 os.environ["FINN_ROOT"] + "/finn-rtllib/memstream/hdl/memstream_wrapper_template.v"
@@ -343,7 +346,7 @@ class HWCustomOp(CustomOp):
             if depth is None:
                 if self.onnx_node.op_type.startswith("Thresholding"):
                     depth = self.calc_tmem()
-                elif self.onnx_node.op_type.startswith("MVAU"):
+                elif self.onnx_node.op_type.startswith("DotProd"):
                     # one memory line per WSIMD-wide weight sub-tile, i.e.
                     # NW = PE*SIMD/WSIMD lines per WMEM entry (NW < TH if TH
                     # does not divide PE*SIMD, NW = 1 for TH = 1)
@@ -385,8 +388,8 @@ class HWCustomOp(CustomOp):
 
     def generate_hdl_fetch_weights(self):
         """Helper function to generate verilog code for fetch_weights component.
-        Currently utilized by MVAU."""
-        ops = ["MVAU_hls", "MVAU_rtl"]
+        Currently utilized by DotProd."""
+        ops = ["DotProd_hls", "DotProd_rtl"]
         if self.onnx_node.op_type in ops or self.onnx_node.op_type.startswith("Elementwise"):
             template_path = (
                 os.environ["FINN_ROOT"] + "/finn-rtllib/fetch_weights/fetch_weights_wrapper.v"
@@ -457,8 +460,15 @@ class HWCustomOp(CustomOp):
         mname = self.onnx_node.name
         pe = self.get_nodeattr("PE")
         simd = self.get_nodeattr("SIMD")
-        mh = self.get_nodeattr("MH")
-        mw = self.get_nodeattr("MW")
+        # DotProd exposes MW/MH as derived properties rather than node attrs
+        try:
+            mh = self.get_nodeattr("MH")
+        except AttributeError:
+            mh = self.MH
+        try:
+            mw = self.get_nodeattr("MW")
+        except AttributeError:
+            mw = self.MW
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
         code_gen_dict = {

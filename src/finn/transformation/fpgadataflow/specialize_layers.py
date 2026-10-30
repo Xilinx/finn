@@ -52,21 +52,12 @@ def _determine_impl_style(node, fpgapart, model):
     # to use rtl variant if available
     if impl_style == "":
         if rtl_variant:
-            if optype == "MVAU":
+            if optype == "DotProd":
                 idt = node_inst.get_input_datatype(0)
                 wdt = node_inst.get_input_datatype(1)
                 inp_width_fit = idt.bitwidth() >= 4
                 weight_width_fit = wdt.bitwidth() >= 4
-                if inp_width_fit and weight_width_fit and _mvu_rtl_possible(node, fpgapart, model):
-                    return "rtl"
-                else:
-                    return "hls"
-            elif optype == "VVAU":
-                idt = node_inst.get_input_datatype(0)
-                wdt = node_inst.get_input_datatype(1)
-                inp_width_fit = idt.bitwidth() >= 4
-                weight_width_fit = wdt.bitwidth() >= 4
-                if inp_width_fit and weight_width_fit and _vvu_rtl_possible(node, fpgapart):
+                if inp_width_fit and weight_width_fit and _dotprod_rtl_possible(node, fpgapart, model):
                     return "rtl"
                 else:
                     return "hls"
@@ -128,25 +119,13 @@ def _determine_impl_style(node, fpgapart, model):
                 )
             )
     elif impl_style == "rtl":
-        if optype == "MVAU":
-            if _mvu_rtl_possible(node, fpgapart, model):
+        if optype == "DotProd":
+            if _dotprod_rtl_possible(node, fpgapart, model):
                 return "rtl"
             else:
                 warn_str = """There is no RTL variant for %s. The node will automatically be
-                        set to HLS variant. Please check the bit-widths to be <= 8 and ensure the
-                        thresholds are implemented as standalone layer""" % (
-                    node.name,
-                )
-                warnings.warn(warn_str)
-                return "hls"
-        elif optype == "VVAU":
-            if _vvu_rtl_possible(node, fpgapart):
-                return "rtl"
-            else:
-                warn_str = """There is no RTL variant for %s. The node will automatically be
-                        set to HLS variant. Please check the bit-widths to be <= 8 and ensure the
-                        thresholds are implemented as standalone layer. Note that the RTL-variant
-                        of this layer is only supported on Versal boards""" % (
+                        set to HLS variant. Please check the bit-widths and ensure
+                        weights are signed.""" % (
                     node.name,
                 )
                 warnings.warn(warn_str)
@@ -227,80 +206,6 @@ def _determine_impl_style(node, fpgapart, model):
         )
 
 
-def _mvu_rtl_possible(n, fpgapart, model):
-    # Checks whether RTL-based MVU is supported
-    # Currently, for DSP48 we only support computations up to
-    # 8sx8u (8-bit signed weights x 8-bit (un)signed activations)
-    # and for DSP58 we support up to 8sx9s.
-    # Please note, DSP48E1 does only support narrow range for weights.
-    # Next to that, embedded thresholding functionality is not supported.
-    node_inst = getCustomOp(n)
-    # first check if no Activation and return False immediately if True
-    no_activation = node_inst.get_nodeattr("noActivation") == 0
-    if no_activation:
-        return False
-
-    # check if weights are signed, if not return False
-    wdt = node_inst.get_input_datatype(1)
-    if not wdt.signed():
-        return False
-
-    # check which dsp block is available on fpga
-    dsp_block = get_dsp_block(fpgapart)
-    # check if weights are narrow
-    weights = model.get_initializer(n.input[1])
-    # if dynamic input, set minimum of weights to wdt.min()
-    # otherwise set it to the minimum value in the weight matrix
-    if weights is None:
-        weights_min = wdt.min()
-    else:
-        weights_min = np.min(weights)
-    narrow_weights = False if weights_min == wdt.min() else True
-    # if non narrow weights and only DSP48E1 available return False
-    if not narrow_weights and dsp_block == "DSP48E1":
-        return False
-
-    # if none of the above constraints have been triggered
-    # we now check if input and weight data types are in range
-    # we only use rtl mvau if the dtypes are at least 2 bit
-    idt = node_inst.get_input_datatype()
-    inp_width_in_range = 2 <= idt.bitwidth()
-    weight_width_in_range = 2 <= wdt.bitwidth()
-
-    # the DSP-based RTL MVU also has an upper bound on the activation, weight and
-    # accumulator widths given by the target DSP datapath; widths beyond that would
-    # be silently truncated, so fall back to the (unbounded) HLS MVU instead
-    max_act, max_weight, max_acc = get_dsp_datapath_limits(dsp_block)
-    acc_width = node_inst.get_output_datatype().bitwidth()
-    # activations sit in the signed B datapath; unsigned activations cost one extra
-    # bit, so the effective width must stay strictly below the B datapath width
-    signed_act = 1 if idt.signed() else 0
-    act_fits = (idt.bitwidth() - signed_act) < max_act
-    widths_in_range = act_fits and wdt.bitwidth() <= max_weight and acc_width <= max_acc
-
-    return inp_width_in_range and weight_width_in_range and widths_in_range
-
-
-def _vvu_rtl_possible(n, fpgapart):
-    # Checks whether RTL-based VVU is supported
-    # Currently, we only support RTL-VVU on DSP58 up to 8sx9s inputs
-    # (8-bit signed weights x (9-bit signed OR 8-bit (un)signed) activations).
-    # Next to that, embedded thresholding functionality is not supported.
-    node_inst = getCustomOp(n)
-    if not node_inst.get_nodeattr("noActivation"):
-        return False
-    if not is_versal(fpgapart):
-        return False
-
-    idt = node_inst.get_input_datatype(0)
-    wdt = node_inst.get_input_datatype(1)
-    in_width_in_range = (idt.bitwidth() <= 8) or (idt.bitwidth() == 9 and idt.min() < 0)
-    weight_width_in_range = wdt.bitwidth() <= 8
-    signed_weights = wdt.min() < 0
-
-    return in_width_in_range and weight_width_in_range and signed_weights
-
-
 def _elementwise_rtl_possible(n, fpgapart):
     # Checks whether RTL-based ElementwiseOp is possible.
     # Only supports float/float and int/float paths on Versal.
@@ -378,6 +283,54 @@ def _softmax_rtl_possible(n, fpgapart):
     # Checks whether RTL-based SoftMax is supported.
     # The RTL softmax core uses DSPFP32, so only Versal devices are supported.
     return is_versal(fpgapart)
+
+
+def _dotprod_rtl_possible(n, fpgapart, model):
+    """Checks whether RTL-based DotProd is supported.
+
+    DotProd always has standalone thresholds (no noActivation attribute),
+    so the only constraints are DSP datapath width limits and signed weights.
+    For depthwise mode, VVU RTL is Versal-only (DSP58).
+    """
+    node_inst = getCustomOp(n)
+    depthwise = node_inst.get_nodeattr("depthwise")
+
+    idt = node_inst.get_input_datatype(0)
+    wdt = node_inst.get_input_datatype(1)
+
+    # Weights must be signed for the RTL MVU/VVU core
+    if not wdt.signed():
+        return False
+
+    if depthwise:
+        # VVU RTL core requires Versal (DSP58)
+        if not is_versal(fpgapart):
+            return False
+        in_width_in_range = (idt.bitwidth() <= 8) or (idt.bitwidth() == 9 and idt.min() < 0)
+        weight_width_in_range = wdt.bitwidth() <= 8
+        return in_width_in_range and weight_width_in_range
+    else:
+        # Standard MVU path — same checks as _mvu_rtl_possible minus noActivation
+        dsp_block = get_dsp_block(fpgapart)
+        weights = model.get_initializer(n.input[1])
+        if weights is None:
+            weights_min = wdt.min()
+        else:
+            weights_min = np.min(weights)
+        narrow_weights = False if weights_min == wdt.min() else True
+        if not narrow_weights and dsp_block == "DSP48E1":
+            return False
+
+        inp_width_in_range = 2 <= idt.bitwidth()
+        weight_width_in_range = 2 <= wdt.bitwidth()
+
+        max_act, max_weight, max_acc = get_dsp_datapath_limits(dsp_block)
+        acc_width = node_inst.get_output_datatype().bitwidth()
+        signed_act = 1 if idt.signed() else 0
+        act_fits = (idt.bitwidth() - signed_act) < max_act
+        widths_in_range = act_fits and wdt.bitwidth() <= max_weight and acc_width <= max_acc
+
+        return inp_width_in_range and weight_width_in_range and widths_in_range
 
 
 def _requant_rtl_possible(n, fpgapart):

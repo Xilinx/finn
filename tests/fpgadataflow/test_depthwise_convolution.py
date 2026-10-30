@@ -37,6 +37,7 @@ from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
+from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import (
     calculate_signed_dot_prod_range,
@@ -45,11 +46,8 @@ from qonnx.util.basic import (
 )
 
 import finn.core.onnx_exec as oxe
+import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.convert_to_hw_layers import (
-    InferConvInpGen,
-    InferVectorVectorActivation,
-)
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
@@ -58,8 +56,12 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
-def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
-    # set up reference model consisting of Im2Col + MatMul (+ MultiThreshold)
+def make_depthwise_conv_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
+    """Build an ONNX Conv model (depthwise, group=ifm_ch) as reference + HW source.
+
+    The model uses NCHW layout (standard ONNX Conv convention).
+    If act is not None, a MultiThreshold is appended after the Conv.
+    """
     ofm_ch = ifm_ch
     total_pad = 2 * padding
     ofm_dim = compute_conv_output_dim(ifm_dim, k, stride, total_pad=total_pad)
@@ -68,89 +70,81 @@ def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
         odt = DataType["INT32"]
     else:
         odt = act
-        out_act = oh.make_tensor_value_info(
-            "out_act", TensorProto.FLOAT, [1, ofm_dim, ofm_dim, ofm_ch]
-        )
-        T = oh.make_tensor_value_info("T", TensorProto.FLOAT, [ofm_ch, 15])
-        tdt = DataType["INT32"]
-        thresh_node = oh.make_node(
-            "MultiThreshold",
-            domain="qonnx.custom_op.general",
-            inputs=["outp", "T"],
-            outputs=["out_act"],
-            data_layout="NHWC",
-            out_dtype=odt.name,
-            out_scale=1.0,
-            out_bias=0.0,
-        )
 
-    # set up onnx model
-    inp = oh.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ifm_dim, ifm_dim, ifm_ch])
-    outp = oh.make_tensor_value_info("outp", TensorProto.FLOAT, [1, ofm_dim, ofm_dim, ofm_ch])
+    input_shape = [1, ifm_ch, ifm_dim, ifm_dim]
+    output_shape = [1, ofm_ch, ofm_dim, ofm_dim]
+    conv_weight_shape = [ofm_ch, 1, k, k]
 
-    W_sparse = oh.make_tensor_value_info("W_sparse", TensorProto.FLOAT, [ifm_ch * k * k, ofm_ch])
+    conv_config = {
+        "dilations": [1, 1],
+        "group": ifm_ch,
+        "kernel_shape": [k, k],
+        "pads": [padding, padding, padding, padding],
+        "strides": [stride, stride],
+    }
 
-    im2col_node = oh.make_node(
-        "Im2Col",
-        domain="qonnx.custom_op.general",
-        inputs=["inp"],
-        outputs=["im2col_out"],
-        kernel_size=[k, k],
-        stride=[stride, stride],
-        pad_amount=[padding, padding, padding, padding],
-        input_shape="(1, {}, {}, {})".format(ifm_dim, ifm_dim, ifm_ch),
-        depthwise=1,
-    )
+    top_in = oh.make_tensor_value_info("top_in", TensorProto.FLOAT, input_shape)
+    value_info = [
+        oh.make_tensor_value_info("conv_w", TensorProto.FLOAT, conv_weight_shape),
+    ]
 
-    matmul_node = oh.make_node("MatMul", inputs=["im2col_out", "W_sparse"], outputs=["outp"])
+    nodes = []
 
     if act is None:
-        node_list = [im2col_node, matmul_node]
-        global_out = outp
-        value_info = [W_sparse]
+        top_out = oh.make_tensor_value_info("top_out", TensorProto.FLOAT, output_shape)
+        conv_out_name = "top_out"
     else:
-        node_list = [im2col_node, matmul_node, thresh_node]
-        global_out = out_act
-        value_info = [W_sparse, T]
+        conv_out_vi = oh.make_tensor_value_info(
+            "conv_out", TensorProto.FLOAT, output_shape
+        )
+        value_info.append(conv_out_vi)
+        conv_out_name = "conv_out"
+        # Threshold in NCHW layout
+        T_vi = oh.make_tensor_value_info("T", TensorProto.FLOAT, [ofm_ch, 15])
+        value_info.append(T_vi)
+        top_out = oh.make_tensor_value_info("top_out", TensorProto.FLOAT, output_shape)
 
-    graph = oh.make_graph(
-        nodes=node_list,
-        name="lowered_dw_cnv_graph",
-        inputs=[inp],
-        outputs=[global_out],
-        value_info=value_info,
+    nodes.append(
+        oh.make_node("Conv", ["top_in", "conv_w"], [conv_out_name], **conv_config)
     )
-    model = qonnx_make_model(graph, producer_name="lowered_dw_cnv-model")
-    model = ModelWrapper(model)
-
-    # initialize model
-    model.set_tensor_datatype("inp", idt)
-    model.set_tensor_datatype(model.get_first_global_out(), odt)
-    model.set_tensor_datatype("W_sparse", wdt)
-
-    w_tensor = gen_finn_dt_tensor(wdt, [ofm_ch, 1, k, k])
-    # create sparse matrix
-    W_matrix = np.zeros((ofm_ch, ifm_ch, k, k), dtype=np.float32)
-    for ch in range(ifm_ch):
-        W_matrix[ch][ch] = w_tensor[ch][0]
-    W_matrix = W_matrix.astype(np.float32)
-    W_matrix = W_matrix.transpose(0, 2, 3, 1)
-    W_matrix = W_matrix.reshape(ofm_ch, ifm_ch * k * k)
-
-    model.set_initializer("W_sparse", W_matrix.T)
-    sparsity = {"dw": {"kernel_shape": [k, k]}}
-    model.set_tensor_sparsity("W_sparse", sparsity)
 
     if act is not None:
-        (min, max) = calculate_signed_dot_prod_range(idt, wdt, ifm_ch * k * k)
+        nodes.append(
+            oh.make_node(
+                "MultiThreshold",
+                domain="qonnx.custom_op.general",
+                inputs=[conv_out_name, "T"],
+                outputs=["top_out"],
+                out_dtype=odt.name,
+                out_scale=1.0,
+                out_bias=0.0,
+            )
+        )
+
+    graph = oh.make_graph(
+        nodes=nodes,
+        name="depthwise_conv_test",
+        inputs=[top_in],
+        outputs=[top_out],
+        value_info=value_info,
+    )
+    model = ModelWrapper(qonnx_make_model(graph))
+
+    model.set_tensor_datatype("top_in", idt)
+    model.set_tensor_datatype("top_out", odt)
+    model.set_tensor_datatype("conv_w", wdt)
+    model.set_initializer("conv_w", gen_finn_dt_tensor(wdt, conv_weight_shape))
+
+    if act is not None:
+        (mn, mx) = calculate_signed_dot_prod_range(idt, wdt, k * k)
         n_steps = odt.get_num_possible_values() - 1
-        T_values = np.random.randint(min, max - 1, (ofm_ch, n_steps)).astype(np.float32)
-        # provide non-decreasing thresholds
+        T_values = np.random.randint(mn, mx - 1, (ofm_ch, n_steps)).astype(np.float32)
         T_values = np.sort(T_values, axis=1)
         model.set_initializer("T", T_values)
-        model.set_tensor_datatype("T", tdt)
+        model.set_tensor_datatype("T", DataType["INT32"])
 
     model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
 
     return model
 
@@ -173,25 +167,23 @@ def test_depthwise_conv_hw_cppsim(act, pe, k, stride, padding):
     ifm_dim = 6
     ifm_ch = 4
 
-    # set up reference model consisting of Im2Col + MatMul (+ MultiThreshold)
-    model = set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding)
+    model = make_depthwise_conv_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding)
 
-    input_tensor = gen_finn_dt_tensor(idt, [1, ifm_dim, ifm_dim, ifm_ch])
-    input_dict = {"inp": input_tensor}
+    input_shape = [1, ifm_ch, ifm_dim, ifm_dim]
+    input_tensor = gen_finn_dt_tensor(idt, input_shape)
+    input_dict = {model.get_first_global_in(): input_tensor}
 
-    new_model = model.transform(InferConvInpGen())
-    new_model = new_model.transform(InferVectorVectorActivation())
-
+    # InferDotProd handles Conv directly (no LowerConvsToMatMul needed)
+    new_model = model.transform(to_hw.InferDotProd())
+    new_model = new_model.transform(to_hw.InferThresholdingLayer())
     new_model = new_model.transform(SpecializeLayers("xc7z020clg400-1"))
 
-    # set SIMD in ConvInputGen node and PE in VVAU node
+    # set PE in DotProd node
     for n in new_model.graph.node:
-        if n.op_type.startswith("ConvolutionInputGenerator"):
-            convinputgen_node = getCustomOp(n)
-            convinputgen_node.set_nodeattr("SIMD", pe)
-        elif n.op_type.startswith("VVAU"):
-            vvau_node = getCustomOp(n)
-            vvau_node.set_nodeattr("PE", pe)
+        if n.op_type.startswith("DotProd"):
+            dp_inst = getCustomOp(n)
+            dp_inst.set_nodeattr("PE", pe)
+
     new_model = new_model.transform(SetExecMode("cppsim"))
     new_model = new_model.transform(PrepareCppSim())
     new_model = new_model.transform(CompileCppSim())
@@ -217,25 +209,22 @@ def test_depthwise_conv_hw_rtlsim(act, pe, k, stride, padding):
     ifm_dim = 6
     ifm_ch = 4
 
-    # set up reference model consisting of Im2Col + MatMul (+ MultiThreshold)
-    model = set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding)
+    model = make_depthwise_conv_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding)
 
-    input_tensor = gen_finn_dt_tensor(idt, [1, ifm_dim, ifm_dim, ifm_ch])
-    input_dict = {"inp": input_tensor}
+    input_shape = [1, ifm_ch, ifm_dim, ifm_dim]
+    input_tensor = gen_finn_dt_tensor(idt, input_shape)
+    input_dict = {model.get_first_global_in(): input_tensor}
 
-    new_model = model.transform(InferConvInpGen())
-    new_model = new_model.transform(InferVectorVectorActivation())
-
+    # InferDotProd handles Conv directly (no LowerConvsToMatMul needed)
+    new_model = model.transform(to_hw.InferDotProd())
+    new_model = new_model.transform(to_hw.InferThresholdingLayer())
     new_model = new_model.transform(SpecializeLayers("xc7z020clg400-1"))
 
-    # set SIMD in ConvInputGen node and PE in VVAU node
+    # set PE in DotProd node
     for n in new_model.graph.node:
-        if n.op_type.startswith("ConvolutionInputGenerator"):
-            convinputgen_node = getCustomOp(n)
-            convinputgen_node.set_nodeattr("SIMD", pe)
-        elif n.op_type.startswith("VVAU"):
-            vvau_node = getCustomOp(n)
-            vvau_node.set_nodeattr("PE", pe)
+        if n.op_type.startswith("DotProd"):
+            dp_inst = getCustomOp(n)
+            dp_inst.set_nodeattr("PE", pe)
 
     new_model = new_model.transform(SetExecMode("rtlsim"))
     new_model = new_model.transform(GiveUniqueNodeNames())

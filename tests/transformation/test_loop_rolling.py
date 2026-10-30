@@ -158,19 +158,19 @@ def test_finn_loop(input_size, num_layers):
     model_wrapper = model_wrapper.transform(CollapseRepeatedAdd())
     model_wrapper = model_wrapper.transform(CollapseRepeatedMul())
     model_wrapper = model_wrapper.transform(to_hw.InferThresholdingLayer())
-    model_wrapper = model_wrapper.transform(to_hw.InferQuantizedMatrixVectorActivation())
+    model_wrapper = model_wrapper.transform(to_hw.InferDotProd())
     model_wrapper = model_wrapper.transform(to_hw.InferElementwiseBinaryOperation())
 
     m_input_dt = model_wrapper.get_tensor_datatype(model_wrapper.model.graph.input[0].name)
     m_output_dt = model_wrapper.get_tensor_datatype(model_wrapper.model.graph.output[0].name)
 
     # Specialize to backend-specific ops before loop extraction/rolling. MLO
-    # weight streaming requires the RTL MVAU backend (mem_mode "external_mem" is
-    # set by MVAU_rtl.adapt_for_loop_body during rolling), so the abstract MVAU
-    # must be specialized first. This must happen before LoopExtraction, since
-    # SpecializeLayers only walks top-level graph nodes and would skip the
+    # weight streaming requires the RTL DotProd backend (mem_mode "external_mem"
+    # is set by DotProd_rtl.adapt_for_loop_body during rolling), so the abstract
+    # DotProd must be specialized first. This must happen before LoopExtraction,
+    # since SpecializeLayers only walks top-level graph nodes and would skip the
     # compute nodes once they are moved into the fn_loop-body subgraphs. A Versal
-    # part is used so the MVAU specializes to RTL.
+    # part is used so the DotProd specializes to RTL.
     fpga_part = "xcvc1902-vsva2197-2MP-e-S"
     model_wrapper = model_wrapper.transform(SpecializeLayers(fpga_part))
 
@@ -226,9 +226,9 @@ def test_finn_loop(input_size, num_layers):
         util.get_by_name(loop_node.attribute, "body").g
     )
 
-    # nodes are specialized (e.g. MVAU_rtl, Thresholding_rtl, ElementwiseAdd_hls)
+    # nodes are specialized (e.g. DotProd_rtl, Thresholding_rtl, ElementwiseAdd_hls)
     # so match on the op_type prefix
-    mlo_nodes = ["MVAU", "Thresholding", "ElementwiseAdd", "ElementwiseMul"]
+    mlo_nodes = ["DotProd", "Thresholding", "ElementwiseAdd", "ElementwiseMul"]
     seen_prefixes = set()
     for node in loop_body_wrapper.model.graph.node:
         for prefix in mlo_nodes:
@@ -242,13 +242,13 @@ def test_finn_loop(input_size, num_layers):
             assert (
                 mlo_attr.i == num_layers
             ), "Loop body max iteration count should match number of layers"
-        # MVAU_rtl.adapt_for_loop_body should have switched the streamed-weight
-        # MVAU to external_mem so its weights are fetched over AXI-MM per iteration
-        if node.op_type.startswith("MVAU"):
+        # DotProd_rtl.adapt_for_loop_body should have switched the streamed-weight
+        # DotProd to external_mem so its weights are fetched over AXI-MM per iteration
+        if node.op_type.startswith("DotProd"):
             mem_mode_attr = util.get_by_name(node.attribute, "mem_mode")
             assert (
                 mem_mode_attr is not None and mem_mode_attr.s.decode("utf-8") == "external_mem"
-            ), """MVAU node in loop body should have mem_mode
+            ), """DotProd node in loop body should have mem_mode
             'external_mem' set by adapt_for_loop_body"""
         # ElementwiseBinary.adapt_for_loop_body should have switched the style of
         # any per-iteration (streamed) operand from "const" to "input". Verify

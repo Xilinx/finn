@@ -55,7 +55,7 @@ def is_external_input(model, node, i):
         if model.get_initializer(node.input[i]) is None:
             return True
         else:
-            if op_type.startswith("MVAU"):
+            if op_type.startswith("DotProd"):
                 if node_inst.get_nodeattr("mem_mode") == "external":
                     return True
     return False
@@ -124,7 +124,7 @@ class CreateStitchedIP(Transformation):
         }
 
     def is_double_pumped(self, node):
-        if node.op_type.startswith("MVAU"):
+        if node.op_type.startswith("DotProd"):
             inst = getCustomOp(node)
             try:
                 pumped_compute = inst.get_nodeattr("pumpedCompute")
@@ -215,13 +215,13 @@ class CreateStitchedIP(Transformation):
                 )
                 seg_name = "%s/%s/SEG_%s_Reg" % (inst_name, ext_if_name, ext_if_name)
             elif mm_intf_name[0] == "axi_mm":
-                # MVAU with external weights: the per-node fetch_weights unit
+                # DotProd with external weights: the per-node fetch_weights unit
                 # streams weights over AXI-MM. Derive a unique name from the
                 # weight graph-input index when available, otherwise from the
                 # instance name.
                 if len(node.input) > 1 and node.input[1] in inputs:
                     idx = inputs.index(node.input[1])
-                    ext_if_name = f"m_axi_MVAU_id_{idx}"
+                    ext_if_name = f"m_axi_DotProd_id_{idx}"
                 else:
                     ext_if_name = f"m_axi_{inst_name}_{self.aximm_idx}"
                 self.connect_cmds.append(
@@ -252,7 +252,7 @@ class CreateStitchedIP(Transformation):
             self.connect_cmds.append("assign_bd_address")
             self.connect_cmds.append("set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name))
             # TODO should propagate this information from the node instead of a fixed range
-            # (currently: 256M for FINNLoop and MVAU external weights, 4G for generic
+            # (currently: 256M for FINNLoop and DotProd external weights, 4G for generic
             # AXI-MM masters like IODMA/Lookup).
             self.connect_cmds.append(
                 "set_property range %s [get_bd_addr_segs {%s}]" % (addr_range, seg_name)

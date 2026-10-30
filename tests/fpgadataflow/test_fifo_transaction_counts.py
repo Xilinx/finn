@@ -17,7 +17,7 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 
 
 def make_multi_fclayer_model(ch, wdt, adt, nnodes):
-    """Build a chain of MVAU_hls nodes (no activation) directly as HLS layers,
+    """Build a chain of DotProd_hls nodes directly as HLS layers,
     mirroring tests/fpgadataflow/test_set_folding.py."""
     W = np.random.randint(wdt.min(), wdt.max() + 1, size=(ch, ch)).astype(np.float32)
 
@@ -30,20 +30,25 @@ def make_multi_fclayer_model(ch, wdt, adt, nnodes):
     for i in range(nnodes):
         nodes.append(
             helper.make_node(
-                "MVAU_hls",
+                "DotProd_hls",
                 [tensors[i].name, "weights_" + str(i)],
                 [tensors[i + 1].name],
                 domain="finn.custom_op.fpgadataflow.hls",
                 backend="fpgadataflow",
-                MW=ch,
-                MH=ch,
+                IFMDim=[1, 1],
+                OFMDim=[1, 1],
+                IFMChannels=ch,
+                OFMChannels=ch,
+                KernelSize=[1, 1],
+                Stride=[1, 1],
+                Dilation=[1, 1],
+                Padding=[0, 0, 0, 0],
+                depthwise=0,
                 SIMD=1,
                 PE=1,
                 inputDataType=adt.name,
                 weightDataType=wdt.name,
                 outputDataType=adt.name,
-                ActVal=0,
-                noActivation=1,
             )
         )
 

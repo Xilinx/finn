@@ -40,7 +40,6 @@ from qonnx.transformation.general import GiveUniqueNodeNames, RemoveUnusedTensor
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
@@ -182,19 +181,12 @@ def test_convert_to_hw_conv_fc_transition(conv_config, depthwise, use_reshape):
     # streamlining
     new_model = model.transform(MoveScalarLinearPastInvariants())
     new_model = new_model.transform(Streamline())
-    new_model = new_model.transform(LowerConvsToMatMul())
-    new_model = new_model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
-    new_model = new_model.transform(Streamline())
     new_model = new_model.transform(InferDataLayouts())
     new_model = new_model.transform(RemoveUnusedTensors())
 
-    # convert_to_hw
-    if depthwise is True:
-        new_model = new_model.transform(to_hw.InferVectorVectorActivation())
-    new_model = new_model.transform(to_hw.InferQuantizedMatrixVectorActivation())
+    # convert_to_hw — InferDotProd handles Conv nodes directly (no LowerConvsToMatMul)
+    new_model = new_model.transform(to_hw.InferDotProd())
     new_model = new_model.transform(to_hw.InferThresholdingLayer())
-    new_model = new_model.transform(to_hw.InferConvInpGen())
-    new_model = new_model.transform(to_hw.InferPool())
     new_model = new_model.transform(RemoveCNVtoFCFlatten())
     new_model = new_model.transform(absorb.AbsorbConsecutiveTransposes())
     for node in new_model.graph.node:

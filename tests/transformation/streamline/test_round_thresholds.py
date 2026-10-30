@@ -583,12 +583,13 @@ def test_round_and_clip_thresholds_fxp_float(op_type, i_dtype, o_dtype, n_elems)
     assert np.allclose(out_produced, out_expected, atol=1.0e-3)
 
 
-# Test RoundAndClipThresholds for MVAU and VVAU with thresholds
-@pytest.mark.parametrize("op_type", ["MVAU", "VVAU"])
+# Test RoundAndClipThresholds for DotProd with separate MultiThreshold
+# DotProd always has separate thresholds (unlike the old MVAU/VVAU which could
+# have fused thresholds). Verify that RoundAndClipThresholds works on the
+# MultiThreshold node that follows a DotProd.
 @pytest.mark.parametrize(
     "i_dtype",
     [
-        # Test various input bitwidths to verify accumulator-based clipping
         "INT8",
         "UINT8",
         "INT16",
@@ -600,7 +601,6 @@ def test_round_and_clip_thresholds_fxp_float(op_type, i_dtype, o_dtype, n_elems)
 @pytest.mark.parametrize(
     "o_dtype",
     [
-        # Test different output datatypes
         "INT4",
         "UINT4",
         "INT8",
@@ -611,75 +611,61 @@ def test_round_and_clip_thresholds_fxp_float(op_type, i_dtype, o_dtype, n_elems)
 @pytest.mark.parametrize(
     "n_channels",
     [
-        # Test different sizes like the MultiThreshold/Thresholding tests
         1,
         4,
         16,
     ],
 )
 @pytest.mark.streamline
-def test_round_and_clip_thresholds_mvau_vvau(op_type, i_dtype, o_dtype, wdt, n_channels):
-    """Test RoundAndClipThresholds for MVAU and VVAU nodes with integrated thresholding.
-    Verifies that thresholds are rounded/clipped based on accumulator datatype
-    (not input datatype) and that threshold datatype is set correctly."""
+def test_round_and_clip_thresholds_dotprod_multithreshold(i_dtype, o_dtype, wdt, n_channels):
+    """Test RoundAndClipThresholds for a DotProd node followed by a separate
+    MultiThreshold node. Verifies that thresholds are rounded/clipped based
+    on the accumulator datatype from the DotProd and that the threshold
+    datatype is set correctly on the MultiThreshold node."""
 
     i_dtype = DataType[i_dtype]
     o_dtype = DataType[o_dtype]
     n_steps = o_dtype.get_num_possible_values() - 1
+    mw = 8
+    mh = n_channels
+    inp_shape = [1, mw]
 
-    if op_type == "MVAU":
-        mw = 8
-        mh = n_channels
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, inp_shape)
+    mid = helper.make_tensor_value_info("mid", TensorProto.FLOAT, [1, mh])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, mh])
+    weights = gen_finn_dt_tensor(wdt, (mw, mh))
 
-        inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, mw])
-        outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, mh])
-        weights = gen_finn_dt_tensor(wdt, (mw, mh))
-        inp_shape = [1, mw]
+    dp_node = helper.make_node(
+        "DotProd",
+        ["inp", "weights"],
+        ["mid"],
+        domain="finn.custom_op.fpgadataflow",
+        backend="fpgadataflow",
+        IFMDim=[1, 1],
+        OFMDim=[1, 1],
+        IFMChannels=mw,
+        OFMChannels=mh,
+        KernelSize=[1, 1],
+        Stride=[1, 1],
+        Dilation=[1, 1],
+        Padding=[0, 0, 0, 0],
+        depthwise=0,
+        SIMD=1,
+        PE=1,
+        inputDataType=i_dtype.name,
+        weightDataType=wdt.name,
+        outputDataType="INT32",
+        accDataType="INT32",
+    )
 
-        node = helper.make_node(
-            "MVAU",
-            ["inp", "weights", "thresh"],
-            ["outp"],
-            domain="finn.custom_op.fpgadataflow",
-            backend="fpgadataflow",
-            MW=mw,
-            MH=mh,
-            SIMD=1,
-            PE=1,
-            inputDataType=i_dtype.name,
-            outputDataType=o_dtype.name,
-            weightDataType=wdt.name,
-            accDataType="INT32",  # Will be minimized
-            ActVal=0,
-            noActivation=0,
-        )
-    else:  # VVAU
-        k_h, k_w = 3, 3
-
-        inp = helper.make_tensor_value_info(
-            "inp", TensorProto.FLOAT, [1, 8, 8, n_channels * k_h * k_w]
-        )
-        outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, 8, 8, n_channels])
-        weights = gen_finn_dt_tensor(wdt, (n_channels, 1, k_h, k_w))
-        inp_shape = [1, 8, 8, n_channels * k_h * k_w]
-
-        node = helper.make_node(
-            "VVAU",
-            ["inp", "weights", "thresh"],
-            ["outp"],
-            domain="finn.custom_op.fpgadataflow",
-            backend="fpgadataflow",
-            PE=1,
-            Channels=n_channels,
-            Dim=[8, 8],
-            Kernel=[k_h, k_w],
-            inputDataType=i_dtype.name,
-            outputDataType=o_dtype.name,
-            weightDataType=wdt.name,
-            accDataType="INT32",  # Will be minimized
-            ActVal=0,
-            noActivation=0,
-        )
+    mt_node = helper.make_node(
+        "MultiThreshold",
+        domain="qonnx.custom_op.general",
+        inputs=["mid", "thresh"],
+        outputs=["outp"],
+        out_dtype=str(o_dtype),
+        out_bias=float(o_dtype.min()),
+    )
 
     # Generate thresholds with some non-integer values
     # Use a wide range that may exceed accumulator range
@@ -687,20 +673,22 @@ def test_round_and_clip_thresholds_mvau_vvau(op_type, i_dtype, o_dtype, wdt, n_c
     thresholds = np.sort(thresholds, axis=1).astype(np.float32)
 
     graph = helper.make_graph(
-        nodes=[node],
-        name=f"{op_type.lower()}_threshold_test",
+        nodes=[dp_node, mt_node],
+        name="dotprod_multithreshold_test",
         inputs=[inp],
         outputs=[outp],
+        value_info=[mid],
         initializer=[
             helper.make_tensor("weights", TensorProto.FLOAT, weights.shape, weights.flatten()),
             helper.make_tensor("thresh", TensorProto.FLOAT, thresholds.shape, thresholds.flatten()),
         ],
     )
 
-    model = helper.make_model(graph, producer_name=f"{op_type.lower()}-threshold-test")
+    model = helper.make_model(graph, producer_name="dotprod-threshold-test")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", i_dtype)
+    model.set_tensor_datatype("mid", DataType["INT32"])
     model.set_tensor_datatype("outp", o_dtype)
     model.set_tensor_datatype("weights", wdt)
     model.set_tensor_datatype("thresh", DataType["FLOAT32"])
@@ -708,17 +696,19 @@ def test_round_and_clip_thresholds_mvau_vvau(op_type, i_dtype, o_dtype, wdt, n_c
     # First run MinimizeAccumulatorWidth to set the actual accumulator datatype
     model = model.transform(MinimizeAccumulatorWidth())
 
-    inst = getCustomOp(model.graph.node[0])
-    acc_dt = DataType[inst.get_nodeattr("accDataType")]
+    dp_inst = getCustomOp(model.graph.node[0])
+    acc_dt = DataType[dp_inst.get_nodeattr("accDataType")]
 
     # Generate test input and execute before RoundAndClipThresholds
     test_input = gen_finn_dt_tensor(i_dtype, inp_shape)
     output_before = oxe.execute_onnx(model, {"inp": test_input})["outp"]
 
-    # Now run RoundAndClipThresholds
+    # Now run RoundAndClipThresholds - operates on the MultiThreshold node
+    # using the accumulator range from the preceding DotProd as input range
     model = model.transform(RoundAndClipThresholds())
 
-    # Verify threshold datatype is set correctly (one bit wider than accumulator)
+    # The MultiThreshold node's input dtype is the accumulator type
+    # RoundAndClipThresholds should set threshold dtype one bit wider
     if not acc_dt.signed():
         expected_tdt = DataType.get_smallest_possible(acc_dt.max() + 1)
     else:

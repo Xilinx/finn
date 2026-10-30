@@ -52,7 +52,6 @@ from copy import deepcopy
 from functools import partial
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
-from qonnx.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from qonnx.transformation.composed import ComposedTransformation
 from qonnx.transformation.fold_constants import FoldConstants
 from qonnx.transformation.general import (
@@ -64,7 +63,6 @@ from qonnx.transformation.general import (
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.util.basic import get_by_name
 from qonnx.util.cleanup import cleanup_model
 from shutil import copy
@@ -434,14 +432,12 @@ def step_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     model = model.transform(absorb.AbsorbScalarBiasIntoMultiThreshold())
     model = model.transform(Streamline())
+    # Conv lowering is no longer needed — InferDotProd pattern-matches on
+    # ONNX Conv nodes directly (no LowerConvsToMatMul + cleanup passes).
+    # Bipolar XNOR detection is handled inside InferDotProd as well.
     need_lowering = len(model.get_nodes_by_op_type("Conv")) > 0
     if need_lowering:
-        model = model.transform(LowerConvsToMatMul())
         model = model.transform(MakeMaxPoolNHWC())
-        model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
-        model = model.transform(MakeMaxPoolNHWC())
-        model = model.transform(absorb.AbsorbConsecutiveTransposes())
-    model = model.transform(ConvertBipolarMatMulToXnorPopcount())
     model = model.transform(Streamline())
     # absorb final add-mul nodes into TopK
     model = model.transform(absorb.AbsorbScalarMulAddIntoTopK())
@@ -521,18 +517,13 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
             please set standalone_thresholds to True."""
         )
 
-    # Matrix-vector operations
+    # Convolution / matrix-vector operations — InferDotProd handles Conv
+    # nodes directly (no prior LowerConvsToMatMul needed) and standalone MatMul
     model = apply_if_relevant(
         model,
-        ["XnorPopcountMatMul"],
-        to_hw.InferBinaryMatrixVectorActivation(),
-        "binary matmul layers",
-    )
-    model = apply_if_relevant(
-        model, ["MatMul"], to_hw.InferQuantizedMatrixVectorActivation(), "quantized matmul layers"
-    )
-    model = apply_if_relevant(
-        model, ["MatMul"], to_hw.InferVectorVectorActivation(), "vector-vector activation"
+        ["Conv", "MatMul"],
+        to_hw.InferDotProd(),
+        "dot-product layers (conv/matmul)",
     )
 
     # Classification/output layers
@@ -580,7 +571,7 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
         to_hw.InferPool(),
         "pooling layers",
     )
-    model = apply_if_relevant(model, ["Im2Col"], to_hw.InferConvInpGen(), "conv input generator")
+    # InferConvInpGen no longer needed — DotProd subsumes sliding-window generation.
     # Remove a flatten-into-FC pattern (standalone flatten between two dataflow
     # nodes, or a [0,3,1,2] transpose+flatten absorbed into the following MVAU).
     # The transform is fully self-gating and a no-op unless the exact pattern is

@@ -68,15 +68,13 @@ ip_stitch_model_dir = os.environ["FINN_BUILD_DIR"]
 
 
 def create_one_fc_model(mem_mode="internal_embedded"):
-    # create a model with a MatrixVectorActivation instance with no activation
+    # create a model with a DotProd instance (pure accumulator, no activation)
     # the wider range of the full accumulator makes debugging a bit easier
     wdt = DataType["INT2"]
     idt = DataType["INT32"]
     odt = DataType["INT32"]
     m = 4
-    no_act = 1
 
-    actval = 0
     simd = 4
     pe = 4
 
@@ -84,20 +82,25 @@ def create_one_fc_model(mem_mode="internal_embedded"):
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, m])
 
     fc0 = helper.make_node(
-        "MVAU_hls",
+        "DotProd_hls",
         ["inp", "w0"],
         ["outp"],
         domain="finn.custom_op.fpgadataflow.hls",
         backend="fpgadataflow",
-        MW=m,
-        MH=m,
+        IFMChannels=m,
+        OFMChannels=m,
+        IFMDim=[1, 1],
+        OFMDim=[1, 1],
+        KernelSize=[1, 1],
+        Stride=[1, 1],
+        Dilation=[1, 1],
+        Padding=[0, 0, 0, 0],
+        depthwise=0,
         SIMD=simd,
         PE=pe,
         inputDataType=idt.name,
         weightDataType=wdt.name,
         outputDataType=odt.name,
-        ActVal=actval,
-        noActivation=no_act,
         mem_mode=mem_mode,
     )
 
@@ -119,13 +122,11 @@ def create_one_fc_model(mem_mode="internal_embedded"):
 
 
 def create_two_fc_model(mem_mode="internal_decoupled"):
-    # create a model with two MatrixVectorActivation instances
+    # create a model with two DotProd instances
     wdt = DataType["INT2"]
     idt = DataType["INT32"]
     odt = DataType["INT32"]
     m = 4
-    actval = 0
-    no_act = 1
 
     pe = 2
     simd = 2
@@ -135,38 +136,48 @@ def create_two_fc_model(mem_mode="internal_decoupled"):
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, m])
 
     fc0 = helper.make_node(
-        "MVAU_hls",
+        "DotProd_hls",
         ["inp", "w0"],
         ["mid"],
         domain="finn.custom_op.fpgadataflow.hls",
         backend="fpgadataflow",
-        MW=m,
-        MH=m,
+        IFMChannels=m,
+        OFMChannels=m,
+        IFMDim=[1, 1],
+        OFMDim=[1, 1],
+        KernelSize=[1, 1],
+        Stride=[1, 1],
+        Dilation=[1, 1],
+        Padding=[0, 0, 0, 0],
+        depthwise=0,
         SIMD=simd,
         PE=pe,
         inputDataType=idt.name,
         weightDataType=wdt.name,
         outputDataType=odt.name,
-        ActVal=actval,
-        noActivation=no_act,
         mem_mode=mem_mode,
     )
 
     fc1 = helper.make_node(
-        "MVAU_hls",
+        "DotProd_hls",
         ["mid", "w1"],
         ["outp"],
         domain="finn.custom_op.fpgadataflow.hls",
         backend="fpgadataflow",
-        MW=m,
-        MH=m,
+        IFMChannels=m,
+        OFMChannels=m,
+        IFMDim=[1, 1],
+        OFMDim=[1, 1],
+        KernelSize=[1, 1],
+        Stride=[1, 1],
+        Dilation=[1, 1],
+        Padding=[0, 0, 0, 0],
+        depthwise=0,
         SIMD=simd,
         PE=pe,
         inputDataType=idt.name,
         weightDataType=wdt.name,
         outputDataType=odt.name,
-        ActVal=actval,
-        noActivation=no_act,
         mem_mode=mem_mode,
     )
 
@@ -222,7 +233,7 @@ def test_fpgadataflow_ipstitch_gen_model(mem_mode):
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, 5))
     model = model.transform(HLSSynthIP())
-    assert model.graph.node[0].op_type == "MVAU_hls"
+    assert model.graph.node[0].op_type == "DotProd_hls"
     assert model.graph.node[-1].op_type == "TLastMarker_rtl"
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model_%s.onnx" % mem_mode)
 
@@ -304,7 +315,7 @@ def test_fpgadataflow_ipstitch_iodma_floorplan():
         pid = node_inst.get_nodeattr("partition_id")
         if node.op_type == "IODMA_hls":
             iodma_partitions.add(pid)
-        elif node.op_type in ("MVAU_hls", "MVAU_rtl"):
+        elif node.op_type in ("DotProd_hls", "DotProd_rtl"):
             compute_partitions.add(pid)
     # Each IODMA (input + output) gets its own partition
     assert len(iodma_partitions) == 2, f"Expected 2 IODMA partitions, got {iodma_partitions}"

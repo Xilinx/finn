@@ -6,7 +6,6 @@ from qonnx.transformation.double_to_single_float import DoubleToSingleFloat
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
-from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.transformation.remove import RemoveIdentityOps
 
 import finn.transformation.streamline.absorb as absorb
@@ -21,7 +20,7 @@ from finn.transformation.streamline.round_thresholds import RoundAndClipThreshol
 def step_mobilenet_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
     # MobileNet-specific streamline: replaces the standard step_streamline phase.
     # Handles depthwise convs (MoveMulPastDWConv), QuantAvgPool datalayout and
-    # flatten reordering, then lowers the convs to matmuls.
+    # flatten reordering.
     model = model.transform(Streamline())
     additional_streamline_transformations = [
         DoubleToSingleFloat(),
@@ -44,8 +43,8 @@ def step_mobilenet_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(GiveReadableTensorNames())
         model = model.transform(InferDataTypes())
 
-    # lower convs to matmuls and clean up the resulting transposes/thresholds
-    model = model.transform(LowerConvsToMatMul())
+    # Conv lowering is no longer needed -- InferDotProd handles Conv nodes
+    # directly. Clean up any remaining transposes/thresholds.
     model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
     model = model.transform(absorb.AbsorbConsecutiveTransposes())
     model = model.transform(GiveUniqueNodeNames())

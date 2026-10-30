@@ -95,24 +95,16 @@ class SetFolding(Transformation):
 
     Notable exceptions and special behavior:
 
-    When folding dense convolution/FC compute engines ("MVAU"/MatrixVectorActivation),
-    which have two attributes (PE and SIMD):
+    When folding DotProd (standard conv/FC), which has two attributes (PE and SIMD):
 
     * first increases SIMD while weight stream width per PE is <= mvau_wwidth_max
       (configurable in the SetFolding initializer, defaults to 36)
     * then increases PE until the target is met or max PE reached
 
-    When folding depthwise convolutions ("VVAU"/VectorVectorActivation):
+    When folding DotProd (depthwise conv):
 
-    * the producer of the node is expected to be a ConvolutionInputGenerator
-      with depthwise=1, whose SIMD value will be set equal to the PE value of
-      its consumer node
-    * the VVAU also supports SIMD ("input window") parallelism next to
-      PE ("channels"), but current ConvInpGen limitations require PE to be fully
-      unfolded before SIMD is increased
-
-    The consolidated Pool node (Pool_hls) fuses input_gen + pooling internally,
-    so it only needs PE folding (like other PE-only ops) — no upstream SWG.
+    * increases PE (channels) first, then SIMD (kernel elements) once PE is
+      fully unfolded
     """
 
     def __init__(self, target_cycles_per_frame=1000, mvau_wwidth_max=36, two_pass_relaxation=True):
@@ -145,13 +137,8 @@ class SetFolding(Transformation):
             *ELEMENTWISE_BINARY_OPS,
         ]
         # these ops use SIMD parallelism, up to a max value of NumChannels
-        # ConvolutionInputGenerator has a special case when depthwise=1
-        # ConvolutionInputGenerator_rtl supports additional parallelism by
-        # setting parallel_window=1 mode after maxing out SIMD
         simd_ops = [
-            "FMPadding_rtl",
             "FMPadding_Pixel_hls",
-            "ConvolutionInputGenerator_rtl",
             "StreamingSplit_hls",
             "StreamingConcat_hls",
             "LayerNorm_rtl",
@@ -159,9 +146,6 @@ class SetFolding(Transformation):
             "HWSoftmax_rtl",
             "Shuffle",
         ]
-        # these ops are preceded by depthwise SWG and have special behavior,
-        # as explained in the SetFolding docstring
-        depthwise_op_exceptions = ["VVAU_hls", "VVAU_rtl"]
         for node in graph.node:
             # Shuffle is still a generic layer here (it is decomposed into
             # Inner/OuterShuffle stages by step_transpose_decomposition, which
@@ -170,30 +154,39 @@ class SetFolding(Transformation):
                 continue
             op_type = node.op_type
             node_inst = getCustomOp(node)
-            if op_type in ["MVAU_hls", "MVAU_rtl"]:
-                max_simd = node_inst.get_nodeattr("MW")
-                max_pe = node_inst.get_nodeattr("MH")
-                node_inst.set_nodeattr("PE", 1)
-                node_inst.set_nodeattr("SIMD", 1)
-                # increase SIMD until either we meet
-                # the target or weight stream becomes
-                # too wide
-                for simd_val in divisors(max_simd):
-                    prev_simd_val = node_inst.get_nodeattr("SIMD")
-                    node_inst.set_nodeattr("SIMD", simd_val)
+            if op_type in ["DotProd_hls", "DotProd_rtl"]:
+                depthwise = node_inst.get_nodeattr("depthwise")
+                if depthwise:
+                    # Depthwise: PE = channels, then SIMD = kernel elements
+                    max_pe = node_inst.get_nodeattr("OFMChannels")
+                    max_simd = int(np.prod(node_inst.get_nodeattr("KernelSize")))
+                    node_inst.set_nodeattr("PE", 1)
+                    node_inst.set_nodeattr("SIMD", 1)
+                    self.optimize_attribute_val(node_inst, max_pe, "PE")
+                    pe = node_inst.get_nodeattr("PE")
                     cyc = node_inst.get_exp_cycles()
-                    if cyc < self.target_cycles_per_frame:
-                        # finish if target met
-                        break
-                    if (
-                        node_inst.get_input_datatype(1).bitwidth() * node_inst.get_nodeattr("SIMD")
-                        > self.mvau_wwidth_max
-                    ):
-                        # revert if we've gone above width threshold
-                        node_inst.set_nodeattr("SIMD", prev_simd_val)
-                        break
-                # increase PE until target met or reached max_pe
-                self.optimize_attribute_val(node_inst, max_pe, "PE")
+                    if pe == max_pe and cyc > self.target_cycles_per_frame:
+                        self.optimize_attribute_val(node_inst, max_simd, "SIMD")
+                else:
+                    # Standard: SIMD-then-PE, same as MVAU
+                    max_simd = node_inst.MW
+                    max_pe = node_inst.MH
+                    node_inst.set_nodeattr("PE", 1)
+                    node_inst.set_nodeattr("SIMD", 1)
+                    for simd_val in divisors(max_simd):
+                        prev_simd_val = node_inst.get_nodeattr("SIMD")
+                        node_inst.set_nodeattr("SIMD", simd_val)
+                        cyc = node_inst.get_exp_cycles()
+                        if cyc < self.target_cycles_per_frame:
+                            break
+                        if (
+                            node_inst.get_input_datatype(1).bitwidth()
+                            * node_inst.get_nodeattr("SIMD")
+                            > self.mvau_wwidth_max
+                        ):
+                            node_inst.set_nodeattr("SIMD", prev_simd_val)
+                            break
+                    self.optimize_attribute_val(node_inst, max_pe, "PE")
             elif op_type in pe_ops:
                 # Note: Keep original behavior for all custom-ops defining the
                 # NumChannels attribute as it is
@@ -209,86 +202,8 @@ class SetFolding(Transformation):
             elif op_type == "LabelSelect_hls":
                 max_pe = node_inst.get_nodeattr("Labels")
                 self.optimize_attribute_val(node_inst, max_pe, "PE")
-            elif op_type in depthwise_op_exceptions:
-                # init/reset SIMD of VVAU
-                if op_type in ["VVAU_hls", "VVAU_rtl"]:
-                    node_inst.set_nodeattr("SIMD", 1)
-                max_pe = node_inst.get_nodeattr("Channels")
-                self.optimize_attribute_val(node_inst, max_pe, "PE")
-                # increase SIMD for VVAU once PE is exhausted
-                pe = node_inst.get_nodeattr("PE")
-                cyc = node_inst.get_exp_cycles()
-                if (
-                    op_type in ["VVAU_hls", "VVAU_rtl"]
-                    and pe == max_pe
-                    and cyc > self.target_cycles_per_frame
-                ):
-                    max_simd = np.prod(node_inst.get_nodeattr("Kernel"))
-                    self.optimize_attribute_val(node_inst, max_simd, "SIMD")
-                # also set the folding of the upsteam DW SWU
-                # which must be identical to this node
-                swu_node = model.find_producer(node.input[0])
-                if swu_node.op_type.startswith("ConvolutionInputGenerator"):
-                    swu_node_inst = getCustomOp(swu_node)
-                    swu_node_inst.set_nodeattr("SIMD", pe)
-                    # The depthwise SWU replays its buffered window once per channel
-                    # fold, so it can be slower than the VVAU/Pool it feeds (e.g. a
-                    # global pooling window over the whole feature map). Keep raising
-                    # the shared parallelism until the SWU meets the target as well.
-                    if swu_node_inst.get_exp_cycles() >= self.target_cycles_per_frame:
-                        for val in divisors(max_pe):
-                            if val <= pe:
-                                continue
-                            pe = val
-                            node_inst.set_nodeattr("PE", pe)
-                            swu_node_inst.set_nodeattr("SIMD", pe)
-                            if swu_node_inst.get_exp_cycles() < self.target_cycles_per_frame:
-                                break
-                        else:
-                            warnings.warn(
-                                "Node %s did not meet the target cycles. SIMD was finalized "
-                                "to %d (bound to PE of %s). Estimated: %d (cyc/frame), "
-                                "Target: %d (cyc/frame)."
-                                % (
-                                    swu_node.name,
-                                    pe,
-                                    node.name,
-                                    swu_node_inst.get_exp_cycles(),
-                                    self.target_cycles_per_frame,
-                                )
-                            )
-                    # enable parallel_window mode of RTL SWG if needed
-                    if swu_node.op_type == "ConvolutionInputGenerator_rtl":
-                        if op_type.startswith("VVAU") and node_inst.get_nodeattr("SIMD") > 1:
-                            swu_node_inst.set_nodeattr("parallel_window", 1)
-                        else:
-                            swu_node_inst.set_nodeattr("parallel_window", 0)
-                else:
-                    ksize = np.prod(node_inst.get_nodeattr("Kernel"))
-                    if ksize != 1:  # pointwise vvau lacks a SWU
-                        raise Exception("Expected SWU on DW op input, found " + swu_node.op_type)
             elif op_type in simd_ops:
-                if op_type.startswith("ConvolutionInputGenerator"):
-                    depthwise = node_inst.get_nodeattr("depthwise")
-                    if depthwise == 0:
-                        max_simd = node_inst.get_nodeattr("IFMChannels")
-                        # init/reset parallel_window mode of RTL SWG
-                        if op_type == "ConvolutionInputGenerator_rtl":
-                            node_inst.set_nodeattr("parallel_window", 0)
-                        self.optimize_attribute_val(node_inst, max_simd, "SIMD")
-                        # enable parallel_window mode of RTL SWG if needed
-                        simd = node_inst.get_nodeattr("SIMD")
-                        cyc = node_inst.get_exp_cycles()
-                        if (
-                            op_type == "ConvolutionInputGenerator_rtl"
-                            and simd == max_simd
-                            and cyc > self.target_cycles_per_frame
-                        ):
-                            node_inst.set_nodeattr("parallel_window", 1)
-                    else:
-                        # depthwise SWGs are handled separately
-                        continue
-                elif op_type == "StreamingConcat_hls" or op_type == "StreamingSplit_hls":
+                if op_type == "StreamingConcat_hls" or op_type == "StreamingSplit_hls":
                     node_inst.set_nodeattr("SIMD", 1)
                     channels_per_stream = node_inst.get_nodeattr("ChannelsPerStream")
                     for simd_val in common_divisors(channels_per_stream):

@@ -151,7 +151,7 @@ def test_ooc_synthesis():
     # infer and specialize layers
     model = model.transform(to_hw.InferThresholdingLayer())
     model = model.transform(to_hw.InferElementwiseBinaryOperation())
-    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
+    model = model.transform(to_hw.InferDotProd())
     model = model.transform(SpecializeLayers(fpga_part))
 
     # node-by-node rtlsim

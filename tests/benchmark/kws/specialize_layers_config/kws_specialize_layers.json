@@ -3,16 +3,16 @@
   "Thresholding_0": {
     "preferred_impl_style": "rtl"
   },
-  "MVAU_0": {
+  "DotProd_0": {
     "preferred_impl_style": "hls"
   },
-  "MVAU_1": {
+  "DotProd_1": {
     "preferred_impl_style": "hls"
   },
-  "MVAU_2": {
+  "DotProd_2": {
     "preferred_impl_style": "hls"
   },
-  "MVAU_3": {
+  "DotProd_3": {
     "preferred_impl_style": "hls"
   },
   "LabelSelect_0": {

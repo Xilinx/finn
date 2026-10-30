@@ -65,27 +65,30 @@ def test_res_estimate():
     idt = DataType["INT2"]
     wdt = DataType["INT2"]
     odt = DataType["INT2"]
-    actval = odt.min()
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, mw])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, mh])
-    node_inp_list = ["inp", "weights", "thresh"]
 
     FCLayer_node = helper.make_node(
-        "MVAU",
-        node_inp_list,
+        "DotProd",
+        ["inp", "weights"],
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
-        MW=mw,
-        MH=mh,
+        IFMDim=[1, 1],
+        OFMDim=[1, 1],
+        IFMChannels=mw,
+        OFMChannels=mh,
+        KernelSize=[1, 1],
+        Stride=[1, 1],
+        Dilation=[1, 1],
+        Padding=[0, 0, 0, 0],
+        depthwise=0,
         SIMD=simd,
         PE=pe,
         inputDataType=idt.name,
         weightDataType=wdt.name,
         outputDataType=odt.name,
-        ActVal=actval,
-        noActivation=0,
     )
     graph = helper.make_graph(
         nodes=[FCLayer_node], name="fclayer_graph", inputs=[inp], outputs=[outp]
@@ -102,7 +105,7 @@ def test_res_estimate():
     model = model.transform(GiveUniqueNodeNames())
     prod_resource_estimation = model.analysis(partial(res_estimation, fpgapart=test_fpga_part))
     expect_resource_estimation = {
-        "MVAU_hls_0": {
+        "DotProd_hls_0": {
             "BRAM_18K": 0,
             "BRAM_efficiency": 1,
             "LUT": 317,
@@ -121,7 +124,7 @@ def test_res_estimate():
         partial(res_estimation_complete, fpgapart=test_fpga_part)
     )
     expect_resource_estimation = {
-        "MVAU_hls_0": [
+        "DotProd_hls_0": [
             {
                 "BRAM_18K": 0,
                 "BRAM_efficiency": 1,

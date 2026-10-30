@@ -52,7 +52,6 @@ from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.insert_topk import InsertTopK
-from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.transformation.merge_onnx_models import MergeONNXModels
 from qonnx.transformation.remove import RemoveIdentityOps
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
@@ -237,27 +236,14 @@ def test_end2end_mobilenet_streamline():
 
 @pytest.mark.xdist_group(name="end2end_mobilenet")
 @pytest.mark.end2end
-def test_end2end_mobilenet_lowering():
-    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_streamlined.onnx")
-    model = model.transform(LowerConvsToMatMul())
-    model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
-    model = model.transform(absorb.AbsorbConsecutiveTransposes())
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(GiveReadableTensorNames())
-    model = model.transform(InferDataTypes())
-    model = model.transform(RoundAndClipThresholds())
-    model.save(build_dir + "/end2end_mobilenet_lowered.onnx")
-
-
-@pytest.mark.xdist_group(name="end2end_mobilenet")
-@pytest.mark.end2end
 def test_end2end_mobilenet_convert_to_hw_layers():
-    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_lowered.onnx")
+    # Conv lowering is no longer needed -- InferDotProd handles Conv nodes
+    # directly, subsuming LowerConvsToMatMul + InferConvInpGen +
+    # InferQuantizedMatrixVectorActivation + InferVectorVectorActivation.
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_streamlined.onnx")
+    model = model.transform(to_hw.InferDotProd())
     model = model.transform(to_hw.InferPool())
-    model = model.transform(to_hw.InferConvInpGen())
     model = model.transform(to_hw.InferThresholdingLayer())
-    model = model.transform(to_hw.InferVectorVectorActivation())
-    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
     model = model.transform(to_hw.InferElementwiseBinaryOperation())
     model = model.transform(to_hw.InferLabelSelectLayer())
     model = model.transform(InferShapes())
@@ -302,79 +288,60 @@ def test_end2end_mobilenet_folding():
     # optional extra folding to use fewer resources
     # applied while setting the attributes on each node
     assert extra_fold in [1, 2, 4]
-    # set up folding for the conv layers impl'd by MVAUs
-    # each value is PE for a layer
-    fc_layers = model.get_nodes_by_op_type("MVAU_rtl")
-    # each tuple is (PE, SIMD, ram_style) for a layer
+    # DotProd subsumes MVAU, VVAU, ConvolutionInputGenerator, and FMPadding.
+    # All conv/matmul layers are now DotProd_rtl nodes.
+    dp_layers = model.get_nodes_by_op_type("DotProd_rtl")
+    # each tuple is (PE, SIMD, ram_style) for each DotProd layer
+    # The order follows the dataflow graph: first the 1x1 conv (old MVAU),
+    # then the depthwise conv (old VVAU), interleaved through the network,
+    # ending with the final FC layer.
+    # For depthwise layers the old VVAU PE/SIMD are used directly.
+    # For 1x1 layers the old MVAU PE/SIMD are used.
     folding = [
-        (16, 3, "block"),
-        (8, 16, "distributed"),
-        (8, 16, "distributed"),
-        (16, 16, "distributed"),
-        (8, 16, "distributed"),
-        (16, 16, "distributed"),
-        (8, 16, "block"),
-        (16, 16, "block"),
-        (16, 16, "block"),
-        (16, 16, "block"),
-        (16, 16, "block"),
-        (16, 16, "block"),
-        (8, 16, "block"),
-        (16, 16, "block"),
-        (4, 4, "block"),
+        (16, 3, "block"),       # conv0 (1x1)
+        (16, 3, "distributed"), # dw1
+        (8, 16, "distributed"), # conv1 (1x1)
+        (8, 3, "distributed"),  # dw2
+        (8, 16, "distributed"), # conv2 (1x1)
+        (16, 3, "distributed"), # dw3
+        (16, 16, "distributed"),# conv3 (1x1)
+        (4, 3, "distributed"),  # dw4
+        (8, 16, "distributed"), # conv4 (1x1)
+        (8, 3, "distributed"),  # dw5
+        (16, 16, "distributed"),# conv5 (1x1)
+        (2, 3, "block"),        # dw6
+        (8, 16, "block"),       # conv6 (1x1)
+        (4, 3, "block"),        # dw7
+        (16, 16, "block"),      # conv7 (1x1)
+        (4, 3, "block"),        # dw8
+        (16, 16, "block"),      # conv8 (1x1)
+        (4, 3, "block"),        # dw9
+        (16, 16, "block"),      # conv9 (1x1)
+        (4, 3, "block"),        # dw10
+        (16, 16, "block"),      # conv10 (1x1)
+        (4, 3, "block"),        # dw11
+        (16, 16, "block"),      # conv11 (1x1)
+        (1, 3, "block"),        # dw12
+        (8, 16, "block"),       # conv12 (1x1)
+        (2, 3, "block"),        # dw13
+        (16, 16, "block"),      # conv13 (1x1)
+        (4, 4, "block"),        # fc (final)
     ]
-    for fcl, (pe, simd, ramstyle) in zip(fc_layers, folding):
-        fcl_inst = getCustomOp(fcl)
-        fcl_inst.set_nodeattr("PE", pe // extra_fold)
-        fcl_inst.set_nodeattr("SIMD", simd)
-        fcl_inst.set_nodeattr("ram_style", ramstyle)
-    # set up folding for the depthwise conv layers impl'd by VVAUs
-    # each value is PE for a layer
-    vvau_layers = model.get_nodes_by_op_type("VVAU_rtl")
-    pe_simd_fold = [
-        [16, 3],
-        [8, 3],
-        [16, 3],
-        [4, 3],
-        [8, 3],
-        [2, 3],
-        [4, 3],
-        [4, 3],
-        [4, 3],
-        [4, 3],
-        [4, 3],
-        [1, 3],
-        [2, 3],
-    ]
-    for vvau, pe_simd in zip(vvau_layers, pe_simd_fold):
-        pe, simd = pe_simd
-        vvau_inst = getCustomOp(vvau)
-        vvau_inst.set_nodeattr("PE", pe // extra_fold)
-        vvau_inst.set_nodeattr("SIMD", simd)
-        # set SIMD in preceeding ConvInputGen to same value
-        convinputgen = model.find_direct_predecessors(vvau)[0]
-        convinputgen_inst = getCustomOp(convinputgen)
-        convinputgen_inst.set_nodeattr("SIMD", pe // extra_fold)
-        # Enable parallel_window mode for SIMD parallelism VVU
-        convinputgen_inst.set_nodeattr("parallel_window", 1)
-        # set SIMD in preceeding FMPadding to same value
-        padding = model.find_direct_predecessors(convinputgen)[0]
-        if padding.op_type == "FMPadding_rtl":
-            padding_inst = getCustomOp(padding)
-            padding_inst.set_nodeattr("SIMD", pe // extra_fold)
+    for dp, (pe, simd, ramstyle) in zip(dp_layers, folding):
+        dp_inst = getCustomOp(dp)
+        dp_inst.set_nodeattr("PE", pe // extra_fold)
+        dp_inst.set_nodeattr("SIMD", simd)
+        dp_inst.set_nodeattr("ram_style", ramstyle)
     # Set folding Thresholding layers
     thresholding_layers = model.get_nodes_by_op_type("Thresholding_rtl")
-    folding = [2, 2, 4, 1, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
-    for thresholding, pe in zip(thresholding_layers, folding):
+    thres_folding = [2, 2, 4, 1, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+    for thresholding, pe in zip(thresholding_layers, thres_folding):
         thresholding_inst = getCustomOp(thresholding)
         thresholding_inst.set_nodeattr("PE", pe)
-    # adjust final pooling layer + its inpgen
+    # adjust final pooling layer
     pool_node = model.get_nodes_by_op_type("Pool_hls")[0]
     pool_inst = getCustomOp(pool_node)
     pool_inst.set_nodeattr("PE", 4 // extra_fold)
-    pool_inpgen = model.find_direct_predecessors(pool_node)[0]
-    pool_inpgen_inst = getCustomOp(pool_inpgen)
-    pool_inpgen_inst.set_nodeattr("SIMD", 4 // extra_fold)
     model = model.transform(InferDataLayouts())
     model.save(build_dir + "/end2end_mobilenet_folded.onnx")
 

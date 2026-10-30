@@ -33,12 +33,10 @@ import qonnx.custom_op.general.xnorpopcount as xp
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.general.multithreshold import multithreshold
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.util.basic import (
-    calculate_signed_dot_prod_range,
     gen_finn_dt_tensor,
     qonnx_make_model,
 )
@@ -66,63 +64,58 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.general import ApplyConfig
-from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import is_versal
 from finn.util.test import get_hls_synth_interval, make_runtime_weight_stream
 
 finnxsi = xsi if xsi.is_available() else None
 
 
-def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):
+def make_single_dotprod_modelwrapper(W, pe, simd, wdt, idt, mem_mode="internal_decoupled"):
     mw = W.shape[0]
     mh = W.shape[1]
     assert mh % pe == 0
     assert mw % simd == 0
 
+    if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
+        odt = DataType["UINT32"]
+    else:
+        odt = DataType["INT32"]
+
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, mw])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, mh])
-    if T is not None:
-        no_act = 0
-        node_inp_list = ["inp", "weights", "thresh"]
-        if odt == DataType["BIPOLAR"]:
-            actval = 0
-        else:
-            actval = odt.min()
-    else:
-        # no thresholds
-        node_inp_list = ["inp", "weights"]
-        actval = 0
-        no_act = 1
-    FCLayer_node = helper.make_node(
-        "MVAU",
-        node_inp_list,
+    node = helper.make_node(
+        "DotProd",
+        ["inp", "weights"],
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
-        MW=mw,
-        MH=mh,
-        SIMD=simd,
+        IFMChannels=mw,
+        OFMChannels=mh,
+        IFMDim=[1, 1],
+        OFMDim=[1, 1],
+        KernelSize=[1, 1],
+        Stride=[1, 1],
+        Dilation=[1, 1],
+        Padding=[0, 0, 0, 0],
+        depthwise=0,
         PE=pe,
+        SIMD=simd,
         inputDataType=idt.name,
         weightDataType=wdt.name,
         outputDataType=odt.name,
-        ActVal=actval,
-        noActivation=no_act,
+        mem_mode=mem_mode,
     )
     graph = helper.make_graph(
-        nodes=[FCLayer_node], name="fclayer_graph", inputs=[inp], outputs=[outp]
+        nodes=[node], name="dotprod_graph", inputs=[inp], outputs=[outp]
     )
 
-    model = qonnx_make_model(graph, producer_name="fclayer-model")
+    model = qonnx_make_model(graph, producer_name="dotprod-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("outp", odt)
     model.set_tensor_datatype("weights", wdt)
     model.set_initializer("weights", W)
-    if T is not None:
-        model.set_tensor_datatype("thresh", tdt)
-        model.set_initializer("thresh", T)
     return model
 
 
@@ -135,11 +128,8 @@ def make_single_matmul_modelwrapper(ifm, ofm, idt, wdt, W):
 
     model.set_tensor_datatype("ifm", idt)
     model.set_tensor_datatype("weights", wdt)
-    model.set_tensor_datatype(
-        "ofm", DataType["INT32"]
-    )  # At this step, the MatMul layer does not optimize the bit-width of the output datatype
+    model.set_tensor_datatype("ofm", DataType["INT32"])
     model.set_initializer("weights", W)
-    # model.set_tensor_layout("ifm", DataLayout.NHWC)
 
     return model
 
@@ -155,9 +145,7 @@ def make_dynamic_matmul_modelwrapper(ifm, wfm, ofm, idt, wdt):
 
     model.set_tensor_datatype("ifm", idt)
     model.set_tensor_datatype("wfm", wdt)
-    model.set_tensor_datatype(
-        "ofm", DataType["INT32"]
-    )  # At this step, the MatMul layer does not optimize the bit-width of the output datatype
+    model.set_tensor_datatype("ofm", DataType["INT32"])
 
     return model
 
@@ -166,8 +154,6 @@ def prepare_inputs(input_tensor, idt, wdt, inp_name="inp"):
     return {inp_name: input_tensor}
 
 
-# activation: None or DataType
-@pytest.mark.parametrize("act", [None, DataType["BIPOLAR"], DataType["INT4"]])
 # weight datatype
 @pytest.mark.parametrize("wdt", [DataType["BIPOLAR"], DataType["INT4"]])
 # input datatype
@@ -183,7 +169,7 @@ def prepare_inputs(input_tensor, idt, wdt, inp_name="inp"):
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_mvau_hwop(idt, wdt, act, nf, sf, mw, mh):
+def test_fpgadataflow_dotprod_hwop(idt, wdt, nf, sf, mw, mh):
     if nf == -1:
         nf = mh
     if sf == -1:
@@ -196,30 +182,8 @@ def test_fpgadataflow_mvau_hwop(idt, wdt, act, nf, sf, mw, mh):
     W = gen_finn_dt_tensor(wdt, (mw, mh))
     # generate input data
     x = gen_finn_dt_tensor(idt, (1, mw))
-    if act is None:
-        # no activation, produce accumulators
-        T = None
-        tdt = None
-        if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
-            odt = DataType["UINT32"]
-        else:
-            odt = DataType["INT32"]
-    else:
-        odt = act
-        (min, max) = calculate_signed_dot_prod_range(idt, wdt, mw)
-        n_steps = act.get_num_possible_values() - 1
-        T = np.random.randint(min, max - 1, (mh, n_steps)).astype(np.float32)
-        # provide non-decreasing thresholds
-        T = np.sort(T, axis=1)
-        # generate thresholds for activation
-        if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
-            tdt = DataType["UINT32"]
-            # bias thresholds to be positive
-            T = np.ceil((T + mw) / 2)
-            assert (T >= 0).all()
-        else:
-            tdt = DataType["INT32"]
-    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
+    # no activation, produce accumulators
+    model = make_single_dotprod_modelwrapper(W, pe, simd, wdt, idt)
     # prepare input data
     input_dict = prepare_inputs(x, idt, wdt)
     if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
@@ -227,16 +191,6 @@ def test_fpgadataflow_mvau_hwop(idt, wdt, act, nf, sf, mw, mh):
         y = xp.xnorpopcountmatmul((x + 1) / 2, (W + 1) / 2)
     else:
         y = np.matmul(x, W)
-    if T is not None:
-        # y = multithreshold(y, T)
-        if act == DataType["BIPOLAR"]:
-            # binary to bipolar
-            # y = 2 * y - 1
-            y = multithreshold(y, T, 2, -1)
-        else:
-            # signed offset
-            # y += act.min()
-            y = multithreshold(y, T, 1, act.min())
     oshape = model.get_tensor_shape("outp")
     y_expected = y.reshape(oshape)
     # execute model
@@ -249,8 +203,6 @@ def test_fpgadataflow_mvau_hwop(idt, wdt, act, nf, sf, mw, mh):
 
 # mem_mode: internal_embedded or internal_decoupled
 @pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled", "external"])
-# activation: None or DataType
-@pytest.mark.parametrize("act", [None, DataType["BIPOLAR"], DataType["INT4"]])
 # weight datatype
 @pytest.mark.parametrize("wdt", [DataType["BIPOLAR"], DataType["INT4"]])
 # input datatype
@@ -266,7 +218,7 @@ def test_fpgadataflow_mvau_hwop(idt, wdt, act, nf, sf, mw, mh):
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_mvau_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
+def test_fpgadataflow_dotprod_cppsim(mem_mode, idt, wdt, nf, sf, mw, mh):
     if nf == -1:
         nf = mh
     if sf == -1:
@@ -279,36 +231,10 @@ def test_fpgadataflow_mvau_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     W = gen_finn_dt_tensor(wdt, (mw, mh))
     # generate input data
     x = gen_finn_dt_tensor(idt, (1, mw))
-    if act is None:
-        # no activation, produce accumulators
-        T = None
-        tdt = None
-        if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
-            odt = DataType["UINT32"]
-        else:
-            odt = DataType["INT32"]
-    else:
-        odt = act
-        (min, max) = calculate_signed_dot_prod_range(idt, wdt, mw)
-        n_steps = act.get_num_possible_values() - 1
-        T = np.random.randint(min, max - 1, (mh, n_steps)).astype(np.float32)
-        # provide non-decreasing thresholds
-        T = np.sort(T, axis=1)
-        # generate thresholds for activation
-        if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
-            tdt = DataType["UINT32"]
-            # bias thresholds to be positive
-            T = np.ceil((T + mw) / 2)
-            assert (T >= 0).all()
-        else:
-            tdt = DataType["INT32"]
-    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
+    model = make_single_dotprod_modelwrapper(W, pe, simd, wdt, idt, mem_mode=mem_mode)
     model = model.transform(GiveUniqueNodeNames())
     for node in model.graph.node:
-        # lookup op_type in registry of CustomOps
         inst = getCustomOp(node)
-        inst.set_nodeattr("mem_mode", mem_mode)
-        # Note: only HLS-based MVAU layers execute CPPsim
         inst.set_nodeattr("preferred_impl_style", "hls")
     model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
     model = model.transform(GiveUniqueNodeNames())
@@ -318,18 +244,9 @@ def test_fpgadataflow_mvau_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     # prepare input data
     input_dict = prepare_inputs(x, idt, wdt)
     if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
-        # convert inputs to binary and use xnorpopcountmatmul
         y = xp.xnorpopcountmatmul((x + 1) / 2, (W + 1) / 2)
     else:
         y = np.matmul(x, W)
-    if T is not None:
-        y = multithreshold(y, T)
-        if act == DataType["BIPOLAR"]:
-            # binary to bipolar
-            y = 2 * y - 1
-        else:
-            # signed offset
-            y += act.min()
     oshape = model.get_tensor_shape("outp")
     y_expected = y.reshape(oshape)
     # execute model
@@ -342,8 +259,6 @@ def test_fpgadataflow_mvau_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 
 # mem_mode: internal_embedded or internal_decoupled
 @pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled", "external_mem"])
-# activation: None or DataType
-@pytest.mark.parametrize("act", [None, DataType["BIPOLAR"], DataType["INT4"]])
 # weight datatype
 @pytest.mark.parametrize("wdt", [DataType["BIPOLAR"], DataType["INT4"]])
 # input datatype
@@ -361,7 +276,7 @@ def test_fpgadataflow_mvau_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, pumpedMemory):
+def test_fpgadataflow_dotprod_rtlsim(mem_mode, idt, wdt, nf, sf, mw, mh, pumpedMemory):
     if nf == -1:
         nf = mh
     if sf == -1:
@@ -379,56 +294,20 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, pumpe
     W = gen_finn_dt_tensor(wdt, (mw, mh))
     # generate input data
     x = gen_finn_dt_tensor(idt, (1, mw))
-    if act is None:
-        # no activation, produce accumulators
-        T = None
-        tdt = None
-        if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
-            odt = DataType["UINT32"]
-        else:
-            odt = DataType["INT32"]
-    else:
-        odt = act
-        (min, max) = calculate_signed_dot_prod_range(idt, wdt, mw)
-        n_steps = act.get_num_possible_values() - 1
-        T = np.random.randint(min, max - 1, (mh, n_steps)).astype(np.float32)
-        # provide non-decreasing thresholds
-        T = np.sort(T, axis=1)
-        # generate thresholds for activation
-        if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
-            tdt = DataType["UINT32"]
-            # bias thresholds to be positive
-            T = np.ceil((T + mw) / 2)
-            assert (T >= 0).all()
-        else:
-            tdt = DataType["INT32"]
-    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
+    model = make_single_dotprod_modelwrapper(W, pe, simd, wdt, idt, mem_mode=mem_mode)
     for node in model.graph.node:
-        # lookup op_type in registry of CustomOps
         inst = getCustomOp(node)
-        inst.set_nodeattr("mem_mode", mem_mode)
         inst.set_nodeattr("pumpedMemory", int(pumpedMemory))
         inst.set_nodeattr("preferred_impl_style", "hls")
 
     # prepare input data
     input_dict = prepare_inputs(x, idt, wdt)
     if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
-        # convert inputs to binary and use xnorpopcountmatmul
         y = xp.xnorpopcountmatmul((x + 1) / 2, (W + 1) / 2)
     else:
         y = np.matmul(x, W)
-    if T is not None:
-        y = multithreshold(y, T)
-        if act == DataType["BIPOLAR"]:
-            # binary to bipolar
-            y = 2 * y - 1
-        else:
-            # signed offset
-            y += act.min()
     oshape = model.get_tensor_shape("outp")
     y_expected = y.reshape(oshape)
-    # TODO split up into several dependent tests -- need to check how this
-    # works for parametrized tests...
     model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
@@ -439,28 +318,27 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, pumpe
     assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "rtlsim failed"
 
     hls_synt_res_est = model.analysis(hls_synth_res_estimation)
-    assert "MVAU_hls_0" in hls_synt_res_est
+    assert "DotProd_hls_0" in hls_synt_res_est
 
-    node = model.get_nodes_by_op_type("MVAU_hls")[0]
+    node = model.get_nodes_by_op_type("DotProd_hls")[0]
     inst = getCustomOp(node)
     cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
     exp_cycles_dict = model.analysis(exp_cycles_per_layer)
     exp_cycles = exp_cycles_dict[node.name]
     if mem_mode == "external_mem":
-        # node-by-node rtlsim feeds the weights straight into the MVU core,
+        # node-by-node rtlsim feeds the weights straight into the core,
         # bypassing fetch_weights, so it only measures the compute cycles
         exp_cycles = inst.get_exp_compute_cycles()
     assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
     assert exp_cycles != 0
 
     # Also exercise stitched-IP rtlsim, but only for a single representative
-    # (max-parallelism, INT4, no-activation) config per mem_mode to bound runtime.
+    # (max-parallelism, INT4) config per mem_mode to bound runtime.
     # Pumped memory is only meaningful with internal_decoupled (and SIMD > 1), so
     # cover exactly that one pumped config in addition to the non-pumped modes.
     representative = (
         pe == mh
         and simd == mw
-        and act is None
         and idt == DataType["INT4"]
         and wdt == DataType["INT4"]
     )
@@ -485,8 +363,6 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, pumpe
 
 # mem_mode: internal_embedded or internal_decoupled
 @pytest.mark.parametrize("mem_mode", ["internal_decoupled"])
-# activation: None or DataType
-@pytest.mark.parametrize("act", [None, DataType["INT4"]])
 # weight datatype
 @pytest.mark.parametrize("wdt", [DataType["INT4"]])
 # input datatype
@@ -506,11 +382,9 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, pumpe
 @pytest.mark.parametrize("preferred_impl_style", ["hls", "rtl"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
-    mem_mode, idt, wdt, act, nf, sf, mw, mh, preferred_impl_style, ram_style, part
+def test_fpgadataflow_dotprod_large_depth_decoupled_mode_rtlsim(
+    mem_mode, idt, wdt, nf, sf, mw, mh, preferred_impl_style, ram_style, part
 ):
-    if preferred_impl_style == "rtl" and act is not None:
-        pytest.skip("RTL-MVAU doesn't support const mem mode or embedded activations")
     if nf == -1:
         nf = mh
     if sf == -1:
@@ -523,34 +397,10 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
     W = gen_finn_dt_tensor(wdt, (mw, mh))
     # generate input data
     x = gen_finn_dt_tensor(idt, (1, mw))
-    if act is None:
-        # no activation, produce accumulators
-        T = None
-        tdt = None
-        if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
-            odt = DataType["UINT32"]
-        else:
-            odt = DataType["INT32"]
-    else:
-        odt = act
-        (min, max) = calculate_signed_dot_prod_range(idt, wdt, mw)
-        n_steps = act.get_num_possible_values() - 1
-        T = np.random.randint(min, max - 1, (mh, n_steps)).astype(np.float32)
-        # provide non-decreasing thresholds
-        T = np.sort(T, axis=1)
-        # generate thresholds for activation
-        if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
-            tdt = DataType["UINT32"]
-            # bias thresholds to be positive
-            T = np.ceil((T + mw) / 2)
-            assert (T >= 0).all()
-        else:
-            tdt = DataType["INT32"]
-    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
+    odt = DataType["INT32"]
+    model = make_single_dotprod_modelwrapper(W, pe, simd, wdt, idt, mem_mode=mem_mode)
     for node in model.graph.node:
-        # lookup op_type in registry of CustomOps
         inst = getCustomOp(node)
-        inst.set_nodeattr("mem_mode", mem_mode)
         inst.set_nodeattr("ram_style", ram_style)
         if ram_style == "ultra":
             inst.set_nodeattr("runtime_writeable_weights", 1)
@@ -559,19 +409,7 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
 
     # prepare input data
     input_dict = prepare_inputs(x, idt, wdt)
-    if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
-        # convert inputs to binary and use xnorpopcountmatmul
-        y = xp.xnorpopcountmatmul((x + 1) / 2, (W + 1) / 2)
-    else:
-        y = np.matmul(x, W)
-    if T is not None:
-        y = multithreshold(y, T)
-        if act == DataType["BIPOLAR"]:
-            # binary to bipolar
-            y = 2 * y - 1
-        else:
-            # signed offset
-            y += act.min()
+    y = np.matmul(x, W)
     oshape = model.get_tensor_shape("outp")
     y_expected = y.reshape(oshape)
 
@@ -589,12 +427,12 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
 
     hls_synt_res_est = model.analysis(hls_synth_res_estimation)
     if preferred_impl_style == "hls":
-        assert "MVAU_hls_0" in hls_synt_res_est
+        assert "DotProd_hls_0" in hls_synt_res_est
 
     if preferred_impl_style == "hls":
-        node = model.get_nodes_by_op_type("MVAU_hls")[0]
+        node = model.get_nodes_by_op_type("DotProd_hls")[0]
     else:
-        node = model.get_nodes_by_op_type("MVAU_rtl")[0]
+        node = model.get_nodes_by_op_type("DotProd_rtl")[0]
     inst = getCustomOp(node)
     cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
     exp_cycles_dict = model.analysis(exp_cycles_per_layer)
@@ -614,9 +452,9 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
     exec_ctx_dict = {"global_in": x}
     # functions to write uram if ultrascale device
     if preferred_impl_style == "hls":
-        node = model.get_nodes_by_op_type("MVAU_hls")[0]
+        node = model.get_nodes_by_op_type("DotProd_hls")[0]
     else:
-        node = model.get_nodes_by_op_type("MVAU_rtl")[0]
+        node = model.get_nodes_by_op_type("DotProd_rtl")[0]
     inst = getCustomOp(node)
     weights = model.get_initializer(node.input[1])
     weight_stream = make_runtime_weight_stream(inst, weights)
@@ -650,20 +488,18 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
 
     if not is_versal(part) and ram_style == "ultra":
         rtlsim_exec(model, exec_ctx_dict, pre_hook=write_weights, post_hook=read_weights)
-        output_mvau_rtl_stitch = exec_ctx_dict["global_out"]
+        output_stitch = exec_ctx_dict["global_out"]
         assert extracted_weight_stream == weight_stream
     else:
-        output_mvau_rtl_stitch = oxe.execute_onnx(model, exec_ctx_dict)["global_out"]
+        output_stitch = oxe.execute_onnx(model, exec_ctx_dict)["global_out"]
 
     assert (
-        y_expected == output_mvau_rtl_stitch
+        y_expected == output_stitch
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
 
 
 # mem_mode: internal_embedded or internal_decoupled
 @pytest.mark.parametrize("mem_mode", ["internal_decoupled", "internal_embedded"])
-# activation: None or DataType
-@pytest.mark.parametrize("act", [None, DataType["INT4"]])
 # weight datatype
 @pytest.mark.parametrize("wdt", [DataType["INT4"]])
 # input datatype
@@ -680,11 +516,11 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
 @pytest.mark.parametrize("preferred_impl_style", ["hls", "rtl"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_mvau_fifocharacterize_rtlsim(
-    mem_mode, idt, wdt, act, nf, sf, mw, mh, preferred_impl_style
+def test_dotprod_fifocharacterize_rtlsim(
+    mem_mode, idt, wdt, nf, sf, mw, mh, preferred_impl_style
 ):
-    if preferred_impl_style == "rtl" and (mem_mode == "internal_embedded" or act is not None):
-        pytest.skip("RTL-MVAU doesn't support const mem mode or embedded activations")
+    if preferred_impl_style == "rtl" and mem_mode == "internal_embedded":
+        pytest.skip("RTL DotProd doesn't support internal_embedded mem mode")
     if nf == -1:
         nf = mh
     if sf == -1:
@@ -696,19 +532,9 @@ def test_mvau_fifocharacterize_rtlsim(
     # generate weights
     W = gen_finn_dt_tensor(wdt, (mw, mh))
 
-    # no activation, produce accumulators
-    T = None
-    tdt = None
-    if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
-        odt = DataType["UINT32"]
-    else:
-        odt = DataType["INT32"]
-
-    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
+    model = make_single_dotprod_modelwrapper(W, pe, simd, wdt, idt, mem_mode=mem_mode)
     for node in model.graph.node:
-        # lookup op_type in registry of CustomOps
         inst = getCustomOp(node)
-        inst.set_nodeattr("mem_mode", mem_mode)
         inst.set_nodeattr("resType", "auto")
         inst.set_nodeattr("preferred_impl_style", preferred_impl_style)
     total_fold = nf * sf
@@ -742,7 +568,7 @@ def test_mvau_fifocharacterize_rtlsim(
 @pytest.mark.parametrize("mw", [32])
 # (PE, SIMD, TH, mem_mode) as a jointly-valid tuple satisfying MH % PE == 0
 # and MW % SIMD == 0. WSIMD is the smallest divisor of PE*SIMD >= ceil(PE*SIMD/TH).
-# TH=1 selects the standard MVAU; TH>1 selects the tiled MVAU (Versal DSP58
+# TH=1 selects the standard path; TH>1 selects the tiled path (Versal DSP58
 # only, filtered below). TH need not divide PE*SIMD.
 #
 # TH must divide the number of input vectors (ofm_shape 3x3 -> 9), so the tiled
@@ -781,7 +607,7 @@ def test_mvau_fifocharacterize_rtlsim(
         # (PE*SIMD)//TH would overestimate get_exp_cycles() beyond the rtlsim tolerance
         (2, 4, 3, "external_mem"),  # PE*SIMD=8, TH=3: WSIMD=4, NW=2, slack=1
         (2, 4, 9, "external_mem"),  # TH > PE*SIMD=8: WSIMD=1, NW=8, slack=1
-        # external_mem + TH=1: standard MVAU fed by fetch_weights from external memory
+        # external_mem + TH=1: standard path fed by fetch_weights from external memory
         # (PE>1 catches PE-lane swaps, SIMD=1 covers the sub-word byte-packing edge).
         (9, 16, 1, "external_mem"),
         (18, 1, 1, "external_mem"),
@@ -799,7 +625,7 @@ def test_mvau_fifocharacterize_rtlsim(
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_rtl_mvau(
+def test_fpgadataflow_rtl_dotprod(
     mh, mw, pe_simd_th_mem, idt_wdt, part, clk_ns, pumpedMemory, pumpedCompute
 ):
     pe, simd, th, mem_mode = pe_simd_th_mem
@@ -820,12 +646,12 @@ def test_fpgadataflow_rtl_mvau(
     if mem_mode == "external_mem" and pumpedMemory:
         pytest.skip("External memory has no on-chip weight memory to clock-pump")
 
-    # Tiled MVAU (TH>1) requires DSP58 (Versal) and is not combined with clock pumping.
+    # Tiled (TH>1) requires DSP58 (Versal) and is not combined with clock pumping.
     if th > 1:
         if part != "xcvc1902-vsva2197-2MP-e-S":
-            pytest.skip("Tiled MVAU (TH>1) is only supported on Versal (DSP58)")
+            pytest.skip("Tiled (TH>1) is only supported on Versal (DSP58)")
         if pumpedMemory or pumpedCompute:
-            pytest.skip("Tiled MVAU (TH>1) is not exercised with clock pumping")
+            pytest.skip("Tiled (TH>1) is not exercised with clock pumping")
 
     idt, wdt = idt_wdt
     # Create test input vector (produced by SWG)
@@ -850,19 +676,19 @@ def test_fpgadataflow_rtl_mvau(
     # Execute ONNX model
     output_matmul = oxe.execute_onnx(model, input_dict)["global_out"]
 
-    # Create MVAU (HLS)
-    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
+    # Create DotProd
+    model = model.transform(to_hw.InferDotProd())
     model = model.transform(GiveUniqueNodeNames())
 
-    # Apply convert-to-rtl step
+    # Apply specialization step
     model = model.transform(SpecializeLayers(part))
     model = model.transform(GiveUniqueNodeNames())
 
-    assert model.graph.node[0].op_type == "MVAU_rtl"
+    assert model.graph.node[0].op_type == "DotProd_rtl"
     # Apply folding (i.e. specify to use DSPs)
     folding_config = {
         "Defaults": {},
-        "MVAU_rtl_0": {
+        "DotProd_rtl_0": {
             "PE": pe,
             "SIMD": simd,
             "TH": th,
@@ -875,7 +701,7 @@ def test_fpgadataflow_rtl_mvau(
     model = model.transform(ApplyConfig(folding_config))
     # Verify the folding config was actually applied to the node
     inst = getCustomOp(model.graph.node[0])
-    for attr, expected in folding_config["MVAU_rtl_0"].items():
+    for attr, expected in folding_config["DotProd_rtl_0"].items():
         assert (
             inst.get_nodeattr(attr) == expected
         ), f"Config not applied: {attr}={inst.get_nodeattr(attr)}, expected {expected}"
@@ -888,9 +714,9 @@ def test_fpgadataflow_rtl_mvau(
     model = model.transform(SetExecMode("cppsim"))
     model = model.transform(PrepareCppSim())
     model = model.transform(CompileCppSim())
-    output_mvau_hls = oxe.execute_onnx(model, input_dict)["global_out"]
+    output_cppsim = oxe.execute_onnx(model, input_dict)["global_out"]
     assert (
-        output_matmul == output_mvau_hls
+        output_matmul == output_cppsim
     ).all(), "Output of ONNX model not matching output of node-by-node CPPsim!"
 
     # Run node-by-node RTLsim
@@ -898,9 +724,9 @@ def test_fpgadataflow_rtl_mvau(
     model = model.transform(PrepareIP(part, clk_ns))
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim())
-    output_mvau_rtl = oxe.execute_onnx(model, input_dict)["global_out"]
+    output_rtl = oxe.execute_onnx(model, input_dict)["global_out"]
     assert (
-        output_matmul == output_mvau_rtl
+        output_matmul == output_rtl
     ).all(), "Output of ONNX model not matching output of node-by-node RTLsim!"
 
     # Run stitched-ip RTLsim
@@ -910,10 +736,10 @@ def test_fpgadataflow_rtl_mvau(
     model = model.transform(CreateStitchedIP(part, clk_ns))
 
     model.set_metadata_prop("exec_mode", "rtlsim")
-    output_mvau_rtl_stitch = oxe.execute_onnx(model, input_dict)["global_out"]
+    output_stitch = oxe.execute_onnx(model, input_dict)["global_out"]
 
     assert (
-        output_matmul == output_mvau_rtl_stitch
+        output_matmul == output_stitch
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
 
     # Check the cycle estimate against stitched-IP rtlsim, which unlike node-by-node
@@ -926,9 +752,9 @@ def test_fpgadataflow_rtl_mvau(
         return int(model.get_metadata_prop("cycles_rtlsim"))
 
     cycles_per_frame = (stitched_rtlsim_cycles(3) - stitched_rtlsim_cycles(1)) / 2
-    exp_cycles = getCustomOp(model.get_nodes_by_op_type("MVAU_rtl")[0]).get_exp_cycles()
+    exp_cycles = getCustomOp(model.get_nodes_by_op_type("DotProd_rtl")[0]).get_exp_cycles()
     assert np.isclose(exp_cycles, cycles_per_frame, rtol=0.1, atol=20), (
-        f"MVAU cycle estimate {exp_cycles} not close to stitched-IP rtlsim "
+        f"DotProd cycle estimate {exp_cycles} not close to stitched-IP rtlsim "
         f"{cycles_per_frame} cycles per frame"
     )
 
@@ -952,7 +778,7 @@ def test_fpgadataflow_rtl_mvau(
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_rtl_dynamic_mvau(
+def test_fpgadataflow_rtl_dynamic_dotprod(
     mh, mw, n_vectors, lead_dims, pe, simd, idt_wdt, part, impl_style
 ):
     # if 7 series and rtl selected, skip because narrow range can't be ensured for the second input
@@ -987,23 +813,22 @@ def test_fpgadataflow_rtl_dynamic_mvau(
     # Execute ONNX model
     output_matmul = oxe.execute_onnx(model, input_dict)[outp_name]
 
-    # Create MVAU
-    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
+    # Create DotProd
+    model = model.transform(to_hw.InferDotProd())
     model = model.transform(GiveUniqueNodeNames())
     for node in model.graph.node:
-        # lookup op_type in registry of CustomOps
         inst = getCustomOp(node)
         inst.set_nodeattr("preferred_impl_style", str(impl_style))
 
-    # Apply convert-to-rtl step
+    # Apply specialization step
     model = model.transform(SpecializeLayers(part))
     model = model.transform(GiveUniqueNodeNames())
 
-    assert model.graph.node[0].op_type == "MVAU_" + str(impl_style)
+    assert model.graph.node[0].op_type == "DotProd_" + str(impl_style)
     # Apply folding (i.e. specify to use DSPs)
     folding_config = {
         "Defaults": {},
-        "MVAU_%s_0"
+        "DotProd_%s_0"
         % impl_style: {
             "PE": pe,
             "SIMD": simd,
@@ -1020,9 +845,9 @@ def test_fpgadataflow_rtl_dynamic_mvau(
     model = model.transform(SetExecMode("cppsim"))
     model = model.transform(PrepareCppSim())
     model = model.transform(CompileCppSim())
-    output_mvau_hls = oxe.execute_onnx(model, input_dict)[outp_name]
+    output_cppsim = oxe.execute_onnx(model, input_dict)[outp_name]
     assert (
-        output_matmul == output_mvau_hls
+        output_matmul == output_cppsim
     ).all(), "Output of ONNX model not matching output of node-by-node CPPsim!"
 
     # Run node-by-node RTLsim
@@ -1030,9 +855,9 @@ def test_fpgadataflow_rtl_dynamic_mvau(
     model = model.transform(PrepareIP(part, clk_ns))
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim())
-    output_mvau_rtl = oxe.execute_onnx(model, input_dict)[outp_name]
+    output_rtl = oxe.execute_onnx(model, input_dict)[outp_name]
     assert (
-        output_matmul == output_mvau_rtl
+        output_matmul == output_rtl
     ).all(), "Output of ONNX model not matching output of node-by-node RTLsim!"
 
     # Run stitched-ip RTLsim
@@ -1044,108 +869,22 @@ def test_fpgadataflow_rtl_dynamic_mvau(
     model = model.transform(CreateStitchedIP(part, clk_ns))
 
     model.set_metadata_prop("exec_mode", "rtlsim")
-    output_mvau_rtl_stitch = oxe.execute_onnx(model, input_dict)[outp_name]
+    output_stitch = oxe.execute_onnx(model, input_dict)[outp_name]
 
     assert (
-        output_matmul == output_mvau_rtl_stitch
+        output_matmul == output_stitch
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
 
 
-@pytest.mark.fpgadataflow
-@pytest.mark.vivado
-def test_fpgadataflow_mvau_hls_threshold_width_cppsim():
-    """
-    Test that threshold datatype is not minimized narrower than accumulator.
-
-    This tests the fix for a bug where HLS MVAU threshold comparisons could
-    produce incorrect results when thresholds were minimized to a narrower
-    datatype than the accumulator. The HLS implementation uses the threshold
-    datatype for comparisons, so if it's narrower than the accumulator,
-    accumulator values get truncated.
-
-    Setup:
-    - INT8 inputs/weights with mw=64 -> accumulator needs ~14 bits
-    - Small thresholds (INT8 range) that would be minimized to narrow type
-    - Extreme input values (min/max) to trigger full accumulator range
-
-    The test follows the builder flow:
-    MinimizeWeightBitWidth -> MinimizeAccumulatorWidth -> RoundAndClipThresholds
-    -> MinimizeWeightBitWidth
-    """
-    mw, mh = 64, 4
-    pe, simd = 2, 8
-    idt = DataType["INT8"]
-    wdt = DataType["INT8"]
-    odt = DataType["INT4"]
-    n_steps = odt.get_num_possible_values() - 1
-
-    # Generate random weights
-    W = gen_finn_dt_tensor(wdt, (mw, mh))
-
-    # Generate SMALL thresholds (INT8 range) - key to triggering the bug
-    # These will be minimized to a narrow type after RoundAndClipThresholds
-    T = gen_finn_dt_tensor(DataType["INT8"], (mh, n_steps)).astype(np.float32)
-    T = np.sort(T, axis=1)
-    tdt = DataType["INT32"]
-
-    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
-
-    # Extreme inputs to trigger full accumulator range
-    # Max accumulator = 127 * 64 * max_weight ~ 8128 (needs ~14 bits)
-    # Min accumulator = -128 * 64 * max_weight ~ -8192
-    x_max = np.ones((1, mw), dtype=np.float32) * idt.max()
-    x_min = np.ones((1, mw), dtype=np.float32) * idt.min()
-
-    # Expected outputs using numpy reference
-    y_max_expected = multithreshold(np.matmul(x_max, W), T, 1, odt.min())
-    y_min_expected = multithreshold(np.matmul(x_min, W), T, 1, odt.min())
-
-    # Apply transformations
-    model = model.transform(GiveUniqueNodeNames())
-    for node in model.graph.node:
-        inst = getCustomOp(node)
-        inst.set_nodeattr("preferred_impl_style", "hls")
-        inst.set_nodeattr("mem_mode", "internal_embedded")
-
-    model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
-    model = model.transform(GiveUniqueNodeNames())
-
-    # Full builder flow for bit width minimization
-    model = model.transform(MinimizeWeightBitWidth())
-    model = model.transform(MinimizeAccumulatorWidth())
-    model = model.transform(InferDataTypes())
-    model = model.transform(RoundAndClipThresholds())
-    model = model.transform(InferDataTypes())
-    model = model.transform(MinimizeWeightBitWidth())
-    model = model.transform(InferDataTypes())
-
-    # Run cppsim
-    model = model.transform(SetExecMode("cppsim"))
-    model = model.transform(PrepareCppSim())
-    model = model.transform(CompileCppSim())
-
-    # Verify results with extreme inputs
-    y_max_produced = oxe.execute_onnx(model, {"inp": x_max})["outp"]
-    y_min_produced = oxe.execute_onnx(model, {"inp": x_min})["outp"]
-
-    assert np.allclose(
-        y_max_produced, y_max_expected
-    ), f"Max input test failed: expected {y_max_expected}, got {y_max_produced}"
-    assert np.allclose(
-        y_min_produced, y_min_expected
-    ), f"Min input test failed: expected {y_min_expected}, got {y_min_produced}"
-
-
-# (input/weight datatype, activation, fold): representative kernel datapaths rather
+# (input/weight datatype, fold): representative kernel datapaths rather
 # than a cross product. fold=1 is fully unrolled (the original regression), fold=4
 # gives NF=SF=4 and exercises the weight memory and input buffer
 @pytest.mark.parametrize(
-    "dt,act,fold",
+    "dt,fold",
     [
-        pytest.param(DataType["INT4"], None, 1, id="int4-full"),
-        pytest.param(DataType["INT4"], None, 4, id="int4-folded"),
-        pytest.param(DataType["INT4"], DataType["UINT4"], 4, id="int4-thresh"),
-        pytest.param(DataType["BIPOLAR"], None, 4, id="bipolar"),
+        pytest.param(DataType["INT4"], 1, id="int4-full"),
+        pytest.param(DataType["INT4"], 4, id="int4-folded"),
+        pytest.param(DataType["BIPOLAR"], 4, id="bipolar"),
     ],
 )
 # mem_mode: on-chip weights, embedded or streamed from the packaged weight streamer
@@ -1153,32 +892,25 @@ def test_fpgadataflow_mvau_hls_threshold_width_cppsim():
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_mvau_hls_ii(dt, act, fold, mem_mode):
-    """The freerunning top of an HLS MVAU must achieve II=1 for any folding, i.e. it
+def test_fpgadataflow_dotprod_hls_ii(dt, fold, mem_mode):
+    """The freerunning top of an HLS DotProd must achieve II=1 for any folding, i.e. it
     calls the function-pipelined hlslib kernel once per cycle."""
     mw, mh = 16, 16
     pe, simd = mh // fold, mw // fold
     idt = wdt = dt
     W = gen_finn_dt_tensor(wdt, (mw, mh))
-    if act is None:
-        T = tdt = None
-        odt = DataType["UINT32"] if dt == DataType["BIPOLAR"] else DataType["INT32"]
+    if dt == DataType["BIPOLAR"]:
+        odt = DataType["UINT32"]
     else:
-        # threshold values only need to be valid, they don't affect the II
-        odt, tdt = act, DataType["INT32"]
-        (t_min, t_max) = calculate_signed_dot_prod_range(idt, wdt, mw)
-        n_steps = act.get_num_possible_values() - 1
-        T = np.sort(np.random.randint(t_min, t_max - 1, (mh, n_steps)), axis=1)
-        T = T.astype(np.float32)
-    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
+        odt = DataType["INT32"]
+    model = make_single_dotprod_modelwrapper(W, pe, simd, wdt, idt, mem_mode=mem_mode)
     inst = getCustomOp(model.graph.node[0])
     inst.set_nodeattr("preferred_impl_style", "hls")
-    inst.set_nodeattr("mem_mode", mem_mode)
     part = "xczu7ev-ffvc1156-2-e"
     model = model.transform(SpecializeLayers(part))
     model = model.transform(GiveUniqueNodeNames())
     node = model.graph.node[0]
-    assert node.op_type == "MVAU_hls"
+    assert node.op_type == "DotProd_hls"
 
     model = model.transform(PrepareIP(part, 10))
     model = model.transform(HLSSynthIP())

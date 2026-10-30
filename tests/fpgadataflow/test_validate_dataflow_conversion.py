@@ -19,7 +19,7 @@ from finn.analysis.fpgadataflow.validate_dataflow_conversion import (
 from finn.transformation.fpgadataflow.convert_to_hw_layers import (
     InferElementwiseBinaryOperation,
     InferHWSoftmax,
-    InferQuantizedMatrixVectorActivation,
+    InferDotProd,
     InferThresholdingLayer,
 )
 from finn.util.fpgadataflow import is_fpgadataflow_node
@@ -138,7 +138,7 @@ def test_validate_dataflow_conversion_scenarios():
     # Scenario 3: Convert layer 3 (Mul) and layer 1 (MatMul) → [non, fpga, fpga, fpga, fpga]
     print("\n--- Scenario 3: Convert layers 3 (Mul) and 1 (MatMul) ---")
     model = model.transform(InferElementwiseBinaryOperation())
-    model = model.transform(InferQuantizedMatrixVectorActivation())
+    model = model.transform(InferDotProd())
     result = model.analysis(validate_dataflow_conversion)
     print(f"Valid: {result['valid']}")
     print(f"Message: {result['message']}")

@@ -99,9 +99,8 @@ class InsertTLastMarker(Transformation):
                 #    the input is in the list of graph inputs because it has an
                 #    initializer (TODO: fix this with a clean-up transform)
                 if (
-                    first_node.op_type.startswith("MVAU")
-                    and get_by_name(first_node.attribute, "mem_mode").s.decode("UTF-8")
-                    != "external"
+                    first_node.op_type.startswith("DotProd")
+                    and get_by_name(first_node.attribute, "mem_mode").s.decode("UTF-8") != "external"
                 ):
                     continue
                 # 2. node is either a TLastMarker or an input IODMA
@@ -113,7 +112,7 @@ class InsertTLastMarker(Transformation):
                     num_iters = np.prod(custom_op.get_folded_input_shape()[1:-1])
                     inp_idx = list(first_node.input).index(graph_in_name)
                     if inp_idx > 0:
-                        if first_node.op_type.startswith("MVAU") and inp_idx == 1:
+                        if first_node.op_type.startswith("DotProd") and inp_idx == 1:
                             stream_width = int(custom_op.get_instream_width(1))
                         elif (
                             first_node.op_type.startswith("ElementwiseAdd")

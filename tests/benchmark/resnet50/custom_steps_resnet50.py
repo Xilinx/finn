@@ -21,7 +21,6 @@ from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.insert_topk import InsertTopK
-from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.transformation.remove import RemoveIdentityOps
 
 from finn.builder.build_dataflow_config import DataflowBuildConfig, VerificationStepType
@@ -117,7 +116,7 @@ def step_resnet50_streamline_linear(model: ModelWrapper, cfg: DataflowBuildConfi
 def step_resnet50_streamline_nonlinear(model: ModelWrapper, cfg: DataflowBuildConfig):
     # Push linear scaling ops past the residual forks/join-Adds so they can be
     # absorbed into the MultiThresholds (else branch MatMuls stay float and block
-    # MVAU inference). MoveMulPastJoinAdd + MoveAddPastJoinAdd replace the
+    # DotProd inference). MoveMulPastJoinAdd + MoveAddPastJoinAdd replace the
     # deprecated MoveLinearPastEltwiseAdd.
     streamline_transformations = [
         MoveMulPastJoinAdd(),
@@ -143,9 +142,8 @@ def step_resnet50_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     model = model.transform(DoubleToSingleFloat())
 
-    # Lower convolutions and fully detangle the NCHW<->NHWC transposes here, in
-    # streamline
-    model = model.transform(LowerConvsToMatMul())
+    # Conv lowering is no longer needed -- InferDotProd handles Conv nodes
+    # directly.  We still need to detangle the NCHW<->NHWC transposes here.
     model = model.transform(InferDataLayouts())
     for _ in range(4):
         model = model.transform(MakeMaxPoolNHWC())

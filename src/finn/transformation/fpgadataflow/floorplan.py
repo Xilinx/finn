@@ -137,7 +137,7 @@ class Floorplan(Transformation):
                 continue
 
             elif not (
-                node.op_type.startswith("MVAU")
+                node.op_type.startswith("DotProd")
                 and node_inst.get_nodeattr("mem_mode") is not None
                 and node_inst.get_nodeattr("mem_mode") == "external"
             ):

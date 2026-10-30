@@ -36,8 +36,7 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.util.basic import gen_finn_dt_tensor, roundup_to_integer_multiple
 from typing import Optional, Union
 
-from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
-from finn.custom_op.fpgadataflow.vectorvectoractivation import VVAU
+from finn.custom_op.fpgadataflow.dotprod import DotProd
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
 )
@@ -51,8 +50,8 @@ def make_unit_test_model(
     wdt: DataType,
     idt: DataType,
     tdt: Optional[DataType] = None,
-    # MVAU-specific parameters (only used if layer_type="mvau")
-    layer_type: str = "vvau_mvau",
+    # DotProd-specific parameters (only used if layer_type="dotprod")
+    layer_type: str = "depthwise_fc",
     mw: Optional[int] = None,
     mh: Optional[int] = None,
     odt: Optional[DataType] = None,
@@ -65,31 +64,31 @@ def make_unit_test_model(
 
     :param wdt: Weight datatype
     :param idt: Input datatype
-    :param tdt: Threshold datatype (None for noActivation=1)
-    :param layer_type: Type of model to create - "vvau_mvau"
-    (default, MobileNetV1-based pair) or "mvau" (single MVAU)
-    :param mw: Matrix width for MVAU (only used if layer_type="mvau")
-    :param mh: Matrix height for MVAU (only used if layer_type="mvau")
+    :param tdt: Threshold datatype (None for no thresholds)
+    :param layer_type: Type of model to create - "depthwise_fc"
+    (default, MobileNetV1-based pair) or "dotprod" (single DotProd)
+    :param mw: Matrix width for DotProd (only used if layer_type="dotprod")
+    :param mh: Matrix height for DotProd (only used if layer_type="dotprod")
     :param odt: Output datatype (defaults to idt if tdt, else INT32)
     :param adt: Accumulator datatype (defaults to INT32)
-    :param weights: Weight values (auto-generated if None, only for layer_type="mvau")
+    :param weights: Weight values (auto-generated if None, only for layer_type="dotprod")
     :param thresholds: Threshold values (auto-generated if None and tdt is not None)
     :param add_successor: If True, adds a dummy successor node to prevent rounding
-    (only for layer_type="mvau")
+    (only for layer_type="dotprod")
     :return: ModelWrapper with configured model
     """
-    if layer_type == "vvau_mvau":
-        # Original VVAU-MVAU pair logic (MobileNetV1-based)
-        return _make_vvau_mvau_model(wdt, idt, tdt)
-    elif layer_type == "mvau":
-        # Single MVAU node with flexible configuration
-        assert mw is not None and mh is not None, "mw and mh required for layer_type='mvau'"
-        return _make_mvau_model(mw, mh, wdt, idt, tdt, odt, adt, weights, thresholds, add_successor)
+    if layer_type in ("vvau_mvau", "depthwise_fc"):
+        # DotProd pair: depthwise (depthwise=1) + FC (depthwise=0), MobileNetV1-based
+        return _make_depthwise_fc_model(wdt, idt, tdt)
+    elif layer_type in ("mvau", "dotprod"):
+        # Single DotProd node with flexible configuration
+        assert mw is not None and mh is not None, "mw and mh required for layer_type='dotprod'"
+        return _make_dotprod_model(mw, mh, wdt, idt, tdt, odt, adt, weights, thresholds, add_successor)
     else:
         raise ValueError(f"Unknown layer_type: {layer_type}")
 
 
-def _make_mvau_model(
+def _make_dotprod_model(
     mw: int,
     mh: int,
     wdt: DataType,
@@ -101,7 +100,7 @@ def _make_mvau_model(
     thresholds: Optional[np.ndarray],
     add_successor: bool,
 ):
-    """Helper to create a single MVAU node or MVAU with successor."""
+    """Helper to create a single DotProd node, optionally followed by MultiThreshold."""
     if odt is None:
         odt = idt if tdt is not None else DataType["INT32"]
     if adt is None:
@@ -112,29 +111,38 @@ def _make_mvau_model(
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, mw])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, mh])
 
-    output_name = "outp" if not add_successor else "hid"
-
-    # Create main MVAU node
-    node_inputs = ["inp", "weights"]
+    # DotProd always outputs the accumulator; if thresholds are needed,
+    # a downstream MultiThreshold handles the quantization.
     if tdt is not None:
-        node_inputs.append("thresh")
+        dotprod_out = "acc0"
+    elif add_successor:
+        dotprod_out = "hid"
+    else:
+        dotprod_out = "outp"
 
+    # Create DotProd node (always a pure accumulator, no thresholds)
     main_node = helper.make_node(
-        "MVAU",
-        node_inputs,
-        [output_name],
+        "DotProd",
+        ["inp", "weights"],
+        [dotprod_out],
         domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
-        MW=mw,
-        MH=mh,
+        IFMChannels=mw,
+        OFMChannels=mh,
+        IFMDim=[1, 1],
+        OFMDim=[1, 1],
+        KernelSize=[1, 1],
+        Stride=[1, 1],
+        Dilation=[1, 1],
+        Padding=[0, 0, 0, 0],
+        depthwise=0,
         SIMD=1,
         PE=1,
         inputDataType=idt.name,
-        outputDataType=odt.name,
+        outputDataType=adt.name,
         weightDataType=wdt.name,
         accDataType=adt.name,
-        ActVal=tdt.min() if tdt is not None else 0,
-        noActivation=0 if tdt is not None else 1,
+        mem_mode="internal_decoupled",
     )
 
     nodes = [main_node]
@@ -142,7 +150,7 @@ def _make_mvau_model(
         helper.make_tensor("weights", TensorProto.FLOAT, weights.shape, weights.flatten())
     ]
 
-    # Add thresholds if provided
+    # Add MultiThreshold if thresholds are needed
     if tdt is not None:
         if thresholds is None:
             n_steps = idt.get_num_possible_values() - 1
@@ -150,29 +158,45 @@ def _make_mvau_model(
                 np.float32
             )
             thresholds = np.sort(thresholds, axis=1)
+
+        thresh_out = "outp" if not add_successor else "hid"
+        thresh_node = helper.make_node(
+            "MultiThreshold",
+            [dotprod_out, "thresh"],
+            [thresh_out],
+            domain="qonnx.custom_op.general",
+            out_dtype=odt.name,
+        )
+        nodes.append(thresh_node)
         initializers.append(
             helper.make_tensor("thresh", TensorProto.FLOAT, thresholds.shape, thresholds.flatten())
         )
 
-    # Add successor node if requested
+    # Add successor DotProd node if requested
     if add_successor:
         weights2 = gen_finn_dt_tensor(wdt, (mh, mh))
         successor_node = helper.make_node(
-            "MVAU",
+            "DotProd",
             ["hid", "weights2"],
             ["outp"],
             domain="finn.custom_op.fpgadataflow",
             backend="fpgadataflow",
-            MW=mh,
-            MH=mh,
+            IFMChannels=mh,
+            OFMChannels=mh,
+            IFMDim=[1, 1],
+            OFMDim=[1, 1],
+            KernelSize=[1, 1],
+            Stride=[1, 1],
+            Dilation=[1, 1],
+            Padding=[0, 0, 0, 0],
+            depthwise=0,
             SIMD=1,
             PE=1,
             inputDataType=odt.name,
-            outputDataType=odt.name,
+            outputDataType=adt.name,
             weightDataType=wdt.name,
             accDataType=adt.name,
-            ActVal=0,
-            noActivation=1,
+            mem_mode="internal_decoupled",
         )
         nodes.append(successor_node)
         initializers.append(
@@ -181,71 +205,128 @@ def _make_mvau_model(
 
     graph = helper.make_graph(
         nodes=nodes,
-        name="mvau_test",
+        name="dotprod_test",
         inputs=[inp],
         outputs=[outp],
         initializer=initializers,
     )
 
-    model = helper.make_model(graph, producer_name="mvau-test")
+    model = helper.make_model(graph, producer_name="dotprod-test")
     model = ModelWrapper(model)
 
     # Set datatypes
     model.set_tensor_datatype("inp", idt)
-    model.set_tensor_datatype(output_name, odt)
     model.set_tensor_datatype("weights", wdt)
 
-    if add_successor:
-        model.set_tensor_datatype("outp", odt)
-        model.set_tensor_datatype("weights2", wdt)
-
     if tdt is not None:
+        model.set_tensor_datatype(dotprod_out, adt)
         model.set_tensor_datatype("thresh", tdt)
+        thresh_out = "outp" if not add_successor else "hid"
+        model.set_tensor_datatype(thresh_out, odt)
+    elif add_successor:
+        model.set_tensor_datatype("hid", adt)
+    else:
+        model.set_tensor_datatype("outp", adt)
+
+    if add_successor:
+        model.set_tensor_datatype("outp", adt)
+        model.set_tensor_datatype("weights2", wdt)
 
     return model
 
 
-def _make_vvau_mvau_model(wdt: DataType, idt: DataType, tdt: Optional[DataType] = None):
-    """Creates a VVAU-MVAU pair based on the first pair of MobileNetV1."""
+def _make_depthwise_fc_model(wdt: DataType, idt: DataType, tdt: Optional[DataType] = None):
+    """Creates a depthwise DotProd + FC DotProd pair based on the first pair of MobileNetV1.
+
+    When tdt is not None, each DotProd is followed by a MultiThreshold node.
+    """
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, 32, 32, 288])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, 32, 32, 64])
+
+    nodes = []
+    initializers = []
+
+    # Depthwise DotProd: depthwise=1
+    dp0_out = "acc0" if tdt is not None else "hid"
     layer1 = helper.make_node(
-        "VVAU",
-        ["inp", "params0", "thresh0"] if tdt is not None else ["inp", "params0"],
-        ["hid"],
+        "DotProd",
+        ["inp", "params0"],
+        [dp0_out],
         domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
         PE=1,
-        Channels=32,
-        Dim=(32, 32),
-        Kernel=(3, 3),
+        SIMD=1,
+        IFMChannels=32,
+        OFMChannels=32,
+        IFMDim=[32, 32],
+        OFMDim=[32, 32],
+        KernelSize=[3, 3],
+        Stride=[1, 1],
+        Dilation=[1, 1],
+        Padding=[0, 0, 0, 0],
+        depthwise=1,
         inputDataType=idt.name,
-        outputDataType=idt.name,
+        outputDataType=DataType["INT32"].name,
         weightDataType=wdt.name,
-        ActVal=tdt.min() if tdt is not None else 0,
-        noActivation=0 if tdt is not None else 1,
+        accDataType=DataType["INT32"].name,
+        mem_mode="internal_decoupled",
     )
+    nodes.append(layer1)
+
+    # If thresholds, add MultiThreshold after depthwise DotProd
+    if tdt is not None:
+        mt0 = helper.make_node(
+            "MultiThreshold",
+            [dp0_out, "thresh0"],
+            ["hid"],
+            domain="qonnx.custom_op.general",
+            out_dtype=idt.name,
+        )
+        nodes.append(mt0)
+
+    # FC DotProd: depthwise=0
+    dp1_out = "acc1" if tdt is not None else "outp"
     layer2 = helper.make_node(
-        "MVAU",
-        ["hid", "params1", "thresh1"] if tdt is not None else ["hid", "params1"],
-        ["outp"],
+        "DotProd",
+        ["hid", "params1"],
+        [dp1_out],
         domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
-        MW=32,  # matrix_width (num_inputs)
-        MH=64,  # matrix_height (num_outputs)
+        IFMChannels=32,
+        OFMChannels=64,
+        IFMDim=[1, 1],
+        OFMDim=[1, 1],
+        KernelSize=[1, 1],
+        Stride=[1, 1],
+        Dilation=[1, 1],
+        Padding=[0, 0, 0, 0],
+        depthwise=0,
         SIMD=1,
         PE=1,
         inputDataType=idt.name,
-        outputDataType=idt.name,
+        outputDataType=DataType["INT32"].name,
         weightDataType=wdt.name,
-        ActVal=tdt.min() if tdt is not None else 0,
-        noActivation=0 if tdt is not None else 1,
+        accDataType=DataType["INT32"].name,
+        mem_mode="internal_decoupled",
     )
+    nodes.append(layer2)
+
+    # If thresholds, add MultiThreshold after FC DotProd
+    if tdt is not None:
+        mt1 = helper.make_node(
+            "MultiThreshold",
+            [dp1_out, "thresh1"],
+            ["outp"],
+            domain="qonnx.custom_op.general",
+            out_dtype=idt.name,
+        )
+        nodes.append(mt1)
+
     graph = helper.make_graph(
-        nodes=[layer1, layer2], name="fclayer_graph", inputs=[inp], outputs=[outp]
+        nodes=nodes, name="dotprod_graph", inputs=[inp], outputs=[outp]
     )
 
-    model = helper.make_model(graph, producer_name="fclayer-model")
+    model = helper.make_model(graph, producer_name="dotprod-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)
@@ -253,11 +334,13 @@ def _make_vvau_mvau_model(wdt: DataType, idt: DataType, tdt: Optional[DataType] 
     model.set_tensor_datatype("hid", idt)
     model.set_tensor_datatype("params0", wdt)
     model.set_tensor_datatype("params1", wdt)
-    model.set_initializer("params0", gen_finn_dt_tensor(wdt, (32, 1, 3, 3)))
+    # Weight shape: (K_H*K_W, Channels) = (9, 32) for depthwise DotProd
+    model.set_initializer("params0", gen_finn_dt_tensor(wdt, (9, 32)))
     model.set_initializer("params1", gen_finn_dt_tensor(wdt, (32, 64)))
-    # if the threshold data type is specified, then we need to generate
-    # some dummy threshold values
+
     if tdt is not None:
+        model.set_tensor_datatype(dp0_out, DataType["INT32"])
+        model.set_tensor_datatype(dp1_out, DataType["INT32"])
         model.set_tensor_datatype("thresh0", tdt)
         model.set_tensor_datatype("thresh1", tdt)
         # Create threshold tensors
@@ -306,7 +389,7 @@ input_data_types = [
 @pytest.mark.parametrize("external", [True, False])
 @pytest.mark.fpgadataflow
 def test_minimize_weight_bit_width(wdt: DataType, rww: bool, external: bool):
-    """Testing MinimizeWeightBitWidth for VVAU and MVAU.
+    """Testing MinimizeWeightBitWidth for DotProd nodes.
 
     :param wdt: (DataType) The data type that we are testing for the weights
     :param rww: (bool) Whether or not to use runtime-writeable weights
@@ -321,7 +404,8 @@ def test_minimize_weight_bit_width(wdt: DataType, rww: bool, external: bool):
     model = make_unit_test_model(def_wdt, DataType["INT8"])
 
     # Create new weights for the model based on wdt
-    params0 = gen_finn_dt_tensor(wdt, (32, 1, 3, 3))
+    # Weight shape (K_H*K_W, Channels) = (9, 32) for depthwise DotProd
+    params0 = gen_finn_dt_tensor(wdt, (9, 32))
     params1 = gen_finn_dt_tensor(wdt, (32, 64))
     model.set_initializer("params0", params0)
     model.set_initializer("params1", params1)
@@ -329,7 +413,7 @@ def test_minimize_weight_bit_width(wdt: DataType, rww: bool, external: bool):
     # If runtime-writeable weights, specify as a node attribute
     for node in model.graph.node:
         inst = getCustomOp(node)
-        if isinstance(inst, (MVAU, VVAU)):
+        if isinstance(inst, DotProd):
             inst.set_nodeattr("runtime_writeable_weights", int(rww))
             if external:
                 inst.set_nodeattr("mem_mode", "external")
@@ -340,21 +424,21 @@ def test_minimize_weight_bit_width(wdt: DataType, rww: bool, external: bool):
     # Iterate through each node to make sure it functioned properly
     for node in model.graph.node:
         inst = getCustomOp(node)
-        if isinstance(inst, (MVAU, VVAU)):
+        if isinstance(inst, DotProd):
             cur_wdt = DataType[inst.get_nodeattr("weightDataType")]
             exp_wdt = def_wdt if (rww or external) else wdt
             assert cur_wdt.bitwidth() == exp_wdt.bitwidth(), "Mismatched data types"
 
 
 def calculate_accumulator_bit_width(
-    inst: Union[MVAU, VVAU], model: ModelWrapper
+    inst: DotProd, model: ModelWrapper
 ) -> Union[DataType, IntType]:
     """Calculate the accumulator bit width using the closed-form expressions
     derived in `Quantized Neural Networks for Low-Precision Accumulation
     with Guaranteed Overflow Avoidance` (2023) by I.Colbert, A. Pappalardo,
     J. Petri-Koenig
 
-    :param inst: (HLSCustomOp) The instance of the MVAU or VVAU
+    :param inst: (DotProd) The instance of the DotProd node
     :param model: (ModelWrapper) The instance of the whole model
     """
 
@@ -362,17 +446,10 @@ def calculate_accumulator_bit_width(
         return np.log2(1 + pow(2, -x))
 
     weights = model.get_initializer(inst.onnx_node.input[1])
-    # modify the weights based on if the node is a VVAU or MVAU
-    if isinstance(inst, MVAU):
-        K = inst.get_nodeattr("MW")  # matrix_width = num_inputs
-    elif isinstance(inst, VVAU):
-        k_h, k_w = inst.get_nodeattr("Kernel")
-        K = k_h * k_w  # size of kernels = num_inputs
-        fm = inst.get_nodeattr("Channels")
-        # put weights into the shape expected by calculate_matvec_accumulator_range
-        weights = weights.reshape(fm, k_h * k_w).transpose()
-    else:
-        raise Exception("Considering only MVAU and VVAU currently")
+    # MW is a derived property that works for both depthwise and FC DotProd
+    K = inst.MW
+    # Reshape weights to (MW, MH) for the accumulator range calculation
+    weights = weights.reshape(inst.MW, inst.MH)
     # collect attributes used to determine the accumulator bit width bound
     wdt = inst.get_input_datatype(1)
     idt = inst.get_input_datatype(0)
@@ -420,7 +497,7 @@ weight_data_types = [
 def test_minimize_accumulator_width(
     wdt: DataType, idt: DataType, tdt: DataType, rww: bool, external: bool
 ):
-    """Testing MinimizeAccumulatorWidth for VVAU and MVAU.
+    """Testing MinimizeAccumulatorWidth for DotProd nodes.
 
     :param wdt: (DataType) The data type that we are testing for the weights
     :param idt: (DataType) The data type that we are testing for the activations
@@ -437,7 +514,7 @@ def test_minimize_accumulator_width(
     # If runtime-writeable weights, specify as a node attribute
     for node in model.graph.node:
         inst = getCustomOp(node)
-        if isinstance(inst, (MVAU, VVAU)):
+        if isinstance(inst, DotProd):
             inst.set_nodeattr("runtime_writeable_weights", int(rww))
             if external:
                 inst.set_nodeattr("mem_mode", "external")
@@ -450,26 +527,26 @@ def test_minimize_accumulator_width(
     # Iterate through each node to make sure it functioned properly
     for node in model.graph.node:
         inst = getCustomOp(node)
-        if isinstance(inst, (MVAU, VVAU)):
+        if isinstance(inst, DotProd):
             cur_adt = DataType[inst.get_nodeattr("accDataType")]
             cur_odt = DataType[inst.get_nodeattr("outputDataType")]
             # Calculating expected accumulator bit width using a closed-form expression
             # that is a slight over-approximation of the lower bound. The accumulator
-            # bit width minimization logic in the MVAU and VVAU is exact and should be
+            # bit width minimization logic in DotProd is exact and should be
             # less than or equal to this calculation
             exp_adt = calculate_accumulator_bit_width(inst, model)
             assert cur_adt.bitwidth() <= exp_adt.bitwidth(), "Mismatched accumulation data types"
 
-            # if there is no activation, outputDataType = accDataType and if it is the last node
+            # DotProd is always a pure accumulator: outputDataType = accDataType
+            # If the DotProd is the last fpgadataflow node (no DotProd successor),
             # it needs to be divisible by 8
-            if inst.get_nodeattr("noActivation"):
+            assert (
+                cur_adt.bitwidth() == cur_odt.bitwidth()
+            ), "outputDataType and accDataType should be equal for DotProd"
+            if model.find_direct_successors(inst.onnx_node) is None:
                 assert (
-                    cur_adt.bitwidth() == cur_odt.bitwidth()
-                ), "outputDataType and accDataType should be equal"
-                if model.find_direct_successors(inst.onnx_node) is None:
-                    assert (
-                        cur_adt.bitwidth() % 8
-                    ) == 0, "bit width of last node needs to be divisible by 8"
+                    cur_adt.bitwidth() % 8
+                ) == 0, "bit width of last node needs to be divisible by 8"
 
 
 @pytest.mark.parametrize("tdt", [DataType["INT16"], DataType["INT24"], DataType["INT32"]])
@@ -545,9 +622,9 @@ def test_minimize_weight_bit_width_threshold_boundary_values(tdt: DataType):
 @pytest.mark.parametrize("idt", [DataType["INT8"], DataType["UINT8"]])
 @pytest.mark.fpgadataflow
 def test_minimize_accumulator_width_independent_of_thresholds(wdt: DataType, idt: DataType):
-    """Test that minimize_accumulator_width for MVAU is independent of threshold values.
+    """Test that minimize_accumulator_width for DotProd is independent of threshold values.
     The accumulator width should be determined solely by weights and inputs, not thresholds.
-    Thresholds are handled separately by RoundAndClipThresholds transformation.
+    Thresholds are handled by a separate downstream MultiThreshold node.
 
     :param wdt: (DataType) Weight datatype
     :param idt: (DataType) Input datatype
@@ -556,7 +633,7 @@ def test_minimize_accumulator_width_independent_of_thresholds(wdt: DataType, idt
     mh = 8
     weights = gen_finn_dt_tensor(wdt, (mw, mh))
 
-    # Create MVAU WITH thresholds (noActivation=0)
+    # Create DotProd WITH downstream MultiThreshold
     n_steps = 7
     thresholds = np.random.randint(-10000, 10000, (mh, n_steps)).astype(np.float32)
     thresholds = np.sort(thresholds, axis=1)
@@ -565,7 +642,7 @@ def test_minimize_accumulator_width_independent_of_thresholds(wdt: DataType, idt
         wdt,
         idt,
         tdt=DataType["INT32"],
-        layer_type="mvau",
+        layer_type="dotprod",
         mw=mw,
         mh=mh,
         odt=DataType["UINT4"],
@@ -573,13 +650,13 @@ def test_minimize_accumulator_width_independent_of_thresholds(wdt: DataType, idt
         thresholds=thresholds,
     )
 
-    # Create MVAU WITHOUT thresholds (noActivation=1)
+    # Create DotProd WITHOUT thresholds
     # Add a dummy successor node so accumulator doesn't get rounded to multiple of 8
     model_no_thresh = make_unit_test_model(
         wdt,
         idt,
         tdt=None,
-        layer_type="mvau",
+        layer_type="dotprod",
         mw=mw,
         mh=mh,
         weights=weights,
@@ -588,7 +665,7 @@ def test_minimize_accumulator_width_independent_of_thresholds(wdt: DataType, idt
 
     # Create a third model WITHOUT dummy successor to verify rounding behavior
     model_last = make_unit_test_model(
-        wdt, idt, tdt=None, layer_type="mvau", mw=mw, mh=mh, weights=weights
+        wdt, idt, tdt=None, layer_type="dotprod", mw=mw, mh=mh, weights=weights
     )
 
     # Run MinimizeAccumulatorWidth on all models
@@ -596,7 +673,7 @@ def test_minimize_accumulator_width_independent_of_thresholds(wdt: DataType, idt
     model_no_thresh = model_no_thresh.transform(MinimizeAccumulatorWidth())
     model_last = model_last.transform(MinimizeAccumulatorWidth())
 
-    # Get accumulator datatypes
+    # Get accumulator datatypes — DotProd is always node[0]
     inst_with_thresh = getCustomOp(model_with_thresh.graph.node[0])
     inst_no_thresh = getCustomOp(model_no_thresh.graph.node[0])
     inst_last = getCustomOp(model_last.graph.node[0])
@@ -611,7 +688,7 @@ def test_minimize_accumulator_width_independent_of_thresholds(wdt: DataType, idt
     ), f"Last node should have accumulator rounded to multiple of 8, got {adt_last}"
 
     # Critical assertion: accumulator widths should be IDENTICAL
-    # Thresholds should NOT influence accumulator datatype
+    # Downstream MultiThreshold should NOT influence DotProd accumulator datatype
     assert adt_with_thresh == adt_no_thresh, (
         f"Accumulator width must be independent of threshold values. "
         f"With thresholds: {adt_with_thresh}, without thresholds: {adt_no_thresh}"
@@ -620,9 +697,9 @@ def test_minimize_accumulator_width_independent_of_thresholds(wdt: DataType, idt
 
 @pytest.mark.parametrize("tdt", [DataType["INT16"], DataType["INT24"], DataType["INT32"]])
 @pytest.mark.fpgadataflow
-def test_minimize_accumulator_width_mvau_threshold_boundary_values(tdt: DataType):
-    """Test MVAU with boundary threshold values (near INT24/INT32 limits) to ensure
-    deterministic behavior and avoid float32 precision issues.
+def test_minimize_accumulator_width_dotprod_threshold_boundary_values(tdt: DataType):
+    """Test DotProd + MultiThreshold with boundary threshold values (near INT24/INT32 limits)
+    to ensure deterministic behavior and avoid float32 precision issues.
     This test verifies the full pipeline handles large threshold values correctly.
 
     :param tdt: (DataType) The data type for the thresholds (INT16/INT24/INT32)
@@ -653,12 +730,14 @@ def test_minimize_accumulator_width_mvau_threshold_boundary_values(tdt: DataType
     boundary_thresholds = np.sort(boundary_thresholds, axis=1)
 
     model = make_unit_test_model(
-        wdt, idt, tdt=tdt, layer_type="mvau", mw=mw, mh=mh, odt=idt, thresholds=boundary_thresholds
+        wdt, idt, tdt=tdt, layer_type="dotprod", mw=mw, mh=mh, odt=idt,
+        thresholds=boundary_thresholds,
     )
 
     # Run MinimizeAccumulatorWidth - should not be affected by large threshold values
     model = model.transform(MinimizeAccumulatorWidth())
 
+    # DotProd is always node[0]
     inst = getCustomOp(model.graph.node[0])
     result_adt = DataType[inst.get_nodeattr("accDataType")]
 
@@ -670,9 +749,12 @@ def test_minimize_accumulator_width_mvau_threshold_boundary_values(tdt: DataType
         result_adt.bitwidth() < 20
     ), f"Accumulator too wide ({result_adt}), likely incorrectly expanded for thresholds"
 
+    # RoundAndClipThresholds handles MultiThreshold nodes (node[1] is the MultiThreshold)
     model = model.transform(RoundAndClipThresholds())
 
     # Verify thresholds were clipped to accumulator range
+    # The MultiThreshold input is the accumulator output, so thresholds are clipped
+    # to the accumulator's data type range
     final_thresholds = model.get_initializer("thresh")
     assert final_thresholds.min() >= result_adt.min(), "Thresholds not clipped to accumulator min"
     assert (
@@ -701,7 +783,7 @@ def test_full_bit_width_optimization_pipeline():
     """Test the full bit width optimization pipeline as it runs in step_minimize_bit_width.
 
     Pipeline:
-    1. MinimizeWeightBitWidth (first pass) - minimize MVAU/VVAU weights
+    1. MinimizeWeightBitWidth (first pass) - minimize DotProd weights
     2. MinimizeAccumulatorWidth - minimize accumulators based on weights/inputs
     3. RoundAndClipThresholds - round/clip thresholds to accumulator range
     4. MinimizeWeightBitWidth (second pass) - minimize threshold datatypes
@@ -748,7 +830,7 @@ def test_full_bit_width_optimization_pipeline():
         DataType["INT32"],  # Wide initial weight datatype (but actual values are INT8)
         idt,
         tdt=DataType["INT32"],  # Wide initial threshold datatype
-        layer_type="mvau",
+        layer_type="dotprod",
         mw=mw,
         mh=mh,
         odt=DataType["UINT3"],

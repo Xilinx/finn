@@ -37,7 +37,6 @@ from brevitas.export import export_qonnx
 from pkgutil import get_data
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
-from qonnx.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from qonnx.transformation.fold_constants import FoldConstants
 from qonnx.transformation.general import (
     GiveReadableTensorNames,
@@ -49,13 +48,15 @@ from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
-import finn.transformation.streamline.absorb as absorb
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.streamline import Streamline
+from finn.transformation.streamline.extract_multithreshold_scale_bias import (
+    ExtractMultiThresholdScaleBias,
+)
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import make_build_dir, robust_rmtree
 from finn.util.test import get_test_model_trained
@@ -84,30 +85,20 @@ def _test_convert_to_hw_layers_tfc_w1a1(build_dir):
     model = model.transform(GiveUniqueParameterTensors())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(Streamline())
-    model = model.transform(ConvertBipolarMatMulToXnorPopcount())
-    model = model.transform(absorb.AbsorbAddIntoMultiThreshold())
-    model = model.transform(absorb.AbsorbMulIntoMultiThreshold())
     model = model.transform(RoundAndClipThresholds())
-    model = model.transform(to_hw.InferBinaryMatrixVectorActivation())
+    model = model.transform(to_hw.InferDotProd())
+    # DotProd doesn't absorb thresholds — extract scale/bias from bipolar
+    # MultiThreshold nodes before converting to HW Thresholding
+    model = model.transform(ExtractMultiThresholdScaleBias())
+    model = model.transform(to_hw.InferThresholdingLayer())
     model = model.transform(SpecializeLayers("xc7z020clg400-1"))
-    fc0 = model.graph.node[2]
-    assert fc0.op_type.startswith("MVAU")
-    assert model.get_tensor_shape(fc0.input[0]) == [1, 784]
+    # Find DotProd nodes (thresholds are now separate Thresholding nodes)
+    dp_nodes = [n for n in model.graph.node if n.op_type.startswith("DotProd")]
+    assert len(dp_nodes) == 4
+    fc0, fc1, fc2, fc3 = dp_nodes
     assert model.get_tensor_shape(fc0.input[1]) == [784, 64]
-    assert model.get_tensor_shape(fc0.input[2]) == [64, 1]
-    fc1 = model.graph.node[3]
-    assert fc1.op_type.startswith("MVAU")
-    assert model.get_tensor_shape(fc1.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc1.input[1]) == [64, 64]
-    assert model.get_tensor_shape(fc1.input[2]) == [64, 1]
-    fc2 = model.graph.node[4]
-    assert fc2.op_type.startswith("MVAU")
-    assert model.get_tensor_shape(fc2.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc2.input[1]) == [64, 64]
-    assert model.get_tensor_shape(fc2.input[2]) == [64, 1]
-    fc3 = model.graph.node[5]
-    assert fc3.op_type.startswith("MVAU")
-    assert model.get_tensor_shape(fc3.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc3.input[1]) == [64, 10]
 
     fc0w = getCustomOp(fc0)
@@ -168,27 +159,17 @@ def _test_convert_to_hw_layers_tfc_w1a2(build_dir):
     model = model.transform(GiveUniqueParameterTensors())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(Streamline())
-    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
+    model = model.transform(to_hw.InferDotProd())
+    model = model.transform(to_hw.InferThresholdingLayer())
     model = model.transform(SpecializeLayers("xc7z020clg400-1"))
 
-    fc0 = model.graph.node[2]
-    assert fc0.op_type.startswith("MVAU")
-    assert model.get_tensor_shape(fc0.input[0]) == [1, 784]
+    # Find DotProd nodes (thresholds are now separate Thresholding nodes)
+    dp_nodes = [n for n in model.graph.node if n.op_type.startswith("DotProd")]
+    assert len(dp_nodes) == 4
+    fc0, fc1, fc2, fc3 = dp_nodes
     assert model.get_tensor_shape(fc0.input[1]) == [784, 64]
-    assert model.get_tensor_shape(fc0.input[2]) == [64, 2]
-    fc1 = model.graph.node[3]
-    assert fc1.op_type.startswith("MVAU")
-    assert model.get_tensor_shape(fc1.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc1.input[1]) == [64, 64]
-    assert model.get_tensor_shape(fc1.input[2]) == [64, 2]
-    fc2 = model.graph.node[4]
-    assert fc2.op_type.startswith("MVAU")
-    assert model.get_tensor_shape(fc2.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc2.input[1]) == [64, 64]
-    assert model.get_tensor_shape(fc2.input[2]) == [64, 2]
-    fc3 = model.graph.node[5]
-    assert fc3.op_type.startswith("MVAU")
-    assert model.get_tensor_shape(fc3.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc3.input[1]) == [64, 10]
     fc0w = getCustomOp(fc0)
     fc0w.set_nodeattr("SIMD", 784)

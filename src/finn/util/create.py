@@ -82,7 +82,8 @@ def hls_random_mlp_maker(layer_spec):
 
 
 def hls_mlp_maker(layer_spec):
-    """Create an MLP of given specification using HLSCustomOp instances."""
+    """Create an MLP of given specification using DotProd + optional
+    MultiThreshold HWCustomOp instances."""
 
     current_in_name = ""
     current_out_name = ""
@@ -117,43 +118,62 @@ def hls_mlp_maker(layer_spec):
             global_out = helper.make_tensor_value_info(current_out_name, TensorProto.FLOAT, [1, mh])
             model.graph.output.append(global_out)
 
-        if T is not None:
-            no_act = 0
-            node_inp_list = [current_in_name, current_W_name, current_T_name]
-            if odt == DataType["BIPOLAR"]:
-                actval = 0
-            else:
-                actval = odt.min()
+        # DotProd always outputs accumulator type
+        if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
+            dp_odt = DataType["UINT32"]
         else:
-            # no thresholds
-            node_inp_list = [current_in_name, current_W_name]
-            actval = 0
-            no_act = 1
-        FCLayer_node = helper.make_node(
-            "MVAU",
-            node_inp_list,
-            [current_out_name],
+            dp_odt = DataType["INT32"]
+
+        if T is not None:
+            # DotProd → MultiThreshold chain
+            dp_out_name = "dp_%d_out" % i
+        else:
+            dp_out_name = current_out_name
+
+        dp_node = helper.make_node(
+            "DotProd",
+            [current_in_name, current_W_name],
+            [dp_out_name],
             domain="finn.custom_op.fpgadataflow",
             backend="fpgadataflow",
-            MW=mw,
-            MH=mh,
+            IFMChannels=mw,
+            OFMChannels=mh,
+            IFMDim=[1, 1],
+            OFMDim=[1, 1],
+            KernelSize=[1, 1],
+            Stride=[1, 1],
+            Dilation=[1, 1],
+            Padding=[0, 0, 0, 0],
+            depthwise=0,
             SIMD=simd,
             PE=pe,
             inputDataType=idt.name,
             weightDataType=wdt.name,
-            outputDataType=odt.name,
-            ActVal=actval,
-            noActivation=no_act,
+            outputDataType=dp_odt.name,
+            mem_mode="internal_decoupled",
         )
-
-        model.graph.node.append(FCLayer_node)
+        model.graph.node.append(dp_node)
         model.set_tensor_datatype(current_in_name, idt)
-        model.set_tensor_datatype(current_out_name, odt)
+        model.set_tensor_datatype(dp_out_name, dp_odt)
         model.set_tensor_datatype(current_W_name, wdt)
         model.set_initializer(current_W_name, W)
+
         if T is not None:
+            # Add MultiThreshold node after DotProd
+            mt_node = helper.make_node(
+                "MultiThreshold",
+                [dp_out_name, current_T_name],
+                [current_out_name],
+                domain="qonnx.custom_op.general",
+                out_dtype=odt.name,
+            )
+            model.graph.node.append(mt_node)
+            model.set_tensor_datatype(current_out_name, odt)
             model.set_tensor_datatype(current_T_name, tdt)
             model.set_initializer(current_T_name, T)
+        else:
+            model.set_tensor_datatype(current_out_name, dp_odt)
+
         i += 1
 
     return model

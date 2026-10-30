@@ -55,13 +55,11 @@ target_clk_ns = 5
 
 
 def create_two_fc_model():
-    # create a model with two MatrixVectorActivation instances
+    # create a model with two DotProd instances
     wdt = DataType["INT2"]
     idt = DataType["INT32"]
     odt = DataType["INT32"]
     m = 4
-    actval = 0
-    no_act = 1
     pe = 2
     simd = 2
 
@@ -70,38 +68,48 @@ def create_two_fc_model():
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, m])
 
     fc0 = helper.make_node(
-        "MVAU_hls",
+        "DotProd_hls",
         ["inp", "w0"],
         ["mid"],
         domain="finn.custom_op.fpgadataflow.hls",
         backend="fpgadataflow",
-        MW=m,
-        MH=m,
+        IFMDim=[1, 1],
+        OFMDim=[1, 1],
+        IFMChannels=m,
+        OFMChannels=m,
+        KernelSize=[1, 1],
+        Stride=[1, 1],
+        Dilation=[1, 1],
+        Padding=[0, 0, 0, 0],
+        depthwise=0,
         SIMD=simd,
         PE=pe,
         inputDataType=idt.name,
         weightDataType=wdt.name,
         outputDataType=odt.name,
-        ActVal=actval,
-        noActivation=no_act,
         mem_mode="internal_decoupled",
     )
 
     fc1 = helper.make_node(
-        "MVAU_hls",
+        "DotProd_hls",
         ["mid", "w1"],
         ["outp"],
         domain="finn.custom_op.fpgadataflow.hls",
         backend="fpgadataflow",
-        MW=m,
-        MH=m,
+        IFMDim=[1, 1],
+        OFMDim=[1, 1],
+        IFMChannels=m,
+        OFMChannels=m,
+        KernelSize=[1, 1],
+        Stride=[1, 1],
+        Dilation=[1, 1],
+        Padding=[0, 0, 0, 0],
+        depthwise=0,
         SIMD=simd,
         PE=pe,
         inputDataType=idt.name,
         weightDataType=wdt.name,
         outputDataType=odt.name,
-        ActVal=actval,
-        noActivation=no_act,
         mem_mode="internal_decoupled",
     )
 

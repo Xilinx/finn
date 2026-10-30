@@ -40,7 +40,7 @@ from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import SortGraph
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.util.basic import get_by_name
+from qonnx.util.basic import auto_pad_to_explicit_padding, get_by_name
 from qonnx.util.onnx import nchw_to_nhwc
 
 # Module containing specializations of elementwise binary operations
@@ -2974,3 +2974,271 @@ class InferCrop(Transformation):
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
+
+
+class InferDotProd(Transformation):
+    """Convert ONNX Conv and MatMul nodes into unified DotProd HW layers.
+
+    Replaces InferConvInpGen, InferQuantizedMatrixVectorActivation,
+    InferBinaryMatrixVectorActivation, and InferVectorVectorActivation.
+    Works directly on ONNX Conv nodes (no preceding LowerConvsToMatMul
+    needed) and on standalone MatMul nodes for FC layers.
+
+    The resulting DotProd node carries all spatial, type, and weight
+    attributes.  Downstream MultiThreshold is left untouched for
+    InferThresholdingLayer to pick up independently.
+    """
+
+    def __init__(self):
+        super().__init__()
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            node_ind += 1
+
+            if n.op_type == "Conv":
+                if self._try_infer_conv(model, graph, n, node_ind):
+                    graph_modified = True
+
+            elif n.op_type == "MatMul":
+                if self._try_infer_matmul(model, graph, n, node_ind):
+                    graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+    # -----------------------------------------------------------------
+    # Pattern 1: ONNX Conv → DotProd
+    # -----------------------------------------------------------------
+
+    def _try_infer_conv(self, model, graph, n, node_ind):
+        cnv_input = n.input[0]
+        cnv_weight = n.input[1]
+        cnv_output = n.output[0]
+
+        ishape = model.get_tensor_shape(cnv_input)
+        oshape = model.get_tensor_shape(cnv_output)
+
+        # Only support 4D tensors (batch, C, H, W)
+        if ishape is None or len(ishape) != 4:
+            return False
+
+        idt = model.get_tensor_datatype(cnv_input)
+        wdt = model.get_tensor_datatype(cnv_weight)
+        W = model.get_initializer(cnv_weight)
+
+        # Need integer types for HW conversion
+        if not (idt.is_integer() and wdt.is_integer()):
+            return False
+
+        # --- Extract Conv attributes ---
+        kernel_shape = list(get_by_name(n.attribute, "kernel_shape").ints)
+        strides = list(get_by_name(n.attribute, "strides").ints)
+        k_h, k_w = kernel_shape
+        s_h, s_w = strides
+
+        dilation_attr = get_by_name(n.attribute, "dilations")
+        d_h, d_w = list(dilation_attr.ints) if dilation_attr is not None else [1, 1]
+
+        group_attr = get_by_name(n.attribute, "group")
+        group = group_attr.i if group_attr is not None else 1
+
+        # Resolve padding (auto_pad or explicit pads)
+        auto_pad = get_by_name(n.attribute, "auto_pad")
+        # Assume NCHW: (batch, C, H, W)
+        _, ifm_ch, ifm_h, ifm_w = ishape
+        _, ofm_ch, ofm_h, ofm_w = oshape
+
+        if auto_pad is not None:
+            auto_pad_str = auto_pad.s.decode("utf-8") if isinstance(auto_pad.s, bytes) else auto_pad.s
+            if auto_pad_str == "NOTSET":
+                pad_attr = get_by_name(n.attribute, "pads")
+                pad = list(pad_attr.ints) if pad_attr is not None else [0, 0, 0, 0]
+            else:
+                pad = auto_pad_to_explicit_padding(
+                    auto_pad_str, ifm_h, ifm_w, k_h, k_w, s_h, s_w, 2
+                )
+        else:
+            pad_attr = get_by_name(n.attribute, "pads")
+            pad = list(pad_attr.ints) if pad_attr is not None else [0, 0, 0, 0]
+
+        # --- Detect depthwise ---
+        depthwise = group == ifm_ch and ifm_ch == ofm_ch and group > 1
+
+        # --- Handle Bipolar types ---
+        # If both input and weight are BINARY (from XnorPopcountMatMul flow),
+        # convert to BIPOLAR representation
+        if idt == DataType["BINARY"] and wdt == DataType["BINARY"]:
+            idt = DataType["BIPOLAR"]
+            wdt = DataType["BIPOLAR"]
+            model.set_tensor_datatype(cnv_input, idt)
+            model.set_tensor_datatype(cnv_weight, wdt)
+            if W is not None:
+                model.set_initializer(cnv_weight, 2 * W - 1)
+                W = model.get_initializer(cnv_weight)
+            producer = model.find_producer(cnv_input)
+            if producer is not None and producer.op_type == "MultiThreshold":
+                getCustomOp(producer).set_nodeattr("out_dtype", "BIPOLAR")
+
+        # --- Reshape weights: Conv [OFM, IFM/group, KH, KW] → MatMul [MW, MH] ---
+        if W is not None:
+            if depthwise:
+                # Conv weights: [OFM, 1, KH, KW] → [KH*KW, OFM] for depthwise
+                # (MW = KH*KW for depthwise, MH = OFM)
+                assert W.shape[1] == 1, f"Depthwise Conv weight dim[1] should be 1, got {W.shape[1]}"
+                # Reshape: [OFM, 1, KH, KW] → [OFM, KH*KW] → [KH*KW, OFM]
+                w_reshaped = W.reshape(ofm_ch, k_h * k_w).T.copy()
+            else:
+                # Standard conv: [OFM, IFM, KH, KW] → [OFM, KH, KW, IFM] → [OFM, KH*KW*IFM]
+                #   → [KH*KW*IFM, OFM]
+                w_reshaped = W.transpose(0, 2, 3, 1).reshape(ofm_ch, k_h * k_w * ifm_ch).T.copy()
+            model.set_initializer(cnv_weight, w_reshaped)
+
+        # --- Output data type ---
+        odt = model.get_tensor_datatype(cnv_output)
+
+        # --- Create NHWC intermediate tensors and Transpose nodes ---
+        # DotProd operates in NHWC layout; ONNX Conv is NCHW
+        inp_trans_out = helper.make_tensor_value_info(
+            model.make_new_valueinfo_name(),
+            TensorProto.FLOAT,
+            (1, ifm_h, ifm_w, ifm_ch),
+        )
+        graph.value_info.append(inp_trans_out)
+        inp_trans_out = inp_trans_out.name
+        model.set_tensor_datatype(inp_trans_out, idt)
+
+        dp_output = helper.make_tensor_value_info(
+            model.make_new_valueinfo_name(),
+            TensorProto.FLOAT,
+            (1, ofm_h, ofm_w, ofm_ch),
+        )
+        graph.value_info.append(dp_output)
+        dp_output = dp_output.name
+        model.set_tensor_datatype(dp_output, odt)
+
+        inp_trans_node = helper.make_node(
+            "Transpose", [cnv_input], [inp_trans_out], perm=[0, 2, 3, 1]
+        )
+        out_trans_node = helper.make_node(
+            "Transpose", [dp_output], [cnv_output], perm=[0, 3, 1, 2]
+        )
+
+        # --- Create DotProd node ---
+        dp_node = helper.make_node(
+            "DotProd",
+            [inp_trans_out, cnv_weight],
+            [dp_output],
+            domain="finn.custom_op.fpgadataflow",
+            backend="fpgadataflow",
+            IFMDim=[ifm_h, ifm_w],
+            OFMDim=[ofm_h, ofm_w],
+            IFMChannels=ifm_ch,
+            OFMChannels=ofm_ch,
+            KernelSize=[k_h, k_w],
+            Stride=[s_h, s_w],
+            Dilation=[d_h, d_w],
+            Padding=pad,
+            depthwise=1 if depthwise else 0,
+            PE=1,
+            SIMD=1,
+            inputDataType=idt.name,
+            weightDataType=wdt.name,
+            outputDataType=odt.name,
+            mem_mode="internal_decoupled",
+            name="DotProd_" + n.name,
+        )
+
+        # Insert: Transpose(NCHW→NHWC) + DotProd + Transpose(NHWC→NCHW)
+        graph.node.insert(node_ind, inp_trans_node)
+        graph.node.insert(node_ind + 1, dp_node)
+        graph.node.insert(node_ind + 2, out_trans_node)
+        graph.node.remove(n)
+        return True
+
+    # -----------------------------------------------------------------
+    # Pattern 2: Standalone MatMul → DotProd (FC)
+    # -----------------------------------------------------------------
+
+    def _try_infer_matmul(self, model, graph, n, node_ind):
+        # Skip if sparsity annotation (depthwise MatMul from old LowerConvsToMatMul)
+        if model.get_tensor_sparsity(n.input[1]) is not None:
+            return False
+
+        mm_input = n.input[0]
+        mm_weight = n.input[1]
+        mm_output = n.output[0]
+        mm_in_shape = model.get_tensor_shape(mm_input)
+        mm_out_shape = model.get_tensor_shape(mm_output)
+
+        idt = model.get_tensor_datatype(mm_input)
+        wdt = model.get_tensor_datatype(mm_weight)
+        W = model.get_initializer(mm_weight)
+
+        if not (idt.is_integer() and wdt.is_integer()):
+            return False
+
+        # --- Handle Bipolar ---
+        if idt == DataType["BINARY"] and wdt == DataType["BINARY"]:
+            idt = DataType["BIPOLAR"]
+            wdt = DataType["BIPOLAR"]
+            model.set_tensor_datatype(mm_input, idt)
+            model.set_tensor_datatype(mm_weight, wdt)
+            if W is not None:
+                model.set_initializer(mm_weight, 2 * W - 1)
+                W = model.get_initializer(mm_weight)
+            producer = model.find_producer(mm_input)
+            if producer is not None and producer.op_type == "MultiThreshold":
+                getCustomOp(producer).set_nodeattr("out_dtype", "BIPOLAR")
+
+        # ONNX MatMul: W has shape (in_features, out_features) = (MW, MH)
+        if W is None:
+            mm_dyn_shape = model.get_tensor_shape(mm_weight)
+            mw = int(mm_dyn_shape[-2])
+            mh = int(mm_dyn_shape[-1])
+        else:
+            mw = int(W.shape[0])
+            mh = int(W.shape[1])
+
+        odt = model.get_tensor_datatype(mm_output)
+
+        model.set_tensor_shape(mm_input, mm_in_shape)
+        model.set_tensor_shape(mm_output, mm_out_shape)
+
+        # Create DotProd node with degenerate spatial attributes (FC)
+        inp_vec = list(mm_in_shape[:-1])
+        batch_size = int(np.prod(inp_vec))
+        new_node = helper.make_node(
+            "DotProd",
+            [mm_input, mm_weight],
+            [mm_output],
+            domain="finn.custom_op.fpgadataflow",
+            backend="fpgadataflow",
+            IFMDim=[1, 1],
+            OFMDim=[1, 1],
+            IFMChannels=mw,
+            OFMChannels=mh,
+            KernelSize=[1, 1],
+            Stride=[1, 1],
+            Dilation=[1, 1],
+            Padding=[0, 0, 0, 0],
+            depthwise=0,
+            PE=1,
+            SIMD=1,
+            inputDataType=idt.name,
+            weightDataType=wdt.name,
+            outputDataType=odt.name,
+            numInputVectors=inp_vec,
+            BatchSize=batch_size,
+            mem_mode="dynamic" if W is None else "internal_decoupled",
+            inFIFODepths=[2, 2] if W is None else [2],
+            name="DotProd_" + n.name,
+        )
+        graph.node.insert(node_ind, new_node)
+        graph.node.remove(n)
+        return True

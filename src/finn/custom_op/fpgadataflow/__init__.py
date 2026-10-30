@@ -53,12 +53,9 @@ def register_custom_op(cls):
 # Note: This will automatically register all decorated classes into this domain
 import finn.custom_op.fpgadataflow.elementwise_binary
 from finn.custom_op.fpgadataflow.concat import StreamingConcat
-from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
-    ConvolutionInputGenerator,
-)
 from finn.custom_op.fpgadataflow.crop import Crop
+from finn.custom_op.fpgadataflow.dotprod import DotProd
 from finn.custom_op.fpgadataflow.duplicatestreams import DuplicateStreams
-from finn.custom_op.fpgadataflow.fmpadding import FMPadding
 from finn.custom_op.fpgadataflow.fmpadding_pixel import FMPadding_Pixel
 from finn.custom_op.fpgadataflow.globalaccpool import GlobalAccPool
 from finn.custom_op.fpgadataflow.hwsoftmax import HWSoftmax
@@ -67,7 +64,6 @@ from finn.custom_op.fpgadataflow.inner_shuffle import InnerShuffle
 from finn.custom_op.fpgadataflow.labelselect import LabelSelect
 from finn.custom_op.fpgadataflow.layernorm import LayerNorm
 from finn.custom_op.fpgadataflow.lookup import Lookup
-from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.outer_shuffle import OuterShuffle
 from finn.custom_op.fpgadataflow.pad1d import Pad1D
 from finn.custom_op.fpgadataflow.pool import Pool
@@ -85,20 +81,16 @@ from finn.custom_op.fpgadataflow.streamingdatawidthconverter import (
 from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
 from finn.custom_op.fpgadataflow.thresholding import Thresholding
 from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour
-from finn.custom_op.fpgadataflow.vectorvectoractivation import VVAU
 
 # make sure new HLSCustomOp subclasses are imported here so that they get
 # registered and plug in correctly into the infrastructure
-custom_op["MVAU"] = MVAU
 custom_op["StreamingFIFO"] = StreamingFIFO
 custom_op["Thresholding"] = Thresholding
-custom_op["VVAU"] = VVAU
 custom_op["StreamingDataflowPartition"] = StreamingDataflowPartition
 
-custom_op["ConvolutionInputGenerator"] = ConvolutionInputGenerator
 custom_op["Crop"] = Crop
+custom_op["DotProd"] = DotProd
 custom_op["DuplicateStreams"] = DuplicateStreams
-custom_op["FMPadding"] = FMPadding
 custom_op["FMPadding_Pixel"] = FMPadding_Pixel
 custom_op["GlobalAccPool"] = GlobalAccPool
 custom_op["InnerShuffle"] = InnerShuffle
