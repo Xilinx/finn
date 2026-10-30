@@ -47,7 +47,7 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.test import make_runtime_weight_stream
 
-finnxsi = xsi if xsi.is_available() else None
+finnxsi = xsi
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5

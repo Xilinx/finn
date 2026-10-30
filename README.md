@@ -67,3 +67,9 @@ The current implementation of the framework is based on the following publicatio
 
 We previously released an early-stage prototype of a toolflow that took in Caffe-HWGQ binarized network descriptions and produced dataflow architectures. You can find it in the [v0.1](https://github.com/Xilinx/finn/tree/v0.1) branch in this repository.
 Please be aware that this version is deprecated and unsupported, and the main branch does not share history with that branch so it should be treated as a separate repository for all purposes.
+
+Environment setup uses `pyproject.toml` and `uv.lock` with uv 0.10.0 and Python 3.12.
+Use `./docker/run` (configured AMD tools are mounted; `--fpga` requires them),
+or `./setup-local.sh --skip-xsi` followed by `source scripts/activate.sh` natively.
+See [environment setup and migration](docker/README.md) for runtime selection,
+resource overrides, dependency updates, and CI image transport.

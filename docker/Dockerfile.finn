@@ -1,5 +1,6 @@
+# syntax=docker/dockerfile:1
 # Copyright (C) 2021-2022, Xilinx, Inc.
-# Copyright (C) 2022-2024, Advanced Micro Devices, Inc.
+# Copyright (C) 2022-2026, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -27,25 +28,34 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-FROM ubuntu:noble-20240605
+# Stages: system -> python -> runtime -> dev; runtime -> release.
+# /opt/venv contains the full locked developer/CI environment. The development
+# image installs only the mounted FINN checkout at startup. The release target
+# embeds the upstream source assets for read-only SIF execution.
+
+# Must match the Ubuntu release the runtime manifests were built for; each
+# manifest may declare EXPECT_OS, which docker/install-runtimes.sh checks.
+ARG UBUNTU_TAG=noble-20240605
+
+
+# --- system ------------------------------------------------------------------
+FROM ubuntu:${UBUNTU_TAG} AS system
 LABEL maintainer="Jakoba Petri-Koenig <jakoba.petri-koenig@amd.com>, Thomas Preusser <thomas.preusser@amd.com>"
 
-ARG XRT_DEB_VERSION="xrt_202420.2.18.179_24.04-amd64-xrt"
-ARG SKIP_XRT
-ARG LOCAL_XRT
-ARG SLASHKIT_DEB_PACKAGE
-
-WORKDIR /workspace
-
-# some Vitis deps require a timezone to be specified, which hangs in Docker
-# use workaround from https://grigorkh.medium.com/fix-tzdata-hangs-docker-image-build-cdb52cc3360d
-ENV TZ "Europe/Dublin"
+# Some Vitis dependencies prompt for a timezone during installation.
+ENV TZ="Europe/Dublin"
+ARG DEBIAN_FRONTEND=noninteractive
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
+# Recommends stay on: dropping them changes the Vivado/XRT runtime in ways that
+# only a full synthesis run would show. python3-dev provides Python.h for the
+# XSI extension build; python3-venv lets users and tests create further venvs;
+# tcsh is required by LSF esub scripts (/bin/csh shebang).
 RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y \
     build-essential \
+    ca-certificates \
     libc6-dev-i386 \
     libglib2.0-0 \
     libsm6 \
@@ -68,113 +78,185 @@ RUN apt-get update && \
     locales \
     lsb-release \
     python3 \
-    python-is-python3 \
-    python3-pip \
-    python3-setuptools-scm \
+    python3-dev \
     python3-venv \
+    python-is-python3 \
     pybind11-dev \
     libfmt-dev \
     libboost-dev \
     libjansson-dev \
     libgetdata-dev \
     libncurses6 \
+    libcap2 \
+    libnss-wrapper \
     g++-13 \
     cmake \
-    tcsh
-# tcsh: required by LSF esub scripts (they ship with a /bin/csh shebang).
+    tcsh \
+    tini && \
+    rm -rf /var/lib/apt/lists/*
+
+# LSB loader. lmutil and several Xilinx tool wrappers request the interpreter
+# /lib64/ld-lsb-x86-64.so.3; without it they fail with a misleading "No such file
+# or directory". It is an alias for the normal loader.
+RUN set -eu; \
+    loader=$(ls /lib/*-linux-gnu/ld-linux-x86-64.so.2 2>/dev/null | head -1); \
+    [ -n "$loader" ] || { echo "ERROR: no ld-linux-x86-64.so.2 found" >&2; exit 1; }; \
+    mkdir -p /lib64; \
+    ln -sf "$loader" /lib64/ld-lsb-x86-64.so.3; \
+    test -e /lib64/ld-lsb-x86-64.so.3
+
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 RUN locale-gen "en_US.UTF-8"
+ENV LANG="en_US.UTF-8" \
+    LC_ALL="en_US.UTF-8" \
+    LANGUAGE="en_US:en"
 
-# Install slashkit. If the package isn't provided, this is a no-op
-# The wildcard pattern ensures COPY doesn't fail if the file doesn't exist
-COPY slashkit.de[b] /tmp/
-RUN if [ -f /tmp/slashkit.deb ]; then apt-get update && apt-get install -y /tmp/slashkit.deb && rm /tmp/slashkit.deb; fi
+# FLEXlm workaround. Licence checkout fingerprints the host through libudev and
+# corrupts the heap doing it ("realloc(): invalid pointer"); preloading the system
+# libudev avoids it. Set as image ENV so direct docker exec inherit it. The
+# check fails the build if a new base moves the library.
+RUN test -e /lib/x86_64-linux-gnu/libudev.so.1 || \
+    { echo "ERROR: libudev.so.1 is not at the preloaded path; update LD_PRELOAD" >&2; exit 1; }
+RUN test -e /usr/lib/x86_64-linux-gnu/libnss_wrapper.so
+ENV LD_PRELOAD=/lib/x86_64-linux-gnu/libudev.so.1:/lib/x86_64-linux-gnu/libcap.so.2:/usr/lib/x86_64-linux-gnu/libnss_wrapper.so
 
-# install XRT
-RUN if [ -z "$LOCAL_XRT" ] && [ -z "$SKIP_XRT" ];then \
-    wget -U 'Mozilla/5.0 (X11; Linux i686) AppleWebKit/537.17 (KHTML, like Gecko) Chrome/24.0.1312.27 Safari/537.17' "https://download.amd.com/opendownload/xrt/$XRT_DEB_VERSION.deb" -O /tmp/$XRT_DEB_VERSION.deb; fi
+# XILINX_LOCAL_USER_DATA=no lets several Vivado instances run at once
+# (https://adaptivesupport.amd.com/s/article/63253). TORCH_HOME/HF_HOME are set by
+# docker/run only when it mounts a cache.
+ENV VIVADO_IP_CACHE="/tmp/vivado_ip_cache" \
+    NUM_DEFAULT_WORKERS=4 \
+    LOCALHOST_URL="localhost" \
+    SHELL=/bin/bash \
+    XILINX_LOCAL_USER_DATA=no
 
-COPY requirements.txt $XRT_DEB_VERSION.* /tmp/
+# A stable non-root default user. docker/run overrides it with --user $UID:$GID.
+# The Ubuntu base ships an `ubuntu` user at uid 1000; `agent` takes its place.
+RUN userdel --remove ubuntu 2>/dev/null || true; \
+    useradd --create-home --uid 1000 --shell /bin/bash agent && \
+    chmod 0755 /home/agent && \
+    mkdir -p /home/agent/.local/bin /home/agent/.cache && \
+    chown -R agent:agent /home/agent
 
-RUN if [ -z "$SKIP_XRT" ];then \
-    apt-get update && \
-    apt install -y /tmp/$XRT_DEB_VERSION.deb && \
-    rm /tmp/$XRT_DEB_VERSION.deb; fi
 
-# versioned Python package requirements for FINN compiler
-# these are given in requirements.txt
-# Some apt-provided packages (typing_extensions, packaging) have no pip RECORD
-# and cannot be uninstalled by pip; install pip-managed copies first so the
-# requirements install can upgrade them (e.g. for onnx/onnxruntime, sphinx)
-# instead of failing on the Debian-installed versions.
-RUN pip install --break-system-packages --ignore-installed typing_extensions packaging
-RUN pip install --break-system-packages -r /tmp/requirements.txt
-RUN rm /tmp/requirements.txt
+# --- python ------------------------------------------------------------------
+FROM system AS python
 
-# install PyTorch
-RUN pip install --break-system-packages torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --extra-index-url https://download.pytorch.org/whl/cu126
+COPY --from=ghcr.io/astral-sh/uv:0.10.0 /uv /uvx /usr/local/bin/
 
-# extra Python package dependencies (for testing and interaction)
-RUN pip install --break-system-packages pygments==2.17.2
-RUN pip install --break-system-packages ipykernel==6.29.0
-RUN pip install --break-system-packages jupyter==1.0.0
-# anyio >= 4.13.0 for jupyter incompatible with pytest 6.2.5 (missing _pytest.scope module, added in pytest 7.0.0)
-RUN pip install --break-system-packages 'anyio<4.13'
-RUN pip install --break-system-packages markupsafe==2.1.5
-RUN pip install --break-system-packages matplotlib==3.8.2
-RUN pip install --break-system-packages pytest-dependency==0.5.1
-RUN pip install --break-system-packages pytest-xdist[setproctitle]==3.2.0
-RUN pip install --break-system-packages pytest-parallel==0.1.1
-# Beyond version 8.5.0, subsequent Netron calls in a Jupyter notebook cause "Address already in use" errors
-RUN pip install --break-system-packages netron
-RUN pip install --break-system-packages pandas==2.1.4
-RUN pip install --break-system-packages scikit-learn==1.4.0
-RUN pip install --break-system-packages tqdm==4.64.1
-RUN pip install --break-system-packages git+https://github.com/fbcotter/dataset_loading.git@0.0.4#egg=dataset_loading
-# these versions of pytest and associated plugins allow for stable collection of
-# test reports and code coverage reports in HTML
-RUN pip install --break-system-packages pytest==7.4.4
-# pytest-html 4.x is required on Python 3.12: 3.0.0 imports the removed
-# py.xml (from the unmaintained py library) and fails to load as a pytest
-# plugin. 4.x uses jinja2 templates instead; it needs pytest-metadata>=2,
-# and pytest-html-merger 0.1.0 for the 4.x report format.
-RUN pip install --break-system-packages pytest-metadata==3.1.1
-RUN pip install --break-system-packages pytest-html==4.1.1
-RUN pip install --break-system-packages pytest-html-merger==0.1.0
-RUN pip install --break-system-packages pytest-cov==4.1.0
-RUN pip install --break-system-packages pyyaml==6.0.1
+# /opt/venv is active for every process (direct docker exec included), not
+# only for login shells. It uses the distro Python; uv never downloads one.
+ENV VIRTUAL_ENV=/opt/venv \
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    UV_PYTHON_DOWNLOADS=never \
+    UV_LINK_MODE=copy \
+    PATH=/opt/venv/bin:/usr/local/lib/finn/toolchain-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-# extra dependencies from other FINN deps
-# installed in Docker image to make entrypoint script go faster
-# finn-experimental
-RUN pip install --break-system-packages deap==1.4.1
-RUN pip install --break-system-packages mip==1.13.0
-RUN pip install --break-system-packages networkx==2.8
-# brevitas
-RUN pip install --break-system-packages future-annotations==1.0.0
-RUN pip install --break-system-packages dependencies==2.0.1
-RUN pip install --break-system-packages tokenize-rt==4.2.1
+ARG FINN_UV_NO_CACHE=0
+COPY packaging/finn-experimental/pyproject.toml packaging/finn-experimental/setup.py \
+    /tmp/finn-lock/packaging/finn-experimental/
 
-# assure that we have the right setuptools version
-RUN pip install --break-system-packages setuptools==68.2.2
+# FINN's locked dependencies. FINN itself is not installed here; the entrypoint
+# installs it editable from the mounted checkout.
+# The venv is writable by any user because containers run as the caller's uid and
+# the entrypoint installs into it; each container's writable layer is its own.
+RUN --mount=type=bind,source=pyproject.toml,target=/tmp/finn-lock/pyproject.toml \
+    --mount=type=bind,source=uv.lock,target=/tmp/finn-lock/uv.lock \
+    --mount=type=bind,source=src/finn/resources,target=/tmp/finn-lock/src/finn/resources \
+    --mount=type=bind,source=src/finn/resources.toml,target=/tmp/finn-lock/src/finn/resources.toml \
+    --mount=type=cache,target=/root/.cache/uv \
+    uv venv --python /usr/bin/python3.12 /opt/venv && \
+    cd /tmp/finn-lock && \
+    if [ "$FINN_UV_NO_CACHE" = 1 ]; then export UV_LINK_MODE=hardlink; fi && \
+    UV_NO_CACHE="$FINN_UV_NO_CACHE" uv sync --locked --no-install-project && \
+    chmod -R a+rwX /opt/venv
 
-# extra environment variables for FINN compiler
-ENV VIVADO_IP_CACHE "/tmp/vivado_ip_cache"
+# Fail the build on an inconsistent environment. The pytest run is not redundant
+# with the metadata check: a plugin import failure (as with jupyter/anyio) has no
+# metadata conflict.
+RUN uv pip check && \
+    python -c "import numpy, onnx, onnxruntime, torch, qonnx, brevitas, finnexperimental" && \
+    mkdir -p /tmp/pytest-probe && \
+    printf 'def test_probe():\n    assert True\n' > /tmp/pytest-probe/test_probe.py && \
+    (cd /tmp/pytest-probe && pytest -q -p no:cacheprovider >/dev/null) && \
+    rm -rf /tmp/pytest-probe
 
-ARG USERNAME
-ARG USER_UID
-ARG GROUP_ID
-ARG GROUPNAME
-RUN useradd $USERNAME -u $USER_UID
-# Check and add group if it doesn't exist
-RUN if ! getent group "$GROUP_ID" > /dev/null 2>&1 && ! getent group "$GROUPNAME" > /dev/null 2>&1; then \
-        groupadd -g $GROUP_ID $GROUPNAME; \
-    fi
+# Redistributable external resources (finn-hlslib) in the read-only system cache,
+# at the pins in finn/resources.toml. finn.resources uses only the standard
+# library, so it runs from the mounted sources before FINN is installed.
+RUN --mount=type=bind,source=src/finn/resources,target=/tmp/src/finn/resources \
+    --mount=type=bind,source=src/finn/resources.toml,target=/tmp/src/finn/resources.toml \
+    PYTHONPATH=/tmp/src python -B -m finn.resources fetch --all --redistributable-only \
+        --dest /opt/finn/resources >/dev/null && \
+    rm -f /opt/finn/resources/.*.lock
+ENV FINN_RESOURCES_SYSTEM_CACHE=/opt/finn/resources
 
+# Vendor tool shims. direct docker exec do not run the entrypoint, so bare
+# vendor commands (e.g. `vivado -version`) go through a shim early on PATH that
+# applies the selected toolchain environment.
+COPY docker/toolchain-shim /usr/local/lib/finn/toolchain-shim
+COPY docker/finn-toolchain.sh /etc/finn-toolchain.sh
+RUN set -eu; \
+    chmod 755 /usr/local/lib/finn/toolchain-shim; \
+    chmod 644 /etc/finn-toolchain.sh; \
+    mkdir -p /usr/local/lib/finn/toolchain-bin; \
+    for t in vivado vitis vitis_hls vitis-run v++ slashkit xelab xsim xvlog xsc lmutil xsct xclbinutil xbutil xbmgmt; do \
+        ln -sf /usr/local/lib/finn/toolchain-shim /usr/local/lib/finn/toolchain-bin/"$t"; \
+    done
+
+COPY --chmod=0644 docker/identity.py /usr/local/lib/finn/identity.py
+COPY --chmod=0644 uv.lock /opt/finn/uv.lock
 COPY docker/finn_entrypoint.sh /usr/local/bin/
-COPY docker/quicktest.sh /usr/local/bin/
+COPY --chmod=0644 docker/finn-bashenv.sh /etc/finn-bashenv.sh
+ENV BASH_ENV=/etc/finn-bashenv.sh
 RUN chmod 755 /usr/local/bin/finn_entrypoint.sh
-RUN chmod 755 /usr/local/bin/quicktest.sh
-USER $USERNAME
-ENTRYPOINT ["finn_entrypoint.sh"]
+
+# tini reaps zombies as PID 1 for all container commands.
+ENTRYPOINT ["/usr/bin/tini", "--", "finn_entrypoint.sh"]
 CMD ["bash"]
+USER agent
+
+
+# --- runtime -----------------------------------------------------------------
+# FINN_RUNTIMES names manifests in docker/runtimes/ (e.g. "xrt" or "xrt,slash");
+# empty by default. Manifests and packages are bind-mounted, so an unselected
+# runtime's package never lands in a layer. See docker/runtimes/README.md.
+# Bake supplies this named context from its shared _python target. All runtime
+# variants consume one dependency build, even in a multi-target invocation.
+FROM finn-python AS runtime
+USER root
+ARG FINN_RUNTIMES=""
+ENV FINN_RUNTIMES=${FINN_RUNTIMES}
+RUN --mount=type=bind,source=docker/runtimes,target=/tmp/runtimes \
+    --mount=type=bind,source=docker/packages,target=/tmp/packages \
+    --mount=type=bind,source=docker/runtime-cache,target=/tmp/runtime-cache \
+    --mount=type=bind,source=docker/install-runtimes.sh,target=/tmp/install-runtimes.sh \
+    sh /tmp/install-runtimes.sh
+USER agent
+
+
+# --- dev ---------------------------------------------------------------------
+# Third-party Vivado board files join the system cache. They may not be
+# redistributed, so only images built locally contain them.
+FROM runtime AS dev
+USER root
+RUN --mount=type=bind,source=src/finn/resources,target=/tmp/src/finn/resources \
+    --mount=type=bind,source=src/finn/resources.toml,target=/tmp/src/finn/resources.toml \
+    PYTHONPATH=/tmp/src python -B -m finn.resources fetch --kind vivado-boards \
+        --dest /opt/finn/resources >/dev/null && \
+    rm -f /opt/finn/resources/.*.lock
+USER agent
+
+
+# --- release -----------------------------------------------------------------
+FROM runtime AS release
+ARG FINN_SOURCE_REVISION=unknown
+ARG FINN_SOURCE_DIRTY=unknown
+USER root
+RUN --mount=type=bind,from=finn-source,source=source.tar,target=/tmp/finn-source.tar \
+    --mount=type=bind,source=docker/copy-source.sh,target=/tmp/copy-source.sh \
+    sh /tmp/copy-source.sh /tmp/finn-source.tar /opt/finn/source
+RUN uv pip install --no-deps --no-build-isolation -e /opt/finn/source && uv pip check && \
+    printf '{"revision":"%s","dirty":"%s"}\n' "$FINN_SOURCE_REVISION" "$FINN_SOURCE_DIRTY" > /opt/finn/source/FINN_BUILD_INFO.json
+ENV FINN_ROOT=/opt/finn/source FINN_SYNC=0
+WORKDIR /opt/finn/source
+USER agent

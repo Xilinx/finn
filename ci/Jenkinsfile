@@ -90,13 +90,10 @@ int finnCiMinFreeGB() {
 @Field
 static final String FINN_BUILD_LABEL = 'finn-build'
 
-// The commit every stage checks out. Resolved once from the branch tip on the
-// first checkoutPinned() call (Validate) and reused unchanged for the rest of
-// the build, so `git describe` — and therefore the Docker tag baked by
-// run-docker.sh — is identical in the Build Docker Image stage and its
-// consumers. Without this, each stage's checkout re-resolves the branch head;
-// a push mid-build desyncs the tag and hard-fails the PREBUILT check in
-// run-docker.sh. @Field so the SHA survives CPS replay across stages/agents.
+// Resolve the source commit once and reuse it across stages/agents. Dependency
+// images can be reused across source commits, but every shard in this build
+// must test the same source recorded in its provenance and hardware handoff.
+// @Field keeps the source pin across CPS replay.
 @Field
 String PINNED_SCM_COMMIT = ''
 
@@ -376,13 +373,17 @@ void buildAndPublishDockerImage() {
   // -a -f reclaims the whole local image cache. The FINN builder agent is
   // assumed single-tenant so this will not evict another job's images.
   sh 'docker system prune -a -f'
-  sh "./run-docker.sh echo 'Docker image build complete'"
+  withEnv(["FINN_RUNTIMES=${env.FINN_RUNTIMES ?: 'xrt'}"]) {
+    sh './docker/build'
+    sh './ci/scripts/image_metadata.sh'
+  }
   String imageDir = buildDockerImageDir()
   if (imageDir) {
     publishSharedDockerImage(imageDir)
   } else {
     echo "buildAndPublishDockerImage: local fallback mode, skipping image publish"
   }
+  archiveArtifacts artifacts: 'image-metadata/*', allowEmptyArchive: false
 }
 
 // Build-scoped image directory under FINN_CI_NFS_ROOT, or '' in local fallback.
@@ -393,15 +394,14 @@ String buildDockerImageDir() {
 }
 
 // Other agents docker-load this image instead of rebuilding. Tag comes from
-// `./run-docker.sh print-tag`. The build-scoped imageDir keeps cross-build
+// `./docker/build --print-tag`. The build-scoped imageDir keeps cross-build
 // readers away from in-progress writes. publish_docker_image.sh handles the
 // same-build-retry serialisation.
 void publishSharedDockerImage(String imageDir) {
-  def tag = sh(returnStdout: true, script: './run-docker.sh print-tag').trim()
+  def tag = sh(returnStdout: true, script: 'FINN_RUNTIMES=${FINN_RUNTIMES:-xrt} ./docker/build --print-tag').trim()
   if (!tag || tag.contains('\n')) {
-    error "run-docker.sh print-tag must emit exactly one Docker tag line. Got: ${tag}"
+    error "docker/build --print-tag must emit exactly one Docker tag line. Got: ${tag}"
   }
-  sh "mkdir -p ${shellQuote(imageDir)}"
   sh "ci/scripts/publish_docker_image.sh " +
      "${shellQuote(imageDir)} ${shellQuote(tag)} ${shellQuote(env.BUILD_NUMBER ?: '')}"
 }
@@ -507,7 +507,7 @@ void runShardBody(Map entry, String buildDir, String startMarker) {
   }
 }
 
-// setup-local.sh expects apt + python3.10 on the agent. Override
+// setup-local.sh expects apt prerequisites and Python 3.12; it bootstraps pinned uv. Override
 // FINN_LOCAL_BUILD_LABEL when the main build pool lacks those.
 void runLocalSetupTest() {
   node(finnLocalBuildLabel()) {
@@ -519,34 +519,34 @@ void runLocalSetupTest() {
         String buildDir = "${perBuildRoot}/local_setup"
         echo "[stage-map] build=${env.BUILD_NUMBER} stage='Local Setup (non-Docker) with Vivado' stash=local_setup shard=1/1 node=${env.NODE_NAME} workspace=${env.WORKSPACE} build_dir=${buildDir}"
         // Cache key tracks the dep inputs so changes force a fresh download.
-        String pipCacheKey = sh(
+        String uvCacheKey = sh(
           returnStdout: true,
-          script: 'sha256sum requirements.txt setup.py setup.cfg pyproject.toml 2>/dev/null | sha256sum | cut -c1-16'
+          script: 'sha256sum pyproject.toml uv.lock .uv-version | sha256sum | cut -c1-16'
         ).trim()
-        if (!pipCacheKey) { pipCacheKey = "build-${env.BUILD_NUMBER}" }
+        if (!uvCacheKey) { uvCacheKey = "build-${env.BUILD_NUMBER}" }
         String cacheRoot   = finnCiLocalCacheRoot()
-        String pipCacheRoot = "${cacheRoot}/pip"
-        String pipCacheDir  = "${pipCacheRoot}/${pipCacheKey}"
+        String uvCacheRoot = "${cacheRoot}/uv"
+        String uvCacheDir  = "${uvCacheRoot}/${uvCacheKey}"
         String xdgCacheDir  = "${cacheRoot}/xdg"
         withEnv([
           "FINN_HOST_BUILD_DIR=${buildDir}",
-          "PIP_CACHE_DIR=${pipCacheDir}",
+          "UV_CACHE_DIR=${uvCacheDir}",
           "XDG_CACHE_HOME=${xdgCacheDir}",
         ]) {
-          // prune-pip-cache keeps pipCacheDir and deletes cache-key dirs older
+          // The directory-based prune-pip-cache helper also retains uvCacheDir and deletes keys older
           // than 14 days. It tolerates concurrent deletion, so two builds
           // GC'ing at once needs no lock (flock is local-only on NFS anyway).
           sh """
-mkdir -p ${shellQuote(perBuildRoot)} ${shellQuote(pipCacheDir)} ${shellQuote(xdgCacheDir)}
+mkdir -p ${shellQuote(perBuildRoot)} ${shellQuote(uvCacheDir)} ${shellQuote(xdgCacheDir)}
 ${CI_TOOL} prune-pip-cache \\
-  ${shellQuote(pipCacheRoot)} ${shellQuote(pipCacheDir)} 14 || true
+  ${shellQuote(uvCacheRoot)} ${shellQuote(uvCacheDir)} 14 || true
 """
           cleanPreviousBuildFiles(buildDir)
           catchError(stageResult: 'FAILURE') {
-            sh './setup-local.sh'
+            sh './setup-local.sh --ci'
             sh '''#!/bin/bash
 set -eo pipefail
-source scripts/finn-env.sh
+source scripts/activate.sh
 ./scripts/quicktest-local.sh vivado
 '''
           }
@@ -619,7 +619,7 @@ void runPytest(Map opts) {
       "#!/bin/bash\nset -eo pipefail\n${scriptLines}\n"
   // invoke via bash so we do not depend on the workspace file having the
   // execute bit set (writeFile creates 0644 by default).
-  runDockerCommand('./run-docker.sh bash run-tests.sh')
+  runDockerCommand('./ci/scripts/run.sh bash run-tests.sh')
 }
 
 
@@ -645,7 +645,7 @@ void aggregateReports() {
   publishStageMap()
   catchError(buildResult: null, stageResult: 'UNSTABLE',
              message: 'pytest_html_merger failed, per-stage HTMLs still archived') {
-    runDockerCommand('./run-docker.sh pytest_html_merger -i reports/ -o reports/test_report_final.html')
+    runDockerCommand('./docker/run -- pytest_html_merger -i reports/ -o reports/test_report_final.html')
   }
   catchError(buildResult: null, stageResult: 'UNSTABLE',
              message: 'archiveArtifacts (xml) failed') {
@@ -687,7 +687,7 @@ done
     '''
     // pytest-cov ships its own coverage. Run via the same docker image so
     // the merge uses the same Python/library versions as the per-shard runs.
-    runDockerCommand("./run-docker.sh bash -c 'cd coverage_data && coverage combine && " +
+    runDockerCommand("./docker/run -- bash -c 'cd coverage_data && coverage combine && " +
                      "coverage html -d ../coverage_combined'")
     archiveArtifacts artifacts: 'coverage_combined/**/*', allowEmptyArchive: true
   }
@@ -1015,7 +1015,12 @@ void prepareAgentCaches(String node) {
   if (!cachesDir) { return }
   sh "mkdir -p ${shellQuote(cachesDir + '/xrt')} " +
      "${shellQuote(cachesDir + '/finn_cache')} " +
+     "${shellQuote(cachesDir + '/finn_home')} " +
      "${shellQuote(cachesDir + '/vivado_ip_cache')}"
+  // finn_home keeps content-keyed XSI builds, assembled board files and golden
+  // references across builds; report its size so growth is visible in the log.
+  // `finn-resources clean --unused` inside the container prunes stale entries.
+  sh "du -sh ${shellQuote(cachesDir)}/* 2>/dev/null || true"
 }
 
 // Pure compute: returns the env-var list and FINN_DOCKER_EXTRA addition
@@ -1031,6 +1036,7 @@ Map agentCachesDockerExtra() {
     dockerExtra += " -v ${cachesDir}/vivado_ip_cache:/tmp/vivado_ip_cache"
     envList << "FINN_XRT_PATH=${cachesDir}/xrt"
     envList << "FINN_DOCKER_CACHE_DIR=${cachesDir}/finn_cache"
+    envList << "FINN_HOME=${cachesDir}/finn_home"
   }
   return [envList: envList, dockerExtra: dockerExtra]
 }
@@ -1041,7 +1047,7 @@ void withAgentNfsEnv(Closure body) { withAgentNfsEnv([:], body) }
 // FINN_DOCKER_EXTRA is interpolated. Composes prepareAgentCaches +
 // agentCachesDockerExtra with the shared-image-dir or local-build toggle.
 // The Build-Docker-Image stage passes exposeSharedImage:false because imageDir
-// is not published there yet, so exposing it would make run-docker.sh log a
+// is not published there yet, so exposing it would make docker/run log a
 // spurious "no usable shared image" fallback. That stage relies on its own
 // FINN_DOCKER_PREBUILT=0 to build locally.
 void withAgentNfsEnv(Map opts, Closure body) {

@@ -1,0 +1,18 @@
+# Host-specific mounts and identity are rendered by `docker/launcher.py compose`.
+x-common: &common
+  image: ${FINN_IMAGE:-xilinx/finn:local}
+  platform: linux/amd64
+  init: false  # the image uses tini
+services:
+  dev:
+    <<: *common
+  build:
+    <<: *common
+    profiles: [fpga]
+  notebook:
+    <<: *common
+    profiles: [notebook]
+    ports:
+      - "${JUPYTER_PORT:-8888}:${JUPYTER_PORT:-8888}"
+      - "${NETRON_PORT:-8081}:${NETRON_PORT:-8081}"
+    command: [jupyter, notebook, --no-browser, --ip=0.0.0.0, --port, "${JUPYTER_PORT:-8888}", notebooks]

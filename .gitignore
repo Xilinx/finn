@@ -101,3 +101,13 @@ MANIFEST
 /tests/benchmark/models/*.onnx
 /tests/benchmark/models/*.zip
 /tests/benchmark/verification_io/*.npy
+
+# Prepared packaging adapter and CI environment evidence
+/packaging/finn-experimental/_source/
+/image-metadata/
+/brevitas-provenance/
+
+/packaging/finn-experimental/build/
+/docker/runtime-cache/*.deb
+/docker/packages/*.deb
+/docker/packages/*.rpm

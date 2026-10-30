@@ -1056,7 +1056,7 @@ def test_finnloop_end2end_mlo_ddr(
         if missing:
             pytest.skip(
                 f"VCK190 golden reference files missing from {golden_dir}: "
-                f"{', '.join(missing)}. Build them with FINN_VCK190_GOLDEN=1 ./run-docker.sh"
+                f"{', '.join(missing)}. Build them with FINN_VCK190_GOLDEN=1 ./docker/run --fpga"
             )
     loop_body_models = create_chained_loop_bodies(
         dim,

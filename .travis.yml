@@ -26,42 +26,17 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-# Travis configuration file using the build matrix feature
-# Read more under http://docs.travis-ci.com/user/build-configuration/
-# THIS SCRIPT IS SUPPOSED TO BE AN EXAMPLE. MODIFY IT ACCORDING TO YOUR NEEDS!
-
-sudo: false
+# Retained standalone software-CI entrypoint for deployments using Travis.
 language: python
-virtualenv:
-  system_site_packages: false
-matrix:
-  fast_finish: true
-  include:
-    - python: 3.6
-      env: DISTRIB="ubuntu" TOX_PYTHON_VERSION="py36" COVERAGE="true"
-    - env: DISTRIB="conda" PYTHON_VERSION="3.6" COVERAGE="false"
+os: linux
+dist: noble
+python: "3.12"
 install:
-  - source tests/travis_install.sh
-  - pip install -r requirements.txt
-  # ^  DEPRECATION WARNING:
-  # The automatic creation of a `requirements.txt` file is deprecated.
-  # See `Dependency Management` in the docs for other options.
-before_script:
-  - git config --global user.email "you@example.com"
-  - git config --global user.name "Your Name"
+  - python -m pip install uv==0.10.0
+  - ./setup-local.sh --ci --skip-xsi
 script:
-  - python setup.py develop
-  - tox
-  - |
-    if [[ "$COVERAGE" == "true" ]]; then
-      pre-commit install
-      pre-commit run --all-files
-    fi
-after_success:
-  - if [[ "$COVERAGE" == "true" ]]; then coveralls || echo "failed"; fi
-after_script:
-  - travis-cleanup
+  - bash -c 'source scripts/activate.sh && ./scripts/quicktest-local.sh'
 cache:
-  pip: true
   directories:
-    - $HOME/miniconda
+    - $HOME/.cache/uv
+    - $HOME/.finn/resources

@@ -64,7 +64,7 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
-finnxsi = xsi if xsi.is_available() else None
+finnxsi = xsi
 
 
 def create_conv_model(

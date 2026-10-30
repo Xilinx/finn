@@ -38,6 +38,7 @@ from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.util.basic import get_num_default_workers
 from shutil import copy
 
+from finn.resources.prepare import board_files
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
@@ -57,6 +58,7 @@ from finn.util.basic import (
     pynq_native_port_width,
     pynq_part_map,
     resolve_xilinx_tool,
+    tcl_string,
 )
 
 from . import templates
@@ -131,6 +133,8 @@ class MakePYNQProject(Transformation):
             clk_pin = "smartconnect_0/aclk"
             rst_pin = "smartconnect_0/aresetn"
             template = templates.custom_zynq_shell_template
+
+        template = template.replace("$BOARD_FILES$", tcl_string(board_files()))
 
         # create a config file and empty list of xo files
         config = []

@@ -10,7 +10,7 @@ Quickstart
 1. Install Docker to run `without root <https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user>`_
 2. Set up ``FINN_XILINX_PATH`` and ``FINN_XILINX_VERSION`` environment variables pointing respectively to the Xilinx tools installation directory and version (e.g. ``FINN_XILINX_PATH=/opt/Xilinx`` and ``FINN_XILINX_VERSION=2024.2``)
 3. Clone the FINN compiler from the repo: ``git clone https://github.com/Xilinx/finn/`` and go into the directory where it is cloned
-4. Execute ``./run-docker.sh quicktest verify`` to verify your installation. It is normal to see warnings during the tests - FINN uses warnings to inform users about certain conditions. As long as all tests pass, your installation is successful.
+4. Execute ``./docker/run --fpga -- bash docker/quicktest.sh verify`` to verify your installation. It is normal to see warnings during the tests - FINN uses warnings to inform users about certain conditions. As long as all tests pass, your installation is successful.
 5. Optionally, follow the instructions on :ref:`getting_started:PYNQ board first-time setup`, :ref:`getting_started:Vitis-based Alveo first-time setup`, or :ref:`getting_started:Slash-based Alveo first-time setup` for board setup.
 6. Optionally, set up a `Vivado/Vitis license`_.
 7. All done! See :ref:`getting_started:Running FINN in Docker` for the various options on how to run the FINN compiler.
@@ -48,74 +48,69 @@ by using the "advanced mode" described in the :ref:`command_line` section.
 
 Running FINN in Docker
 ======================
-FINN runs inside a Docker container, it comes with a script to easily build and launch the container. If you are not familiar with Docker, there are many excellent `online resources <https://docker-curriculum.com/>`_ to get started.
-You may want to review the :ref:`getting_started:General FINN Docker tips` and :ref:`getting_started:Environment variables` as well.
-
-The above mentioned script to build and launch the FINN docker container is called `run-docker.sh <https://github.com/Xilinx/finn/blob/main/run-docker.sh>`_ . It can be launched in the following modes:
+FINN uses Ubuntu 24.04, Python 3.12 and a uv-locked environment. The
+``docker/build`` command prepares it; ``docker/run`` reuses it and installs
+the mounted FINN checkout editable without resolving dependencies.
 
 Launch interactive shell
 ************************
-Simply running bash run-docker.sh without any additional arguments will create a Docker container with all dependencies and give you a terminal with you can use for development for experimentation:
+Start a shell; configured Vivado/Vitis installations and licences are mounted
+automatically::
 
-::
+  ./docker/run
 
-  bash ./run-docker.sh
+To require the tools (failing early if none are configured), or to leave them out::
 
+  ./docker/run --fpga
+  ./docker/run --no-tools
 
 Launch a Build with ``build_dataflow``
 **************************************
-FINN is currently more compiler infrastructure than compiler, but we do offer
-a :ref:`command_line` entry for certain use-cases. These run a predefined flow
-or a user-defined flow from the command line as follows:
+For an external model directory, mount it explicitly. Paths are mirrored inside
+the container, including paths with spaces::
 
-::
+  ./docker/run --fpga --volume "/path/to/model:/path/to/model" -- build_dataflow /path/to/model
 
-  bash ./run-docker.sh build_dataflow <path/to/dataflow_build_dir/>
-  bash ./run-docker.sh build_custom <path/to/custom_build_dir/>
+For a custom Python flow, also select its working directory::
 
+  ./docker/run --fpga --volume "/path/to/model:/path/to/model" --workdir /path/to/model -- python build.py
+
+Vitis/Alveo builds additionally select the XRT userspace runtime with
+``--runtime xrt``. Jenkins selects that full profile by default.
 
 Launch Jupyter notebooks
 ************************
-FINN comes with numerous Jupyter notebook tutorials, which you can launch with:
+Serve the upstream notebooks, with token authentication enabled by default::
 
-::
+  ./docker/run --fpga --notebook
 
-  bash ./run-docker.sh notebook
-
-This will launch the `Jupyter notebook <https://jupyter.org/>`_ server inside a Docker container, and print a link on the terminal that you can open in your browser to run the FINN notebooks or create new ones.
-
-.. note::
-  The link will look something like this (the token you get will be different):
-  http://127.0.0.1:8888/?token=f5c6bd32ae93ec103a88152214baedff4ce1850d81065bfc.
-  The ``run-docker.sh`` script forwards ports 8888 for Jupyter and 8081 for Netron, and launches the notebook server with appropriate arguments.
-
+Open the token URL printed by Jupyter. ``JUPYTER_PORT`` defaults to 8888 and
+``NETRON_PORT`` to 8081. Set ``JUPYTER_PASSWD_HASH`` to use a hashed password.
 
 Environment variables
 **********************
+The host resolver reads ``~/.config/finn/xilinx.env``. Environment variables take
+precedence; ``FINN_XILINX_ENV`` selects another file (empty disables it).
+Write plain ``NAME=value`` lines, without quotes or expansion::
 
-Prior to running the ``run-docker.sh`` script, there are several environment variables you can set to configure certain aspects of FINN.
-For a complete list, please have a look in the `run-docker.sh <https://github.com/Xilinx/finn/blob/main/run-docker.sh#L72>`_ file.
-The most relevant are summarized below:
+  FINN_XILINX_PATH=/opt/Xilinx
+  FINN_XILINX_VERSION=2024.2
+  XILINXD_LICENSE_FILE=2100@licence-server
 
-* (required) ``FINN_XILINX_PATH`` points to your Xilinx tools installation on the host (e.g. ``/opt/Xilinx``)
-* (required) ``FINN_XILINX_VERSION`` sets the Xilinx tools version to be used (e.g. ``2024.2``)
-* (required for Vitis) ``PLATFORM_REPO_PATHS`` points to the Vitis platform files (DSA).
-* (required for Vitis) ``XRT_DEB_VERSION`` specifies the .deb to be installed for XRT inside the container (see default value in ``run-docker.sh``).
-* (required for Slash) ``SLASHKIT_DEB_PACKAGE`` specifies the .deb to be installed for Slash's slashkit linker. This replaces the former ``V80PP_DEB_PACKAGE`` variable, there is no backwards compatibility.
-* (optional) ``NUM_DEFAULT_WORKERS`` (default 4) specifies the degree of parallelization for the transformations that can be run in parallel, potentially reducing build time
-* (optional) ``FINN_XELAB_MT`` overrides the number of threads used by ``xelab`` when building XSI simulations. Defaults to ``NUM_DEFAULT_WORKERS`` or 8 if unset. Set to 1 to disable xelab multithreading.
-* (optional) ``FINN_HOST_BUILD_DIR`` specifies which directory on the host will be used as the build directory. Defaults to ``/tmp/finn_dev_<username>``
-* (optional) ``JUPYTER_PORT`` (default 8888) changes the port for Jupyter inside Docker
-* (optional) ``JUPYTER_PASSWD_HASH`` (default "") Set the Jupyter notebook password hash. If set to empty string, token authentication will be used (token printed in terminal on launch).
-* (optional) ``LOCALHOST_URL`` (default localhost) sets the base URL for accessing e.g. Netron from inside the container. Useful when running FINN remotely.
-* (optional) ``NETRON_PORT`` (default 8081) changes the port for Netron inside Docker
-* (optional) ``IMAGENET_VAL_PATH`` specifies the path to the ImageNet validation directory for tests.
-* (optional) ``FINN_DOCKER_TAG`` (autogenerated) specifies the Docker image tag to use.
-* (optional) ``FINN_DOCKER_RUN_AS_ROOT`` (default 0) if set to 1 then run Docker container as root, default is the current user.
-* (optional) ``FINN_DOCKER_EXTRA`` (default "") pass extra arguments to the ``docker run`` command when executing ``./run-docker.sh``
-* (optional) ``FINN_SKIP_DEP_REPOS`` (default "0") skips the download of FINN dependency repos (uses the ones already downloaded under deps/.
-* (optional) ``DOCKER_BUILDKIT`` (default "1") enables `Docker BuildKit <https://docs.docker.com/develop/develop-images/build_enhancements/>`_ for faster Docker image rebuilding (recommended).
-* (optional) ``FINN_SINGULARITY`` (default "") points to a pre-built Singularity image to use instead of the Docker image. Singularity support is experimental and intended only for systems where Docker is unavailable.
+Both AMD installation layouts are detected. Software runs work without tools.
+
+* ``PLATFORM_REPO_PATHS`` names colon-separated platform directories (default ``/opt/xilinx/platforms`` where it exists).
+* ``FINN_TOOL_DIR_OVERRIDE`` retains site tool interception, including LSF wrappers.
+* ``FINN_HOST_BUILD_DIR`` selects the disposable build directory (default ``/tmp/finn_build_<uid>``).
+* ``FINN_HOME`` selects persistent state such as resources and XSI builds (default ``~/.finn``); ``FINN_RESOURCES_DIR``, ``FINN_XSI_PATH`` and ``FINN_GOLDEN_DIR`` move parts of it elsewhere.
+* ``NUM_DEFAULT_WORKERS`` and ``FINN_XELAB_MT`` retain their existing meanings.
+* ``FINN_DOCKER_EXTRA`` passes shell-quoted Docker flags; they are tokenized without shell evaluation.
+* ``FINN_DOCKER_CACHE_DIR`` retains Torch and Hugging Face download caches.
+* ``FINN_SSH_KEY_DIR`` (default: the checkout's ``ssh_keys`` directory, where it exists) is mounted read-only as the container's ``~/.ssh``.
+* ``FINN_VCK190_GOLDEN=1`` builds the optional VCK190 golden reference into ``FINN_HOME``.
+
+See ``docker/README.md`` for the full interface migration, resource overrides,
+runtime packages, shared images, and Apptainer/Singularity exports.
 
 General FINN Docker tips
 ************************
@@ -133,8 +128,8 @@ Note that Docker remains the primary supported method.
 Prerequisites
 *************
 
-* Ubuntu 22.04 (other distributions may work but are not officially tested)
-* Python 3.10
+* Ubuntu 24.04 (other distributions may work but are not officially tested)
+* Python 3.12
 * System dependencies (see below)
 * Vivado/Vitis 2024.2 or later (for synthesis and simulation)
 
@@ -150,20 +145,20 @@ Quick Start
     export FINN_XILINX_PATH=/opt/Xilinx
     export FINN_XILINX_VERSION=2024.2
 
-3. Clone FINN and run the local setup script::
+3. Install uv 0.10.0, then clone FINN and run the local setup script::
 
     git clone https://github.com/Xilinx/finn.git
     cd finn
     ./setup-local.sh
 
-   If your system Python is not 3.10, set ``FINN_PYTHON`` to point to a Python 3.10 interpreter::
+   If your system Python is not 3.12, set ``FINN_PYTHON`` to point to a Python 3.12 interpreter::
 
-    export FINN_PYTHON=/path/to/python3.10
+    export FINN_PYTHON=/path/to/python3.12
     ./setup-local.sh
 
 4. Activate the FINN environment::
 
-    source scripts/finn-env.sh
+    source scripts/activate.sh
 
 5. Verify the installation::
 
@@ -177,7 +172,7 @@ The ``setup-local.sh`` script supports several options:
 * ``--help``: Show usage information
 * ``--ci``: CI mode (non-interactive, fail fast on errors)
 * ``--skip-xsi``: Skip building finn_xsi (Vivado Python interface)
-* ``--skip-deps``: Skip fetching git dependencies (if already run)
+* ``--skip-resources``: Use prepared resource caches or local overrides. Python dependencies still follow the lock.
 
 Validation Test Modes
 *********************
@@ -213,7 +208,7 @@ Retired boards (Pynq-Z1/Pynq-Z2)
 ********************************
 The Zynq-7000 based Pynq-Z1 and Pynq-Z2 boards were retired from official support with the move to Vivado 2024.2. The AUP-ZU3 (a Zynq UltraScale+ board from the AMD University Program) is the recommended supported replacement for academic use.
 
-These boards are no longer officially supported and have been removed from our CI and testing, so we make no guarantees about them. That said, the build flow itself is unchanged and Vivado 2024.2 still supports the ``xc7z020`` part, so you can re-enable them at your own decision by removing them from the ``retired_pynq_boards`` set in ``src/finn/util/basic.py``. The board entries in ``pynq_part_map``, ``pynq_native_port_width`` and ``util/platforms.py`` are kept in place. You will also need to uncomment the Pynq-Z1/Pynq-Z2 board file downloads in ``fetch-repos.sh`` (and regenerate the ``EXP_BOARD_FILES_MD5`` checksum as described in that file) so the board files are fetched again.
+These boards are no longer officially supported and have been removed from our CI and testing, so we make no guarantees about them. That said, the build flow itself is unchanged and Vivado 2024.2 still supports the ``xc7z020`` part, so you can re-enable them at your own decision by removing them from the ``retired_pynq_boards`` set in ``src/finn/util/basic.py``. The board entries in ``pynq_part_map``, ``pynq_native_port_width`` and ``util/platforms.py`` are kept in place. Supply the retired board files in a local assembled tree selected by ``FINN_BOARD_FILES_PATH``, or add a pinned ``vivado-boards`` resource declaration to your project's ``pyproject.toml``.
 
 PYNQ board first-time setup
 ****************************
@@ -226,7 +221,7 @@ Start on the target side:
 
 Continue on the host side (replace the ``<PYNQ_IP>`` and ``<PYNQ_USERNAME>`` with the IP address and username of your board from the first step):
 
-1. Launch the Docker container from where you cloned finn with ``./run-docker.sh``
+1. Create the ``ssh_keys`` directory where you cloned finn (``mkdir ssh_keys``), then launch the Docker container from there with ``./docker/run --fpga``
 2. Go into the `ssh_keys` directory  (e.g. ``cd /path/to/finn/ssh_keys``)
 3. Run ``ssh-keygen`` to create a key pair e.g. ``id_rsa`` private and ``id_rsa.pub`` public key
 4. Run ``ssh-copy-id -i id_rsa.pub <PYNQ_USERNAME>@<PYNQ_IP>`` to install the keys on the remote system
@@ -250,7 +245,7 @@ On the target side:
 On the host side:
 
 1. Install Vitis 2024.2 and set up the ``VITIS_PATH`` environment variable to point to your installation.
-2. Install Xilinx XRT. Ensure that the ``XRT_DEB_VERSION`` environment variable reflects which version of XRT you have installed.
+2. Install Xilinx XRT on the host if you want to run accelerators there; the FINN image gets its pinned XRT userspace with ``./docker/build --runtime xrt``.
 3. Install the Vitis platform files for Alveo and set up the ``PLATFORM_REPO_PATHS`` environment variable to point to your installation. *This must be the same path as the target's platform files (target step 2)*
 4. `Set up public key authentication <https://www.digitalocean.com/community/tutorials/how-to-configure-ssh-key-based-authentication-on-a-linux-server>`_. Copy your private key to the ``finn/ssh_keys`` folder on the host to get password-less deployment and remote execution.
 5. Done!
@@ -277,9 +272,10 @@ On the host side:
 
 1. Build the ``slashkit`` Debian package from the `Slash GitHub repository
    <https://github.com/Xilinx/slash>`_ and copy it to a location accessible on the host.
-2. Set the ``SLASHKIT_DEB_PACKAGE`` environment variable to the path of the ``slashkit``
-   Debian package (e.g. ``export SLASHKIT_DEB_PACKAGE=/path/to/slashkit.deb``). The package
-   will be installed into the Docker image when ``run-docker.sh`` builds it.
+2. Supply the packages named by ``docker/runtimes/slash.env`` and
+   ``docker/runtimes/slashkit.env`` under ``docker/packages/``. Select them with
+   ``./docker/build --runtime xrt --runtime slash --runtime slashkit`` and use
+   the same runtime options when launching.
 3. `Set up public key authentication <https://www.digitalocean.com/community/tutorials/how-to-configure-ssh-key-based-authentication-on-a-linux-server>`_.
    Copy your private key to the ``finn/ssh_keys`` folder on the host to get
    password-less deployment and remote execution.
@@ -324,7 +320,7 @@ strong hardware:
 * **Storage.** While going through the build steps, FINN will generate many files as part of
   the process. For larger networks, you may need 10s of GB of space for the temporary
   files generated during the build.
-  By default, these generated files will be placed under ``/tmp/finn_dev_<username>``.
+  By default, these generated files will be placed under ``/tmp/finn_build_<uid>``.
   You can override this location by using the ``FINN_HOST_BUILD_DIR`` environment
   variable.
   Mapping the generated file dir to a fast SSD will result in quicker builds.

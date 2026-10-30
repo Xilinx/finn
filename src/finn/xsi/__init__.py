@@ -21,8 +21,9 @@ Usage:
 import logging
 import os
 import sys
-from pathlib import Path
 from typing import Any, Optional
+
+from finn.xsi.paths import build_dir, source_dir
 
 
 def is_available() -> bool:
@@ -32,7 +33,7 @@ def is_available() -> bool:
         bool: True if finn_xsi can be imported, False otherwise
     """
     # Check if xsi.so exists
-    xsi_path = Path(os.environ["FINN_ROOT"]) / "finn_xsi"
+    xsi_path = build_dir()
     xsi_so = xsi_path / "xsi.so"
     if not xsi_so.exists():
         return False
@@ -54,7 +55,7 @@ def _load_modules() -> bool:
     if _adapter_module is not None:
         return True
 
-    xsi_path = Path(os.environ["FINN_ROOT"]) / "finn_xsi"
+    xsi_path = build_dir()
     xsi_so = xsi_path / "xsi.so"
 
     if not xsi_so.exists():
@@ -65,6 +66,9 @@ def _load_modules() -> bool:
     if path_added:
         sys.path.insert(0, str(xsi_path))
 
+    source_added = str(source_dir()) not in sys.path
+    if source_added:
+        sys.path.insert(1, str(source_dir()))
     try:
         # Imports must be inside function: modules require dynamic path setup
         # and may not exist if finn_xsi extension is not built
@@ -86,12 +90,28 @@ def _load_modules() -> bool:
         logging.warning(f"Unexpected error loading finn_xsi: {type(e).__name__}: {e}")
         return False
     finally:
+        if source_added:
+            sys.path.remove(str(source_dir()))
         # Remove from path if we added it
         if path_added and str(xsi_path) in sys.path:
             try:
                 sys.path.remove(str(xsi_path))
             except ValueError:
                 pass  # Path was already removed somehow
+
+
+def unavailable_message() -> str:
+    """Why finn_xsi cannot be used here, and what to do about it."""
+    if not os.environ.get("XILINX_VIVADO"):
+        return (
+            "RTL simulation needs Vivado, but XILINX_VIVADO is not set. Launch the "
+            "container with `docker/run --fpga`, or configure the Xilinx tools before "
+            "`source scripts/activate.sh`."
+        )
+    return (
+        f"finn_xsi is not built for this Vivado installation and Python environment "
+        f"(expected {build_dir() / 'xsi.so'}). Run: python -m finn.xsi.setup"
+    )
 
 
 # List of functions to wrap from finn_xsi.adapter
@@ -112,7 +132,7 @@ def __getattr__(name: str) -> Any:
 
         def wrapper(*args, **kwargs):
             if not _load_modules():
-                raise ImportError("finn_xsi not available. Run: python -m finn.xsi.setup")
+                raise ImportError(unavailable_message())
             return getattr(_adapter_module, name)(*args, **kwargs)
 
         wrapper.__name__ = name
@@ -127,7 +147,7 @@ class SimEngine:
 
     def __init__(self, *args, **kwargs):
         if not _load_modules():
-            raise ImportError("finn_xsi not available. Run: python -m finn.xsi.setup")
+            raise ImportError(unavailable_message())
         self._engine = _sim_engine_module.SimEngine(*args, **kwargs)
 
     def __getattr__(self, name):

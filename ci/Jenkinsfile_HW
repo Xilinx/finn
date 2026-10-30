@@ -866,7 +866,7 @@ void mergeHwReports(String reportsDir) {
   }
   catchError(buildResult: null, stageResult: 'UNSTABLE',
              message: 'pytest_html_merger failed, per-stage HTMLs still archived') {
-    runDockerCommand("./run-docker.sh pytest_html_merger -i ${reportsDir}/ " +
+    runDockerCommand("./docker/run -- pytest_html_merger -i ${reportsDir}/ " +
                      "-o ${reportsDir}/test_report_hw_final.html")
   }
 }

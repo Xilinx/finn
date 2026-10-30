@@ -20,13 +20,14 @@ String shellQuote(String s) {
 }
 
 // Sets FINN_DOCKER_PREBUILT=1 when a shared image is configured so non-builder
-// agents load the image from NFS instead of rebuilding.
+// agents load the image from NFS instead of rebuilding. Every container uses
+// the runtime profile the image was built and published with.
 void runDockerCommand(String command) {
+  List vars = ["FINN_RUNTIMES=${env.FINN_RUNTIMES ?: 'xrt'}"]
   if (env.FINN_DOCKER_SHARED_IMAGE_DIR) {
-    withEnv(['FINN_DOCKER_PREBUILT=1']) {
-      sh command
-    }
-  } else {
+    vars << 'FINN_DOCKER_PREBUILT=1'
+  }
+  withEnv(vars) {
     sh command
   }
 }

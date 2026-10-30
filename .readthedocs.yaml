@@ -33,17 +33,18 @@
 version: 2
 
 # Set the version of Python and other tools you might need
+sphinx:
+   configuration: docs/finn/conf.py
+
+# The same lock and docs group as native and container builds.
 build:
   os: ubuntu-24.04
   tools:
     python: "3.12"
-
-sphinx:
-   configuration: docs/finn/conf.py
-
-python:
-   install:
-        - requirements: docs/requirements.txt
+  jobs:
+    install:
+      - python -m pip install uv==0.10.0
+      - UV_PROJECT_ENVIRONMENT=$READTHEDOCS_VIRTUALENV_PATH uv sync --locked --inexact --no-default-groups --group docs --group cpu
 
 formats:
   - pdf

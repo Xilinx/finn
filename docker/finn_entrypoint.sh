@@ -1,192 +1,59 @@
-#!/bin/bash
-# Copyright (c) 2021, Xilinx
-# All rights reserved.
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are met:
-#
-# * Redistributions of source code must retain the above copyright notice, this
-#   list of conditions and the following disclaimer.
-#
-# * Redistributions in binary form must reproduce the above copyright notice,
-#   this list of conditions and the following disclaimer in the documentation
-#   and/or other materials provided with the distribution.
-#
-# * Neither the name of FINN nor the names of its
-#   contributors may be used to endorse or promote products derived from
-#   this software without specific prior written permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-
-# Fail fast so a partial deps/ tree is caught early
-set -e
-
-export HOME=/tmp/home_dir
-export SHELL=/bin/bash
-export LANG="en_US.UTF-8"
-export LC_ALL="en_US.UTF-8"
-export LANGUAGE="en_US:en"
-# colorful terminal output
-export PS1='\[\033[1;36m\]\u\[\033[1;31m\]@\[\033[1;32m\]\h:\[\033[1;35m\]\w\[\033[1;31m\]\$\[\033[0m\] '
-
-YELLOW='\033[0;33m'
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-NC='\033[0m' # No Color
-
-yecho () {
-  echo -e "${YELLOW}WARNING: $1${NC}"
-}
-
-gecho () {
-  echo -e "${GREEN}$1${NC}"
-}
-
-recho () {
-  echo -e "${RED}ERROR: $1${NC}"
-}
-
-# qonnx (using workaround for https://github.com/pypa/pip/issues/7953)
-# to be fixed in future Ubuntu versions (https://bugs.launchpad.net/ubuntu/+source/setuptools/+bug/1994016)
-# set -e propagates pip failures, so the trap covers only the qonnx-only swap.
-_qonnx_pyproj_toml="${FINN_ROOT}/deps/qonnx/pyproject.toml"
-_qonnx_pyproj_tmp="${FINN_ROOT}/deps/qonnx/pyproject.tmp"
-mv "$_qonnx_pyproj_toml" "$_qonnx_pyproj_tmp"
-trap 'mv "$_qonnx_pyproj_tmp" "$_qonnx_pyproj_toml" 2>/dev/null || true' EXIT
-pip install --break-system-packages --user -e "${FINN_ROOT}/deps/qonnx"
-mv "$_qonnx_pyproj_tmp" "$_qonnx_pyproj_toml"
-trap - EXIT
-
-# finn-experimental
-pip install --break-system-packages --user -e "${FINN_ROOT}/deps/finn-experimental"
-# brevitas
-pip install --break-system-packages --user -e "${FINN_ROOT}/deps/brevitas"
-
-if [ -f "${FINN_ROOT}/setup.py" ];then
-  # run pip install for finn
-  pip install --break-system-packages --user -e "${FINN_ROOT}"
-else
-  recho "Unable to find FINN source code in ${FINN_ROOT}"
-  recho "Ensure you have passed -v <path-to-finn-repo>:<path-to-finn-repo> to the docker run command"
-  exit -1
+#!/usr/bin/env bash
+# Copyright (C) 2026, Advanced Micro Devices, Inc.
+# SPDX-License-Identifier: BSD-3-Clause
+set -eo pipefail
+# Arbitrary caller IDs have no passwd entry or writable image home.
+if [ -z "${HOME:-}" ] || [ "$HOME" = / ] || ! [ -w "$HOME" ]; then
+    export HOME="/tmp/finn-home-$(id -u)"
 fi
-
-if [ -f "$VITIS_PATH/settings64.sh" ];then
-  # source Vitis env.vars
-  export XILINX_VITIS=$VITIS_PATH
-  export XILINX_XRT=/opt/xilinx/xrt
-  # env scripts may return non-zero, so do not let that abort the container
-  source "$VITIS_PATH/settings64.sh" || true
-  gecho "Found Vitis at $VITIS_PATH"
-  if [ -f "$XILINX_XRT/setup.sh" ];then
-    # source XRT
-    source "$XILINX_XRT/setup.sh" || true
-    gecho "Found XRT at $XILINX_XRT"
-  else
-    yecho "XRT not found on $XILINX_XRT, Alveo U-series devices (U250, U280, U50, U55C, etc.) functionality will not be available."
-  fi
-else
-  yecho "Unable to find $VITIS_PATH/settings64.sh"
-  yecho "Functionality dependent on Vitis will not be available."
-  yecho "If you need Vitis, ensure VITIS_PATH is set correctly and mounted into the Docker container."
-  if [ -f "$VIVADO_PATH/settings64.sh" ];then
-    # source Vivado env.vars
-    export XILINX_VIVADO=$VIVADO_PATH
-    source "$VIVADO_PATH/settings64.sh" || true
-    gecho "Found Vivado at $VIVADO_PATH"
-  else
-    yecho "Unable to find $VIVADO_PATH/settings64.sh"
-    yecho "Functionality dependent on Vivado will not be available."
-    yecho "If you need Vivado, ensure VIVADO_PATH is set correctly and mounted into the Docker container."
-  fi
+mkdir -p "$HOME"
+if [ -n "${FINN_CONTAINER_SSH_DIR:-}" ] && [ ! -e "$HOME/.ssh" ]; then
+    ln -s "$FINN_CONTAINER_SSH_DIR" "$HOME/.ssh"
 fi
-
-if [ -z "${XILINX_VIVADO}" ]; then
-  yecho "finnxsi will be unavailable since Vivado was not found"
-else
-  # Build finn_xsi using the new Python-based setup
-  if [ -f "${FINN_ROOT}/finn_xsi/xsi.so" ]; then
-    gecho "Found existing finn_xsi at ${FINN_ROOT}/finn_xsi/xsi.so"
-  else
-    gecho "Building finn_xsi using finn.xsi.setup..."
-    if python -m finn.xsi.setup --quiet; then
-      gecho "finn_xsi built successfully"
-    else
-      # finn_xsi is optional, so a failed build is non-fatal
-      recho "Failed to build finn_xsi"
-    fi
-  fi
-  export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/lib/x86_64-linux-gnu/:${XILINX_VIVADO}/lib/lnx64.o
+export USER=${USER:-finn}
+export LOGNAME=${LOGNAME:-$USER}
+# docker/run mounts the host's FINN_HOME; elsewhere (e.g. Apptainer) it is ~/.finn.
+export FINN_BUILD_DIR=${FINN_BUILD_DIR:-/tmp/finn_build_$(id -u)}
+export FINN_HOME=${FINN_HOME:-$HOME/.finn}
+export UV_CACHE_DIR=${UV_CACHE_DIR:-$FINN_BUILD_DIR/.uv-cache}
+mkdir -p "$FINN_HOME" "$UV_CACHE_DIR"
+# libnss_wrapper is disabled until these variables name real files. Preserve
+# all image service users and add the caller, including on a read-only SIF.
+_finn_identity=$(python /usr/local/lib/finn/identity.py \
+    --directory "${FINN_IDENTITY_DIR:-$FINN_HOME/identity/$(id -u)}" --username "$USER" --home "$HOME")
+eval "$_finn_identity"
+unset _finn_identity
+if [ "${FINN_SYNC:-1}" != 0 ]; then
+    : "${FINN_ROOT:?FINN_ROOT must name the checkout to install}"
+    test -f "$FINN_ROOT/uv.lock" || { echo "No uv.lock at $FINN_ROOT" >&2; exit 1; }
+    cmp "$FINN_ROOT/uv.lock" /opt/finn/uv.lock || {
+        echo 'FINN lock differs from the prepared image; run docker/build.' >&2; exit 1;
+    }
+    # Only FINN changes at startup. Dependencies were checked during the build.
+    uv pip install --no-deps --no-build-isolation -e "$FINN_ROOT"
 fi
-
-if [ "$FINN_VCK190_GOLDEN" = "1" ]; then
-  GOLDEN_OUT="${FINN_ROOT}/deps/pynq_golden/vck190"
-  if [ -z "${XILINX_VIVADO}" ]; then
-    yecho "FINN_VCK190_GOLDEN=1 but Vivado was not found, skipping VCK190 golden reference build"
-  elif [ -f "$GOLDEN_OUT/golden_noc.ncr" ] && [ -f "$GOLDEN_OUT/golden_routed.dcp" ] && [ -f "$GOLDEN_OUT/golden_ref.tcl" ]; then
-    gecho "Found existing VCK190 golden reference in $GOLDEN_OUT"
-  else
-    GOLDEN_SRC="${FINN_ROOT}/deps/pynq/boards/VCK190/golden"
-    GOLDEN_LOG="$GOLDEN_SRC/vivado.log"
-    gecho "Building VCK190 golden reference in $GOLDEN_SRC (this takes a while), log: $GOLDEN_LOG"
-    if ! make -C "$GOLDEN_SRC" > /dev/null 2>&1; then
-      tail -n 30 "$GOLDEN_LOG"
-      recho "VCK190 golden reference build failed, see $GOLDEN_LOG"
-      exit 1
-    fi
-    mkdir -p "$GOLDEN_OUT"
-    cp "$GOLDEN_SRC/golden_noc.ncr" "$GOLDEN_SRC/golden_routed.dcp" "$GOLDEN_OUT/"
-    cp "$GOLDEN_SRC/golden.tcl" "$GOLDEN_OUT/golden_ref.tcl"
-    gecho "VCK190 golden reference written to $GOLDEN_OUT"
-  fi
+. /etc/finn-toolchain.sh
+if [ -n "${FINN_TOOL_DIR_OVERRIDE:-}" ] && [ -z "${FINN_RESOURCES_HLSLIB:-}" ]; then
+    # Farm jobs see the shared build tree, not the image's /opt resource cache.
+    python -m finn.resources fetch hlslib >/dev/null || exit 1
 fi
-
-if [ -f "$HLS_PATH/settings64.sh" ];then
-  # source Vitis HLS env.vars
-  source "$HLS_PATH/settings64.sh" || true
-  gecho "Found Vitis HLS at $HLS_PATH"
-else
-  yecho "Unable to find $HLS_PATH/settings64.sh"
-  yecho "Functionality dependent on Vitis HLS will not be available."
-  yecho "Please note that FINN needs at least version 2020.2 for Vitis HLS support. Our recommendation is to use version 2022.2"
-  yecho "If you need Vitis HLS, ensure HLS_PATH is set correctly and mounted into the Docker container."
+FINN_HLSLIB_PATH=$(python -m finn.resources path hlslib) || exit 1
+export FINN_HLSLIB_PATH
+if [ -n "${XILINX_VIVADO:-}${FINN_BOARD_FILES_PATH:-}" ]; then
+    FINN_BOARD_FILES_PATH=$(python -m finn.resources.prepare boards) || exit 1
+    export FINN_BOARD_FILES_PATH
 fi
-
+# Restore upstream's opt-in device initialization scripts in the caller's HOME.
 if [ -d "$FINN_ROOT/.Xilinx" ]; then
-  mkdir -p "$HOME/.Xilinx"
-  if [ -f "$FINN_ROOT/.Xilinx/HLS_init.tcl" ]; then
-    cp "$FINN_ROOT/.Xilinx/HLS_init.tcl" "$HOME/.Xilinx/"
-    gecho "Found HLS_init.tcl and copied to $HOME/.Xilinx/HLS_init.tcl"
-  else
-    yecho "Unable to find $FINN_ROOT/.Xilinx/HLS_init.tcl"
-  fi
-
-  if [ -f "$FINN_ROOT/.Xilinx/Vivado/Vivado_init.tcl" ]; then
-    mkdir -p "$HOME/.Xilinx/Vivado/"
-    cp "$FINN_ROOT/.Xilinx/Vivado/Vivado_init.tcl" "$HOME/.Xilinx/Vivado/"
-    gecho "Found Vivado_init.tcl and copied to $HOME/.Xilinx/Vivado/Vivado_init.tcl"
-
-  else
-    yecho "Unable to find $FINN_ROOT/.Xilinx/Vivado/Vivado_init.tcl"
-  fi
-else
-  echo "If you need to enable a beta device, ensure .Xilinx/HLS_init.tcl and/or .Xilinx/Vivado/Vivado_init.tcl are set correctly and mounted"
-  echo "See https://docs.xilinx.com/r/en-US/ug835-vivado-tcl-commands/Tcl-Initialization-Scripts"
+    mkdir -p "$HOME/.Xilinx"
+    cp -a "$FINN_ROOT/.Xilinx/." "$HOME/.Xilinx/"
 fi
-
-export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$VITIS_PATH/lnx64/tools/fpo_v7_1:$HLS_PATH/lnx64/tools/fpo_v7_1"
-
-export PATH=$PATH:$HOME/.local/bin
-
-# execute the provided command(s) as root
+if [ "${FINN_PREPARE_XSI:-1}" = 1 ] && [ -n "${XILINX_VIVADO:-}" ]; then
+    python -m finn.xsi.setup --quiet
+fi
+if [ "${FINN_VCK190_GOLDEN:-0}" = 1 ]; then
+    python -m finn.resources.prepare golden
+fi
+# This marker means preparation succeeded. Failed setup never starts the command.
+touch /tmp/finn-ready
 exec "$@"
