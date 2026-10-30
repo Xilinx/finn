@@ -70,12 +70,14 @@ _UNCHARACTERIZED_OPS = [
 def is_stream_join(node):
     """True if ``node`` merges two streamed inputs into one output.
 
-    Both ``AddStreams`` (deprecated) and ``ElementwiseAdd`` are matched; an
-    ``ElementwiseAdd`` is only a join when *both* of its inputs are streams.
-    Joins are not characterized: rtlsim characterization drives ``in0`` only
-    and would stall waiting on the second stream.
+    Matches ``AddStreams`` (deprecated) and every elementwise binary operation
+    (``ElementwiseAdd``, ``ElementwiseMul``, ...) whose inputs are *both*
+    streams. Joins are not characterized: rtlsim characterization drives
+    ``in0`` only and would stall waiting on the second stream. The sizer treats
+    them as transparent (output token *k* leaves once token *k* is in on both
+    inputs) and gives their inputs the join window floor.
     """
-    if node is None or not node.op_type.startswith(("AddStreams", "ElementwiseAdd")):
+    if node is None or not node.op_type.startswith(("AddStreams", "Elementwise")):
         return False
     if len(node.input) < 2:
         return False
