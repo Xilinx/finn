@@ -558,75 +558,44 @@ def test_fpgadataflow_thresholding_stitched_ip(
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
 
 
-# The schedule depends on the folding and on where the thresholds live, not on
-# how they were quantized, so the channel/vector shapes and the two memory modes
-# are covered across the folds rather than crossed with them.
+# One entry per run: the schedule depends on the folding, the backend and, for
+# HLS, where the thresholds live, so those are covered across the entries rather
+# than crossed. BIPOLAR and UINT4 differ in the depth of the threshold search.
 @pytest.mark.parametrize(
-    "num_input_channels,num_input_vecs,fold,mem_mode",
+    "num_input_channels,num_input_vecs,fold,activation,impl_style,mem_mode",
     [
-        (6, [1], -1, "internal_embedded"),
-        (6, [1], 1, "internal_embedded"),
-        (6, [1], 2, "internal_embedded"),
-        (6, [1, 2, 2], -1, "internal_embedded"),
-        (16, [1], -1, "internal_embedded"),
-        (16, [1, 2, 2], 2, "internal_embedded"),
-        (6, [1], -1, "internal_decoupled"),
-        (6, [1], 2, "internal_decoupled"),
-        (16, [1], -1, "internal_decoupled"),
-        (16, [1, 2, 2], 1, "internal_decoupled"),
+        (6, [1], -1, DataType["BIPOLAR"], "rtl", None),
+        (6, [1], 1, DataType["BIPOLAR"], "rtl", None),
+        (6, [1], 2, DataType["BIPOLAR"], "rtl", None),
+        (6, [1, 2, 2], -1, DataType["UINT4"], "rtl", None),
+        (16, [1], -1, DataType["UINT4"], "rtl", None),
+        (16, [1, 2, 2], 2, DataType["UINT4"], "rtl", None),
+        (6, [1], -1, DataType["BIPOLAR"], "hls", "internal_embedded"),
+        (6, [1], 2, DataType["UINT4"], "hls", "internal_embedded"),
+        (16, [1, 2, 2], 2, DataType["BIPOLAR"], "hls", "internal_embedded"),
+        (6, [1], -1, DataType["UINT4"], "hls", "internal_decoupled"),
+        (6, [1], 2, DataType["BIPOLAR"], "hls", "internal_decoupled"),
+        (16, [1, 2, 2], 1, DataType["UINT4"], "hls", "internal_decoupled"),
     ],
 )
-@pytest.mark.parametrize("activation", [DataType["BIPOLAR"]])
-@pytest.mark.parametrize(
-    "idt_tdt_cfg",
-    [
-        (DataType["INT8"], DataType["INT8"]),
-    ],
-)
-@pytest.mark.parametrize("narrow", [True])
-@pytest.mark.parametrize("per_tensor", [False])
-@pytest.mark.parametrize("impl_style", ["rtl"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
 @pytest.mark.node_tree_modeling
 def test_fpgadataflow_analytical_characterization_thresholding(
-    num_input_channels,
-    num_input_vecs,
-    activation,
-    idt_tdt_cfg,
-    fold,
-    narrow,
-    per_tensor,
-    impl_style,
-    mem_mode,
+    num_input_channels, num_input_vecs, fold, activation, impl_style, mem_mode
 ):
-    # the mem_mode parameter can only be used for the hls thresholding
-    # so the test will only be executed once for impl_style=rtl and once skipped
-    # when the mem_mode is varied. Otherwise, the same test configuration would always
-    # run twice.
-    if impl_style == "rtl" and mem_mode == "internal_decoupled":
-        pytest.skip(
-            "Skip, because test is identical to impl_style=rtl and mem_mode=internal_embedded"
-        )
-    if narrow and activation == DataType["BIPOLAR"]:
-        pytest.skip("Narrow needs to be false with biploar activation.")
-    input_data_type, threshold_data_type = idt_tdt_cfg
+    input_data_type = threshold_data_type = DataType["INT8"]
+    narrow = False  # BIPOLAR requires it
+    per_tensor = False
     num_steps = activation.get_num_possible_values() - 1
 
     if fold == -1:
         fold = num_input_channels
     pe = num_input_channels // fold
-    if num_input_channels % pe != 0:
-        pytest.skip("Invalid folding configuration. Skipping test.")
 
     output_data_type = activation
-    if activation == DataType["BIPOLAR"]:
-        activation_bias = 0
-    else:
-        activation_bias = activation.min()
-        if narrow and activation.signed():
-            activation_bias += 1
+    activation_bias = 0 if activation == DataType["BIPOLAR"] else activation.min()
 
     # Generate thresholds and sort in ascending order
     thresholds = generate_edge_threshold_values(
@@ -646,16 +615,6 @@ def test_fpgadataflow_analytical_characterization_thresholding(
         num_input_vecs,
         num_input_channels,
     )
-
-    # calculate reference output
-    x = gen_finn_dt_tensor(input_data_type, tuple(num_input_vecs + [num_input_channels]))
-
-    input_dict = {model.graph.input[0].name: x}
-    y_expected = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
-
-    if output_data_type == DataType["BIPOLAR"]:
-        # binary to bipolar
-        y_expected = 2 * y_expected - 1
 
     model = model.transform(InferThresholdingLayer())
 

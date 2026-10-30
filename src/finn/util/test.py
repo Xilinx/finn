@@ -324,155 +324,81 @@ def compare_two_chr_funcs(
     return True
 
 
-def get_characteristic_fnc(model, node0, part, target_clk_ns, strategy, caching=False):
-    """
-    This helper performs FINN node characterization using either rtlsim
-    or characteristic functions. If chacteristic function strategy is
-    requested, but the node does not support it, a fallback to rtlsim
-    is performed. The primary purpose of this helper is for testing purposes
-    to evaluate characteristic function final dump equivalence between rtlsim
-    and characteristic functions.
-    The CACHING flag controls storing the .onnx model in the build dir to reuse,
-    which is useful for vastly speeding up debugging of characterization trees"""
+def get_characteristic_fnc(model, part, target_clk_ns, strategy):
+    """Characterize the single node of ``model`` with ``strategy`` ("tree_model"
+    or "rtlsim") and return its custom op, for comparing the token access
+    vectors of the two strategies. A node without a tree model falls back to
+    rtlsim."""
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(GiveUniqueNodeNames())
 
-    model_cache = None
-    if caching:
-        # search for prepared model
-        build_dir = os.environ["FINN_BUILD_DIR"]
-        for x in os.listdir(build_dir):
-            if x.startswith(str(node0)):
-                model_cache = f"{build_dir}/{x}/model_{strategy}.onnx"
-                if os.path.exists(model_cache):
-                    model = ModelWrapper(model_cache)
-                else:
-                    model_cache = None
+    node = model.graph.node[0]
+    inst = getCustomOp(node)
+    if (is_hls_node(node) or is_rtl_node(node)) and (
+        get_tree_model(inst) is None or strategy == "rtlsim"
+    ):
+        _codegen_single_node(node, model, part, target_clk_ns)
 
-    if model_cache is None:
-        model = model.transform(SpecializeLayers(part))
-        model = model.transform(GiveUniqueNodeNames())
-
-        node = model.graph.node[0]
-        inst = getCustomOp(node)
-        if (is_hls_node(node) or is_rtl_node(node)) and (
-            get_tree_model(inst) is None or strategy == "rtlsim"
-        ):
-            _codegen_single_node(node, model, part, target_clk_ns)
-
-            op_type = node.op_type
-            if is_hls_node(node):
-                try:
-                    # lookup op_type in registry of CustomOps
-
-                    # ensure that code is generated
-                    assert (
-                        inst.get_nodeattr("code_gen_dir_ipgen") != ""
-                    ), """Node
-                    attribute "code_gen_dir_ipgen" is empty. Please run
-                    transformation PrepareIP first."""
-                    if os.path.isdir(inst.get_nodeattr("ipgen_path")) or inst.get_nodeattr(
-                        "code_gen_dir_ipgen"
-                    ) not in inst.get_nodeattr("ipgen_path"):
-                        # call the compilation function for this node
-                        inst.ipgen_singlenode_code()
-                    else:
-                        warnings.warn("Using pre-existing IP for %s" % node.name)
-                    # ensure that executable path is now set
-                    assert (
-                        inst.get_nodeattr("ipgen_path") != ""
-                    ), """Transformation
-                    HLSSynthIP was not successful. Node attribute "ipgen_path"
-                    is empty."""
-                except KeyError:
-                    # exception if op_type is not supported
-                    raise Exception("Custom op_type %s is currently not supported." % op_type)
-
-        model = model.transform(ReplaceVerilogRelPaths())
-
-        node = model.graph.node[0]
-        inst = getCustomOp(node)
-        if (is_hls_node(node) or is_rtl_node(node)) and (
-            get_tree_model(inst) is None or strategy == "rtlsim"
-        ):
+        op_type = node.op_type
+        if is_hls_node(node):
             try:
-                inst.prepare_rtlsim()
+                # lookup op_type in registry of CustomOps
+
+                # ensure that code is generated
+                assert (
+                    inst.get_nodeattr("code_gen_dir_ipgen") != ""
+                ), """Node
+                attribute "code_gen_dir_ipgen" is empty. Please run
+                transformation PrepareIP first."""
+                if os.path.isdir(inst.get_nodeattr("ipgen_path")) or inst.get_nodeattr(
+                    "code_gen_dir_ipgen"
+                ) not in inst.get_nodeattr("ipgen_path"):
+                    # call the compilation function for this node
+                    inst.ipgen_singlenode_code()
+                else:
+                    warnings.warn("Using pre-existing IP for %s" % node.name)
                 # ensure that executable path is now set
                 assert (
-                    inst.get_nodeattr("rtlsim_so") != ""
-                ), "Failed to prepare RTLSim, no rtlsim_so attribute found."
+                    inst.get_nodeattr("ipgen_path") != ""
+                ), """Transformation
+                HLSSynthIP was not successful. Node attribute "ipgen_path"
+                is empty."""
             except KeyError:
                 # exception if op_type is not supported
                 raise Exception("Custom op_type %s is currently not supported." % op_type)
 
-        model = model.transform(AnnotateCycles())
+    model = model.transform(ReplaceVerilogRelPaths())
 
-        period = int(model.analysis(dataflow_performance)["max_cycles"] + 12)
+    node = model.graph.node[0]
+    inst = getCustomOp(node)
+    if (is_hls_node(node) or is_rtl_node(node)) and (
+        get_tree_model(inst) is None or strategy == "rtlsim"
+    ):
+        try:
+            inst.prepare_rtlsim()
+            # ensure that executable path is now set
+            assert (
+                inst.get_nodeattr("rtlsim_so") != ""
+            ), "Failed to prepare RTLSim, no rtlsim_so attribute found."
+        except KeyError:
+            # exception if op_type is not supported
+            raise Exception("Custom op_type %s is currently not supported." % op_type)
 
-        model = model.transform(
-            DeriveTokenAccessVectors(
-                model,
-                period,
-                strategy,
-                part,
-                target_clk_ns,
-            )
+    model = model.transform(AnnotateCycles())
+
+    period = int(model.analysis(dataflow_performance)["max_cycles"] + 12)
+
+    model = model.transform(
+        DeriveTokenAccessVectors(
+            model,
+            period,
+            strategy,
+            part,
+            target_clk_ns,
         )
-        if caching:
-            tmp_caching_output_dir = make_build_dir(str(node0))
-            model.save(tmp_caching_output_dir + f"/model_{strategy}.onnx")
+    )
 
     return getCustomOp(model.graph.node[0])
-
-
-def debug_chr_funcs(chr_in, chr_out, rtlsim_in, rtlsim_out, printout_limit=100):
-    """This helper prints out characteristic functions for a clean comparison
-    between the rtlsim-based and characteristic-function-based flows to find bugs
-    """
-
-    DEBUG_RAW_FUNCS = True
-    DEBUG_CONCAT_FUNCS = True
-
-    if DEBUG_RAW_FUNCS or DEBUG_CONCAT_FUNCS:
-
-        def concat_list(a):
-            b = []
-            current = a[0]
-            b.append(1)
-            for i in a[1:]:
-                if i == current:
-                    b[-1] += 1
-                else:
-                    b.append(1)
-                    current = i
-            return b
-
-        chr_in_concat = concat_list(chr_in[0])
-        chr_out_concat = concat_list(chr_out[0])
-        rtlsim_in_concat = concat_list(rtlsim_in[0])
-        rtlsim_out_concat = concat_list(rtlsim_out[0])
-
-        np.set_printoptions(threshold=np.inf)
-
-        # input port
-        if DEBUG_RAW_FUNCS:
-            print(f"\nchr IN:    {chr_in[0][:printout_limit]}, {len(chr_in[0])}")
-            print(f"rtlsim IN: {rtlsim_in[0][:printout_limit]}, {len(rtlsim_in[0])}")
-
-        if DEBUG_CONCAT_FUNCS:
-            print(f"chr IN CONCAT:    {chr_in_concat[:printout_limit]}, {len(chr_in_concat)}")
-            print(f"rtlsim IN CONCAT: {rtlsim_in_concat[:printout_limit]}, {len(rtlsim_in_concat)}")
-
-        # output port
-        if DEBUG_RAW_FUNCS:
-            print(f"\nchr OUT:    {chr_out[0][:printout_limit]}, {len(chr_out[0])}")
-            print(f"rtlsim OUT: {rtlsim_out[0][:printout_limit]}, {len(rtlsim_out[0])}")
-
-        if DEBUG_CONCAT_FUNCS:
-            print(f"chr OUT CONCAT:    {chr_out_concat[:printout_limit]}, {len(chr_out_concat)}")
-            print(
-                f"rtlsim OUT CONCAT: {rtlsim_out_concat[:printout_limit]}, {len(rtlsim_out_concat)}"
-            )
-    else:
-        return True
 
 
 def tree_model_test(
@@ -484,8 +410,6 @@ def tree_model_test(
     max_allowed_length_frac,
     volume_const=0,
     length_const=0,
-    CACHING=False,
-    DEBUGGING=False,
 ):
     """Characterize ``model``'s single node both ways and compare the two TAVs.
 
@@ -493,37 +417,11 @@ def tree_model_test(
     respectively -- with an absolute floor for the fixed part of the error. See
     ``compare_two_chr_funcs``.
     """
-    # caching means to run RTLSIM only once and store the model
-    # so we can reuse the token access vector whenever we
-    # update the tree model and want to test correctness
-    # CACHING = True
-
-    # should the token access vectors and
-    # concatenated token access vectors be printed out?
-    # useful for debugging
-    # DEBUGING = False
-
+    print("TAV comparison for", node_details)
     # ground truth model to rtlsim
     model_rtl = copy.deepcopy(model)
-
-    # t0 = time.time()
-    node_analytical = get_characteristic_fnc(
-        model,
-        (*node_details, "tree_model"),
-        part,
-        target_clk_ns,
-        "tree_model",
-        False,
-    )
-
-    node_rtlsim = get_characteristic_fnc(
-        model_rtl,
-        (*node_details, "rtlsim"),
-        part,
-        target_clk_ns,
-        "rtlsim",
-        CACHING,
-    )
+    node_analytical = get_characteristic_fnc(model, part, target_clk_ns, "tree_model")
+    node_rtlsim = get_characteristic_fnc(model_rtl, part, target_clk_ns, "rtlsim")
 
     chr_in = load_tav_npy(node_analytical.get_nodeattr("io_chrc_in"))
     chr_out = load_tav_npy(node_analytical.get_nodeattr("io_chrc_out"))
@@ -531,10 +429,6 @@ def tree_model_test(
     rtlsim_in = load_tav_npy(node_rtlsim.get_nodeattr("io_chrc_in"))
     rtlsim_out = load_tav_npy(node_rtlsim.get_nodeattr("io_chrc_out"))
 
-    if DEBUGGING:
-        debug_chr_funcs(chr_in, chr_out, rtlsim_in, rtlsim_out)
-        res = compare_nodes(node_analytical, node_rtlsim)
-        print(node_details, res)
     # test input port
     input_check = compare_two_chr_funcs(
         chr_in[0],
@@ -646,16 +540,12 @@ def tree_model_test_up_to_rotation(
     max_allowed_length_frac,
     volume_const=0,
     length_const=0,
-    CACHING=False,
 ):
     """``tree_model_test`` with ``compare_chr_funcs_up_to_rotation`` as the check."""
+    print("TAV comparison for", node_details)
     model_rtl = copy.deepcopy(model)
-    node_analytical = get_characteristic_fnc(
-        model, (*node_details, "tree_model"), part, target_clk_ns, "tree_model", False
-    )
-    node_rtlsim = get_characteristic_fnc(
-        model_rtl, (*node_details, "rtlsim"), part, target_clk_ns, "rtlsim", CACHING
-    )
+    node_analytical = get_characteristic_fnc(model, part, target_clk_ns, "tree_model")
+    node_rtlsim = get_characteristic_fnc(model_rtl, part, target_clk_ns, "rtlsim")
     chr_in = load_tav_npy(node_analytical.get_nodeattr("io_chrc_in"))
     chr_out = load_tav_npy(node_analytical.get_nodeattr("io_chrc_out"))
     rtlsim_in = load_tav_npy(node_rtlsim.get_nodeattr("io_chrc_in"))
@@ -671,57 +561,3 @@ def tree_model_test_up_to_rotation(
         length_const,
     )
     return ok
-
-
-def inter_token_gaps(tav):
-    if tav is None or tav.size == 0:
-        return np.array([1]), np.array([0])  # reasonable defaults
-
-    # Find indices where tokens are added (nonzero diff indicates a new token)
-    token_times = np.flatnonzero(np.diff(tav) > 0) + 1  # +1 to align with time index
-
-    if token_times.size < 2:
-        # Not enough token events to compute gaps
-        return np.array([1]), token_times  # Default gap of 1 between tokens (or 0 if no tokens)
-
-    # Compute gaps between token emissions
-    gaps = np.diff(token_times)
-    return gaps, token_times  # ,gaps_min
-
-
-def compare_nodes(
-    model_node,
-    ref_node,
-    start_cycle=0,
-    max_cycle=None,
-):
-    """Largest absolute divergence between a node's tree-model and reference
-    token access vectors, over the cycle window [start_cycle, max_cycle)."""
-    # Extract and decompress the input/output trace arrays
-    tav_ref_in = load_tav_npy(ref_node.get_nodeattr("io_chrc_in"))[0]
-    tav_ref_out = load_tav_npy(ref_node.get_nodeattr("io_chrc_out"))[0]
-    tav_model_in = load_tav_npy(model_node.get_nodeattr("io_chrc_in"))[0]
-    tav_model_out = load_tav_npy(model_node.get_nodeattr("io_chrc_out"))[0]
-
-    # Determine max length for slicing
-    max_len = max(len(tav_ref_in), len(tav_model_in), len(tav_ref_out), len(tav_model_out))
-    if max_cycle is None or max_cycle > max_len:
-        max_cycle = max_len
-
-    # Slice without padding
-    y_ref_in = tav_ref_in[start_cycle:max_cycle]
-    y_model_in = tav_model_in[start_cycle:max_cycle]
-    y_ref_out = tav_ref_out[start_cycle:max_cycle]
-    y_model_out = tav_model_out[start_cycle:max_cycle]
-
-    # Compute differences over common lengths only
-    def max_diff(a, b):
-        common_len = min(len(a), len(b))
-        if common_len == 0:
-            return float("nan")
-        return np.max(np.abs(a[:common_len] - b[:common_len]))
-
-    return {
-        "max_in_diff": max_diff(y_ref_in, y_model_in),
-        "max_out_diff": max_diff(y_ref_out, y_model_out),
-    }

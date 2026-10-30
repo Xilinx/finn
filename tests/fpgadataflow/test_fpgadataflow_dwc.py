@@ -219,11 +219,8 @@ def test_fpgadataflow_analytical_characterization_dwc(config, impl_style):
     part = "xc7z020clg400-1"
     model = make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_style)
     model = model.transform(SpecializeLayers(part))
-    # model = model.transform(InferShapes())
-    # model = model.transform(SetExecMode(mode))
 
     node_details = ("DWC", config, impl_style)
-    # part = "xc7z020clg400-1"
 
     target_clk_ns = 4
 

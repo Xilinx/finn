@@ -58,9 +58,9 @@ from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
-#: Ops that are never characterized: fork, join and the FIFOs themselves.
+#: Ops that are never characterized: the fork and the FIFOs themselves. Joins
+#: are not characterized either, see ``is_stream_join``.
 _UNCHARACTERIZED_OPS = [
-    "AddStreams_hls",
     "DuplicateStreams_hls",
     "StreamingFIFO_hls",
     "StreamingFIFO_rtl",
@@ -68,25 +68,19 @@ _UNCHARACTERIZED_OPS = [
 
 
 def is_stream_join(node):
-    """True if ``node`` merges two streamed inputs into one output.
-
-    Matches ``AddStreams`` (deprecated) and every elementwise binary operation
-    (``ElementwiseAdd``, ``ElementwiseMul``, ...) whose inputs are *both*
-    streams. Joins are not characterized: rtlsim characterization drives
-    ``in0`` only and would stall waiting on the second stream. The sizer treats
-    them as transparent (output token *k* leaves once token *k* is in on both
-    inputs) and gives their inputs the join window floor.
+    """True if ``node`` merges two streamed inputs into one output: an
+    elementwise binary operation (``ElementwiseAdd``, ``ElementwiseMul``, ...)
+    whose inputs are *both* streams. Joins are not characterized: rtlsim
+    characterization drives ``in0`` only and would stall waiting on the second
+    stream. The sizer treats them as transparent (output token *k* leaves once
+    token *k* is in on both inputs) and gives their inputs the join window floor.
     """
-    if node is None or not node.op_type.startswith(("AddStreams", "Elementwise")):
+    if node is None or not node.op_type.startswith("Elementwise"):
         return False
     if len(node.input) < 2:
         return False
     inst = registry.getCustomOp(node)
-    attr_types = inst.get_nodeattr_types()
-    for style in ("lhs_style", "rhs_style"):
-        if style in attr_types and inst.get_nodeattr(style) != "input":
-            return False
-    return True
+    return inst.get_nodeattr("lhs_style") == "input" and inst.get_nodeattr("rhs_style") == "input"
 
 
 class JustInTimeSynthesize(Transformation):

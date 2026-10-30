@@ -88,7 +88,7 @@ class HWCustomOp(CustomOp):
             "output_hook": ("s", False, ""),
             # Token access vectors used for analytical FIFO sizing: the
             # accumulated characteristic function over two periods, of shape
-            # (n_streams, 2*period). The arrays are offloaded to sidecar .npy
+            # (n_streams, 2*period). The arrays are offloaded to sidecar .npy.gz
             # files (see save_tav_npy()) because for large periods they would
             # blow the ONNX ModelProto past protobuf's 2GB limit, so these
             # attrs hold a path to the sidecar rather than the array itself.

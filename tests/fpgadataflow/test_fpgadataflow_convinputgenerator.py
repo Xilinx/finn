@@ -383,19 +383,14 @@ def test_fpgadataflow_analytical_characterization_slidingwindow(
 # input datatype
 @pytest.mark.parametrize("idt", [DataType["INT2"]])
 # kernel size
-# @pytest.mark.parametrize("k", [[2, 2], [3, 3], [1, 5]])
 @pytest.mark.parametrize("k", [[7, 7]])
 # input dimension
-# @pytest.mark.parametrize("ifm_dim", [[8, 8], [1, 21]])
 @pytest.mark.parametrize("ifm_dim", [[7, 7]])
 # input channels
-# @pytest.mark.parametrize("ifm_ch", [2, 4])
 @pytest.mark.parametrize("ifm_ch", [1024])
 # Stride
-# @pytest.mark.parametrize("stride", [[1, 1]])
 @pytest.mark.parametrize("stride", [[1, 1]])
 # Dilation
-# @pytest.mark.parametrize("dilation", [[1, 1]])
 @pytest.mark.parametrize("dilation", [[1, 1]])
 # input channel parallelism ("SIMD")
 @pytest.mark.parametrize("simd", [1])

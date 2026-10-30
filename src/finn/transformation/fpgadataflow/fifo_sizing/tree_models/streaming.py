@@ -79,62 +79,24 @@ class ThresholdingModel(TreeModel):
         Thresholding is a pure map: ``ImgDim * NumChannels/PE`` folded words per
         frame, each read and written in the same pipelined iteration, with no
         accumulation and no rate change. So the schedule has no free parameters
-        at all -- a solid run of read-and-write cycles as long as the frame -- and
-        ``output_delay`` is 0 on both backends.
-
-        The two branches exist only so that a hypothetical non-zero
-        ``output_delay`` (a pipeline latency shifting writes behind reads) would
-        still produce a well-formed schedule when it exceeds the frame itself.
-        They are otherwise the same shape.
+        at all: a solid run of read-and-write cycles as long as the frame, on
+        both backends.
 
         The period is deliberately the folded word count and not the slightly
-        longer one rtlsim records; the comment below says why.
+        longer one rtlsim records: rtlsim reports a period ``e`` cycles longer,
+        with ``e = max(1, ceil(log2(numSteps + 1)) // 2)``, the depth of the
+        pipelined binary search over the threshold table. But its window is
+        *saturated*: it moves one token in every one of those ``n + e`` cycles, so
+        it carries ``n + e`` tokens per period where the node physically has
+        ``n``. Matching the length therefore costs ``e`` on the token count and on
+        every row-0 value, and the occupancy sum reads those. Period ``n``, one
+        token per cycle, is exact on both, at the price of a period short by at
+        most 4 cycles out of 1024 to 401408.
         """
         reps = list(op.get_nodeattr("numInputVectors"))[0]
-
-        NumChannels = op.get_nodeattr("NumChannels")
-        PE = op.get_nodeattr("PE")
-        ImgDim = np.prod(list(op.get_nodeattr("numInputVectors"))) // reps
-
-        NF = NumChannels // PE
-        total_iterations = ImgDim * NF
-
-        output_delay = 0  # 4 with Vivado 2023.1
-
-        # A note on the period, which is deliberately *not* the recorded one.
-        # rtlsim reports a period `e` cycles longer than the folded word count,
-        # with e = max(1, ceil(log2(numSteps + 1)) // 2) -- the depth of the
-        # pipelined binary search over the threshold table. But its window is
-        # *saturated*: it moves one token in every one of those `n + e` cycles, so
-        # it carries n + e tokens per period where the node physically has n.
-        # Matching the length therefore costs `e` on the token count and on every
-        # row-0 value, and the occupancy sum reads those. The shape below --
-        # period n, one token per cycle -- is exact on both, at the price of a
-        # period short by at most 4 cycles out of 1024 to 401408.
-        if total_iterations > output_delay:
-            read = CharacteristicNode("read", [(output_delay, [1, 0])], True)
-
-            read_write = CharacteristicNode(
-                "Compute", [(total_iterations - output_delay, [1, 1])], True
-            )
-
-            write = CharacteristicNode("write", [(output_delay, [0, 1])], True)
-
-            threshold_top = CharacteristicNode(
-                "Thresholding Top", [(1, read), (1, read_write), (1, write)], False
-            )
-
-        else:
-            read = CharacteristicNode("Rush-in", [(total_iterations, [1, 0])], True)
-            idle = CharacteristicNode("Idle", [(output_delay - total_iterations, [0, 0])], True)
-
-            write = CharacteristicNode("Compute", [(total_iterations, [0, 1])], True)
-
-            threshold_top = CharacteristicNode(
-                "Thresholding Top", [(1, read), (1, idle), (1, write)], False
-            )
-
-        return threshold_top  # top level phase of this node
+        img_dim = np.prod(list(op.get_nodeattr("numInputVectors"))) // reps
+        nf = op.get_nodeattr("NumChannels") // op.get_nodeattr("PE")
+        return passthrough_characteristic(img_dim * nf, "threshold a word")
 
 
 @register("LayerNorm")
@@ -759,10 +721,6 @@ class DataWidthConverterModel(TreeModel):
         inWidth = op.get_nodeattr("inWidth")
         outWidth = op.get_nodeattr("outWidth")
 
-        wind_up = 0
-
-        idle = CharacteristicNode("idle", [(1, [0, 0])], True)
-
         if inWidth > outWidth:
             numReps = int(np.prod(op.get_folded_input_shape()[:-1]))
             # down-conversion
@@ -777,33 +735,14 @@ class DataWidthConverterModel(TreeModel):
             # ``writes_per_read > 1`` the last read of a period is at
             # ``period - writes_per_read + 1`` and never wraps, so the whole
             # schedule nests.
-            if writes_per_read > 1 and numReps >= 1:
-                down_convert_word = CharacteristicNode(
-                    "write, then read the next word while writing",
-                    [(1, [0, 1]), (1, [1, 1]), (writes_per_read - 2, [0, 1])],
-                    True,
-                )
-                return CharacteristicNode(
-                    "compute a set of DWCs with down conversion",
-                    [(numReps, down_convert_word)],
-                    False,
-                )
-
-            # read 1, write many, repeats for in-word count
-
-            read_input = CharacteristicNode("read 1 word", [(1, [1, 1])], True)
-
-            write_output = CharacteristicNode("write words", [(writes_per_read - 1, [0, 1])], True)
-
             down_convert_word = CharacteristicNode(
-                "down convert all words in a single transaction",
-                [(1, read_input), (1, write_output)],
-                False,
+                "write, then read the next word while writing",
+                [(1, [0, 1]), (1, [1, 1]), (writes_per_read - 2, [0, 1])],
+                True,
             )
-
             dwc_top = CharacteristicNode(
                 "compute a set of DWCs with down conversion",
-                [(wind_up, idle), (numReps, down_convert_word)],
+                [(numReps, down_convert_word)],
                 False,
             )
 
@@ -826,14 +765,14 @@ class DataWidthConverterModel(TreeModel):
             )
 
             up_convert_word = CharacteristicNode(
-                "down convert all words in a single transaction",
+                "up convert one output word",
                 [(1, read_input), (1, write_output)],
                 False,
             )
 
             dwc_top = CharacteristicNode(
                 "compute a set of DWCs with up conversion",
-                [(wind_up, idle), (numReps, up_convert_word)],
+                [(numReps, up_convert_word)],
                 False,
             )
 
@@ -844,7 +783,7 @@ class DataWidthConverterModel(TreeModel):
             pass_through = CharacteristicNode("pass-through", [(1, [1, 1])], True)
 
             dwc_top = CharacteristicNode(
-                "DWC pass-through, no conversion", [(wind_up, idle), (numReps, pass_through)], False
+                "DWC pass-through, no conversion", [(numReps, pass_through)], False
             )
 
         return dwc_top
@@ -940,29 +879,3 @@ class ConcatHlsModel(TreeModel):
         first = (6 + ii * np.arange(folds[0]))[None, :] + starts[:, None]
         rd[first.ravel() % period] = 1
         return flat_characteristic_leaf(rd, wr, "StreamingConcat_hls schedule")
-
-
-@register("DuplicateStreams_hls")
-class DuplicateStreamsHlsModel(TreeModel):
-    def schedule(self, op):
-        """A fork is transparent: every output beat leaves on the cycle it arrives.
-
-        ``DuplicateStreams`` has no storage and no rate change. Its HLS loop reads
-        one folded word and writes the same word to each output in the same
-        iteration, pipelined at II=1, so the schedule is one solid run of
-        read-and-write cycles as long as the folded frame -- no wind-up, no gap,
-        and nothing that depends on the number of outputs.
-
-        The single run is also why this node is in ``_UNCHARACTERIZED_OPS`` in the
-        chained-TAV pass: with writes on the same cycle as the read, the fork's
-        own output edges can never accumulate occupancy, so sizing them from this
-        schedule alone would say every branch needs depth 1. What a branch really
-        needs is decided at the *join*, from the imbalance between the two paths.
-        """
-
-        dim = np.prod(op.get_folded_output_shape()[1:-1])
-
-        read_write = CharacteristicNode("passing duplicate layer", [(dim, [1, 1])], True)
-        duplicatestreams_top = CharacteristicNode("compute duplicate", [(1, read_write)], False)
-
-        return duplicatestreams_top  # top level phase of this node

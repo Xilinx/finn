@@ -44,8 +44,8 @@ nothing stalls it. The slowest node is the **pacer**; its period is the
 **global period**, the frame interval the whole graph settles to.
 
 Forks (``DuplicateStreams``), joins (an elementwise binary operation such as
-``ElementwiseAdd`` or ``ElementwiseMul`` with two streamed inputs, ``AddStreams``)
-and FIFOs carry no TAV; the sizer treats every node
+``ElementwiseAdd`` or ``ElementwiseMul`` with two streamed inputs) and FIFOs
+carry no TAV; the sizer treats every node
 without a TAV as transparent (see below). An earlier rule also made every
 ``ElementwiseAdd`` transparent by op type, including a unary one with a
 constant operand that does carry a TAV; it was removed because it changes no
@@ -519,8 +519,8 @@ Join window floor
 -----------------
 
 *What:* ``join_window_floors`` gives every input of a two-stream join
-(an elementwise binary operation with two streamed inputs, ``AddStreams``) and
-of a ``StreamingConcat`` a floor that
+(an elementwise binary operation with two streamed inputs) and of a
+``StreamingConcat`` a floor that
 does not come from any TAV (see `Concat joins and sliding windows`_).
 From the join it walks back to the fork its inputs share, composing each
 node's ``input_window()`` (from its tree model): output block *b* of ``out_words`` words

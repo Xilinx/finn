@@ -332,15 +332,12 @@ def test_convert_to_hw_maxpool_ceil_mode(ceil_config, exec_mode):
 # output datatype
 @pytest.mark.parametrize("odt", [DataType["UINT4"]])
 # pool configuration:                   ( k,stride, pad, ifm_dim )
-# @pytest.mark.parametrize("pool_config", [(7, 7, 0, 7), (3, 2, 1, 5)])
-# @pytest.mark.parametrize("pool_config", [(7, 7, 0, 128), (3, 2, 1, 5)])
 @pytest.mark.parametrize("pool_config", [(2, 1, 0, 512)])
 # input channels
 @pytest.mark.parametrize("ifm_ch", [32])
 # number of out channel computed in parallel
 @pytest.mark.parametrize("pe", [32])
 # pool type
-# @pytest.mark.parametrize("op_type", ["QuantAvgPool2d", "MaxPool", "MaxPool1D"])
 @pytest.mark.parametrize("op_type", ["MaxPool1D"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
