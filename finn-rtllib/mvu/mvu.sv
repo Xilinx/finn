@@ -499,7 +499,7 @@ module mvu #(
 					else if(en) begin
 						M3 <=
 // synthesis translate off
-							(B2 === '0)? 0 :
+							(AD2 === '0) || (B2 === '0)? 0 :
 // synthesis translate on
 							AD2 * B2;
 						C3     <= cc;
@@ -606,13 +606,18 @@ module mvu #(
 
 					// Data: 30-bit (each) input: Data Ports
 					.A({5'b0, aa}),	// 30-bit input: A data input
-					.B(bb),			// 18-bit input: B data input
-					.C(			// 48-bit input: C data input
+					.B(				// 18-bit input: B data
 // synthesis translate_off
-					clr? '0 :
+						zero? '0 :
 // synthesis translate_on
-					cc
-				),
+						bb
+					),
+					.C(				// 48-bit input: C data input
+// synthesis translate_off
+						clr? '0 :
+// synthesis translate_on
+						cc
+					),
 					.CARRYIN('0),	// 1-bit input: Carry input signal
 					.D(dd),			// 25-bit input: D data input
 
@@ -730,13 +735,18 @@ module mvu #(
 
 					// Data inputs: Data Ports
 					.A({3'b0, aa}),	// 30-bit input: A data
-					.B(bb),			// 18-bit input: B data
-					.C(			// 48-bit input: C data
+					.B(				// 18-bit input: B data
 // synthesis translate_off
-					clr? '0 :
+						zero? '0 :
 // synthesis translate_on
-					cc
-				),
+						bb
+					),
+					.C(				// 48-bit input: C data
+// synthesis translate_off
+						clr? '0 :
+// synthesis translate_on
+						cc
+					),
 					.CARRYIN('0),	// 1-bit input: Carry-in
 					.D(dd),			// 27-bit input: D data
 
@@ -858,13 +868,18 @@ module mvu #(
 
 					// Data inputs: Data Ports
 					.A({7'b0, aa}),				// 34-bit input: A data
-					.B(bb),						// 24-bit input: B data
-					.C(						// 58-bit input: C data
+					.B(						 	// 24-bit input: B data
 // synthesis translate_off
-					clr? '0 :
+						zero? '0 :
 // synthesis translate_on
-					cc
-				),
+						bb
+					),
+					.C(							// 58-bit input: C data
+// synthesis translate_off
+						clr? '0 :
+// synthesis translate_on
+						cc
+					),
 					.CARRYIN('0),				// 1-bit input: Carry-in
 					.D(dd),						// 27-bit input: D data
 

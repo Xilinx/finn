@@ -332,7 +332,7 @@ module mvu_vvu_axi #(
 			assign	dsp_w = mvu_w;
 			assign	dsp_a = amvau_i;
 
-			assign	ovld = dsp_vld;
+			assign	ovld = dsp_vld && dsp_en;
 			assign	odat = dsp_p;
 		end : genTiledCompute
 		else if(!PUMPED_COMPUTE) begin : genUnpumpedCompute
