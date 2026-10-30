@@ -27,7 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-from finn.util.basic import require_vivado_version, resolve_xilinx_tool
+from finn.util.basic import require_vivado_version
 from finn.util.launcher import run_tool
 
 
@@ -54,9 +54,9 @@ class CallHLS:
         hand. The output of HLS goes to ipgen.stdout.log and ipgen.stderr.log in
         code_gen_dir. Raises ToolFailed if HLS fails."""
         if require_vivado_version() > (2024, 2):
-            command = [resolve_xilinx_tool("vitis-run"), "--mode", "hls", "--tcl", self.tcl_script]
+            command = ["vitis-run", "--mode", "hls", "--tcl", self.tcl_script]
         else:
-            command = [resolve_xilinx_tool("vitis_hls"), self.tcl_script]
+            command = ["vitis_hls", self.tcl_script]
         self.code_gen_dir = code_gen_dir
         self.ipgen_script = str(self.code_gen_dir) + "/ipgen.sh"
         run_tool(command, cwd=code_gen_dir, replay=self.ipgen_script)

@@ -12,7 +12,6 @@ import sys
 import time
 
 from finn.util import launcher, vivado
-from finn.util.basic import resolve_xilinx_tool
 from finn.util.launcher import ToolFailed, run_process, run_tool, transcript_files
 
 
@@ -145,12 +144,33 @@ def test_script_without_shebang_runs_with_bash(tmp_path, monkeypatch):
         run_tool([tools / "vivado", "-mode", "batch"], cwd=tmp_path, replay=tmp_path / "run.sh")
     assert (failed.value.status, failed.value.errors) == (4, ("ERROR: [Common 17-69] failed",))
     assert (tmp_path / "run.stdout.log").read_text().startswith("wrapped -mode batch\n")
-    # Found on PATH by its bare name, as resolve_xilinx_tool returns it.
+    # Found on PATH by its bare name.
     monkeypatch.setenv("PATH", str(tools) + os.pathsep + os.environ["PATH"])
     result = run_process(["vivado", "-version"], check=False)
     assert (result.returncode, result.stdout.splitlines()[0]) == (4, b"wrapped -version")
     # The replay script runs it too.
     assert subprocess.run(["bash", tmp_path / "run.sh"]).returncode == 4
+
+
+@pytest.mark.util
+def test_xilinx_tools_are_found_by_name_once(tmp_path, monkeypatch):
+    body = "import sys; print(sys.argv[0])\n"
+    on_path = make_tool(tmp_path / "bin", "vivado", body)
+    monkeypatch.delenv("FINN_TOOL_DIR_OVERRIDE", raising=False)
+    monkeypatch.setenv("PATH", str(on_path.parent) + os.pathsep + os.environ["PATH"])
+    assert run_tool(["vivado"]).stdout.decode().strip() == str(on_path)
+    # The first lookup holds for the rest of the process.
+    wrapped = make_tool(tmp_path / "site", "vivado", body)
+    monkeypatch.setenv("FINN_TOOL_DIR_OVERRIDE", str(wrapped.parent))
+    assert run_tool(["vivado"]).stdout.decode().strip() == str(on_path)
+    launcher.xilinx_tool.cache_clear()
+    assert run_tool(["vivado"], replay=tmp_path / "run.sh").stdout.decode().strip() == str(wrapped)
+    assert f"exec {wrapped}" in (tmp_path / "run.sh").read_text()
+    # A missing tool is not remembered: it is found once it is there.
+    with pytest.raises(launcher.ToolUnavailable, match="FINN_TOOL_DIR_OVERRIDE"):
+        run_tool(["v++"])
+    make_tool(tmp_path / "site", "v++", body)
+    assert run_tool(["v++"]).stdout.decode().strip() == str(tmp_path / "site" / "v++")
 
 
 @pytest.mark.util
@@ -303,7 +323,7 @@ def test_a_failing_vivado_run_quotes_its_error(tmp_path):
     (tmp_path / "bad.tcl").write_text("read_verilog missing.v\n")
     with pytest.raises(ToolFailed) as failed:
         run_tool(
-            [resolve_xilinx_tool("vivado"), "-mode", "batch", "-source", "bad.tcl"],
+            ["vivado", "-mode", "batch", "-source", "bad.tcl"],
             cwd=tmp_path,
             replay=tmp_path / "bad.sh",
         )

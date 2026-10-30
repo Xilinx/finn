@@ -15,10 +15,12 @@ with the descendants that stay in its process group (``run_process``).
 
 import contextlib
 import errno
+import functools
 import logging
 import os
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import threading
@@ -76,6 +78,34 @@ def resolve_executable(
         if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
             return candidate
     return None
+
+
+# The AMD tools that run_tool finds by name (xilinx_tool).
+XILINX_TOOLS = frozenset({"vivado", "vitis_hls", "vitis-run", "v++", "xelab", "slashkit"})
+# A directory of wrappers that replaces PATH for XILINX_TOOLS, such as a site's LSF
+# dispatcher. It must hold a wrapper for each tool that a build runs.
+TOOL_DIR_ENV = "FINN_TOOL_DIR_OVERRIDE"
+
+
+@functools.lru_cache(maxsize=None)
+def xilinx_tool(name: str) -> str:
+    """Return the path of the AMD tool ``name``: ``<FINN_TOOL_DIR_OVERRIDE>/<name>`` if
+    that variable is set, else ``name`` on PATH. Raises ``ToolUnavailable`` if there is
+    no such executable.
+
+    The tools are set up once, before FINN starts, so each name is resolved once per
+    process. ``xilinx_tool.cache_clear()`` forgets the results, for a test that
+    changes the environment. A failed lookup is not kept."""
+    override = os.environ.get(TOOL_DIR_ENV)
+    if override:
+        path = os.path.abspath(os.path.join(override, name))
+        if not (os.path.isfile(path) and os.access(path, os.X_OK)):
+            raise ToolUnavailable(name, f"no executable {path} ({TOOL_DIR_ENV}={override})")
+        return path
+    path = shutil.which(name)
+    if path is None:
+        raise ToolUnavailable(name, "not found in PATH")
+    return os.path.abspath(path)
 
 
 def _popen(command, **kwargs):
@@ -400,8 +430,8 @@ def run_tool(
     with a nonzero status.
 
     Args:
-        command: the command line, the tool first (see
-            ``finn.util.basic.resolve_xilinx_tool``).
+        command: the command line, the tool first. A name in ``XILINX_TOOLS``, such
+            as ``"vivado"``, runs the executable that ``xilinx_tool`` finds.
         cwd: the working directory of the tool.
         env: the whole environment of the tool. None means this process's
             environment.
@@ -415,6 +445,8 @@ def run_tool(
     command = [os.fspath(arg) for arg in command]
     if not command:
         raise ValueError("Empty command")
+    if command[0] in XILINX_TOOLS:
+        command[0] = xilinx_tool(command[0])
     command[0] = resolve_executable(command[0], cwd, env) or command[0]
     if replay is not None:
         lines = ["#!/bin/bash", "set -e"]

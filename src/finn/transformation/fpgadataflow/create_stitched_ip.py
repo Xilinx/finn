@@ -39,7 +39,7 @@ from shutil import copytree
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
-from finn.util.basic import make_build_dir, resolve_xilinx_tool
+from finn.util.basic import make_build_dir
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 from finn.util.launcher import run_tool
 
@@ -760,7 +760,7 @@ close $ofile
             f.write(tcl_string)
         # call Vivado; make_project.sh repeats the run by hand
         run_tool(
-            [resolve_xilinx_tool("vivado"), "-mode", "batch", "-source", "make_project.tcl"],
+            ["vivado", "-mode", "batch", "-source", "make_project.tcl"],
             cwd=vivado_stitch_proj_dir,
             replay=vivado_stitch_proj_dir + "/make_project.sh",
         )

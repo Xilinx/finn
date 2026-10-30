@@ -44,7 +44,7 @@ from finn.custom_op.fpgadataflow import templates
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
-from finn.util.basic import make_build_dir, resolve_xilinx_tool
+from finn.util.basic import make_build_dir
 from finn.util.create import adjacency_list
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 from finn.util.launcher import run_tool
@@ -1309,7 +1309,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
 
         # call Vivado; make_loop_ip.sh repeats the run by hand
         run_tool(
-            [resolve_xilinx_tool("vivado"), "-mode", "batch", "-source", "make_loop_ip.tcl"],
+            ["vivado", "-mode", "batch", "-source", "make_loop_ip.tcl"],
             cwd=vivado_stitch_proj_dir,
             replay=vivado_stitch_proj_dir + "/make_loop_ip.sh",
         )

@@ -55,7 +55,6 @@ from finn.util.basic import (
     pynq_golden_files,
     pynq_native_port_width,
     pynq_part_map,
-    resolve_xilinx_tool,
 )
 from finn.util.launcher import run_tool
 
@@ -292,7 +291,7 @@ class MakePYNQProject(Transformation):
 
         # launch the synthesis; synth_project.sh repeats the run by hand
         run_tool(
-            [resolve_xilinx_tool("vivado"), "-mode", "batch", "-source", ipcfg],
+            ["vivado", "-mode", "batch", "-source", ipcfg],
             cwd=vivado_pynq_proj_dir,
             replay=vivado_pynq_proj_dir + "/synth_project.sh",
         )
