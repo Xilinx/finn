@@ -6,6 +6,8 @@ import pytest
 from finn.builder.build_dataflow_config import DataflowBuildConfig
 from finn.util.rtlsim import annotate_rtlsim_performance
 
+pytestmark = pytest.mark.util
+
 
 def test_rtlsim_performance_defaults_to_multi_frame_measurement():
     cfg = DataflowBuildConfig(output_dir=".", synth_clk_period_ns=5.0, generate_outputs=[])

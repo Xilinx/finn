@@ -691,6 +691,7 @@ def test_stitched_ip_shuffle_layer(shuffle_sip_param, datatype, simd, monkeypatc
 
 # SIMD set manually or by SetFolding (the Shuffle is still a generic layer there)
 @pytest.mark.parametrize("fold_with", ["manual", "set_folding"])
+@pytest.mark.fpgadataflow
 def test_shuffle_config_consolidation(fold_with):
     dt = DataType["INT8"]
     model = construct_onnx_model(
