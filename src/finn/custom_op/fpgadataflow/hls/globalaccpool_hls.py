@@ -28,6 +28,7 @@
 
 from finn.custom_op.fpgadataflow.globalaccpool import GlobalAccPool
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
+from finn.util.data_packing import hls_datatype_str
 
 
 class GlobalAccPool_hls(GlobalAccPool, HLSBackend):
@@ -73,28 +74,41 @@ class GlobalAccPool_hls(GlobalAccPool, HLSBackend):
         HLSBackend.execute_node(self, context, graph)
 
     def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "maxpool.h"']
+        self.code_gen_dict["$GLOBALS$"] = ['#include "pool.hpp"']
 
     def defines(self, var):
         self.code_gen_dict["$DEFINES$"] = []
 
     def docompute(self):
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """AccPool_Batch<{}, {}, {}, {}, {}> (in0_V, out0_V, 1);""".format(
+            """AccPool_Batch<{}, {}, {}, {}, {}> (in0_V, out0_V);""".format(
                 self.get_normal_input_shape()[1],
                 self.get_nodeattr("NumChannels"),
-                self.get_input_datatype().get_hls_datatype_str(),
+                hls_datatype_str(self.get_input_datatype()),
                 self.get_nodeattr("PE"),
-                self.get_output_datatype().get_hls_datatype_str(),
+                hls_datatype_str(self.get_output_datatype()),
             )
         ]
 
+    def timeout_value(self):
+        """AccPool_Batch is function-pipelined and processes one input per call.
+        It needs NumChannels/PE * ImgDim^2 calls before the first output, so the
+        default timeout of 1000 is insufficient for large configurations."""
+        img_dim = self.get_normal_input_shape()[1]
+        num_ch = self.get_nodeattr("NumChannels")
+        pe = self.get_nodeattr("PE")
+        total_inputs = (num_ch // pe) * img_dim * img_dim
+        self.code_gen_dict["$TIMEOUT_VALUE$"] = [str(total_inputs + 1000)]
+
+    def ipgen_extra_directives(self):
+        "Return a list of extra tcl directives for HLS synthesis."
+        return ["config_compile -pipeline_style flp"]
+
     def blackboxfunction(self):
+        pe = self.get_nodeattr("PE")
+        idt = hls_datatype_str(self.get_input_datatype())
+        odt = hls_datatype_str(self.get_output_datatype())
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            """void {}(hls::stream<ap_uint<{}>> &in0_V,
-                hls::stream<ap_uint<{}>> &out0_V)""".format(
-                self.onnx_node.name,
-                self.get_instream_width(),
-                self.get_outstream_width(),
-            )
+            "void {}(hls::stream<tensor<{}, {}>> &in0_V, "
+            "hls::stream<tensor<{}, {}>> &out0_V)".format(self.onnx_node.name, idt, pe, odt, pe)
         ]

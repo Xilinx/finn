@@ -33,7 +33,11 @@ from qonnx.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.lookup import Lookup
 from finn.util.basic import get_vivado_version, is_versal
-from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
+from finn.util.data_packing import (
+    hls_datatype_str,
+    numpy_to_hls_code,
+    pack_innermost_dim_as_hex_string,
+)
 
 RAM_STYLES = {"auto": "AUTO", "block": "BRAM", "distributed": "LUTRAM", "ultra": "URAM"}
 
@@ -81,63 +85,48 @@ class Lookup_hls(Lookup, HLSBackend):
         self.code_gen_dict["$GLOBALS$"] = global_incls
 
     def defines(self, var):
-        n_inputs = np.prod(self.get_folded_input_shape()[:-1])
         dtype = self.get_input_datatype()
-        elem_hls_type = dtype.get_hls_datatype_str()
+        elem_hls_type = hls_datatype_str(dtype)
         emb_type = DataType[self.get_nodeattr("EmbeddingType")]
-        emb_hls_type = emb_type.get_hls_datatype_str()
+        emb_hls_type = hls_datatype_str(emb_type)
         emb_dim = self.get_nodeattr("EmbeddingDim")
         mem_mode = self.get_nodeattr("mem_mode")
         my_defines = []
-        my_defines.append("#define NumInputs %d" % n_inputs)
         if mem_mode == "external":
             ext_mem_width = self.get_nodeattr("ext_mem_width")
             ext_mem_emb_size = self.get_folded_output_shape()[-2]
             ext_mem_emb_align = ceil(log2(ext_mem_emb_size))
-            my_defines.append("#define MemBits %d" % ext_mem_width)
-            my_defines.append("#define EmbeddingSize %d" % ext_mem_emb_size)
-            my_defines.append("#define EmbeddingAlign %d" % ext_mem_emb_align)
-            my_defines.append("#define T_SRC %s" % elem_hls_type)
-            my_defines.append("#define T_DST ap_uint<MemBits>")
+            my_defines.append("static constexpr unsigned MemBits = %d;" % ext_mem_width)
+            my_defines.append("static constexpr unsigned EmbeddingSize = %d;" % ext_mem_emb_size)
+            my_defines.append("static constexpr unsigned EmbeddingAlign = %d;" % ext_mem_emb_align)
+            my_defines.append("using T_SRC = %s;" % elem_hls_type)
+            my_defines.append("using T_DST = ap_uint<MemBits>;")
         elif mem_mode == "internal_embedded":
-            my_defines.append("#define NumEmbeddings %d" % self.get_nodeattr("NumEmbeddings"))
-            my_defines.append("#define EmbeddingDim %d" % emb_dim)
-            my_defines.append("#define InputType %s" % elem_hls_type)
-            my_defines.append("#define EmbeddingType %s" % emb_hls_type)
+            my_defines.append(
+                "static constexpr unsigned NumEmbeddings = %d;" % self.get_nodeattr("NumEmbeddings")
+            )
+            my_defines.append("static constexpr unsigned EmbeddingDim = %d;" % emb_dim)
+            my_defines.append("using InputType = %s;" % elem_hls_type)
+            my_defines.append("using EmbeddingType = %s;" % emb_hls_type)
         self.code_gen_dict["$DEFINES$"] = my_defines
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_output_datatype()
-        if dtype == DataType["BIPOLAR"]:
-            # use binary for bipolar storage
-            dtype = DataType["BINARY"]
-        packed_bits = self.get_outstream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "float"
         npy_out = "%s/output_0.npy" % code_gen_dir
         oshape = self.get_folded_output_shape()
         oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %s>(out0_V, %s, "%s", %s);'
-            % (
-                packed_hls_type,
-                elem_hls_type,
-                npy_type,
-                oshape_cpp_str,
-                npy_out,
-                "false",
-            )
+            'tensorstream2npy<%s>(strm0, %s, "%s");' % (npy_type, oshape_cpp_str, npy_out)
         ]
 
     def docompute(self):
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "internal_embedded":
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """StreamingLookup<NumEmbeddings,  EmbeddingDim, NumInputs,
-                InputType, EmbeddingType >(in0_V, out0_V, embeddings);"""
+                """StreamingLookup<NumEmbeddings, EmbeddingDim,
+                InputType, EmbeddingType>(in0_V, out0_V, embeddings);"""
             ]
         elif mem_mode == "external":
             self.code_gen_dict["$DOCOMPUTE$"] = [
@@ -147,18 +136,15 @@ class Lookup_hls(Lookup, HLSBackend):
 
     def blackboxfunction(self):
         mem_mode = self.get_nodeattr("mem_mode")
-        ibits = self.get_instream_width()
-        packed_input_hls_type = "ap_uint<%d>" % ibits
-        obits = self.get_outstream_width()
-        packed_output_hls_type = "ap_uint<%d>" % obits
         if mem_mode == "internal_embedded":
+            i_hls_type = hls_datatype_str(self.get_input_datatype())
+            i_fold = self.get_folded_input_shape()[-1]
+            emb_hls_type = hls_datatype_str(DataType[self.get_nodeattr("EmbeddingType")])
+            emb_dim = self.get_nodeattr("EmbeddingDim")
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                "void %s(hls::stream<%s > &in0_V, hls::stream<%s > &out0_V)"
-                % (
-                    self.onnx_node.name,
-                    packed_input_hls_type,
-                    packed_output_hls_type,
-                )
+                "void %s(hls::stream<tensor<%s,%d>> &in0_V, "
+                "hls::stream<tensor<%s,%d>> &out0_V)"
+                % (self.onnx_node.name, i_hls_type, i_fold, emb_hls_type, emb_dim)
             ]
         elif mem_mode == "external":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
@@ -174,6 +160,7 @@ class Lookup_hls(Lookup, HLSBackend):
         my_pragmas = ["#pragma HLS INTERFACE axis port=in0_V"]
         my_pragmas.append("#pragma HLS INTERFACE axis port=out0_V")
         my_pragmas.append("#pragma HLS INTERFACE ap_ctrl_none port=return")
+        my_pragmas.append("#pragma HLS DATAFLOW disable_start_propagation")
         if mem_mode == "internal_embedded":
             ram_style = RAM_STYLES[self.get_nodeattr("ram_style")]
             storage_type = "RAM_S2P" if ram_style == "URAM" else "ROM_2P"
@@ -203,12 +190,15 @@ class Lookup_hls(Lookup, HLSBackend):
             assert np.vectorize(edt.allowed)(
                 embeddings
             ).all(), "Embeddings can't be expressed with type %s" % str(edt)
-            # reverse innertmost dim in embeddings to remain compatible with
-            # how we normally encode the data in FINN
-            embeddings_rev = np.flip(embeddings, -1)
-            embeddings_hls_code = numpy_to_hls_code(embeddings_rev, edt, "embeddings", True, False)
+            # aggregate initialization: tensor<EmbeddingType, EmbeddingDim>
+            # handles element-to-bit mapping internally, no reversal needed
+            emb_hls_type = hls_datatype_str(edt)
+            emb_dim = self.get_nodeattr("EmbeddingDim")
+            num_emb = self.get_nodeattr("NumEmbeddings")
+            init_code = numpy_to_hls_code(embeddings, edt, "embeddings", False, True)
+            decl = "tensor<%s, %d> embeddings[%d] = \n" % (emb_hls_type, emb_dim, num_emb)
             f_thresh = open(weight_filename, "w")
-            f_thresh.write(embeddings_hls_code)
+            f_thresh.write(decl + init_code)
             f_thresh.close()
         elif mem_mode == "external":
             edt = DataType[self.get_nodeattr("EmbeddingType")]

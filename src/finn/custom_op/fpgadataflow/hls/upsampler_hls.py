@@ -28,6 +28,7 @@
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour
+from finn.util.data_packing import hls_datatype_str
 
 
 class UpsampleNearestNeighbour_hls(UpsampleNearestNeighbour, HLSBackend):
@@ -50,24 +51,20 @@ class UpsampleNearestNeighbour_hls(UpsampleNearestNeighbour, HLSBackend):
         self.code_gen_dict["$GLOBALS$"] = ['#include "upsample.hpp"']
 
     def defines(self, var):
-        self.code_gen_dict["$DEFINES$"] = []
-
-        HI = self.get_nodeattr("HI")
-        self.code_gen_dict["$DEFINES$"] += ["#define HI {}".format(HI)]
-
-        WI = self.get_nodeattr("WI")
-        self.code_gen_dict["$DEFINES$"] += ["#define WI {}".format(WI)]
-
-        HO = self.get_nodeattr("HO")
-        self.code_gen_dict["$DEFINES$"] += ["#define HO {}".format(HO)]
-
-        WO = self.get_nodeattr("WO")
-        self.code_gen_dict["$DEFINES$"] += ["#define WO {}".format(WO)]
-
-        SIMD = self.get_nodeattr("SIMD")
-
-        CF = self.get_nodeattr("NumChannels") // SIMD
-        self.code_gen_dict["$DEFINES$"] += ["#define CF {}".format(CF)]
+        CF = self.get_nodeattr("NumChannels") // self.get_nodeattr("SIMD")
+        self.code_gen_dict["$DEFINES$"] = [
+            """static constexpr unsigned HI = {};
+            static constexpr unsigned WI = {};
+            static constexpr unsigned HO = {};
+            static constexpr unsigned WO = {};
+            static constexpr unsigned CF = {};""".format(
+                self.get_nodeattr("HI"),
+                self.get_nodeattr("WI"),
+                self.get_nodeattr("HO"),
+                self.get_nodeattr("WO"),
+                CF,
+            )
+        ]
 
     def docompute(self):
         self.code_gen_dict["$DOCOMPUTE$"] = [
@@ -75,18 +72,18 @@ class UpsampleNearestNeighbour_hls(UpsampleNearestNeighbour, HLSBackend):
         ]
 
     def blackboxfunction(self):
-        simd = self.get_nodeattr("SIMD")
-        input_elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
-        output_elem_hls_type = self.get_output_datatype().get_hls_datatype_str()
+        input_elem_hls_type = hls_datatype_str(self.get_input_datatype())
+        output_elem_hls_type = hls_datatype_str(self.get_output_datatype())
+        i_n_elems = self.get_folded_input_shape()[-1]
+        o_n_elems = self.get_folded_output_shape()[-1]
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            "void %s(hls::stream<hls::vector<%s, %d>> "
-            "&in0_V, hls::stream<hls::vector<%s, %d>> &out0_V)"
-            % (
+            "void {}(hls::stream<tensor<{},{}>> &in0_V, "
+            "hls::stream<tensor<{},{}>> &out0_V)".format(
                 self.onnx_node.name,
                 input_elem_hls_type,
-                simd,
+                i_n_elems,
                 output_elem_hls_type,
-                simd,
+                o_n_elems,
             )
         ]
 

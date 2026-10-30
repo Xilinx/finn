@@ -35,6 +35,7 @@ from qonnx.core.modelwrapper import ModelWrapper
 
 from finn.custom_op.fpgadataflow import register_custom_op
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.data_packing import hls_datatype_str
 
 
 # Generic implementation for elementwise binary operations
@@ -367,6 +368,10 @@ class ElementwiseBinaryOperation(HWCustomOp):
                     _mag = _max if _min > 0 else _min if (abs(_min) > _max) else (-_max - 1)
                     # Smallest data type large enough to represent this range of values
                     lhs_dtype = DataType.get_smallest_possible(_mag)
+                    # BIPOLAR uses {-1,+1} encoding which is incompatible
+                    # with elementwise binary constant handling; use BINARY
+                    if lhs_dtype == DataType["BIPOLAR"]:
+                        lhs_dtype = DataType["BINARY"]
                 elif lhs_dtype.is_fixed_point():
                     # Convert the fixed-point array to corresponding integers and get
                     # smallest integer representation
@@ -407,6 +412,8 @@ class ElementwiseBinaryOperation(HWCustomOp):
                     _mag = _max if _min > 0 else _min if (abs(_min) > _max) else (-_max - 1)
                     # Smallest data type large enough to represent this range of values
                     rhs_dtype = DataType.get_smallest_possible(_mag)
+                    if rhs_dtype == DataType["BIPOLAR"]:
+                        rhs_dtype = DataType["BINARY"]
                 elif rhs_dtype.is_fixed_point():
                     # Convert the fixed-point array to corresponding integers and get
                     # smallest integer representation
@@ -919,7 +926,7 @@ class ElementwiseMax(ElementwiseBinaryOperation):
     # C++ operation template available as property
     @property
     def cpp_op(self) -> str:
-        odt_hls_name = self.out_dtype.get_hls_datatype_str()
+        odt_hls_name = hls_datatype_str(self.out_dtype)
         return "({0} >= {1} ? (%s){0} : (%s){1})" % (odt_hls_name, odt_hls_name)
 
     # RTL operation template available as property

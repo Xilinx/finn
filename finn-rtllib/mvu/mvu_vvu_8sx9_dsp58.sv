@@ -41,6 +41,8 @@ module mvu_vvu_8sx9_dsp58 #(
 
     bit SIGNED_ACTIVATIONS = 0,
     int unsigned SEGMENTLEN = 0, // Default to 0 (which implies a single segment)
+	int unsigned  TH = 1,       // Tile height: number of interleaved input vectors
+	                             // TH=1: P-feedback accumulation (unchanged), TH>=2: C-port feedback
 	bit FORCE_BEHAVIORAL = 0,
 
 	localparam int unsigned ACTIVATION_ELEMENTS = (IS_MVU ? 1 : PE) * SIMD,
@@ -278,25 +280,49 @@ module mvu_vvu_8sx9_dsp58 #(
 					end
 					else	assign Preg = Mreg;
 				end
-				else if (FIRST && LAST) begin : genSingle
-					always_ff @(posedge clk) begin
-						if (rst)		Opmode <= 0;
-						else if (en)	Opmode <= L[1];
-					end
-					always_ff @(posedge clk) begin
-						if (rst) 		Preg <= 0;
-						else if (en)	Preg <= (Opmode ? 0 : Preg) + Mreg;
-					end
-				end
-				else if (!FIRST && LAST) begin : genLast
-					always_ff @(posedge clk) begin
-						if (rst)		Opmode <= 0;
-						else if (en)	Opmode <= L[1];
-					end
-					always_ff @(posedge clk) begin
-						if (rst) 		Preg <= 0;
-						else if (en)	Preg <= (Opmode ? 0 : Preg) + Mreg + pcout[i][j-1];
-					end
+				else if (LAST) begin : genLast
+					// Accumulation feedback + optional PCIN cascade addend.
+					// FIRST: no PCIN (single-DSP chain). !FIRST: add pcout[i][j-1].
+					uwire signed [57:0]  pcin = FIRST ? '0 : pcout[i][j-1];
+
+					if(TH <= 1) begin : genAccP
+						always_ff @(posedge clk) begin
+							if (rst)		Opmode <= 0;
+							else if (en)	Opmode <= L[1];
+						end
+						always_ff @(posedge clk) begin
+							if (rst) 		Preg <= 0;
+							else if (en)	Preg <= (Opmode ? 0 : Preg) + Mreg + pcin;
+						end
+					end : genAccP
+					else begin : genAccC
+						// TH>=2: C-port feedback ring of depth TH.
+						// Clearing ring of depth TH-1 parallel to AccLine.
+						always_ff @(posedge clk) begin
+							if (rst)		Opmode <= 0;
+							else if (en)	Opmode <= L[1];
+						end
+						logic signed [57:0]  AccLine[TH-1];
+						logic  ClearRing[TH-1];
+						initial begin
+							foreach(AccLine[k])   AccLine[k] = 0;
+							foreach(ClearRing[k]) ClearRing[k] = 0;
+						end
+						always_ff @(posedge clk) begin
+							if (rst) begin
+								Preg <= 0;
+								foreach(AccLine[k])   AccLine[k] <= 0;
+								foreach(ClearRing[k]) ClearRing[k] <= 0;
+							end
+							else if (en) begin
+								Preg <= (ClearRing[TH-2] ? '0 : AccLine[TH-2]) + Mreg + pcin;
+								AccLine[0] <= Preg;
+								ClearRing[0] <= Opmode;
+								for(int k = TH-2; k > 0; k--)  AccLine[k] <= AccLine[k-1];
+								for(int k = TH-2; k > 0; k--)  ClearRing[k] <= ClearRing[k-1];
+							end
+						end
+					end : genAccC
 				end
 				else begin : genMid
 					if (PREG) begin : genPregBehav
@@ -312,6 +338,42 @@ module mvu_vvu_8sx9_dsp58 #(
 			end : genBehav
 `ifndef VERILATOR
 			else begin: genDSP
+				// C-port feedback shift register for TH>=2 on LAST DSP
+				logic [57:0]  c_input_dsp58;
+				if(!LAST || TH <= 1) begin : genNoCSR
+					assign c_input_dsp58 = '0;
+				end : genNoCSR
+				else begin : genCSR
+					// External shift register between P output and C input.
+					// ClearRing: TH-1 deep (parallels AccLine + CREG).
+					// AccLine: TH-2 deep (only exists for TH>2; TH=2 feeds pp directly).
+					(* SHREG_EXTRACT = "yes" *) logic  ClearRing[TH-1];
+					initial  foreach(ClearRing[m]) ClearRing[m] = 0;
+					if(TH == 2) begin : genTH2
+						always_ff @(posedge clk) begin
+							if(rst)      ClearRing[0] <= 0;
+							else if(en)  ClearRing[0] <= L[1];
+						end
+						assign c_input_dsp58 = ClearRing[0]? '0 : pp;
+					end : genTH2
+					else begin : genTHDeep
+						logic [57:0]  AccLine[TH-2];
+						initial  foreach(AccLine[m]) AccLine[m] = 0;
+						always_ff @(posedge clk) begin
+							if(rst) begin
+								foreach(AccLine[m])   AccLine[m] <= 0;
+								foreach(ClearRing[m]) ClearRing[m] <= 0;
+							end
+							else if(en) begin
+								AccLine[0] <= pp;
+								ClearRing[0] <= L[1];
+								for(int m = TH-3; m > 0; m--)  AccLine[m] <= AccLine[m-1];
+								for(int m = TH-2; m > 0; m--)  ClearRing[m] <= ClearRing[m-1];
+							end
+						end
+						assign c_input_dsp58 = ClearRing[TH-2]? '0 : AccLine[TH-3];
+					end : genTHDeep
+				end : genCSR
 				DSP58 #(
 					// Feature Control Attributes: Data Path Selection
 					.AMULTSEL("A"),                     // Selects A input to multiplier (A, AD)
@@ -340,10 +402,14 @@ module mvu_vvu_8sx9_dsp58 #(
 					.IS_CLK_INVERTED(1'b0),             // Optional inversion for CLK
 					.IS_INMODE_INVERTED(5'b00000),      // Optional inversion for INMODE
 					.IS_NEGATE_INVERTED(3'b000),        // Optional inversion for NEGATE
-					.IS_OPMODE_INVERTED({ LAST ? 2'b01 : 2'b00 , // W: LAST ? (L[1] ? 0 : P) : 0
-										FIRST ? 3'b000 : 3'b001, // Z: FIRST ? 0 : PCIN
-										2'b01, // Y : M
-										2'b01  // X: M
+					.IS_OPMODE_INVERTED({
+							LAST && TH <= 1 ? 2'b01 :          // W: TH=1 LAST ? (L[1]?0:P) :
+							LAST && TH > 1 && !FIRST ? 2'b11 : // W: TH>=2 !FIRST LAST ? C (via ClearRing) :
+							                           2'b00,  // W: else 0
+							LAST && TH > 1 && FIRST ? 3'b011 : // Z: TH>=2 FIRST LAST ? C :
+							FIRST                   ? 3'b000 : 3'b001, // Z: FIRST ? 0 : PCIN
+							2'b01, // Y : M
+							2'b01  // X: M
 					}), // Optional inversion for OPMODE
 					.IS_RSTALLCARRYIN_INVERTED(1'b0),   // Optional inversion for RSTALLCARRYIN
 					.IS_RSTALUMODE_INVERTED(1'b0),      // Optional inversion for RSTALUMODE
@@ -364,11 +430,11 @@ module mvu_vvu_8sx9_dsp58 #(
 					.BREG(INTERNAL_PREGS),              // Pipeline stages for B (0-2)
 					.CARRYINREG(0),                     // Pipeline stages for CARRYIN (0-1)
 					.CARRYINSELREG(0),                  // Pipeline stages for CARRYINSEL (0-1)
-					.CREG(0),                           // Pipeline stages for C (0-1)
+					.CREG(LAST && TH > 1 ? 1 : 0),     // Pipeline stages for C (0-1)
 					.DREG(0),                           // Pipeline stages for D (0-1)
 					.INMODEREG(1),                      // Pipeline stages for INMODE (0-1)
 					.MREG(1),                           // Multiplier pipeline stages (0-1)
-					.OPMODEREG(1),                      // Pipeline stages for OPMODE (0-1)
+					.OPMODEREG(LAST && TH > 1 ? 0 : 1), // Pipeline stages for OPMODE (0-1)
 					.PREG(PREG),                        // Number of pipeline stages for P (0-1)
 					.RESET_MODE("SYNC")                 // Selection of synchronous or asynchronous reset. (ASYNC, SYNC).
 				)
@@ -406,13 +472,13 @@ module mvu_vvu_8sx9_dsp58 #(
 					}),                                 // 5-bit input: INMODE control
 					.NEGATE('0),                        // 3-bit input: Negates the input of the multiplier
 					.OPMODE({
-							LAST ? {1'b0, L[1]} : 2'b00,
+							LAST && TH <= 1 ? {1'b0, L[1]} : 2'b00,
 							7'b000_0000
 					}), // 9-bit input: Operation mode
 					// Data inputs: Data Ports
 					.A({ 7'bx, a_in_i[(IS_MVU ? 0 : CHAINLEN*i) + j] }),            // 34-bit input: A data
 					.B(b_in_i[i][j]),                   // 24-bit input: B data
-					.C('x),                             // 58-bit input: C data
+					.C(LAST && TH > 1 ? c_input_dsp58 : '0), // 58-bit input: C data
 					.CARRYIN('0),                       // 1-bit input: Carry-in
 					.D('x),                             // 27-bit input: D data
 					// Reset/Clock Enable inputs: Reset/Clock Enable Inputs
@@ -423,9 +489,9 @@ module mvu_vvu_8sx9_dsp58 #(
 					.CEALUMODE('0),                     // 1-bit input: Clock enable for ALUMODE
 					.CEB1(en),                          // 1-bit input: Clock enable for 1st stage BREG
 					.CEB2(INTERNAL_PREGS==2 ? en : '0), // 1-bit input: Clock enable for 2nd stage BREG
-					.CEC('0),                           // 1-bit input: Clock enable for CREG
+					.CEC(LAST && TH > 1 ? en : 1'b0),  // 1-bit input: Clock enable for CREG
 					.CECARRYIN('0),                     // 1-bit input: Clock enable for CARRYINREG
-					.CECTRL(en),                        // 1-bit input: Clock enable for OPMODEREG and CARRYINSELREG
+					.CECTRL(LAST && TH > 1 ? 1'b0 : en), // 1-bit input: Clock enable for OPMODEREG and CARRYINSELREG
 					.CED('0),                           // 1-bit input: Clock enable for DREG
 					.CEINMODE(en),                      // 1-bit input: Clock enable for INMODEREG
 					.CEM(en),                           // 1-bit input: Clock enable for MREG
@@ -434,7 +500,7 @@ module mvu_vvu_8sx9_dsp58 #(
 					.RSTALLCARRYIN('0),                 // 1-bit input: Reset for CARRYINREG
 					.RSTALUMODE('0),                    // 1-bit input: Reset for ALUMODEREG
 					.RSTB(rst),                         // 1-bit input: Reset for BREG
-					.RSTC('0),                          // 1-bit input: Reset for CREG
+					.RSTC(rst),                         // 1-bit input: Reset for CREG
 					.RSTCTRL(rst),                      // 1-bit input: Reset for OPMODEREG and CARRYINSELREG
 					.RSTD('0),                          // 1-bit input: Reset for DREG and ADREG
 					.RSTINMODE(rst),                    // 1-bit input: Reset for INMODE register

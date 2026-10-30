@@ -11,6 +11,7 @@ import numpy as np
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.hwsoftmax import HWSoftmax
+from finn.util.data_packing import hls_datatype_str
 
 
 class HWSoftmax_hls(HWSoftmax, HLSBackend):
@@ -21,9 +22,6 @@ class HWSoftmax_hls(HWSoftmax, HLSBackend):
         my_attrs = {}
         my_attrs.update(HWSoftmax.get_nodeattr_types(self))
         my_attrs.update(HLSBackend.get_nodeattr_types(self))
-        # override HLSBackend defaults for the SoftMax kernel
-        my_attrs["cpp_interface"] = ("s", False, "hls_vector")
-        my_attrs["hls_style"] = ("s", False, "freerunning")
         return my_attrs
 
     def get_exp_cycles(self):
@@ -41,9 +39,7 @@ class HWSoftmax_hls(HWSoftmax, HLSBackend):
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = [
-            "#include <hls_vector.h>",
             '#include "softmax.hpp"',
-            '#include "utils.hpp"',
         ]
 
     def defines(self, var):
@@ -54,7 +50,7 @@ class HWSoftmax_hls(HWSoftmax, HLSBackend):
             f"""
             constexpr unsigned  SIMD = {simd};
             constexpr unsigned  W = {w};
-            using  TI = {idtype.get_hls_datatype_str()};
+            using  TI = {hls_datatype_str(idtype)};
             using  F = float;
            """
         ]
@@ -62,8 +58,8 @@ class HWSoftmax_hls(HWSoftmax, HLSBackend):
     def docompute(self):
         self.code_gen_dict["$DOCOMPUTE$"] = [
             """
-                static hls::stream<hls::vector<TI,SIMD>>  src0;
-                static hls::stream<hls::vector<float,SIMD>>  dst0;
+                static hls::stream<tensor<TI,SIMD>>  src0;
+                static hls::stream<tensor<float,SIMD>>  dst0;
 
                 move(in0_V, src0);
                 static SoftMax<TI, float, W, SIMD> sm_inst;
@@ -76,8 +72,8 @@ class HWSoftmax_hls(HWSoftmax, HLSBackend):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             f"""
             void {self.onnx_node.name}(
-                hls::stream<hls::vector<TI,SIMD>> &in0_V,
-                hls::stream<hls::vector<float,SIMD>> &out0_V
+                hls::stream<tensor<TI,SIMD>> &in0_V,
+                hls::stream<tensor<float,SIMD>> &out0_V
                 )
             """
         ]

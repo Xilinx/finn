@@ -135,7 +135,6 @@ def _make_mvau_model(
         accDataType=adt.name,
         ActVal=tdt.min() if tdt is not None else 0,
         noActivation=0 if tdt is not None else 1,
-        binaryXnorMode=0,
     )
 
     nodes = [main_node]
@@ -174,7 +173,6 @@ def _make_mvau_model(
             accDataType=adt.name,
             ActVal=0,
             noActivation=1,
-            binaryXnorMode=0,
         )
         nodes.append(successor_node)
         initializers.append(
@@ -242,7 +240,6 @@ def _make_vvau_mvau_model(wdt: DataType, idt: DataType, tdt: Optional[DataType] 
         weightDataType=wdt.name,
         ActVal=tdt.min() if tdt is not None else 0,
         noActivation=0 if tdt is not None else 1,
-        binaryXnorMode=0,
     )
     graph = helper.make_graph(
         nodes=[layer1, layer2], name="fclayer_graph", inputs=[inp], outputs=[outp]
@@ -365,10 +362,6 @@ def calculate_accumulator_bit_width(
         return np.log2(1 + pow(2, -x))
 
     weights = model.get_initializer(inst.onnx_node.input[1])
-    # since in the calculation the values of the weight matrix are used,
-    # for the bipolar case they need to be converted to bipolar
-    if inst.get_nodeattr("binaryXnorMode"):
-        weights = 2 * weights - 1
     # modify the weights based on if the node is a VVAU or MVAU
     if isinstance(inst, MVAU):
         K = inst.get_nodeattr("MW")  # matrix_width = num_inputs

@@ -28,6 +28,7 @@
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.split import StreamingSplit
+from finn.util.data_packing import hls_datatype_str
 
 
 class StreamingSplit_hls(StreamingSplit, HLSBackend):
@@ -62,13 +63,14 @@ class StreamingSplit_hls(StreamingSplit, HLSBackend):
         self.code_gen_dict["$DOCOMPUTE$"] = [comp_call]
 
     def blackboxfunction(self):
-        input_elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
-        simd = self.get_nodeattr("SIMD")
-        in_stream = "hls::stream<hls::vector<%s, %d>> &in0_V" % (input_elem_hls_type, simd)
+        input_elem_hls_type = hls_datatype_str(self.get_input_datatype())
+        n_elems = self.get_folded_input_shape()[-1]
+        in_stream = "hls::stream<tensor<%s,%d>> &in0_V" % (input_elem_hls_type, n_elems)
         out_streams = []
         for i in range(self.get_n_outputs()):
+            o_n_elems = self.get_folded_output_shape(i)[-1]
             out_streams.append(
-                "hls::stream<hls::vector<%s, %d>> &out%d_V" % (input_elem_hls_type, simd, i)
+                "hls::stream<tensor<%s,%d>> &out%d_V" % (input_elem_hls_type, o_n_elems, i)
             )
         out_streams = ", ".join(out_streams)
         blackbox_hls = "void %s(%s, %s)" % (self.onnx_node.name, in_stream, out_streams)
@@ -80,6 +82,7 @@ class StreamingSplit_hls(StreamingSplit, HLSBackend):
         for i in range(self.get_n_outputs()):
             pragmas.append("#pragma HLS INTERFACE axis port=out%d_V" % i)
         pragmas.append("#pragma HLS INTERFACE ap_ctrl_none port=return")
+        pragmas.append("#pragma HLS DATAFLOW disable_start_propagation")
         pragmas.append("#pragma HLS aggregate variable=in0_V compact=bit")
         for i in range(self.get_n_outputs()):
             pragmas.append("#pragma HLS aggregate variable=out%d_V compact=bit" % i)
