@@ -534,7 +534,7 @@ module mvu #(
 				//   INMODEREG=1 captures in stage 1 alongside A1/B1/D1.
 				//   Stage 2 pre-adder sees the registered INMODE → no pipeline hazard.
 				localparam logic [4:0]  INMODE_INVERSION = 5'b0_1_1_0_1;
-				uwire [4:0]  inmode = { 3'b0, zero, zero };
+				uwire [4:0]  inmode = { 2'b0, zero, zero, 1'b0 };
 
 				case(VERSION)
 				DSP48E1: DSP48E1 #(
