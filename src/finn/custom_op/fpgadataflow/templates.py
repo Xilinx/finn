@@ -106,6 +106,7 @@ $SAVEASCNPY$
 # cpp file
 ipgen_template = """
 #define AP_INT_MAX_W $AP_INT_MAX_W$
+#include "tensor.hpp"
 
 $GLOBALS$
 
