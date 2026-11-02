@@ -821,6 +821,7 @@ class MVAU(HWCustomOp):
             # tiling
             tinner = self.get_weight_stream_simd()
             nw = (pe * simd) // tinner  # number of WSIMD-sized sub-tiles per PE*SIMD block
+            weight_tensor_npy = weight_tensor_npy.reshape(1, -1, tinner)
             weight_tensor_pe_flipped = weight_tensor_pe_flipped.reshape(1, -1, tinner)
             # The .dat weights are PE-flipped (np.flip axis=-2), which reverses the
             # PE dimension - the same dimension that tiles into sub-tiles. This

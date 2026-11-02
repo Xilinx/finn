@@ -742,14 +742,14 @@ def test_mvau_fifocharacterize_rtlsim(
 @pytest.mark.parametrize("mw", [32])
 # (PE, SIMD, TH, mem_mode) as a jointly-valid tuple satisfying MH % PE == 0
 # and MW % SIMD == 0. WSIMD is the smallest divisor of PE*SIMD >= ceil(PE*SIMD/TH).
-# TH=1 selects the standard MVAU; TH>1 selects the tiled MVAU (Versal DSP58
-# only, filtered below). TH need not divide PE*SIMD.
+# TH=1 selects the standard MVAU; TH>1 selects the tiled MVAU, which is supported
+# on all DSP types (DSP48E1, DSP48E2, DSP58). TH need not divide PE*SIMD.
 #
 # TH must divide the number of input vectors (ofm_shape 3x3 -> 9), so the tiled
 # configs use TH in {3, 9}. The tiled set spreads across the integration-level
 # axes (the DSP-chain corner cases themselves are covered by the RTL testbench):
 #   - WSIMD:                 the =1 edge (1 weight/cycle) up to 192
-#   - CHAINLEN = (SIMD+2)/3: 1, 2, 3, 6, 11
+#   - CHAINLEN = (SIMD+2)/3: 1, 2, 3, 6, 11 (DSP58)
 #   - TH:                    3 and 9 (high tiling)
 #   - NW < TH (slack):       non-dividing TH cases (NW=2 < TH=3, etc.),
 #                            including TH > PE*SIMD (WSIMD=1)
@@ -820,12 +820,9 @@ def test_fpgadataflow_rtl_mvau(
     if mem_mode == "external_mem" and pumpedMemory:
         pytest.skip("External memory has no on-chip weight memory to clock-pump")
 
-    # Tiled MVAU (TH>1) requires DSP58 (Versal) and is not combined with clock pumping.
-    if th > 1:
-        if part != "xcvc1902-vsva2197-2MP-e-S":
-            pytest.skip("Tiled MVAU (TH>1) is only supported on Versal (DSP58)")
-        if pumpedMemory or pumpedCompute:
-            pytest.skip("Tiled MVAU (TH>1) is not exercised with clock pumping")
+    # Tiled MVAU (TH>1) is not combined with clock pumping.
+    if th > 1 and (pumpedMemory or pumpedCompute):
+        pytest.skip("Tiled MVAU (TH>1) is not exercised with clock pumping")
 
     idt, wdt = idt_wdt
     # Create test input vector (produced by SWG)

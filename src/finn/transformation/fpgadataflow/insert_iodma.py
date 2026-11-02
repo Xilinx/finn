@@ -117,6 +117,10 @@ class InsertIODMA(Transformation):
         After this method returns, the IODMA node's streamWidth equals its
         intfWidth, making it a straight-through DMA with no internal width
         conversion.
+
+        Floorplan assigns these DWCs to the partition of their IODMA, so the
+        DMA and its DWC end up in the same kernel (as separate IPs, since the
+        free-running DWC cannot live inside the ap_ctrl_hs DMA function).
         """
         dma_inst = getCustomOp(dma_node)
         intfw = dma_inst.get_nodeattr("intfWidth")

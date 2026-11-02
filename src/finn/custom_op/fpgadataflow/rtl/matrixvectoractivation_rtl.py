@@ -171,6 +171,20 @@ class MVAU_rtl(MVAU, RTLBackend):
             mult_dsp = np.ceil(P / 4) * Q
         return int(mult_dsp)
 
+    def get_exp_compute_cycles(self):
+        exp_cycles = super().get_exp_compute_cycles()
+        th = self.get_nodeattr("TH")
+        if th > 1:
+            # The tiled MVU stalls after every NF*SF*TH beats to drain its compute
+            # pipeline (CORE_PIPELINE_DEPTH in mvu_vvu_axi.sv), i.e. once per group
+            # of TH input vectors. Uses the depth of the lane-sliced core, which is
+            # an upper bound for the shallower DSP58 INT8 core.
+            simd = self.get_nodeattr("SIMD")
+            n_vecs = np.prod(self.get_nodeattr("numInputVectors"))
+            drain = 4 + (simd - 1).bit_length() + (simd == 1) + 1
+            exp_cycles += (n_vecs // th) * drain
+        return int(exp_cycles)
+
     def instantiate_ip(self, cmd):
         # instantiate the RTL IP
         node_name = self.onnx_node.name
