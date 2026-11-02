@@ -139,28 +139,42 @@ module pad1d #(
 		end
 
 		//=== Output Register Stage =============================================
-		typedef fold_t  pad_folds_t[2**(1 + CNT_WIDTH)];
+		localparam int unsigned  MAX_PAD_FOLDS = MAX_PAD_TOKENS * FOLDS_PER_TOKEN;
+		localparam int unsigned  PAD_FOLD_IDX_WIDTH = MAX_PAD_FOLDS > 1? $clog2(MAX_PAD_FOLDS) : 1;
+		typedef logic [PAD_FOLD_IDX_WIDTH-1:0]  pad_fold_idx_t;
+		typedef fold_t  pad_folds_t[2][MAX_PAD_FOLDS];
 		function pad_folds_t INIT_PAD_FOLDS();
 			automatic pad_folds_t  f = '{default: 'x};
 			for(int unsigned  t = 0; t < PAD_LEFT_TOKENS; t++)
 				for(int unsigned  s = 0; s < FOLDS_PER_TOKEN; s++) begin
-					automatic cnt_t  c = int'(PAD_LEFT_TOKENS) * int'(FOLDS_PER_TOKEN) - 2 - cnt_t'(t * FOLDS_PER_TOKEN + s);
-					f[{1'b0, CNT_WIDTH'(c)}] = PAD_LEFT_DATA[t][s * SIMD +: SIMD];
+					f[0][t * FOLDS_PER_TOKEN + s] = PAD_LEFT_DATA[t][s * SIMD +: SIMD];
 				end
 			for(int unsigned  t = 0; t < PAD_RIGHT_TOKENS; t++)
 				for(int unsigned  s = 0; s < FOLDS_PER_TOKEN; s++) begin
-					automatic cnt_t  c = int'(PAD_RIGHT_TOKENS) * int'(FOLDS_PER_TOKEN) - 2 - cnt_t'(t * FOLDS_PER_TOKEN + s);
-					f[{1'b1, CNT_WIDTH'(c)}] = PAD_RIGHT_DATA[t][s * SIMD +: SIMD];
+					f[1][t * FOLDS_PER_TOKEN + s] = PAD_RIGHT_DATA[t][s * SIMD +: SIMD];
 				end
 			return  f;
 		endfunction
 		localparam pad_folds_t  PAD_FOLDS = INIT_PAD_FOLDS();
+		uwire pad_fold_idx_t  pad_fold_idx = pad_fold_idx_t'(
+			int'(phase_rpad? PAD_RIGHT_TOKENS : PAD_LEFT_TOKENS) * int'(FOLDS_PER_TOKEN)
+			- 2 - int'(Cnt)
+		);
 
 		fold_t  BDat = 'x;
 		logic   BVld = 0;
 
+		// The left padding of a sequence must not be emitted before the first input of that
+		// sequence is available. Otherwise, it could cause a deadlock in combination with the FINNLoop.
+		logic  SeqStart = 1;  // no output of the current sequence has been issued yet
+		uwire  lpad_wait = PAD_LEFT_TOKENS && phase_lpad && SeqStart && !(AVld || ivld);
+
 		uwire  bload = !BVld || ordy;
-		uwire  issue = bload && (!phase_thru || AVld || ivld);
+		uwire  issue = bload && (!phase_thru || AVld || ivld) && !lpad_wait;
+		always_ff @(posedge clk) begin
+			if(rst)  SeqStart <= 1;
+			else if(issue)  SeqStart <= Cnt[$left(Cnt)] && (Phase == NUM_PHASES-1);
+		end
 		always_ff @(posedge clk) begin
 			if(rst) begin
 				BDat <= 'x;
@@ -170,7 +184,7 @@ module pad1d #(
 				BVld <= issue;
 				if(issue) begin
 					BDat <= !phase_thru?
-						PAD_FOLDS[{!PAD_LEFT_TOKENS || phase_rpad, Cnt}] :
+						PAD_FOLDS[phase_rpad][pad_fold_idx] :
 						AVld? ADat : idat;
 				end
 			end
