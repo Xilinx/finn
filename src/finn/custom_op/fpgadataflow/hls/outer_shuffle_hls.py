@@ -62,6 +62,7 @@ class OuterShuffle_hls(OuterShuffle, HLSBackend):
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = [
             '#include "input_gen.hpp"',
+            '#include "tensor.hpp"',
             "#include <ap_int.h>",
             "#include <hls_stream.h>",
         ]
