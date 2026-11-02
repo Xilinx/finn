@@ -30,17 +30,27 @@
 import pytest
 
 import json
+import numpy as np
 import os
 import shutil
 import subprocess
 import wget
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.infer_shapes import InferShapes
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
-from finn.util.basic import make_build_dir
-from finn.util.test import load_test_checkpoint_or_skip
+from finn.core.onnx_exec import execute_onnx
+from finn.util.basic import get_vivado_version, make_build_dir
+from finn.util.test import (
+    get_example_input,
+    load_test_checkpoint_or_skip,
+    stage_hw_deployment,
+)
 
 target_clk_ns = 10
+# the CI hardware pipeline tests this board's bitfiles under ext_weights_build
+target_board = "AUP-ZU3_8GB"
 build_dir = os.environ["FINN_BUILD_DIR"]
 onnx_zip_url = "https://github.com/Xilinx/finn-examples"
 onnx_zip_url += "/releases/download/v0.0.1a/onnx-models-bnn-pynq.zip"
@@ -83,6 +93,24 @@ def verify_runtime_weights(folding_config_file, runtime_weights_dir):
         assert expected_file in runtime_weights_files
 
 
+def get_golden_io_pair(model_file, topology):
+    """Reference input and output from the ONNX model the bitfile is built from.
+    The input is in the model's own layout, an NCHW UINT8 image, and the output
+    is the TopK class index."""
+    model = ModelWrapper(model_file).transform(InferShapes())
+    iname = model.graph.input[0].name
+    oname = model.graph.output[0].name
+    x = get_example_input(topology).reshape(model.get_tensor_shape(iname))
+    y = execute_onnx(model, {iname: x})[oname]
+    return x, y
+
+
+def to_driver_input(x, topology):
+    """The driver takes the dataflow partition's input, NHWC for cnv and
+    flattened for tfc, rather than the model's NCHW image."""
+    return x.transpose(0, 2, 3, 1) if topology == "cnv" else x.reshape(1, -1)
+
+
 @pytest.mark.xdist_group(name="end2end_ext_weights")
 @pytest.mark.end2end
 @pytest.mark.parametrize("topology", ["cnv", "tfc"])
@@ -100,12 +128,20 @@ def test_end2end_ext_weights_download(topology):
 @pytest.mark.end2end
 @pytest.mark.parametrize("topology", ["cnv", "tfc"])
 def test_end2end_ext_weights_build(topology):
+    vivado_version = get_vivado_version()
+    if vivado_version is None or vivado_version < (2024, 1):
+        pytest.skip("AUP-ZU3 board requires at least Vivado 2024.1")
     model_file = get_checkpoint_name("download", topology)
     load_test_checkpoint_or_skip(model_file)
     test_data = os.environ["FINN_ROOT"] + "/src/finn/qnn-data/test_ext_weights"
     folding_config_file = test_data + "/" + topology + "-w2a2-extw.json"
     specialize_layers_config_file = test_data + "/specialize_layers_config_" + topology + ".json"
     output_dir = make_build_dir("test_end2end_" + topology + "_ext_weights_build")
+    # The folded network is checked against the source model before synthesis, so
+    # a folding config that breaks the network fails here rather than on the board.
+    x, y = get_golden_io_pair(model_file, topology)
+    np.save(output_dir + "/input.npy", x)
+    np.save(output_dir + "/expected_output.npy", y)
     cfg = build.DataflowBuildConfig(
         output_dir=output_dir,
         enable_build_pdb_debug=False,
@@ -114,8 +150,11 @@ def test_end2end_ext_weights_build(topology):
         folding_config_file=folding_config_file,
         specialize_layers_config_file=specialize_layers_config_file,
         synth_clk_period_ns=target_clk_ns,
-        board="ZCU104",
+        board=target_board,
         shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
+        verify_steps=[build_cfg.VerificationStepType.FOLDED_HLS_CPPSIM],
+        verify_input_npy=output_dir + "/input.npy",
+        verify_expected_output_npy=output_dir + "/expected_output.npy",
         generate_outputs=[
             build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
             build_cfg.DataflowOutputType.BITFILE,
@@ -124,6 +163,10 @@ def test_end2end_ext_weights_build(topology):
         ],
     )
     build.build_dataflow_cfg(model_file, cfg)
+    verify_dir = output_dir + "/verification_output"
+    assert os.path.isfile(verify_dir + "/verify_folded_hls_cppsim_0_SUCCESS.npy"), (
+        "folded cppsim does not match the source model, see %s" % verify_dir
+    )
     assert os.path.isfile(output_dir + "/deploy/bitfile/finn-accel.bit")
     assert os.path.isfile(output_dir + "/deploy/bitfile/finn-accel.hwh")
     assert os.path.isfile(output_dir + "/deploy/driver/driver.py")
@@ -132,3 +175,11 @@ def test_end2end_ext_weights_build(topology):
     if os.path.isdir(get_checkpoint_name("build", topology)):
         shutil.rmtree(get_checkpoint_name("build", topology))
     shutil.copytree(output_dir + "/deploy", get_checkpoint_name("build", topology))
+    # the board checks the bitfile's output on the same image against y
+    stage_hw_deployment(
+        output_dir + "/deploy",
+        target_board,
+        "ext_weights_%s_w2a2" % topology,
+        to_driver_input(x, topology),
+        y,
+    )
