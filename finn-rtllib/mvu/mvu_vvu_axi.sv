@@ -256,24 +256,24 @@ module mvu_vvu_axi #(
 	typedef logic [PE-1:0][ACCU_WIDTH-1:0]  dsp_p_t;
 	uwire  ovld;
 	uwire dsp_p_t  odat;
+
+	// DSP geometry and pipeline depth — shared by blkDsp and blkOutput.
+	localparam int unsigned  EFFECTIVE_SIMD = SIMD_UNEVEN && PUMPED_COMPUTE ? SIMD+1 : SIMD;
+	localparam int unsigned  DSP_SIMD = EFFECTIVE_SIMD/(PUMPED_COMPUTE+1);
+	localparam int unsigned  CHAINLEN  = (DSP_SIMD+2)/3;
+	localparam int unsigned  SEGLEN    = SEGMENTLEN == 0 ? CHAINLEN : SEGMENTLEN;
+	localparam int unsigned  MPS       = (CHAINLEN + SEGLEN-1)/SEGLEN;
+	localparam int unsigned  MLW       = WEIGHT_WIDTH + ACTIVATION_WIDTH - 1;
+	localparam int unsigned  A_DSP_W   = 25 + 2*(VERSION > 1);
+	localparam int unsigned  NUM_LANES = A_DSP_W == WEIGHT_WIDTH ? 1 : 1 + (A_DSP_W - !NARROW_WEIGHTS - WEIGHT_WIDTH) / MLW;
+	localparam bit           IS_INT8   = !IS_MVU || ((VERSION > 2) && (NUM_LANES <= 3) && (WEIGHT_WIDTH <= 8) && (ACTIVATION_WIDTH <= 9));
+	localparam int unsigned  CORE_PIPELINE_DEPTH =
+		IS_INT8 ? 2 + MPS :
+		/* else */ 4 + $clog2(DSP_SIMD) + (DSP_SIMD == 1) + 1;
+
 	if(1) begin : blkDsp
-		localparam int unsigned  EFFECTIVE_SIMD = SIMD_UNEVEN && PUMPED_COMPUTE ? SIMD+1 : SIMD;
-		localparam int unsigned  DSP_SIMD = EFFECTIVE_SIMD/(PUMPED_COMPUTE+1);
 		typedef logic [PE    -1:0][DSP_SIMD-1:0][WEIGHT_WIDTH    -1:0]  dsp_w_t;
 		typedef logic [ACT_PE-1:0][DSP_SIMD-1:0][ACTIVATION_WIDTH-1:0]  dsp_a_t;
-
-		// INT8 dispatch condition and pipeline depth — used by both drain
-		// counter (genTiledCompute) and core instantiation (genINT8/genSoftVec).
-		localparam int unsigned  CHAINLEN  = (DSP_SIMD+2)/3;
-		localparam int unsigned  SEGLEN    = SEGMENTLEN == 0 ? CHAINLEN : SEGMENTLEN;
-		localparam int unsigned  MPS       = (CHAINLEN + SEGLEN-1)/SEGLEN;
-		localparam int unsigned  MLW       = WEIGHT_WIDTH + ACTIVATION_WIDTH - 1;
-		localparam int unsigned  A_DSP_W   = 25 + 2*(VERSION > 1);
-		localparam int unsigned  NUM_LANES = A_DSP_W == WEIGHT_WIDTH ? 1 : 1 + (A_DSP_W - !NARROW_WEIGHTS - WEIGHT_WIDTH) / MLW;
-		localparam bit           IS_INT8   = !IS_MVU || ((VERSION > 2) && (NUM_LANES <= 3) && (WEIGHT_WIDTH <= 8) && (ACTIVATION_WIDTH <= 9));
-		localparam int unsigned  CORE_PIPELINE_DEPTH =
-			IS_INT8 ? 2 + MPS :
-			/* else */ 4 + $clog2(DSP_SIMD) + (DSP_SIMD == 1) + 1;
 
 		uwire  dsp_last;
 		uwire  dsp_zero;
@@ -450,7 +450,7 @@ module mvu_vvu_axi #(
 		// @todo	Push core selection decision entirely into mvu.sv.
 		// This currently duplicates the lane count computation from mvu.sv
 		// to intercept configurations that should map to the INT8 mode of DSP58.
-		// IS_INT8 and NUM_LANES are computed at blkDsp scope above.
+		// IS_INT8 and NUM_LANES are computed at enclosing scope above.
 		if(IS_INT8) begin : genINT8
 			initial $info("Sidestepping to INT8 mode of DSP58 for %0dx%0d.", WEIGHT_WIDTH, ACTIVATION_WIDTH);
 			mvu_vvu_8sx9_dsp58 #(
@@ -486,10 +486,6 @@ module mvu_vvu_axi #(
 
 	//- Output Path ---------------------------------------------------------
 	if(TH <= 1) begin : blkOutput
-		localparam int unsigned  CORE_PIPELINE_DEPTH =
-			VERSION == 3? 3 + (SEGMENTLEN == 0? 0 : ((SIMD+2)/3 -1)/SEGMENTLEN) :
-			/* else */    3 + $clog2(SIMD+1) + (SIMD == 1);
-
 		// This is conservative and could be divided by a guaranteed minimum output interval, e.g. MW/SIMD.
 		localparam int unsigned  MAX_IN_FLIGHT = CORE_PIPELINE_DEPTH;
 		typedef logic [PE-1:0][ACCU_WIDTH-1:0]  output_t;
