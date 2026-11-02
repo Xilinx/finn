@@ -1937,13 +1937,21 @@ class InferBinaryMatrixVectorActivation(Transformation):
                 model.set_initializer(mm_weight, 2 * W - 1)
                 model.set_tensor_datatype(mm_weight, wdt)
                 model.set_tensor_datatype(mm_input, idt)
-                # If mm_input is produced by a MultiThreshold, update its
-                # out_dtype so that InferDataTypes() preserves the BIPOLAR
-                # annotation and InferThresholdingLayer creates the HW node
-                # with outputDataType=BIPOLAR.
-                producer = model.find_producer(mm_input)
-                if producer is not None and producer.op_type == "MultiThreshold":
-                    getCustomOp(producer).set_nodeattr("out_dtype", "BIPOLAR")
+                # Switch the layer producing the activations back to BIPOLAR as
+                # well, so that InferDataTypes() preserves the BIPOLAR annotation.
+                # This is either a MultiThreshold, or a previous binary layer that
+                # already absorbed its MultiThreshold (MVAU) or was converted to
+                # Thresholding, possibly behind layout ops such as Im2Col/MaxPool.
+                act_producers = ["MultiThreshold", "MVAU", "Thresholding"]
+                chain = model.find_upstream(mm_input, lambda x: x.op_type in act_producers)
+                if chain and model.get_tensor_datatype(chain[-1].output[0]).bitwidth() == 1:
+                    producer = chain[-1]
+                    if producer.op_type == "MultiThreshold":
+                        getCustomOp(producer).set_nodeattr("out_dtype", "BIPOLAR")
+                    else:
+                        getCustomOp(producer).set_nodeattr("outputDataType", "BIPOLAR")
+                    for node in chain:
+                        model.set_tensor_datatype(node.output[0], idt)
                 # extract weight shape, note that ONNX and finn-hlslib
                 # make different assumptions about dim order here
                 # ONNX assumes W has (in, out) shape
