@@ -39,6 +39,8 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.util.basic import gen_finn_dt_tensor, roundup_to_integer_multiple
 from typing import Dict, Optional, Tuple
 
+from finn.resources import scratch
+from finn.resources.prepare import GOLDEN_FILES, golden_dir
 from finn.util.data_packing import finnpy_to_packed_bytearray
 
 # mapping from PYNQ board names to FPGA part names
@@ -143,14 +145,14 @@ def get_finn_root():
 
 
 # Golden reference design files the Versal PYNQ shell is built against
-pynq_golden_files = ["golden_ref.tcl", "golden_noc.ncr", "golden_routed.dcp"]
+pynq_golden_files = list(GOLDEN_FILES)
 
 
 def get_pynq_golden_dir(board):
     """Return the directory holding the golden reference design for a Versal PYNQ
     board."""
 
-    return os.path.join(get_finn_root(), "deps", "pynq_golden", board.lower())
+    return str(golden_dir(board))
 
 
 def fifo_rtl_files(abspath=True, gauge=False):
@@ -215,18 +217,17 @@ def get_rtlsim_timeout_error_message(threshold, cycles_estimate=None):
     )
 
 
+def tcl_string(value):
+    """Quote a value as one Tcl word, free of variable and command substitution."""
+    return '"%s"' % re.sub(r'([\\$\[\]"])', r"\\\1", str(value))
+
+
 def make_build_dir(prefix=""):
     """Creates a folder with given prefix to be used as a build dir.
     Use this function instead of tempfile.mkdtemp to ensure any generated files
-    will survive on the host after the FINN Docker container exits."""
-    try:
-        build_dir = os.environ["FINN_BUILD_DIR"]
-    except KeyError:
-        raise Exception(
-            """Environment variable FINN_BUILD_DIR must be set
-        correctly. Please ensure you have launched the Docker container correctly.
-        """
-        )
+    will survive on the host after the FINN Docker container exits. The parent is
+    FINN_BUILD_DIR, by default /tmp/finn_build_<uid>."""
+    build_dir = str(scratch())
     os.makedirs(build_dir, exist_ok=True)
     new_dir = tempfile.mkdtemp(prefix=prefix, dir=build_dir)
     os.chmod(new_dir, 0o755)

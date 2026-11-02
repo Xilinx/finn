@@ -1,0 +1,5 @@
+#!/bin/sh
+# Copyright (C) 2026, Advanced Micro Devices, Inc.
+# SPDX-License-Identifier: BSD-3-Clause
+# Run a command in the FINN container; see `docker/run --help` and docker/README.md.
+exec python3 "$(dirname "$0")/launcher.py" run "$@"

@@ -21,60 +21,16 @@ Options:
 """
 
 import argparse
+import importlib
 import os
 import shutil
 import subprocess
 import sys
-import sysconfig
-from pathlib import Path
-from typing import List, Tuple
+from typing import List
 
-
-def get_build_paths() -> Tuple[List[str], str, List[str]]:
-    """Get include paths and compiler for building the extension.
-
-    Returns:
-        Tuple of (include_dirs, compiler, extra_compile_args)
-    """
-    include_dirs = []
-
-    # Get Python include directory
-    python_include = sysconfig.get_path("include")
-    if python_include:
-        include_dirs.append(python_include)
-
-    # Try to get pybind11 include directory
-    # flake8: noqa
-    try:
-        import pybind11
-
-        pybind11_include = pybind11.get_include()
-        include_dirs.append(pybind11_include)
-
-        # Also get the user-specific include
-        pybind11_user_include = pybind11.get_include(user=True)
-        if pybind11_user_include != pybind11_include:
-            include_dirs.append(pybind11_user_include)
-    except ImportError:
-        # Will be caught later in prerequisites check
-        pass
-
-    # Get Xilinx Vivado include directory
-    xilinx_vivado = os.environ.get("XILINX_VIVADO")
-    if xilinx_vivado:
-        xilinx_include = os.path.join(xilinx_vivado, "data", "xsim", "include")
-        if os.path.exists(xilinx_include):
-            include_dirs.append(xilinx_include)
-
-    # Determine compiler
-    compiler = "g++"
-    if not shutil.which("g++") and shutil.which("clang++"):
-        compiler = "clang++"
-
-    # Compile flags
-    extra_compile_args = ["--std=c++17", "-Wall", "-O3", "-shared", "-fPIC"]
-
-    return include_dirs, compiler, extra_compile_args
+from finn.resources import _store
+from finn.xsi._build_config import LINK_ARGS, get_build_paths
+from finn.xsi.paths import build_dir, source_dir
 
 
 def check_prerequisites() -> List[str]:
@@ -98,7 +54,7 @@ def check_prerequisites() -> List[str]:
 
     # Check for pybind11
     try:
-        import pybind11
+        importlib.import_module("pybind11")
     except ImportError:
         errors.append("pybind11 not found. Please install it with: pip install pybind11")
 
@@ -115,21 +71,21 @@ def build_xsi(force: bool = False, verbose: bool = True) -> bool:
     Returns:
         bool: True if build successful
     """
-    finn_root = Path(os.environ["FINN_ROOT"])
-    xsi_path = finn_root / "finn_xsi"
+    xsi_path = build_dir()
 
-    if not xsi_path.exists():
+    if not source_dir().exists():
         print(f"Error: finn_xsi source not found at {xsi_path}")
         return False
 
     # Check if already built
+    xsi_so = xsi_path / "xsi.so"
+    stale = force or xsi_so.exists()
     if not force:
-        xsi_so = xsi_path / "xsi.so"
         if xsi_so.exists():
             # Try importing to see if it works
             sys.path.insert(0, str(xsi_path))
             try:
-                import xsi
+                importlib.import_module("xsi")
 
                 sys.path.pop(0)
                 if verbose:
@@ -148,7 +104,7 @@ def build_xsi(force: bool = False, verbose: bool = True) -> bool:
     include_dirs, compiler, compile_args = get_build_paths()
 
     # Source files
-    source_files = ["xsi_bind.cpp", "xsi_finn.cpp"]
+    source_files = [str(source_dir() / name) for name in ("xsi_bind.cpp", "xsi_finn.cpp")]
 
     # Build command
     cmd = [compiler] + compile_args
@@ -164,13 +120,23 @@ def build_xsi(force: bool = False, verbose: bool = True) -> bool:
     cmd.extend(source_files)
 
     # Link libraries
-    cmd.extend(["-ldl", "-lrt"])
+    cmd.extend(LINK_ARGS)
 
     if verbose:
         print(f"Build command: {' '.join(cmd)}")
 
     # Run the compilation
-    result = subprocess.run(cmd, cwd=xsi_path, capture_output=True, text=True)
+    with _store.locked(xsi_path.parent, xsi_path.name):
+        if not stale and xsi_so.exists():
+            # A concurrent cold start completed this build while we waited.
+            if verbose:
+                print("xsi.so was built by a concurrent setup.")
+            return True
+        xsi_path.mkdir(parents=True, exist_ok=True)
+        cmd[cmd.index("-o") + 1] = "xsi.so.tmp"
+        result = subprocess.run(cmd, cwd=xsi_path, capture_output=True, text=True)
+        if result.returncode == 0:
+            (xsi_path / "xsi.so.tmp").replace(xsi_path / "xsi.so")
 
     if result.returncode != 0:
         print("Build failed!")
@@ -196,8 +162,7 @@ def build_xsi(force: bool = False, verbose: bool = True) -> bool:
 
 def verify_installation() -> bool:
     """Verify that finn_xsi can be imported and works."""
-    finn_root = Path(os.environ["FINN_ROOT"])
-    xsi_path = finn_root / "finn_xsi"
+    xsi_path = build_dir()
 
     # Check if xsi.so exists
     xsi_so = xsi_path / "xsi.so"
@@ -206,21 +171,22 @@ def verify_installation() -> bool:
         return False
 
     # Temporarily add to path
+    sys.path.insert(0, str(source_dir()))
     sys.path.insert(0, str(xsi_path))
 
     try:
         # Import the compiled C++ extension
-        import xsi
+        importlib.import_module("xsi")
 
         print("\n✓ xsi C++ extension module imports successfully")
 
         # Import the Python package
-        import finn_xsi.adapter
+        adapter = importlib.import_module("finn_xsi.adapter")
 
         print("✓ finn_xsi.adapter imports successfully")
 
         # Check for basic functionality
-        if hasattr(finn_xsi.adapter, "rtlsim_multi_io"):
+        if hasattr(adapter, "rtlsim_multi_io"):
             print("✓ RTL simulation functions available")
 
         return True
@@ -230,12 +196,12 @@ def verify_installation() -> bool:
         return False
     finally:
         sys.path.pop(0)
+        sys.path.remove(str(source_dir()))
 
 
 def clean_build() -> bool:
     """Clean build artifacts."""
-    finn_root = Path(os.environ["FINN_ROOT"])
-    xsi_path = finn_root / "finn_xsi"
+    xsi_path = build_dir()
 
     print(f"Cleaning build artifacts in {xsi_path}...")
 

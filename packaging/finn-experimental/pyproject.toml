@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools==68.2.2", "wheel==0.45.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "finn-experimental"
+version = "0.0.0"
+description = "Namespace packaging adapter for pinned upstream FINN experimental sources"
+license = {text = "BSD-3-Clause"}
+dependencies = ["deap", "mip", "networkx"]
+
+[tool.uv]
+cache-keys = [{file = "pyproject.toml"}, {file = "setup.py"}, {file = "../../src/finn/resources.toml"}]

@@ -38,7 +38,7 @@ from typing import Any, Callable, Dict, Tuple
 
 from finn import xsi
 
-SimEngine = xsi.SimEngine if xsi.is_available() else None
+SimEngine = xsi.SimEngine
 
 
 def parse_fifo_log(path: str) -> Dict[str, Any]:

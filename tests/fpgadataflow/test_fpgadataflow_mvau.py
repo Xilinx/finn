@@ -70,7 +70,7 @@ from finn.transformation.streamline.round_thresholds import RoundAndClipThreshol
 from finn.util.basic import is_versal
 from finn.util.test import get_hls_synth_interval, make_runtime_weight_stream
 
-finnxsi = xsi if xsi.is_available() else None
+finnxsi = xsi
 
 
 def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):

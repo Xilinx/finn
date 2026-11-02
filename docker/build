@@ -1,0 +1,5 @@
+#!/bin/sh
+# Copyright (C) 2026, Advanced Micro Devices, Inc.
+# SPDX-License-Identifier: BSD-3-Clause
+# Build the FINN image; see `docker/build --help` and docker/README.md.
+exec python3 "$(dirname "$0")/launcher.py" build "$@"

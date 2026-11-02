@@ -50,7 +50,7 @@ from finn.util.create import adjacency_list
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 from finn.util.rtlsim import dat_file_to_numpy_array, mlo_prehook_func_factory
 
-finnxsi = xsi if xsi.is_available() else None
+finnxsi = xsi
 
 
 def collect_ip_dirs(model, ipstitch_path):

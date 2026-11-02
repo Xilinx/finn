@@ -56,7 +56,7 @@ Now you can invoke the simple dataflow build as follows:
 
 ::
 
-  ./run-docker.sh build_dataflow <path/to/dataflow_build_dir/>
+  ./docker/run --fpga --volume /path/to/model:/path/to/model -- build_dataflow /path/to/model
 
 Depending on the chosen output products, the dataflow build will run for a while
 as it goes through the build phases:
@@ -225,7 +225,7 @@ Advanced mode
 In other cases, you may want to have more control over the build process to
 implement your own FINN flow with a different combination of compilation steps,
 applying preprocessing to the model, calling custom transformations and so on.
-This is possible by using the `build_custom` entry as follows:
+Mount the custom build directory and execute its Python script as follows:
 
 1. Create a new folder for the custom build. It's best to keep this folder
 outside the FINN repo folder for cleaner separation. Let's call this folder
@@ -246,10 +246,10 @@ You can launch the desired custom build flow using:
 
 ::
 
- ./run-docker.sh build_custom <path/to/custom_build_dir> <name-of-build-flow>
+ ./docker/run --fpga --volume /path/to/model:/path/to/model --workdir /path/to/model -- python <name-of-build-flow>.py
 
-This will mount the specified folder into the FINN Docker container and launch
-the build flow. If ``<name-of-build-flow>`` is not specified it will default to ``build``
-and thus execute ``build.py``. If it is specified, it will be ``<name-of-build-flow>.py``.
+This mounts the specified folder into the FINN Docker container and executes
+the explicitly named Python file. For example, use ``python build.py`` to run
+``build.py`` in that directory.
 
 If you would like to learn more about advance builder settings, please have a look at `our tutorial about this topic <https://github.com/Xilinx/finn/blob/main/notebooks/advanced/4_advanced_builder_settings.ipynb>`_.

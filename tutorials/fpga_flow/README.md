@@ -39,13 +39,13 @@ export FINN_ROOT=/home/foo/finn
 Then, change to `finn` install directory and invoke the build as follows:
 ```shell
 cd ${FINN_ROOT}
-./run-docker.sh build_custom ${FINN_ROOT}/tutorials/fpga_flow/
+./docker/run --fpga --workdir "${FINN_ROOT}/tutorials/fpga_flow" -- python build.py
 ```
 
 Alternatively, since the tutorials folder is already part of the FINN compiler installation, you can invoke it from within the Docker container:
 ```shell
 cd ${FINN_ROOT}
-./run-docker.sh
+./docker/run --fpga
 cd tutorials/fpga_flow
 python build.py
 ```

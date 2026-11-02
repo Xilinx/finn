@@ -128,7 +128,7 @@ else
     echo "  - wget, unzip, zip, rsync"
     echo ""
     echo "Python:"
-    echo "  - python3 (3.9 or higher)"
+    echo "  - python3 (3.12)"
     echo "  - python3-pip"
     echo "  - python3-venv"
     echo "  - python3-dev (development headers)"

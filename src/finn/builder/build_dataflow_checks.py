@@ -259,7 +259,7 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                 Severity.ERROR,
                 not missing,
                 f"VCK190 golden reference files missing from {golden_dir}: {', '.join(missing)}",
-                "Launch the container with FINN_VCK190_GOLDEN=1 ./run-docker.sh to build them "
+                "Launch the container with FINN_VCK190_GOLDEN=1 ./docker/run --fpga to build them "
                 "(needs Vivado, takes a while on first launch)",
             )
         )

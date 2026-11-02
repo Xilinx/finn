@@ -59,34 +59,30 @@ further detailed below:
 Docker images
 ===============
 
-If you want to add new dependencies (packages, repos) to FINN it is
-important to understand how we handle this in Docker.
+``pyproject.toml`` declares Python dependencies and groups; ``uv.lock`` records
+exact versions and Git selections. Use uv 0.10.0 for updates and commit both
+files. All groups resolve together. Run ``uv sync --locked`` for development.
 
-The finn.dev image is built and launched as follows:
+``docker/build`` uses Bake to prepare staged system, Python, runtime and
+board-resource layers. Development tags hash environment inputs rather than
+ordinary FINN source files. Ubuntu 24.04 and Python 3.12 remain the tested base.
+``docker/run`` mounts the checkout, installs FINN editable without dependencies,
+and runs the requested argument vector. Failed preparation stops the command.
 
-1. run-docker.sh launches fetch-repos.sh to checkout dependency git repos at correct commit hashes (unless ``FINN_SKIP_DEP_REPOS=1``)
+Configured host tools and licences are mounted automatically; ``--fpga`` makes
+them a requirement and ``--no-tools`` leaves them out. Host discovery is the
+standard-library ``docker/launcher.py`` (Python 3.10 or later); native activation
+and containers share ``docker/finn-toolchain.sh``. ``--runtime xrt`` selects
+accelerator userspace independently of host tools. Runtime manifests also
+support supplied SLASH packages. Board kernel drivers remain host responsibilities.
 
-2. run-docker.sh launches the build of the Docker image with `docker build` (unless ``FINN_DOCKER_PREBUILT=1``). Docker image is built from docker/Dockerfile.finn using the following steps:
-
-  * Base: Ubuntu 22.04 LTS image
-  * Set up apt dependencies: apt-get install a few packages for verilator and
-  * Set up pip dependencies: Python packages FINN depends on are listed in requirements.txt, which is copied into the container and pip-installed. Some additional packages (such as Jupyter and Netron) are also installed.
-  * Install XRT deps, if needed: For Vitis builds we need to install the extra dependencies for XRT. This is only triggered if the image is built with the INSTALL_XRT_DEPS=1 argument.
-
-3. Docker image is ready, run-docker.sh can now launch a container from this image with `docker run`. It sets up certain environment variables and volume mounts:
-
-  * Vivado/Vitis is mounted from the host into the container (on the same path).
-  * The finn root folder is mounted into the container (on the same path). This allows modifying the source code on the host and testing inside the container.
-  * The build folder is mounted under /tmp/finn_dev_username (can be overridden by defining FINN_HOST_BUILD_DIR). This will be used for generated files. Mounting on the host allows easy examination of the generated files, and keeping the generated files after the container exits.
-  * Various environment variables are set up for use inside the container. See the run-docker.sh script for a complete list.
-
-4. Entrypoint script (docker/finn_entrypoint.sh) upon launching container performs the following:
-
-  * Source Vivado settings64.sh from specified path to make vivado and vitis_hls available.
-  * Download board files into the finn root directory, unless they already exist or ``FINN_SKIP_BOARD_FILES=1``.
-  * Source Vitis settings64.sh if Vitis is mounted.
-
-5. Depending on the arguments to run-docker.sh a different application is launched. run-docker.sh notebook launches a Jupyter server for the tutorials, whereas run-docker.sh build_custom and run-docker.sh build_dataflow trigger a dataflow build (see documentation). Running without arguments yields an interactive shell. See run-docker.sh for other options.
+External source trees live in verified resource caches, declared in
+``src/finn/resources.toml``. Use ``finn-resources update NAME --ref REF`` to
+change a pin and its digest; use ``FINN_RESOURCES_<NAME>`` for local development.
+Persistent, content-keyed state (resources, XSI builds, golden references) lives
+in ``FINN_HOME`` (default ``~/.finn``); build output lives in the disposable
+``FINN_BUILD_DIR`` (default ``/tmp/finn_build_<uid>``). See ``docker/README.md``
+and ``ci/README.md`` for the full variable list, migration and validation contracts.
 
 (Re-)launching builds outside of Docker
 ========================================
@@ -154,14 +150,14 @@ by:
 
 ::
 
-  bash ./run-docker.sh test
+  ./docker/run --fpga -- python -m pytest
 
 There is a quicker variant of the test suite that skips the tests marked as
 requiring Vivado or as slow-running tests:
 
 ::
 
-  bash ./run-docker.sh quicktest
+  ./docker/run -- bash docker/quicktest.sh
 
 When developing a new feature it is useful to be able to run just a single test,
 or a group of tests that e.g. share the same prefix.
@@ -183,7 +179,7 @@ Finally, the full test suite with appropriate parallelization can be run inside 
 
 ::
 
-  quicktest.sh full
+  bash docker/quicktest.sh full
 
 See more options on pytest at https://docs.pytest.org/en/stable/usage.html.
 

@@ -1,15 +1,16 @@
 #!/bin/bash
 
-: ${PYTEST_PARALLEL=auto}
+set -eo pipefail
+: "${PYTEST_PARALLEL:=auto}"
 
-cd $FINN_ROOT
+cd "$FINN_ROOT"
 # check if command line argument is empty or not present
-if [ -z $1 ]; then
+if [ -z "${1:-}" ]; then
   echo "Running quicktest: not (vivado or slow or board or bnn) with pytest-xdist"
   pytest -m 'not (vivado or slow or vitis or board or notebooks or sanity_bnn or bnn_aup_zu3 or bnn_zcu104 or bnn_kv260 or bnn_u55c)' --dist=loadgroup -n $PYTEST_PARALLEL
 elif [ $1 = "verify" ]; then
   echo "Running verification tests (minimal install verification with Vivado)"
-  $FINN_ROOT/scripts/quicktest-local.sh vivado
+  "$FINN_ROOT/scripts/quicktest-local.sh" vivado
 elif [ $1 = "main" ]; then
   echo "Running main test suite: not (rtlsim or end2end) with pytest-xdist"
   pytest -k 'not (rtlsim or end2end)' --dist=loadgroup -n $PYTEST_PARALLEL
@@ -21,11 +22,11 @@ elif [ $1 = "end2end" ]; then
   pytest -k end2end
 elif [ $1 = "full" ]; then
   echo "Running full test suite, each step with appropriate parallelism"
-  $0 main;
-  $0 rtlsim;
-  $0 end2end;
+  "$0" main
+  "$0" rtlsim
+  "$0" end2end
 else
-  echo "Unrecognized argument to quicktest.sh"
+  echo "Unrecognized argument to quicktest.sh" >&2
   echo "Available options:"
   echo "  (no arg)      - Run quicktest (non-vivado, non-slow tests)"
   echo "  verify        - Minimal install verification with Vivado tests"
@@ -33,4 +34,5 @@ else
   echo "  rtlsim        - RTL simulation tests"
   echo "  end2end       - End-to-end tests"
   echo "  full          - Full test suite (main + rtlsim + end2end)"
+  exit 2
 fi

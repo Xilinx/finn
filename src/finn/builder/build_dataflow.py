@@ -50,6 +50,7 @@ from finn.builder.build_dataflow_steps import (
     _maybe_enable_verify_behavioral,
     build_dataflow_step_lookup,
 )
+from finn.resources import scratch
 
 
 # adapted from https://stackoverflow.com/a/39215961
@@ -233,7 +234,7 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
         )
         model = ModelWrapper(intermediate_model_filename)
     assert type(model) is ModelWrapper
-    finn_build_dir = os.environ["FINN_BUILD_DIR"]
+    finn_build_dir = str(scratch())
 
     print("Intermediate outputs will be generated in " + finn_build_dir)
     print("Final outputs will be generated in " + cfg.output_dir)

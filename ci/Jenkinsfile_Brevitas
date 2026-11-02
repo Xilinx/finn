@@ -12,14 +12,14 @@ pipeline {
       steps {
         catchError(stageResult: 'FAILURE') {
           script {
+            // Clear reports even if Docker/overlay preparation fails before pytest.
+            sh 'rm -rf -- brevitas_suite.xml brevitas_suite.html brevitas-provenance coverage_brevitas_suite'
             cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
 
-            // Ensure the desired version of brevitas gets pulled
-            updateFetchRepos()
+            // The committed lock stays unchanged; the command selects an overlay.
 
-            // Multiple markers with pytest needs its own script
-            createMultiMarkerScript("brevitas_export", "${env.TEST_NAME}", "--cov --cov-report=html:coverage_${env.TEST_NAME}")
-            sh './run-docker.sh ./run-tests.sh'
+            sh 'FINN_RUNTIMES=${FINN_RUNTIMES:-xrt} ./docker/run --env BREVITAS_COMMIT --env PYTHONPATH=ci -- bash ci/scripts/brevitas_candidate.sh --junitxml=brevitas_suite.xml --html=brevitas_suite.html --self-contained-html --cov --cov-report=html:coverage_brevitas_suite'
+            archiveArtifacts artifacts: 'brevitas-provenance/*', allowEmptyArchive: false
 
             // Stash the test results file(s)
             stash name: env.TEST_NAME, includes: "${env.TEST_NAME}.xml,${env.TEST_NAME}.html"
@@ -30,6 +30,12 @@ pipeline {
             // Archive coverage report if successful
             archiveSuccessfulStage(env.BREVITAS, "coverage_${env.TEST_NAME}")
           }
+        }
+      }
+      post {
+        always {
+          junit testResults: 'brevitas_suite.xml', allowEmptyResults: true
+          archiveArtifacts artifacts: 'brevitas_suite.html,brevitas-provenance/*,coverage_brevitas_suite/**/*', allowEmptyArchive: true
         }
       }
     }
@@ -48,23 +54,8 @@ void cleanPreviousBuildFiles(String buildDir) {
   }
 }
 
-void createMultiMarkerScript(String markers, String testResultsFilename, String additionalOptions) {
-  // Passing multiple markers when running ./run-docker.sh does not work with bash.
-  // Therefore, create a script to maintain the single quotes that surround the markers
-  sh """echo "#!/bin/bash
-python -m pytest -m \'${markers}\' --junitxml=${testResultsFilename}.xml --html=${testResultsFilename}.html --self-contained-html ${additionalOptions}" >> run-tests.sh
-    """
-
-  // Give permissions to script
-  sh 'chmod 777 run-tests.sh'
-}
-
 void archiveSuccessfulStage(String stageEnvVariableSet, String folder) {
   if (stageEnvVariableSet) {
     archiveArtifacts artifacts: "${folder}/**/*"
   }
-}
-
-void updateFetchRepos() {
-  sh "sed -i -e 's/BREVITAS_COMMIT=\".*\"/BREVITAS_COMMIT=\"${env.BREVITAS_COMMIT}\"/g' fetch-repos.sh"
 }

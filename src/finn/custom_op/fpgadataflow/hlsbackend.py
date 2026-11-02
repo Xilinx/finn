@@ -30,18 +30,19 @@ import glob
 import numpy as np
 import os
 import re
+import shlex
 import subprocess
 import warnings
 from abc import ABC, abstractmethod
 from qonnx.core.datatype import DataType
 
-from finn import xsi
+from finn import resources, xsi
 from finn.custom_op.fpgadataflow import templates
-from finn.util.basic import CppBuilder, make_build_dir
+from finn.util.basic import CppBuilder, make_build_dir, tcl_string
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 from finn.util.hls import CallHLS
 
-finnxsi = xsi if xsi.is_available() else None
+finnxsi = xsi
 
 
 class HLSBackend(ABC):
@@ -162,7 +163,9 @@ class HLSBackend(ABC):
         self.code_gen_dict["$DEFAULT_DIRECTIVES$"] = self.ipgen_default_directives()
         self.code_gen_dict["$EXTRA_DIRECTIVES$"] = self.ipgen_extra_directives()
 
-        template = templates.ipgentcl_template
+        template = templates.ipgentcl_template.replace(
+            "$HLSLIB$", tcl_string(resources.path("hlslib"))
+        )
 
         for key in self.code_gen_dict:
             # transform list into long string separated by '\n'
@@ -265,7 +268,7 @@ class HLSBackend(ABC):
         # to enable additional debug features please uncommand the next line
         # builder.append_includes("-DDEBUG")
         builder.append_includes("-I$FINN_ROOT/src/finn/qnn-data/cpp")
-        builder.append_includes("-I$FINN_ROOT/deps/finn-hlslib")
+        builder.append_includes(shlex.quote("-I" + resources.path("hlslib")))
         builder.append_includes("-I$FINN_ROOT/custom_hls")
         builder.append_includes(f"-I{hls_path}/include")
         builder.append_includes("--std=c++17")

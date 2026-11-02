@@ -145,9 +145,37 @@ def _prune_numbered(
 
 def prune_images(shared_dir, job_key, current_build, retain_n, max_age_days, dry_run=False):
     parent = os.path.join(shared_dir, job_key)
-    return _prune_numbered(
+    matched = _prune_numbered(
         parent, current_build, retain_n, max_age_days, dry_run, tag="prune-images"
     )
+    # SIGKILL and host crashes cannot run publication cleanup. Reap only staging
+    # trees with no writes for a full day, regardless of numbered-build retention.
+    if os.path.isdir(parent):
+        cutoff = time.time() - 24 * 60 * 60
+        for name in os.listdir(parent):
+            path = os.path.join(parent, name)
+            if (
+                not name.startswith(".finn-image-")
+                or not os.path.isdir(path)
+                or os.path.islink(path)
+            ):
+                continue
+            try:
+                modified = os.path.getmtime(path)
+                for directory, dirs, files in os.walk(path):
+                    for item in dirs + files:
+                        modified = max(modified, os.path.getmtime(os.path.join(directory, item)))
+                if modified >= cutoff:
+                    continue
+                matched += 1
+                if dry_run:
+                    print("ci_sharding prune-images: would delete stale publication %s" % path)
+                else:
+                    print("ci_sharding prune-images: deleting stale publication %s" % path)
+                    robust_rmtree(path)
+            except FileNotFoundError:
+                pass
+    return matched
 
 
 def prune_artifacts(artifact_dir, job_key, current_build, retain_n, max_age_days, dry_run=False):

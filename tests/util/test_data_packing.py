@@ -103,7 +103,7 @@ def test_npy2apintstream(test_shape, dtype):
     cmd_compile = """
 g++ -o test_npy2apintstream test.cpp $FINN_ROOT/src/finn/qnn-data/cpp/cnpy.cpp \
 -I{}/include -I{}/include -I$FINN_ROOT/src/finn/qnn-data/cpp \
--I$FINN_ROOT/deps/finn-hlslib \
+-I"$FINN_HLSLIB_PATH" \
 --std=c++17 -lz""".format(
         os.environ["HLS_PATH"], os.environ["VITIS_PATH"]
     )

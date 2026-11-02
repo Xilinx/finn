@@ -1,0 +1,21 @@
+# Environment inputs; ordinary FINN edits reuse development layers.
+.dockerignore
+docker-bake.hcl
+docker/image-inputs.txt
+docker/Dockerfile.finn
+packaging/finn-experimental/*.py
+packaging/finn-experimental/pyproject.toml
+pyproject.toml
+uv.lock
+.uv-version
+src/finn/resources/*.py
+src/finn/resources.toml
+docker/finn_entrypoint.sh
+docker/copy-source.sh
+docker/identity.py
+docker/toolchain-shim
+docker/finn-bashenv.sh
+docker/finn-toolchain.sh
+docker/install-runtimes.sh
+docker/runtimes/*.env
+# Selected supply manifests contribute their FILES (docker/launcher.py).

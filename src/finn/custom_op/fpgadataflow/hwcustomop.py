@@ -36,7 +36,7 @@ from qonnx.util.basic import get_by_name, roundup_to_integer_multiple
 from finn import xsi
 from finn.util.basic import get_watchdog_timeout_cycles, is_versal
 
-finnxsi = xsi if xsi.is_available() else None
+finnxsi = xsi
 
 
 class HWCustomOp(CustomOp):

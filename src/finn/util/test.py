@@ -27,8 +27,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import pytest
-
 import importlib_resources as importlib
 import numpy as np
 import onnx
@@ -110,6 +108,8 @@ def load_test_checkpoint_or_skip(filename):
         return model
     else:
         warnings.warn(filename + " not found from previous test step, skipping")
+        import pytest  # noqa: PLC0415
+
         pytest.skip(filename + " not found from previous test step, skipping")
 
 

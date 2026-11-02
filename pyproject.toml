@@ -1,0 +1,164 @@
+[build-system]
+requires = ["setuptools==68.2.2", "wheel==0.45.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "finn"
+version = "0.0.0"
+description = "A Framework for Fast, Scalable Quantized Neural Network Inference"
+readme = "README.md"
+license = {text = "BSD-3-Clause"}
+authors = [{name = "Yaman Umuroglu"}, {name = "Jakoba Petri-Koenig", email = "jakoba.petri-koenig@amd.com"}]
+requires-python = ">=3.12,<3.13"
+classifiers = ["Development Status :: 4 - Beta", "Programming Language :: Python", "Operating System :: POSIX :: Linux"]
+dependencies = [
+    "bitstring==4.2.3",
+    "clize==5.0.1",
+    "dataclasses-json==0.5.7",
+    "numpy==1.26.4",
+    "onnx==1.22.0",
+    "onnxoptimizer",
+    "onnxruntime==1.28.0",
+    "onnxscript==0.6.2",
+    "protobuf==5.29.6",
+    "psutil==5.9.4",
+    "pybind11==2.11.1",
+    "scipy==1.11.4",
+    "sigtools==4.0.1",
+    "toposort==1.7.0",
+    "vcdvcd==1.0.5",
+    "torch==2.8.0",
+    "brevitas",
+    "torchvision==0.23.0",
+    "importlib-resources==6.1.0",
+    "qonnx",
+]
+
+[project.urls]
+Homepage = "https://xilinx.github.io/finn/"
+Documentation = "https://finn.readthedocs.io/"
+
+[project.scripts]
+build_dataflow = "finn.builder.build_dataflow:main"
+finn-resources = "finn.resources._cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+finn = ["resources.toml"]
+
+[dependency-groups]
+test = [
+    "setuptools==68.2.2",
+    "wheel==0.45.1",
+    "dataset-loading",
+    "finn-experimental",
+    "pytest==7.4.4",
+    "pytest-dependency==0.5.1",
+    "pytest-xdist[setproctitle]==3.2.0",
+    "pytest-parallel==0.1.1",
+    "torchaudio==2.8.0",
+    "wget==3.2",
+    "deap==1.4.1",
+    "mip==1.13.0",
+    "networkx==2.8",
+    "future-annotations==1.0.0",
+    "dependencies==2.0.1",
+    "tokenize-rt==4.2.1",
+]
+ci = [
+    {"include-group" = "test"},
+    {"include-group" = "notebooks"},
+    "pytest-metadata==3.1.1",
+    "pytest-html==4.1.1",
+    "pytest-html-merger==0.1.0",
+    "pytest-cov==4.1.0",
+]
+notebooks = [
+    "gspread==3.6.0",
+    "ipython==8.18.1",
+    "ipykernel==6.29.0",
+    "markupsafe==2.1.5",
+    "matplotlib==3.8.2",
+    "netron",
+    "pandas==2.1.4",
+    "scikit-learn==1.4.0",
+    "tqdm==4.64.1",
+    "jupyter==1.0.0",
+    "pygments==2.17.2",
+    "pyyaml==6.0.1",
+]
+docs = [
+    {"include-group" = "ci"},
+    "docutils==0.18.1",
+    "sphinx==5.0.2",
+    "sphinx-rtd-theme==2.0.0",
+]
+# The PyTorch build, selected by the index each group's sources name.
+cpu = ["torch==2.8.0", "torchvision==0.23.0", "torchaudio==2.8.0"]
+cuda = ["torch==2.8.0", "torchvision==0.23.0", "torchaudio==2.8.0"]
+dev = [
+    {"include-group" = "docs"},
+    "pre-commit==3.5.0",
+    "pyscaffold==4.6",
+    "setupext-janitor>=1.1.2",
+    "setuptools==68.2.2",
+    "wheel==0.45.1",
+    "build==1.2.2.post1",
+    "pip",
+]
+
+[tool.uv]
+required-version = "==0.10.0"
+default-groups = ["dev", "cpu"]
+conflicts = [[{group = "cpu"}, {group = "cuda"}]]
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+build-constraint-dependencies = ["setuptools==68.2.2", "wheel==0.45.1"]
+constraint-dependencies = ["anyio<4.13", "setuptools==68.2.2", "wheel==0.45.1"]
+# The upstream namespace-only package cannot produce a usable wheel. The
+# adapter below builds its verified, unchanged sources with current metadata.
+
+[tool.uv.sources]
+qonnx = {git = "https://github.com/fastmachinelearning/qonnx.git", rev = "4c1f9b4452bb90e743f3bd7e182603fa5096af06"}
+brevitas = {git = "https://github.com/Xilinx/brevitas.git", rev = "06133f4778ecedc77020b5e778022cf4e805bc86"}
+finn-experimental = {path = "packaging/finn-experimental"}
+dataset-loading = {git = "https://github.com/fbcotter/dataset_loading.git", rev = "5b9faa226e5f7c857579d31cdd9acde8cdfb816f"}
+# PyTorch builds: CPU by default; `uv sync --no-group cpu --group cuda` selects CUDA.
+torch = [{index = "pytorch-cpu", group = "cpu"}, {index = "pytorch-cu126", group = "cuda"}]
+torchvision = [{index = "pytorch-cpu", group = "cpu"}, {index = "pytorch-cu126", group = "cuda"}]
+torchaudio = [{index = "pytorch-cpu", group = "cpu"}, {index = "pytorch-cu126", group = "cuda"}]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.pytest.ini_options]
+addopts = "--verbose"
+testpaths = ["tests"]
+norecursedirs = ["dist", "build", ".tox", ".venv"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "vivado: mark tests that require Vivado or Vivado HLS",
+    "vitis: mark tests that require Vitis",
+    "board: mark tests that require a PYNQ board",
+    "brevitas_export : mark tests that test brevitas export functionality",
+    "streamline: mark tests that test streamlining functionality",
+    "util: mark tests that test util functions",
+    "transform: mark tests that test transformations (before hls layers)",
+    "fpgadataflow: mark tests related to hls layers",
+    "end2end: mark tests that run the end2end flow",
+    "notebooks: mark tests that execute all Jupyter notebooks",
+    "sanity_bnn: mark tests that execute the sanity BNN test",
+    "bnn_u55c: mark tests that execute U55C BNN tests",
+    "bnn_kv260: mark tests that execute KV260 BNN tests",
+    "bnn_aup_zu3: mark tests that execute AUP-ZU3 BNN tests",
+    "bnn_zcu104: mark tests that execute ZCU104 BNN tests",
+    "finn_examples: mark tests that run finn examples",
+]
