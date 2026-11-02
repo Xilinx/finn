@@ -145,6 +145,14 @@ def expected_resources(pad_left, pad_right):
             ),
             id="INT6-negative-left",
         ),
+        pytest.param(
+            (
+                DataType["FLOAT32"],
+                np.asarray([[[0.5, -1.5, 2.25, -0.125]]], dtype=np.float32),
+                np.asarray([[[3.5, -4.0, 0.75, 1.125]]], dtype=np.float32),
+            ),
+            id="FLOAT32-fractional",
+        ),
     ],
 )
 # execution mode
