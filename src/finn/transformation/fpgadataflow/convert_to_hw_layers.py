@@ -240,18 +240,21 @@ class InferThresholdingLayer(Transformation):
 
                 odt = model.get_tensor_datatype(thl_output)
                 scale = getCustomOp(node).get_nodeattr("out_scale")
-                assert scale == 1.0, (
+                actval = getCustomOp(node).get_nodeattr("out_bias")
+                # binary->bipolar is achieved by reinterpretation in HW, so the
+                # scale/bias of a bipolar MultiThreshold map to ActVal=0
+                bipolar_ok = odt == DataType["BIPOLAR"] and scale == 2.0 and actval == -1
+                assert scale == 1.0 or bipolar_ok, (
                     f"{node.name}: MultiThreshold out_scale must be 1 for HW conversion. "
                     f"Hint: Consider running ExtractMultiThresholdScaleBias() transformation "
                     f"as a custom step to extract scale/bias into separate Add/Mul nodes."
                 )
-                actval = getCustomOp(node).get_nodeattr("out_bias")
                 assert int(actval) == actval, (
                     f"{node.name}: MultiThreshold out_bias must be integer for HW conversion. "
                     f"Hint: Consider running ExtractMultiThresholdScaleBias() transformation "
                     f"as a custom step to extract scale/bias into separate Add/Mul nodes."
                 )
-                actval = int(actval)
+                actval = 0 if bipolar_ok else int(actval)
 
                 # a signed activation should always have a negative bias,
                 # but BIPOLAR uses the -1 as 0 encoding so the assert does not apply
@@ -1895,17 +1898,24 @@ class InferBinaryMatrixVectorActivation(Transformation):
                 # well, so that InferDataTypes() preserves the BIPOLAR annotation.
                 # This is either a MultiThreshold, or a previous binary layer that
                 # already absorbed its MultiThreshold (MVAU) or was converted to
-                # Thresholding, possibly behind layout ops such as Im2Col/MaxPool.
+                # Thresholding. Only the direct producer is switched: layout ops
+                # such as MaxPool in between have to stay BINARY, since the
+                # finn-hlslib Bipolar type has no ordering.
                 act_producers = ["MultiThreshold", "MVAU", "Thresholding"]
-                chain = model.find_upstream(mm_input, lambda x: x.op_type in act_producers)
-                if chain and model.get_tensor_datatype(chain[-1].output[0]).bitwidth() == 1:
-                    producer = chain[-1]
+                producer = model.find_producer(mm_input)
+                if (
+                    producer is not None
+                    and producer.op_type in act_producers
+                    and model.get_tensor_datatype(producer.output[0]).bitwidth() == 1
+                ):
                     if producer.op_type == "MultiThreshold":
-                        getCustomOp(producer).set_nodeattr("out_dtype", "BIPOLAR")
+                        # exact inverse of ConvertBipolarMatMulToXnorPopcount
+                        mt_inst = getCustomOp(producer)
+                        mt_inst.set_nodeattr("out_dtype", "BIPOLAR")
+                        mt_inst.set_nodeattr("out_scale", 2.0)
+                        mt_inst.set_nodeattr("out_bias", -1.0)
                     else:
                         getCustomOp(producer).set_nodeattr("outputDataType", "BIPOLAR")
-                    for node in chain:
-                        model.set_tensor_datatype(node.output[0], idt)
                 # extract weight shape, note that ONNX and finn-hlslib
                 # make different assumptions about dim order here
                 # ONNX assumes W has (in, out) shape
@@ -2073,7 +2083,7 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             consumer.name + ": out_scale=1 or bipolar output needed for conversion."
                         )
                         assert (not odt.signed()) or (actval < 0), (
-                            consumer.name + ": Signed output requres actval < 0"
+                            consumer.name + ": Signed output requires actval < 0"
                         )
                         model.set_tensor_shape(mm_input, mm_in_shape)
                         model.set_tensor_shape(mt_output, mt_out_shape)
@@ -2226,7 +2236,7 @@ class InferVectorVectorActivation(Transformation):
                         )
                         actval = int(actval)
                         assert (not odt.signed()) or (actval < 0), (
-                            consumer.name + ": Signed output requres actval < 0"
+                            consumer.name + ": Signed output requires actval < 0"
                         )
                         model.set_tensor_shape(mm_input, mm_in_shape)
                         model.set_tensor_shape(mt_output, mt_out_shape)
