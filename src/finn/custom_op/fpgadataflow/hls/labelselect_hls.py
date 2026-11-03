@@ -115,6 +115,13 @@ class LabelSelect_hls(LabelSelect, HLSBackend):
             )
         ]
 
+    def timeout_value(self):
+        """LabelSelect_Batch is function-pipelined and processes one input per call.
+        It needs Labels/PE calls before the first output, so the default timeout
+        of 1000 is insufficient for 1000 or more labels (e.g. ImageNet)."""
+        total_inputs = self.get_nodeattr("Labels") // self.get_nodeattr("PE")
+        self.code_gen_dict["$TIMEOUT_VALUE$"] = [str(total_inputs + 1000)]
+
     def ipgen_extra_directives(self):
         "Return a list of extra tcl directives for HLS synthesis."
         return ["config_compile -pipeline_style frp"]
