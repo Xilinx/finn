@@ -5,6 +5,7 @@ import numpy as np
 import os
 import re
 from dataclasses import replace
+from finn_ci.config import BOARDS
 from functools import partial
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
@@ -30,6 +31,7 @@ from finn.util.basic import (
     pynq_golden_files,
 )
 from finn.util.rtlsim import check_fifo_log_consistency, read_fifo_log_snapshot
+from finn.util.test import stage_hw_deployment
 
 verif_steps = [
     "folded_hls_cppsim",
@@ -1216,3 +1218,12 @@ def test_finnloop_end2end_mlo_ddr(
     assert (
         len(iter_indices) == iteration
     ), f"Expected {iteration} iterations in context, found {len(iter_indices)}"
+
+    # Hand a verified bitfile for a CI board to the hardware pipeline, which runs it
+    # under the mlo_build test type (see ci/finn_ci/config.py) and checks its output
+    # on x against y_ref. The title must stay unique per variant.
+    if board in BOARDS:
+        model_title = (
+            f"mlo_ddr_dim{dim}_simd{simd}_pe{pe}_hpe{helper_pe}_a{bitwidth}w{weight_bitwidth}"
+        )
+        stage_hw_deployment(tmp_output_dir + "/deploy", board, model_title, x, y_ref)

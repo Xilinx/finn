@@ -483,6 +483,14 @@ class MakePYNQDriver(Transformation):
                     dma_target_model = ModelWrapper(dma_target_sdp.get_nodeattr("model"))
                     iodma_output_tensor = iodma_node.onnx_node.output[0]
                     dma_consumer = dma_target_model.find_consumer(iodma_output_tensor)
+                    # The driver repeats the weights once per output pixel of the
+                    # layer they feed, so the shape must be that layer's output. A
+                    # FIFO or DWC inserted on the weight stream would report the
+                    # weight shape, and a conv layer would stall after one pixel.
+                    while dma_consumer.op_type.startswith(
+                        ("StreamingFIFO", "StreamingDataWidthConverter")
+                    ):
+                        dma_consumer = dma_target_model.find_consumer(dma_consumer.output[0])
                     ext_weight_shapes_dict[idma_name] = dma_target_model.get_tensor_shape(
                         dma_consumer.output[0]
                     )

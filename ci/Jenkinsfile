@@ -489,14 +489,18 @@ void runShardBody(Map entry, String buildDir, String startMarker) {
       opts.extraArgs = "--cov=finn"
       opts.coverageFile = entry.coverageFile
     }
-    runPytest(opts)
-    Map zipArt = entry.zipArtifacts as Map
-    if (zipArt) {
-      String testType = zipArt.hwTestType as String
-      (zipArt.boards ?: []).each { board ->
-        findCopyZip(testType, board, buildDir, stashName)
-      }
+    // A package is only written by a test whose own checks passed, so a shard with
+    // failures still hands its passing bitfiles to the HW pipeline. An abort or a
+    // timeout stages nothing, so the build stops promptly.
+    try {
+      runPytest(opts)
+    } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
+      throw e
+    } catch (Exception e) {
+      stageZipArtifacts(entry, buildDir, stashName)
+      throw e
     }
+    stageZipArtifacts(entry, buildDir, stashName)
     printLsfSummary(buildDir, stashName)
   } catch (Exception e) {
     printLsfSummary(buildDir, stashName)
@@ -504,6 +508,15 @@ void runShardBody(Map entry, String buildDir, String startMarker) {
     printFailureTails(buildDir, stashName, 150)
     archiveFailureLogs(buildDir, stashName, startMarker)
     throw e
+  }
+}
+
+void stageZipArtifacts(Map entry, String buildDir, String stashName) {
+  Map zipArt = entry.zipArtifacts as Map
+  if (!zipArt) { return }
+  String testType = zipArt.hwTestType as String
+  (zipArt.boards ?: []).each { board ->
+    findCopyZip(testType, board, buildDir, stashName)
   }
 }
 
