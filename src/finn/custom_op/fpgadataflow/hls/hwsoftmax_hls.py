@@ -51,7 +51,7 @@ class HWSoftmax_hls(HWSoftmax, HLSBackend):
             constexpr unsigned  SIMD = {simd};
             constexpr unsigned  W = {w};
             using  TI = {hls_datatype_str(idtype)};
-            using  F = float;
+            SoftMax<TI, float, W, SIMD>  sm_inst;
            """
         ]
 
@@ -62,7 +62,6 @@ class HWSoftmax_hls(HWSoftmax, HLSBackend):
                 static hls::stream<tensor<float,SIMD>>  dst0;
 
                 move(in0_V, src0);
-                static SoftMax<TI, float, W, SIMD> sm_inst;
                 sm_inst.execute(src0, dst0);
                 move(dst0, out0_V);
         """
