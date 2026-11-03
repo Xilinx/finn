@@ -621,21 +621,11 @@ class VVAU(HWCustomOp):
             # create a weight stream for various flavors of internal_decoupled mode:
             # transpose weight tensor from (1, PE, WMEM, SIMD) to (1, WMEM, PE, SIMD)
             weight_tensor_unflipped = np.transpose(weight_tensor, (0, 2, 1, 3))
-            # reverse SIMD flip for saving weights in .npy
-            weight_tensor_simd_flipped = np.flip(weight_tensor_unflipped, axis=-1)
-            # PE flip for saving weights in .dat
-            weight_tensor_pe_flipped = np.flip(weight_tensor_unflipped, axis=-2)
-            # SIMD & PE flip
-            weight_tensor_pe_simd_flipped = np.flip(weight_tensor_pe_flipped, axis=-1)
-            # reshape weight tensor (simd_flipped and pe_flipped) to desired shape
+            # SIMD & PE flip for saving weights in .dat (element [0][0] at the LSB)
+            weight_tensor_pe_simd_flipped = np.flip(weight_tensor_unflipped, axis=(-2, -1))
+            # reshape weight tensor to desired shape
             pe = self.get_nodeattr("PE")
             simd = self.get_nodeattr("SIMD")
-            # simd_flipped
-            weight_tensor_simd_flipped = weight_tensor_simd_flipped.reshape(1, -1, pe * simd)
-            weight_tensor_simd_flipped = weight_tensor_simd_flipped.copy()
-            # flipped
-            weight_tensor_pe_flipped = weight_tensor_pe_flipped.reshape(1, -1, pe * simd)
-            weight_tensor_pe_flipped = weight_tensor_pe_flipped.copy()
             # SIMD & PE flipped
             weight_tensor_pe_simd_flipped = weight_tensor_pe_simd_flipped.reshape(1, -1, pe * simd)
             weight_tensor_pe_simd_flipped = weight_tensor_pe_simd_flipped.copy()
@@ -651,14 +641,11 @@ class VVAU(HWCustomOp):
                 weight_width = self.get_instream_width(1)
                 # pad to nearest 4 bits to get hex strings
                 weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
-                if self.onnx_node.op_type == "VVAU_rtl":
-                    weight_arr = pack_innermost_dim_as_hex_string(
-                        weight_tensor_pe_simd_flipped, pack_wdt, weight_width_padded, prefix=""
-                    )
-                else:
-                    weight_arr = pack_innermost_dim_as_hex_string(
-                        weight_tensor_pe_flipped, pack_wdt, weight_width_padded, prefix=""
-                    )
+                # both backends now take a tensor<T, PE, SIMD> weight stream with
+                # element [0][0] at the LSB, so flip PE and SIMD for both
+                weight_arr = pack_innermost_dim_as_hex_string(
+                    weight_tensor_pe_simd_flipped, pack_wdt, weight_width_padded, prefix=""
+                )
                 # add zeroes to pad out file to 1024 entries
                 weight_stream = weight_arr.flatten()
                 weight_stream = weight_stream.copy()
@@ -673,11 +660,12 @@ class VVAU(HWCustomOp):
                 if words_per_memwidth < 1:
                     words_per_memwidth = 1
                 weight_width_padded = words_per_memwidth * 32
-                # first, pack and ensure padding to 32 bits
-                weight_tensor_pe_flipped = pack_innermost_dim_as_hex_string(
-                    weight_tensor_pe_flipped, pack_wdt, weight_width_padded, prefix=""
+                # first, pack and ensure padding to 32 bits; same element order
+                # as the .dat above
+                weight_arr = pack_innermost_dim_as_hex_string(
+                    weight_tensor_pe_simd_flipped, pack_wdt, weight_width_padded, prefix=""
                 )
-                weight_stream = weight_tensor_pe_flipped.flatten()
+                weight_stream = weight_arr.flatten()
                 weight_stream = weight_stream.copy()
                 with open(weight_file_name, "w") as f:
                     for val in weight_stream:
