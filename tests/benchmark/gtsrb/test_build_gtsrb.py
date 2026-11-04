@@ -11,6 +11,7 @@ from benchmark_helpers import (
     benchmark_root,
     bitfile_output_files,
     check_build_outputs,
+    check_verification,
     get_verify_steps,
     make_benchmark_cfg,
     verification_io_dir,
@@ -109,3 +110,4 @@ def test_gtsrb(board, bench_recorder):
     # builds on AUP-ZU3_8GB via the Vivado/Zynq flow (.bit/.hwh).
     build_output_files = CORE_BUILD_OUTPUT_FILES + bitfile_output_files(board)
     check_build_outputs(output_dir, build_output_files)
+    check_verification(output_dir, cfg.verify_steps)

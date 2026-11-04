@@ -9,6 +9,7 @@ from benchmark_helpers import (
     benchmark_config_paths,
     benchmark_root,
     check_build_outputs,
+    check_verification,
     get_verify_steps,
     make_benchmark_cfg,
     verification_io_dir,
@@ -119,3 +120,4 @@ def test_resnet50(board, bench_recorder):
         "report/rtlsim_performance.json",
     ]
     check_build_outputs(output_dir, build_output_files)
+    check_verification(output_dir, cfg.verify_steps)

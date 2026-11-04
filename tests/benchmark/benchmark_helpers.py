@@ -172,9 +172,7 @@ def check_build_outputs(output_dir, expected_files, write_report=True):
     report into ``<output_dir>/report/``, and asserts that nothing is missing,
     listing every absent file at once.
 
-    Verification results are intentionally *not* checked here -- verification is
-    toggled via :func:`get_verify_steps` and its per-step pass/fail is assessed by
-    the aggregation harness (Phase 4).
+    Verification results are checked separately, see :func:`check_verification`.
 
     Args:
         output_dir: build output directory returned by ``make_build_dir``.
@@ -204,6 +202,35 @@ def check_build_outputs(output_dir, expected_files, write_report=True):
         len(missing),
         len(expected),
         missing,
+    )
+
+
+def check_verification(output_dir, verify_steps):
+    """Check the build's verification results.
+
+    Every step in ``verify_steps`` writes one ``verify_<step>_<frame>_SUCCESS``
+    or ``..._FAIL`` file (``.npy``, or ``.npz`` with ``verify_save_full_context``)
+    per verified frame into ``<output_dir>/verification_output/``. A failed step
+    does not stop the build, so this asserts that no step failed and that every
+    enabled step left a result.
+
+    Args:
+        output_dir: build output directory returned by ``make_build_dir``.
+        verify_steps: the build's ``cfg.verify_steps``. ``None`` or empty when
+            verification is disabled (see :func:`get_verify_steps`), in which
+            case there is nothing to check.
+    """
+    if not verify_steps:
+        return
+    verify_dir = os.path.join(output_dir, "verification_output")
+    results = sorted(os.listdir(verify_dir)) if os.path.isdir(verify_dir) else []
+    failed = [r for r in results if os.path.splitext(r)[0].endswith("_FAIL")]
+    # VerificationStepType is a str enum, its value is the step name in the file name
+    steps = [getattr(step, "value", step) for step in verify_steps]
+    no_result = [s for s in steps if not any(r.startswith("verify_%s_" % s) for r in results)]
+    assert not failed and not no_result, "Verification failed: %s; no result for: %s" % (
+        failed,
+        no_result,
     )
 
 
