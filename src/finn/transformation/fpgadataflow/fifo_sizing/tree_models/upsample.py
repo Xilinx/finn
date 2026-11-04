@@ -91,51 +91,43 @@ class UpsampleModel(TreeModel):
 
 @register("UpsampleNearestNeighbour_hls")
 class UpsampleHlsModel(UpsampleModel):
+    #: cycles between output words: finn-hlslib's ``upsample_nn`` is
+    #: free-running (``pipeline II=1 style=frp``), one output word per call
+    UPSAMPLE_II = 1
+    #: output words between the one that releases a buffer slot and the read of
+    #: the input word that refills it: ``upsample_nn`` gates reads on a write
+    #: pointer delayed by ``WP_DELAY = 4`` calls. A TAV comparison cannot check
+    #: this value: the output is written every cycle, so any constant read offset
+    #: is absorbed by the window's phase.
+    UPSAMPLE_READ_LAG = 4
+
     def schedule(self, op):
-        """Writes the output raster at a fixed rate and refills the buffer behind it.
+        """Writes the output raster at one word per cycle and refills the buffer
+        behind it.
 
         The layer holds an input frame in a buffer and walks the output raster over
-        it, emitting one folded word every five cycles -- the loop nest is pipelined
-        at one word per iteration, but each iteration is one call from a top level
-        that is not pipelined. Nothing about that rate depends on the part or the
-        clock, so the period is five times the output frame ``get_exp_cycles``
+        it, emitting one folded word per cycle (``UPSAMPLE_II``). Consecutive frames
+        run back to back, so the period is the output frame ``get_exp_cycles``
         counts.
 
         An input word is read once its buffer slot comes free, which happens on the
         output word that used it for the last time: the last output row that
         replicates its row and, within that row, the last output column that
         replicates its column. That gives exactly one read per input word of a
-        frame, placed a fixed few cycles after the output word that released it.
-        Reads therefore inherit the bunching of the replication pattern, which is
-        what makes them worth stating rather than spreading evenly.
+        frame, placed ``UPSAMPLE_READ_LAG`` words after the output word that
+        released it (wrapping into the next frame at the end of one). Reads
+        therefore inherit the bunching of the replication pattern, which is what
+        makes them worth stating rather than spreading evenly.
 
-        The buffer is filled ahead once out of reset, and that head start is not
+        The buffer is filled ahead once out of reset; that head start is not
         modelled -- it shifts which input word a read carries, not when reads
-        happen. The cycles the pipeline takes to fill before the first output word
-        are modelled: a period is one frame of a ``CHRC_PERIODS``-frame run, so
-        that share of the one-off fill lands in it, and the same share is added
-        here.
+        happen.
 
         Valid for the HLS implementation, for any output extent at least as large
         as its input extent, any SIMD dividing NumChannels, and any batch size.
+        Checked against node rtlsim (exact up to the window's phase) for the
+        configurations of ``test_fpgadataflow_analytical_characterization_upsampler``.
         """
-        # One output word leaves every this many cycles. The upsampling loop itself is
-        # pipelined at II=1, but it is invoked once per output word from a top level that
-        # is not pipelined, and that call costs the same handful of cycles whatever the
-        # part or the clock target.
-        UPSAMPLE_II = 5
-        # Where in the II slot the read of the replacement input word falls, relative to
-        # the output word that released it. Measured, not derived: upsample.hpp gates the
-        # read on the write pointer and the output on WP_DELAY, and the two together place
-        # the read here.
-        UPSAMPLE_READ_LAG = 4
-        # Cycles the pipeline takes to fill before the first output word appears.
-        UPSAMPLE_WIND_UP = 19
-        # Frames DeriveTokenAccessVectors simulates per characterization run
-        # (periods_to_simulate); one period is that share of the run, so it carries the
-        # same share of the one-off pipeline fill.
-        CHRC_PERIODS = 5
-
         simd = op.get_nodeattr("SIMD")
         num_channels = op.get_nodeattr("NumChannels")
         batch = op.get_nodeattr("batchSize")
@@ -150,9 +142,10 @@ class UpsampleHlsModel(UpsampleModel):
         # one pixel are neither replicated nor reordered
         released = np.tile(release_mask([(hi, ho), (wi, wo), (folds, folds)]), batch)
         num_out = released.size
-        period = UPSAMPLE_II * num_out + UPSAMPLE_WIND_UP // CHRC_PERIODS
+        ii = self.UPSAMPLE_II
+        period = ii * num_out
         wr = np.zeros(period, dtype=np.int8)
-        wr[UPSAMPLE_II * np.arange(num_out)] = 1
+        wr[ii * np.arange(num_out)] = 1
         rd = np.zeros(period, dtype=np.int8)
-        rd[UPSAMPLE_II * np.flatnonzero(released) + UPSAMPLE_READ_LAG] = 1
+        rd[(ii * np.flatnonzero(released) + self.UPSAMPLE_READ_LAG) % period] = 1
         return flat_characteristic_leaf(rd, wr, "Upsample raster")

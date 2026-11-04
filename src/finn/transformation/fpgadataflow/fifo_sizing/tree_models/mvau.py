@@ -35,7 +35,7 @@ class MVAUModel(TreeModel):
 
     Three constructions, by implementation and folding:
 
-    * ``TH > 1`` -- ``finn-rtllib/mvu_tiled``, a different RTL module.
+    * ``TH > 1`` -- the tiled datapath of ``finn-rtllib/mvu``.
     * ``MVAU_rtl`` -- the untiled RTL pipeline.
     * ``MVAU_hls`` -- the HLS wind-up.
 
@@ -238,9 +238,9 @@ class MVAURtlModel(MVAUModel):
 
     def tiled_schedule(self, SF, NF, numVectors, SIMD, TH):
         # Tiling is MVAU_rtl-only -- the HLS backend supports TH = 1 only --
-        # and does not fold the ordinary RTL MVAU, it selects a *different
-        # module*: ``mvu_tiled_axi`` instead of ``mvu_vvu_axi``. None of the
-        # untiled constants in ``schedule`` apply to it.
+        # and does not fold the ordinary RTL MVAU: ``mvu_vvu_axi`` swaps in a
+        # different activation replay, weight buffer and output path for
+        # ``TH > 1``. None of the untiled constants in ``schedule`` apply to it.
         #
         # The activation ``input_gen`` runs the loop nest ``DIMS = {NF, SF,
         # TH}``, ``COEFS = {0, 1, SF}`` over an ``FM_SIZE`` of ``SF * TH``: one
@@ -283,7 +283,7 @@ class MVAURtlModel(MVAUModel):
             # raises on this, so a graph that reaches here is malformed
             return None
         fm = SF * TH
-        # The stall at the group boundary is the larger of two buffer effects
+        # The stall at the group boundary is the largest of three effects
         # (they overlap):
         # * activation replay: input_gen holds the group's SF*TH input words
         #   in a 2^ceil(log2(SF*TH+2))-word circular buffer and replays them
@@ -322,11 +322,16 @@ class MVAURtlModel(MVAUModel):
             # rtlsim. (A buffer a few words too small for the group, spare < 0,
             # only trickles.)
             return None
-        stall = max(in_stall, out_stall)
+        # * pipeline drain: after a group the core takes no data for
+        #   CORE_PIPELINE_DEPTH cycles (mvu_vvu_axi.sv). The depth is the
+        #   lane-sliced core's, as in MVAU_rtl.get_exp_compute_cycles: exact for
+        #   it, an upper bound for the shallower DSP58 INT8 core.
+        drain = 4 + (SIMD - 1).bit_length() + (SIMD == 1) + 1
+        stall = max(in_stall, out_stall, drain)
         span = NF * fm + stall
         # the first output of a group, as an offset from the group's first
         # read; tree_depth = clog2(ceil(SIMD/3)) is the add_multi depth inside
-        # acc_stage, which delays every output by that many cycles, and
+        # the core, which delays every output by that many cycles, and
         # 10 - TH is the one fitted constant
         chainlen = (SIMD + 2) // 3
         tree_depth = int(math.ceil(math.log2(chainlen))) if chainlen > 1 else 0

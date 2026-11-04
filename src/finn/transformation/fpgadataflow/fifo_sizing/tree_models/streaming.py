@@ -283,46 +283,41 @@ class LabelSelectHlsModel(TreeModel):
 
 @register("GlobalAccPool_hls")
 class GlobalAccPoolHlsModel(TreeModel):
+    #: cycles per input word. finn-hlslib's ``AccPool_Batch`` asks for
+    #: ``pipeline II=1``, but Vitis HLS reports an II violation (HLS 200-880,
+    #: carried dependence on ``accumulators``) and schedules it at II=2.
+    II = 2
+    #: cycles from reading the last pixel of a channel fold to writing the
+    #: fold's result (the synthesized latency of one ``AccPool_Batch`` call)
+    WRITE_LATENCY = 4
+
     def schedule(self, op):
-        """Read a whole frame, pause, then emit the accumulators.
+        """Read every pixel, write each channel fold with its last pixel.
 
-        The HLS pool is two loops that do not overlap. The first reads the
-        frame's ``N`` folded words back to back at one per cycle, accumulating
-        each into the bank entry for its channel tile and writing nothing. The
-        second walks the bank and writes its ``NumChannels / PE`` words, again
-        one per cycle. So a frame is a wind-up, the read run, a gap while the
-        last accumulation settles and the write loop is entered, the write run,
-        and a tail before the next frame's first read.
+        The function-pipelined ``AccPool_Batch`` takes one input word per call,
+        ``II`` cycles apart, and adds it to the accumulator of its channel fold.
+        The call that reads a fold's last pixel also writes that fold's result,
+        so a frame of ``N`` input words is a solid run of reads whose last
+        ``NumChannels / PE`` also produce the writes, ``WRITE_LATENCY`` cycles
+        later. Consecutive frames run back to back.
 
-        The wind-up and the tail are the fitted part, and step with the width of
-        the accumulator word: more than eight accumulators side by side take two
-        more cycles to reach and give one back at the end. The gap does not
-        move.
+        ``NumChannels / PE == 1`` is not modelled: there the accumulator
+        dependence is real, and the interval HLS reaches is not known.
 
-        ``NumChannels / PE == 1`` is a different schedule -- with one word to
-        emit there is no write loop for HLS to enter and the write lands in the
-        read loop's epilogue -- and is not modelled here.
-
-        The read run assumes the accumulate loop pipelines at II=1, as
-        ``get_exp_cycles`` does. A design that schedules slower stretches every
-        read by that factor and takes proportionally longer.
-
-        Valid for PE 1..64 and NumChannels / PE 2..64.
+        Checked against node rtlsim for the configurations of
+        ``test_fpgadataflow_analytical_characterization_globalaccpool``.
         """
-        pe = op.get_nodeattr("PE")
         n_in = int(np.prod(op.get_folded_input_shape()[:-1]))
         n_out = int(np.prod(op.get_folded_output_shape()[:-1]))
-        if n_in < 1 or n_out < 2 or pe < 1:
+        if n_in < 1 or n_out < 2 or n_out > n_in:
             return None
-        wind_up = 3 if pe <= 8 else 5
-        tail = 1 if pe <= 8 else 0
-        gap = 5
-        frame = CharacteristicNode(
-            "accumulate then emit",
-            [(wind_up, [0, 0]), (n_in, [1, 0]), (gap, [0, 0]), (n_out, [0, 1]), (tail, [0, 0])],
-            True,
-        )
-        return CharacteristicNode("GlobalAccPool frame", [(1, frame)], False)
+        period = self.II * n_in
+        rd = np.zeros(period, dtype=np.int8)
+        wr = np.zeros(period, dtype=np.int8)
+        rd[self.II * np.arange(n_in)] = 1
+        last_pixel = self.II * np.arange(n_in - n_out, n_in)
+        wr[(last_pixel + self.WRITE_LATENCY) % period] = 1
+        return flat_characteristic_leaf(rd, wr, "GlobalAccPool frame")
 
 
 @register("Pool_hls")
@@ -791,27 +786,28 @@ class DataWidthConverterModel(TreeModel):
 
 @register("StreamingSplit_hls")
 class SplitHlsModel(TreeModel):
+    #: one word per cycle, input word 0 read at cycle 1, ``out0`` word 0 written
+    #: at cycle 4 (node rtlsim of the dataflow top)
+    II, FIRST_READ, FIRST_WRITE = 1, 1, 4
+
     def schedule(self, op):
-        """The schedule of the freerunning HLS splitter: one word every five cycles.
+        """The schedule of the HLS splitter: one word per cycle.
 
-        Neither a passthrough nor II=1. ``csynth.rpt`` for the generated top level
-        reports Latency 4, **Interval 5**, ``Pipelined: no``,
-        ``hls_style: freerunning``; the inner ``StreamingSplit`` in
-        finn-hlslib/split.hpp is ``#pragma HLS pipeline II=1``, so it is the
-        freerunning wrapper around it that admits one word every five cycles.
+        The generated top wraps finn-hlslib's ``StreamingSplit`` (``pipeline
+        II=1``) in ``#pragma HLS DATAFLOW disable_start_propagation``, so it
+        moves one word per cycle. Round-robin over the destinations in
+        ``ChannelsPerStream`` order, so destination *i* receives one contiguous
+        burst of ``C[i]`` words per input vector rather than a share of every
+        word:
 
-        Round-robin over the destinations in ``ChannelsPerStream`` order, so
-        destination *i* receives one contiguous burst of ``C[i]`` words per input
-        vector rather than a share of every word:
-
-            input word k        at cycle 1 + 5k
-            output i, word j    at cycle 7 + 5*(offset_i + j)
+            input word k        at cycle FIRST_READ + II*k
+            output i, word j    at cycle FIRST_WRITE + II*(offset_i + j)
 
         with ``offset_i = sum(C[:i])``. Row 0 -- the only row a tree model emits,
         and the only one the sizer reads -- is ``out0``, so the schedule here is
         the first destination's.
 
-        Validated against node rtlsim for equal and unequal ``ChannelsPerStream``,
+        Checked against node rtlsim for equal and unequal ``ChannelsPerStream``,
         SIMD 1/2/4 and several ``numInputVectors``.
         """
         simd = op.get_nodeattr("SIMD")
@@ -823,42 +819,46 @@ class SplitHlsModel(TreeModel):
         total = int(sum(folds))
         if total < 1:
             return None
-        ii = 5
+        ii = self.II
         span = ii * total  # cycles per input vector
         period = n_vec * span
         rd = np.zeros(period, dtype=np.int8)
         wr = np.zeros(period, dtype=np.int8)
-        rd[(1 + ii * np.arange(n_vec * total)) % period] = 1
+        rd[(self.FIRST_READ + ii * np.arange(n_vec * total)) % period] = 1
         # row 0 is the schedule the FIFO sizer reads, and that is out0
         starts = span * np.arange(n_vec)
-        first = (7 + ii * np.arange(folds[0]))[None, :] + starts[:, None]
+        first = (self.FIRST_WRITE + ii * np.arange(folds[0]))[None, :] + starts[:, None]
         wr[first.ravel() % period] = 1
         return flat_characteristic_leaf(rd, wr, "StreamingSplit_hls schedule")
 
 
 @register("StreamingConcat_hls")
 class ConcatHlsModel(TreeModel):
+    #: one word per cycle, ``in0`` word 0 read at cycle 3, output word 0 written
+    #: at cycle 4 (node rtlsim of the dataflow top)
+    II, FIRST_READ, FIRST_WRITE = 1, 3, 4
+
     def schedule(self, op):
-        """The schedule of the freerunning HLS concatenator.
+        """The schedule of the HLS concatenator.
 
-        The mirror image of ``StreamingSplit``: same ``hls_style: freerunning``
-        wrapper, same Interval 5, and the inputs are consumed in **staggered
-        contiguous bursts** in ``ChannelsPerStream`` order, not concurrently.
-        That matters for sizing: an imbalance between the inputs accumulates as a
-        prefix sum along the stream order, not as a max over the streams.
+        The mirror image of ``StreamingSplit``: the same dataflow top, one word
+        per cycle, and the inputs are consumed in **staggered contiguous bursts**
+        in ``ChannelsPerStream`` order, not concurrently. That matters for
+        sizing: an imbalance between the inputs accumulates as a prefix sum along
+        the stream order, not as a max over the streams.
 
-            input i, word j     at cycle 6 + 5*(offset_i + j)
-            output word k       at cycle 2 + 5k
+            input i, word j     at cycle FIRST_READ + II*(offset_i + j)
+            output word k       at cycle FIRST_WRITE + II*k
 
         with ``offset_i = sum(C[:i])``.
 
         Row 0 -- the only row a tree model can emit, and the only one the sizer
         reads -- is ``in0``, so the schedule here is the *first* input's. The
-        later inputs are read up to ``5 * offset_i`` cycles after it; that offset
+        later inputs are read up to ``II * offset_i`` cycles after it; that offset
         is a consequence of the single-row representation in
         ``derive_token_access_vectors_using_tree_model``, not of this model.
 
-        Validated against node rtlsim for the same configurations as the splitter.
+        Checked against node rtlsim for the same configurations as the splitter.
         """
         simd = op.get_nodeattr("SIMD")
         chans = list(op.get_nodeattr("ChannelsPerStream"))
@@ -869,13 +869,13 @@ class ConcatHlsModel(TreeModel):
         total = int(sum(folds))
         if total < 1:
             return None
-        ii = 5
+        ii = self.II
         span = ii * total
         period = n_vec * span
         rd = np.zeros(period, dtype=np.int8)
         wr = np.zeros(period, dtype=np.int8)
-        wr[(2 + ii * np.arange(n_vec * total)) % period] = 1
+        wr[(self.FIRST_WRITE + ii * np.arange(n_vec * total)) % period] = 1
         starts = span * np.arange(n_vec)
-        first = (6 + ii * np.arange(folds[0]))[None, :] + starts[:, None]
+        first = (self.FIRST_READ + ii * np.arange(folds[0]))[None, :] + starts[:, None]
         rd[first.ravel() % period] = 1
         return flat_characteristic_leaf(rd, wr, "StreamingConcat_hls schedule")
