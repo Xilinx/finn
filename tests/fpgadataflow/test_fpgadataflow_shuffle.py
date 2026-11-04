@@ -946,7 +946,7 @@ def test_inner_shuffle_rtl_bursty(throttle, monkeypatch):
 
 
 @pytest.mark.fpgadataflow
-def test_shuffle_decomposition_fails_on_invalid_simd():
+def test_shuffle_decomposition_simd():
     model = construct_onnx_model(
         input_shape=(1, 12, 196, 196),
         transpose_perm=(0, 2, 3, 1),
