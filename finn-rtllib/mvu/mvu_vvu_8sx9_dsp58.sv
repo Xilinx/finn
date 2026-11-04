@@ -136,7 +136,8 @@ module mvu_vvu_8sx9_dsp58 #(
 				(* EXTRACT_SHREG = "true" *)
 				logic [0:EXTERNAL_PREGS-1][LANES_OCCUPIED-1:0][ACTIVATION_WIDTH-1:0] A = '{ default : '0 };
 				always_ff @(posedge clk) begin
-					if(en) begin
+					if(rst)  A <= '0;
+					else if(en) begin
 						A[EXTERNAL_PREGS-1] <=
 // synthesis translate_off
 							zero ? '1 :
@@ -182,7 +183,8 @@ module mvu_vvu_8sx9_dsp58 #(
 				(* EXTRACT_SHREG = "true" *)
 				logic [0:PE-1][0:EXTERNAL_PREGS-1][LANES_OCCUPIED-1:0][WEIGHT_WIDTH-1:0] B = '{ default : '0 };
 				always_ff @(posedge clk) begin
-					if(en) begin
+					if(rst)  B[i] <= '0;
+					else if(en) begin
 						B[i][EXTERNAL_PREGS-1] <=
 // synthesis translate_off
 							zero ? '1 :
