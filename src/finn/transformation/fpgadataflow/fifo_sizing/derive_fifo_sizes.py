@@ -57,12 +57,8 @@ def stream_curves(node, inst, rows_in, rows_out):
     if rows_in is not None:
         streamed = []
         for i, t in enumerate(node.input):
-            try:
-                if inst.get_instream_width(i) == 0:
-                    continue
-            except Exception:
-                pass
-            streamed.append(t)
+            if inst.get_instream_width(i) != 0:
+                streamed.append(t)
         if len(streamed) == rows_in.shape[0]:
             in_curves = {t: rows_in[k] for k, t in enumerate(streamed)}
         else:
@@ -200,10 +196,7 @@ def block_writes(write_times, node, in_scheds):
     A dynamic ``MVAU`` computes on the matrix ``dynamic_load`` buffered from
     in1, but its TAV reads in1 alongside the compute.
     """
-    try:
-        blocks = tree_models.input_blocks(registry.getCustomOp(node))
-    except Exception:
-        return write_times
+    blocks = tree_models.input_blocks(registry.getCustomOp(node))
     out = np.array(write_times, dtype=np.int64, copy=True)
     j = np.arange(len(out), dtype=np.int64)
     held = False
@@ -224,10 +217,7 @@ def block_writes(write_times, node, in_scheds):
 def node_latency(node):
     """Cycles a node's writes trail its TAV: ``TAV_PIPELINE_LATENCY`` plus the
     node's own ``tree_models.extra_latency`` (e.g. an ``InnerShuffle`` page)."""
-    try:
-        extra = int(tree_models.extra_latency(registry.getCustomOp(node)))
-    except Exception:
-        extra = 0
+    extra = int(tree_models.extra_latency(registry.getCustomOp(node)))
     return TAV_PIPELINE_LATENCY + max(0, extra)
 
 
@@ -277,22 +267,19 @@ Edge = namedtuple("Edge", "writes per_frame t_up t_prop t_full")
 def read_node_tavs(model, nodes):
     """Step 1: read every TAV once. ``{node name: (tin, tout, in_curves,
     out_curves)}``: row 0 of each TAV, and the per-stream curves of
-    ``stream_curves``. A node whose TAV cannot be read gets ``(None, None,
-    {}, {})`` and is treated as transparent."""
+    ``stream_curves``. A node without TAVs (forks, joins, FIFOs) gets ``(None,
+    None, {}, {})`` and is treated as transparent."""
     tavs = {}
     for node in nodes:
-        try:
-            inst = registry.getCustomOp(node)
-            rows_in, rows_out = read_tav_rows(inst)
-            in_curves, out_curves = stream_curves(node, inst, rows_in, rows_out)
-            tavs[node.name] = (
-                None if rows_in is None else rows_in[0],
-                None if rows_out is None else rows_out[0],
-                in_curves,
-                out_curves,
-            )
-        except Exception:
-            tavs[node.name] = (None, None, {}, {})
+        inst = registry.getCustomOp(node)
+        rows_in, rows_out = read_tav_rows(inst)
+        in_curves, out_curves = stream_curves(node, inst, rows_in, rows_out)
+        tavs[node.name] = (
+            None if rows_in is None else rows_in[0],
+            None if rows_out is None else rows_out[0],
+            in_curves,
+            out_curves,
+        )
     return tavs
 
 
@@ -422,11 +409,7 @@ def absorbed_frame_floor(node, tensor):
     stored window (a node that absorbs its whole input frame before releasing
     anything, e.g. a FINNLoop)."""
     cons = registry.getCustomOp(node)
-    try:
-        idx = list(node.input).index(tensor)
-        shape = cons.get_folded_input_shape(idx)
-    except Exception:
-        return 0
+    shape = cons.get_folded_input_shape(list(node.input).index(tensor))
     if shape is None or len(shape) < 2:
         return 0
     n = 1
@@ -722,10 +705,7 @@ def join_window_floors(model, nodes, period=None):
     if not period:
         period = 0
         for n in nodes:
-            try:
-                period = max(period, int(registry.getCustomOp(n).get_exp_cycles()))
-            except Exception:
-                pass
+            period = max(period, int(registry.getCustomOp(n).get_exp_cycles()))
 
     def producer(t):
         p = model.find_producer(t)
@@ -797,34 +777,23 @@ def join_window_floors(model, nodes, period=None):
                     ready = t_i if ready is None else np.maximum(ready, t_i)
                 if need is None:
                     return None
-                try:
-                    rate = float(inst.get_exp_cycles()) / n_out
-                except Exception:
-                    rate = 0.0
+                rate = float(inst.get_exp_cycles()) / n_out
                 res = need, rate * k + np.maximum.accumulate(ready - rate * k)
             memo[t] = res
             return res
 
-        try:
-            # join token k: the k-th word of every input of an add, the k-th
-            # block of each input's share of a concatenated pixel
-            sizes = [
-                _frame_words(registry.getCustomOp(join), list(join.input).index(t)) for t in ins
-            ]
-            n_join = int(np.gcd.reduce(sizes))
-            per = [n // n_join for n in sizes]
-            k = np.arange(1, 2 * n_join + 1, dtype=np.int64)
-            walks = [walk(t, 2 * n) for t, n in zip(ins, sizes)]
-        except Exception:
-            continue
+        # join token k: the k-th word of every input of an add, the k-th
+        # block of each input's share of a concatenated pixel
+        sizes = [_frame_words(registry.getCustomOp(join), list(join.input).index(t)) for t in ins]
+        n_join = int(np.gcd.reduce(sizes))
+        per = [n // n_join for n in sizes]
+        k = np.arange(1, 2 * n_join + 1, dtype=np.int64)
+        walks = [walk(t, 2 * n) for t, n in zip(ins, sizes)]
         if any(w is None for w in walks):
             continue
         total = np.max(np.stack([w[0][k * c - 1] for w, c in zip(walks, per)]), axis=0)
         taken = np.max(np.stack([w[1][k * c - 1] for w, c in zip(walks, per)]), axis=0)
-        try:
-            rate = float(registry.getCustomOp(join).get_exp_cycles()) / n_join
-        except Exception:
-            rate = 0.0
+        rate = float(registry.getCustomOp(join).get_exp_cycles()) / n_join
         taken = rate * k + np.maximum.accumulate(taken - rate * k)
         for t, (need, times), c in zip(ins, walks, per):
             deadlock = np.searchsorted(need, total - 1, side="right") - (k - 1) * c
