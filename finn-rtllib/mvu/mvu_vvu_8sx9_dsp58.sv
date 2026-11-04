@@ -383,16 +383,15 @@ module mvu_vvu_8sx9_dsp58 #(
 					.IS_ALUMODE_INVERTED(4'b0000),      // Optional inversion for ALUMODE
 					.IS_CARRYIN_INVERTED(1'b0),         // Optional inversion for CARRYIN
 					.IS_CLK_INVERTED(1'b0),             // Optional inversion for CLK
-					.IS_INMODE_INVERTED(5'b00000),      // Optional inversion for INMODE
+					.IS_INMODE_INVERTED(
+						INTERNAL_PREGS==2? 5'b00000 : 5'b10001
+					),                                  // Optional inversion for INMODE
 					.IS_NEGATE_INVERTED(3'b000),        // Optional inversion for NEGATE
 					.IS_OPMODE_INVERTED({
-							LAST && TH <= 1 ? 2'b01 :          // W: TH=1 LAST ? (L[1]?0:P) :
-							LAST && TH > 1 && !FIRST ? 2'b11 : // W: TH>=2 !FIRST LAST ? C (via ClearRing) :
-							                           2'b00,  // W: else 0
-							LAST && TH > 1 && FIRST ? 3'b011 : // Z: TH>=2 FIRST LAST ? C :
-							FIRST                   ? 3'b000 : 3'b001, // Z: FIRST ? 0 : PCIN
-							2'b01, // Y : M
-							2'b01  // X: M
+						!LAST? 2'b00 : TH <= 1? 2'b01 : 2'b11, // W: !LAST? 0 : TH = 1? (L[1]?0:P) : C
+						FIRST? 3'b000 : 3'b001,                // Z: FIRST? 0 : PCIN
+						2'b01, // Y: M
+						2'b01  // X: M
 					}), // Optional inversion for OPMODE
 					.IS_RSTALLCARRYIN_INVERTED(1'b0),   // Optional inversion for RSTALLCARRYIN
 					.IS_RSTALUMODE_INVERTED(1'b0),      // Optional inversion for RSTALUMODE
@@ -413,11 +412,11 @@ module mvu_vvu_8sx9_dsp58 #(
 					.BREG(INTERNAL_PREGS),              // Pipeline stages for B (0-2)
 					.CARRYINREG(0),                     // Pipeline stages for CARRYIN (0-1)
 					.CARRYINSELREG(0),                  // Pipeline stages for CARRYINSEL (0-1)
-					.CREG(LAST && TH > 1 ? 1 : 0),     // Pipeline stages for C (0-1)
+					.CREG(LAST && TH > 1? 1 : 0),       // Pipeline stages for C (0-1)
 					.DREG(0),                           // Pipeline stages for D (0-1)
 					.INMODEREG(1),                      // Pipeline stages for INMODE (0-1)
 					.MREG(1),                           // Multiplier pipeline stages (0-1)
-					.OPMODEREG(LAST && TH > 1 ? 0 : 1), // Pipeline stages for OPMODE (0-1)
+					.OPMODEREG(LAST && TH <= 1? 1 : 0), // Pipeline stages for OPMODE (0-1)
 					.PREG(PREG),                        // Number of pipeline stages for P (0-1)
 					.RESET_MODE("SYNC")                 // Selection of synchronous or asynchronous reset. (ASYNC, SYNC).
 				)
@@ -448,15 +447,14 @@ module mvu_vvu_8sx9_dsp58 #(
 					.CARRYINSEL('0),                    // 3-bit input: Carry select
 					.CLK(clk),                          // 1-bit input: Clock
 					.INMODE({
-							INTERNAL_PREGS==2 ? 1'b0 : 1'b1,
-							2'b00,
-							inmode_zero[TOTAL_PREGS],
-							INTERNAL_PREGS==2 ? 1'b0 : 1'b1
+						2'b00,
+						inmode_zero[TOTAL_PREGS],
+						2'b00
 					}),                                 // 5-bit input: INMODE control
 					.NEGATE('0),                        // 3-bit input: Negates the input of the multiplier
 					.OPMODE({
-							LAST && TH <= 1 ? {1'b0, L[1]} : 2'b00,
-							7'b000_0000
+						LAST && TH <= 1 ? {1'b0, L[1]} : 2'b00,
+						7'b000_0000
 					}), // 9-bit input: Operation mode
 					// Data inputs: Data Ports
 					.A(
@@ -477,14 +475,14 @@ module mvu_vvu_8sx9_dsp58 #(
 					// Reset/Clock Enable inputs: Reset/Clock Enable Inputs
 					.ASYNC_RST('0),                     // 1-bit input: Asynchronous reset for all registers.
 					.CEA1(en),                          // 1-bit input: Clock enable for 1st stage AREG
-					.CEA2(INTERNAL_PREGS==2 ? en : '0), // 1-bit input: Clock enable for 2nd stage AREG
+					.CEA2(INTERNAL_PREGS==2? en : '0),  // 1-bit input: Clock enable for 2nd stage AREG
 					.CEAD('0),                          // 1-bit input: Clock enable for ADREG
 					.CEALUMODE('0),                     // 1-bit input: Clock enable for ALUMODE
 					.CEB1(en),                          // 1-bit input: Clock enable for 1st stage BREG
-					.CEB2(INTERNAL_PREGS==2 ? en : '0), // 1-bit input: Clock enable for 2nd stage BREG
-					.CEC(LAST && TH > 1 ? en : 1'b0),  // 1-bit input: Clock enable for CREG
+					.CEB2(INTERNAL_PREGS==2? en : '0),  // 1-bit input: Clock enable for 2nd stage BREG
+					.CEC(LAST && TH > 1? en : '0),      // 1-bit input: Clock enable for CREG
 					.CECARRYIN('0),                     // 1-bit input: Clock enable for CARRYINREG
-					.CECTRL(LAST && TH > 1 ? 1'b0 : en), // 1-bit input: Clock enable for OPMODEREG and CARRYINSELREG
+					.CECTRL(LAST && TH <= 1? en : '0),  // 1-bit input: Clock enable for OPMODEREG and CARRYINSELREG
 					.CED('0),                           // 1-bit input: Clock enable for DREG
 					.CEINMODE(en),                      // 1-bit input: Clock enable for INMODEREG
 					.CEM(en),                           // 1-bit input: Clock enable for MREG
