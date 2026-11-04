@@ -602,7 +602,7 @@ module mvu #(
 					.ALUMODE('0),			// 4-bit input: ALU control input
 					.CARRYINSEL('0),		// 3-bit input: Carry select input
 					.INMODE(inmode),		// 5-bit input: INMODE control input
-					.OPMODE(opmode),			// 7-bit input: Operation mode input
+					.OPMODE(opmode),		// 7-bit input: Operation mode input
 
 					// Data: 30-bit (each) input: Data Ports
 					.A({5'b0, aa}),	// 30-bit input: A data input
@@ -612,12 +612,7 @@ module mvu #(
 // synthesis translate_on
 						bb
 					),
-					.C(				// 48-bit input: C data input
-// synthesis translate_off
-						clr? '0 :
-// synthesis translate_on
-						cc
-					),
+					.C(cc),			// 48-bit input: C data input
 					.CARRYIN('0),	// 1-bit input: Carry input signal
 					.D(dd),			// 25-bit input: D data input
 
@@ -741,12 +736,7 @@ module mvu #(
 // synthesis translate_on
 						bb
 					),
-					.C(				// 48-bit input: C data
-// synthesis translate_off
-						clr? '0 :
-// synthesis translate_on
-						cc
-					),
+					.C(cc),			// 48-bit input: C data
 					.CARRYIN('0),	// 1-bit input: Carry-in
 					.D(dd),			// 27-bit input: D data
 
@@ -874,12 +864,7 @@ module mvu #(
 // synthesis translate_on
 						bb
 					),
-					.C(							// 58-bit input: C data
-// synthesis translate_off
-						clr? '0 :
-// synthesis translate_on
-						cc
-					),
+					.C(cc),						// 58-bit input: C data
 					.CARRYIN('0),				// 1-bit input: Carry-in
 					.D(dd),						// 27-bit input: D data
 
