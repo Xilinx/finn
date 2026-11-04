@@ -427,13 +427,13 @@ def test_fpgadataflow_thresholding(
     node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
     inst = getCustomOp(node)
     inst.set_nodeattr("PE", pe)
+    # set before the transforms below, which operate on a copy of the model
+    if impl_style == "hls":
+        inst.set_nodeattr("mem_mode", mem_mode)
     if round_thresh is True:
         model = model.transform(RoundAndClipThresholds())
     model = model.transform(MinimizeWeightBitWidth())
     model = model.transform(GiveUniqueNodeNames())
-
-    if impl_style == "hls":
-        inst.set_nodeattr("mem_mode", mem_mode)
 
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())

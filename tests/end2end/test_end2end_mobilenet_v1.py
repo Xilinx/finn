@@ -383,8 +383,11 @@ def test_end2end_mobilenet_folding():
 @pytest.mark.end2end
 def test_end2end_mobilenet_minimize_bit_width():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_folded.onnx")
-    model = model.transform(MinimizeAccumulatorWidth())
+    # same order as step_minimize_bit_width: accumulator widths depend on the
+    # minimized weight (and bias) widths
     model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(MinimizeAccumulatorWidth())
+    model = model.transform(InferDataTypes())
     model = model.transform(RoundAndClipThresholds())
     model.save(build_dir + "/end2end_mobilenet_minimize_bitwidth.onnx")
 

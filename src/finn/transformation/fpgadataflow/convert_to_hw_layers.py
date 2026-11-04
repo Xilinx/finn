@@ -240,18 +240,21 @@ class InferThresholdingLayer(Transformation):
 
                 odt = model.get_tensor_datatype(thl_output)
                 scale = getCustomOp(node).get_nodeattr("out_scale")
-                assert scale == 1.0, (
+                actval = getCustomOp(node).get_nodeattr("out_bias")
+                # binary->bipolar is achieved by reinterpretation in HW, so the
+                # scale/bias of a bipolar MultiThreshold map to ActVal=0
+                bipolar_ok = odt == DataType["BIPOLAR"] and scale == 2.0 and actval == -1
+                assert scale == 1.0 or bipolar_ok, (
                     f"{node.name}: MultiThreshold out_scale must be 1 for HW conversion. "
                     f"Hint: Consider running ExtractMultiThresholdScaleBias() transformation "
                     f"as a custom step to extract scale/bias into separate Add/Mul nodes."
                 )
-                actval = getCustomOp(node).get_nodeattr("out_bias")
                 assert int(actval) == actval, (
                     f"{node.name}: MultiThreshold out_bias must be integer for HW conversion. "
                     f"Hint: Consider running ExtractMultiThresholdScaleBias() transformation "
                     f"as a custom step to extract scale/bias into separate Add/Mul nodes."
                 )
-                actval = int(actval)
+                actval = 0 if bipolar_ok else int(actval)
 
                 # a signed activation should always have a negative bias,
                 # but BIPOLAR uses the -1 as 0 encoding so the assert does not apply
@@ -1897,7 +1900,11 @@ class InferStreamingEltwise(Transformation):
 class InferBinaryMatrixVectorActivation(Transformation):
     """Convert XnorPopcountMatMul layers to
     MatrixVectorActivation layers. Any immediately following MultiThreshold
-    layers will also be absorbed into the MVTU."""
+    layers will also be absorbed into the MVTU.
+
+    XnorPopcountMatMul (from qonnx) uses BINARY {0,1} encoding. We convert
+    back to BIPOLAR {-1,+1} so that the native Bipolar type in finn-hlslib
+    handles the XNOR-popcount MAC correctly."""
 
     def __init__(self):
         super().__init__()
@@ -1917,17 +1924,44 @@ class InferBinaryMatrixVectorActivation(Transformation):
                 assert model.get_tensor_datatype(mm_input) == DataType["BINARY"], (
                     n.name
                     + """: First
-                input for xnorpopcount is not Wset to FINN DataType BINARY."""
+                input for xnorpopcount is not set to FINN DataType BINARY."""
                 )
                 assert model.get_tensor_datatype(mm_weight) == DataType["BINARY"], (
                     n.name
                     + """: Second
                 input (weights) for xnorpopcount is not set to FINN DataType BINARY."""
                 )
-                idt = DataType["BINARY"]
-                wdt = DataType["BINARY"]
+                # convert from BINARY {0,1} back to BIPOLAR {-1,+1}
+                idt = DataType["BIPOLAR"]
+                wdt = DataType["BIPOLAR"]
                 mm_output = n.output[0]
                 W = model.get_initializer(mm_weight)
+                # convert binary weights {0,1} to bipolar {-1,+1}
+                model.set_initializer(mm_weight, 2 * W - 1)
+                model.set_tensor_datatype(mm_weight, wdt)
+                model.set_tensor_datatype(mm_input, idt)
+                # Switch the layer producing the activations back to BIPOLAR as
+                # well, so that InferDataTypes() preserves the BIPOLAR annotation.
+                # This is either a MultiThreshold, or a previous binary layer that
+                # already absorbed its MultiThreshold (MVAU) or was converted to
+                # Thresholding. Only the direct producer is switched: layout ops
+                # such as MaxPool in between have to stay BINARY, since the
+                # finn-hlslib Bipolar type has no ordering.
+                act_producers = ["MultiThreshold", "MVAU", "Thresholding"]
+                producer = model.find_producer(mm_input)
+                if (
+                    producer is not None
+                    and producer.op_type in act_producers
+                    and model.get_tensor_datatype(producer.output[0]).bitwidth() == 1
+                ):
+                    if producer.op_type == "MultiThreshold":
+                        # exact inverse of ConvertBipolarMatMulToXnorPopcount
+                        mt_inst = getCustomOp(producer)
+                        mt_inst.set_nodeattr("out_dtype", "BIPOLAR")
+                        mt_inst.set_nodeattr("out_scale", 2.0)
+                        mt_inst.set_nodeattr("out_bias", -1.0)
+                    else:
+                        getCustomOp(producer).set_nodeattr("outputDataType", "BIPOLAR")
                 # extract weight shape, note that ONNX and finn-hlslib
                 # make different assumptions about dim order here
                 # ONNX assumes W has (in, out) shape
@@ -1980,7 +2014,6 @@ class InferBinaryMatrixVectorActivation(Transformation):
                         weightDataType=wdt.name,
                         outputDataType=odt.name,
                         ActVal=actval,
-                        binaryXnorMode=1,
                         noActivation=0,
                         numInputVectors=list(mm_in_shape[:-1]),
                         name=n.name,
@@ -2010,7 +2043,6 @@ class InferBinaryMatrixVectorActivation(Transformation):
                         weightDataType=wdt.name,
                         outputDataType=odt.name,
                         ActVal=0,
-                        binaryXnorMode=1,
                         noActivation=1,
                         numInputVectors=list(mm_in_shape[:-1]),
                         name=n.name,
@@ -2097,7 +2129,7 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             consumer.name + ": out_scale=1 or bipolar output needed for conversion."
                         )
                         assert (not odt.signed()) or (actval < 0), (
-                            consumer.name + ": Signed output requres actval < 0"
+                            consumer.name + ": Signed output requires actval < 0"
                         )
                         model.set_tensor_shape(mm_input, mm_in_shape)
                         model.set_tensor_shape(mt_output, mt_out_shape)
@@ -2120,7 +2152,6 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             weightDataType=wdt.name,
                             outputDataType=odt.name,
                             ActVal=actval,
-                            binaryXnorMode=0,
                             noActivation=0,
                             numInputVectors=list(mm_in_shape[:-1]),
                             name="MVAU_" + n.name,
@@ -2152,7 +2183,6 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             weightDataType=wdt.name,
                             outputDataType=odt.name,
                             ActVal=0,
-                            binaryXnorMode=0,
                             noActivation=1,
                             numInputVectors=list(mm_in_shape[:-1]),
                             name="MVAU_" + n.name,
@@ -2252,7 +2282,7 @@ class InferVectorVectorActivation(Transformation):
                         )
                         actval = int(actval)
                         assert (not odt.signed()) or (actval < 0), (
-                            consumer.name + ": Signed output requres actval < 0"
+                            consumer.name + ": Signed output requires actval < 0"
                         )
                         model.set_tensor_shape(mm_input, mm_in_shape)
                         model.set_tensor_shape(mt_output, mt_out_shape)
@@ -2581,6 +2611,10 @@ class InferElementwiseBinaryOperation(Transformation):
                         _min, _max = lhs_init.min(), lhs_init.max()
                         _mag = _max if _min >= 0 else _min if (abs(_min) > _max) else (-_max - 1)
                         idt0 = DataType.get_smallest_possible(_mag)
+                        # BIPOLAR uses {-1,+1} encoding which is incompatible
+                        # with elementwise binary constant handling; use BINARY
+                        if idt0 == DataType["BIPOLAR"]:
+                            idt0 = DataType["BINARY"]
                         model.set_tensor_datatype(in0, idt0)
 
                 if rhs_style == "const":
@@ -2593,6 +2627,8 @@ class InferElementwiseBinaryOperation(Transformation):
                         _min, _max = rhs_init.min(), rhs_init.max()
                         _mag = _max if _min >= 0 else _min if (abs(_min) > _max) else (-_max - 1)
                         idt1 = DataType.get_smallest_possible(_mag)
+                        if idt1 == DataType["BIPOLAR"]:
+                            idt1 = DataType["BINARY"]
                         model.set_tensor_datatype(in1, idt1)
 
                 # If both inputs are integers, set output to INT32 as default.

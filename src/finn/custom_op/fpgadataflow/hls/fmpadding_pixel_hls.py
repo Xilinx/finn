@@ -28,6 +28,7 @@
 
 from finn.custom_op.fpgadataflow.fmpadding_pixel import FMPadding_Pixel
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
+from finn.util.data_packing import hls_datatype_str
 
 
 class FMPadding_Pixel_hls(FMPadding_Pixel, HLSBackend):
@@ -41,19 +42,19 @@ class FMPadding_Pixel_hls(FMPadding_Pixel, HLSBackend):
         return my_attrs
 
     def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "streamtools.h"']
+        self.code_gen_dict["$GLOBALS$"] = ['#include "deconv.hpp"']
 
     def defines(self, var):
         odim_h, odim_w = self.get_padded_odim()
         stride_h, stride_w = self.get_nodeattr("Stride")
         self.code_gen_dict["$DEFINES$"] = [
             """
-            #define OutputDim_x {}\n
-            #define OutputDim_y {}\n
-            #define Stride_x {}\n
-            #define Stride_y {}\n
-            #define NumChannels {}\n
-            #define SIMD {}\n
+            static constexpr unsigned OutputDim_x = {};
+            static constexpr unsigned OutputDim_y = {};
+            static constexpr unsigned Stride_x = {};
+            static constexpr unsigned Stride_y = {};
+            static constexpr unsigned NumChannels = {};
+            static constexpr unsigned SIMD = {};
             """.format(
                 odim_w,
                 odim_h,
@@ -65,7 +66,7 @@ class FMPadding_Pixel_hls(FMPadding_Pixel, HLSBackend):
         ]
 
     def docompute(self):
-        in_t = self.get_input_datatype().get_hls_datatype_str()
+        in_t = hls_datatype_str(self.get_input_datatype())
         odim_h, odim_w = self.get_padded_odim()
         stride_h, stride_w = self.get_nodeattr("Stride")
         hls_call = "FMPadding_Pixel_Nonsquare"
@@ -76,16 +77,22 @@ class FMPadding_Pixel_hls(FMPadding_Pixel, HLSBackend):
             )
         ]
 
+    def pragmas(self):
+        self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0_V"]
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out0_V")
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS DATAFLOW disable_start_propagation")
+
+    def ipgen_extra_directives(self):
+        "Return a list of extra tcl directives for HLS synthesis."
+        return ["config_compile -pipeline_style flp"]
+
     def blackboxfunction(self):
-        packed_bits = self.get_instream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
+        elem_hls_type = hls_datatype_str(self.get_input_datatype())
+        simd = self.get_nodeattr("SIMD")
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            "void %s(hls::stream<%s > &in0_V, hls::stream<%s > &out0_V)"
-            % (
-                self.onnx_node.name,
-                packed_hls_type,
-                packed_hls_type,
-            )
+            "void %s(hls::stream<tensor<%s,%d>> &in0_V, hls::stream<tensor<%s,%d>> &out0_V)"
+            % (self.onnx_node.name, elem_hls_type, simd, elem_hls_type, simd)
         ]
 
     def execute_node(self, context, graph):
