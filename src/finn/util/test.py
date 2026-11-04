@@ -45,7 +45,6 @@ from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 
-from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.alveo_build import VitisLink, VitisOptStrategy
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
@@ -333,18 +332,7 @@ def get_characteristic_fnc(model, part, target_clk_ns, strategy):
     )
 
     model = model.transform(AnnotateCycles())
-
-    period = int(model.analysis(dataflow_performance)["max_cycles"] + 12)
-
-    model = model.transform(
-        DeriveTokenAccessVectors(
-            model,
-            period,
-            strategy,
-            part,
-            target_clk_ns,
-        )
-    )
+    model = model.transform(DeriveTokenAccessVectors(strategy))
 
     return getCustomOp(model.graph.node[0])
 

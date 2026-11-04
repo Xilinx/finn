@@ -1199,7 +1199,7 @@ def test_mvau_dynamic_tav_streams():
     node = model.graph.node[0]
     inst = getCustomOp(node)
     assert get_tree_model(inst) is not None
-    inst.derive_token_access_vectors(model, 0, "tree_model", None, None, node.op_type)
+    inst.derive_token_access_vectors("tree_model")
     rows = np.atleast_2d(load_tav_npy(inst.get_nodeattr("io_chrc_in")))
     period = inst.get_nodeattr("io_chrc_period")
     assert rows.shape == (2, 2 * period)

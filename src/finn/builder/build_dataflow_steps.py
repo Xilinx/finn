@@ -1069,16 +1069,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     )
             model = model.transform(PrepareRTLSim(behav=True))
             model = model.transform(AnnotateCycles())
-            period = int(model.analysis(dataflow_performance)["max_cycles"]) + 10
-            model = model.transform(
-                DeriveTokenAccessVectors(
-                    model,
-                    period,
-                    strategy=tav_strategy,
-                    fpga_part=cfg._resolve_fpga_part(),
-                    clk_period=cfg._resolve_hls_clk_period(),
-                )
-            )
+            model = model.transform(DeriveTokenAccessVectors(tav_strategy))
             if cfg.fifosim_save_waveform:
                 for node in model.graph.node:
                     getCustomOp(node).set_nodeattr("rtlsim_trace", "")
@@ -1116,16 +1107,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     only_jit_nodes_without_tree,
                 )
             )
-            period = int(model.analysis(dataflow_performance)["max_cycles"])
-            model = model.transform(
-                DeriveTokenAccessVectors(
-                    model,
-                    period,
-                    tav_strategy,
-                    cfg._resolve_fpga_part(),
-                    cfg._resolve_hls_clk_period(),
-                )
-            )
+            model = model.transform(DeriveTokenAccessVectors(tav_strategy))
 
             period = int(
                 model.analysis(partial(dataflow_performance, use_characterized=True))["max_cycles"]

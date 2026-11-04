@@ -117,7 +117,7 @@ def test_elementwise_join_is_not_characterized_and_gets_floor(op_type):
     join = model.get_nodes_by_op_type(op_type + "_hls")[0]
     assert is_stream_join(join)
 
-    model = model.transform(DeriveTokenAccessVectors(model, 0, "tree_model", None, None))
+    model = model.transform(DeriveTokenAccessVectors("tree_model"))
     join = model.get_nodes_by_op_type(op_type + "_hls")[0]
     assert getCustomOp(join).get_nodeattr("io_chrc_in") == ""
 

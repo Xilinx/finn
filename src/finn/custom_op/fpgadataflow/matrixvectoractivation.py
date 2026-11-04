@@ -1387,29 +1387,19 @@ class MVAU(HWCustomOp):
 
         return cmd
 
-    def derive_token_access_vectors(
-        self, model, period, strategy, fpga_part, clk_period, op_type, override_dict=None
-    ):
-        n_inps = np.prod(self.get_folded_input_shape()[:-1])
-        io_dict = {
-            "inputs": {
-                "in0": [i for i in range(n_inps)],
-            },
-            "outputs": {"out0": []},
-        }
-
-        mem_mode = self.get_nodeattr("mem_mode")
+    def get_tav_io_dict(self):
+        io_dict = super().get_tav_io_dict()
         # a dynamic node's rtlsim is the bare MVU without its dynamic_load, so
         # its in1 also takes one weight tile per compute cycle
-        if mem_mode in ["internal_decoupled", "external", "dynamic"]:
+        if self.get_nodeattr("mem_mode") in ["internal_decoupled", "external", "dynamic"]:
             n_weight_inps = self.calc_wmem()
             num_w_reps = int(np.prod(self.get_nodeattr("numInputVectors")))
             io_dict["inputs"]["in1"] = [i for i in range(num_w_reps * n_weight_inps)]
+        return io_dict
 
-        super().derive_token_access_vectors(
-            model, period, strategy, fpga_part, clk_period, op_type, override_dict=io_dict
-        )
-        if mem_mode == "dynamic":
+    def derive_token_access_vectors(self, strategy):
+        super().derive_token_access_vectors(strategy)
+        if self.get_nodeattr("mem_mode") == "dynamic":
             # Add the TAV row of the streamed second operand. Both
             # characterizations describe only in0 and out0. In hardware, in1 feeds
             # ``dynamic_load``, which buffers one ``MW x MH`` matrix

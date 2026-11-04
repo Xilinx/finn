@@ -300,19 +300,9 @@ class FINNLoop(HWCustomOp, RTLBackend):
         sim_base, sim_rel = rtlsim_so
         self.set_nodeattr("rtlsim_so", sim_base + "/" + sim_rel)
 
-    def derive_token_access_vectors(
-        self,
-        model,
-        period,
-        strategy,
-        fpga_part,
-        clk_period,
-        op_type,
-        override_dict=None,
-        pre_hook=None,
-        periods_to_simulate=1,
-    ):
-        """Characterize with rtlsim over a single frame, and with the MLO prehook.
+    def derive_token_access_vectors(self, strategy):
+        """Characterize with rtlsim over a single frame, and with the MLO prehook,
+        whatever the strategy: the loop has no tree model.
 
         A streaming layer is driven with five frames and the middle two are
         stored. The loop buffers its intermediate feature maps in DDR
@@ -328,17 +318,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
         the schedule the loop presents to its neighbours in a graph that paces
         it.
         """
-        mlo_prehook = mlo_prehook_func_factory(self.onnx_node)
-        super().derive_token_access_vectors(
-            model,
-            period,
-            "rtlsim",
-            fpga_part,
-            clk_period,
-            op_type,
-            override_dict,
-            pre_hook=mlo_prehook,
-            periods_to_simulate=periods_to_simulate,
+        self.derive_token_access_vectors_using_rtlsim(
+            pre_hook=mlo_prehook_func_factory(self.onnx_node), periods_to_simulate=1
         )
 
     def execute_node(self, context, graph):

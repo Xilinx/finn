@@ -146,49 +146,27 @@ class DeriveTokenAccessVectors(NodeLocalTransformation):
     the node's tree model or by rtlsim of the node in isolation, and store them
     in ``io_chrc_in``/``io_chrc_out``.
 
-    * period (int) desired period over which the characteristic function
-      will be derived.
+    * strategy (str) ``"tree_model"``: from the tree model where the node has
+      one, else rtlsim. ``"rtlsim"``: rtlsim for every node. Nodes characterized
+      with rtlsim need their IP and rtlsim prepared, see ``JustInTimeSynthesize``.
 
     * num_workers (int or None) number of parallel workers, see documentation in
       NodeLocalTransformation for more details.
     """
 
-    def __init__(
-        self,
-        model,
-        period,
-        strategy,
-        fpga_part,
-        clk_period,
-        num_workers=None,
-        nodes_to_ignore=[],
-    ):
+    def __init__(self, strategy, num_workers=None):
         super().__init__(num_workers=num_workers)
-        self.model = model
-        self.period = period
         self.strategy = strategy
-        self.fpga_part = fpga_part
-        self.clk_period = clk_period
-        self.nodes_to_ignore = set(nodes_to_ignore)
 
     def applyNodeLocal(self, node):
         op_type = node.op_type
         if is_hls_node(node) or is_rtl_node(node):
             try:
                 inst = registry.getCustomOp(node)
-                if node.name in self.nodes_to_ignore:
-                    return (node, False)
                 # Forks, joins and FIFOs get no TAV; the sizing pass treats
                 # them as transparent.
                 if op_type not in _UNCHARACTERIZED_OPS and not is_stream_join(node):
-                    inst.derive_token_access_vectors(
-                        model=self.model,
-                        period=self.period,
-                        strategy=self.strategy,
-                        fpga_part=self.fpga_part,
-                        clk_period=self.clk_period,
-                        op_type=op_type,
-                    )
+                    inst.derive_token_access_vectors(self.strategy)
             except KeyError:
                 # exception if op_type is not supported
                 raise Exception("Custom op_type %s is currently not supported." % op_type)

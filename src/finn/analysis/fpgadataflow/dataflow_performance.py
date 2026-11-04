@@ -29,7 +29,6 @@
 
 from qonnx.custom_op.registry import getCustomOp
 
-from finn.transformation.fpgadataflow.fifo_sizing.tav import load_tav_npy
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
@@ -46,11 +45,11 @@ def dataflow_performance(model, use_characterized=False):
     - nodes have unique names (see GiveUniqueNodeNames)
 
     Parameters:
-    - use_characterized : take each node's cycle count from its token access
-      vectors (see DeriveTokenAccessVectors) instead of the cycles_estimate
-      annotation. Nodes that carry no token access vector -- the fork and join
-      nodes, whose vectors are copied from their neighbours, and FIFOs -- count
-      as zero cycles, so max_cycles is the slowest *characterized* node. Note
+    - use_characterized : take each node's cycle count from the period of its
+      token access vectors (``io_chrc_period``, see DeriveTokenAccessVectors)
+      instead of the cycles_estimate annotation. Nodes that carry no token
+      access vectors -- fork and join nodes and FIFOs -- count as zero
+      cycles, so max_cycles is the slowest *characterized* node. Note
       that this makes critical_path_cycles a partial sum; the characterized mode
       exists to report max_cycles.
 
@@ -67,21 +66,9 @@ def dataflow_performance(model, use_characterized=False):
         if is_hls_node(node) or is_rtl_node(node) or node.op_type == "Shuffle":
             inst = getCustomOp(node)
             if use_characterized:
-                # The TAVs (see DeriveTokenAccessVectors) store one entry per
-                # clock cycle for the input and the output stream back to back,
-                # so half the array length is the number of cycles the node
-                # needs for one period. A node that has not been characterized
-                # counts as 0 -- fork and join nodes and FIFOs never are, they
-                # inherit their neighbours' vectors instead of having one
-                # measured.
-                chrc_in = inst.get_nodeattr("io_chrc_in")
-                chrc_out = inst.get_nodeattr("io_chrc_out")
-                if chrc_in == "" or chrc_out == "":
-                    node_cycles = 0
-                else:
-                    cycles_in = len(load_tav_npy(chrc_in)[0]) // 2
-                    cycles_out = len(load_tav_npy(chrc_out)[0]) // 2
-                    node_cycles = max(cycles_in, cycles_out)
+                # the period DeriveTokenAccessVectors stored with the TAVs; 0
+                # for a node that has not been characterized
+                node_cycles = inst.get_nodeattr("io_chrc_period")
             else:
                 node_cycles = int(inst.get_nodeattr("cycles_estimate"))
             if node_cycles > max_cycles:

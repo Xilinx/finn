@@ -315,49 +315,30 @@ class HWCustomOp(CustomOp):
         out_width = self.get_outstream_width(ind=ind)
         return roundup_to_integer_multiple(out_width, 8)
 
-    def derive_token_access_vectors(
-        self,
-        model,
-        period,
-        strategy,
-        fpga_part,
-        clk_period,
-        op_type,
-        override_dict=None,
-        pre_hook=None,
-        periods_to_simulate=5,
-    ):
-        if override_dict is None:
-            n_inps = np.prod(self.get_folded_input_shape()[:-1])
-            io_dict = {
-                "inputs": {
-                    "in0": [i for i in range(n_inps)],
-                },
-                "outputs": {"out0": []},
-            }
-        else:
-            io_dict = override_dict
-        if strategy == "tree_model":
-            # check for override function
-            if get_tree_model(self) is not None:
-                self.derive_token_access_vectors_using_tree_model(period, io_dict=io_dict)
-                return
-        # RTL-based flow
-        # there is a 20 clock marging added for when get_exp_cycles()
-        # is underestimating the real operator runtime.
-        period = self.get_exp_cycles() + 20
-        self.derive_token_access_vectors_using_rtlsim(
-            model,
-            period,
-            fpga_part,
-            clk_period,
-            io_dict,
-            pre_hook=pre_hook,
-            periods_to_simulate=periods_to_simulate,
-        )
+    def derive_token_access_vectors(self, strategy):
+        """Derive the token access vectors of this node and store them in
+        ``io_chrc_in``/``io_chrc_out``.
 
-    def derive_token_access_vectors_using_tree_model(self, period, io_dict):
-        # Analytical flow
+        With ``strategy="tree_model"`` they come from the node's tree model if
+        it has one, otherwise (and with ``strategy="rtlsim"``) from rtlsim of the
+        node in isolation, driven with ``get_tav_io_dict``."""
+        if strategy == "tree_model" and get_tree_model(self) is not None:
+            self.derive_token_access_vectors_using_tree_model()
+        else:
+            self.derive_token_access_vectors_using_rtlsim()
+
+    def get_tav_io_dict(self):
+        """The rtlsim stimulus for one period of characterization, in the
+        ``io_dict`` format of ``rtlsim_multi_io``. By default ``in0`` gets one
+        folded input frame and ``out0`` is drained. Nodes that need other
+        streams fed or drained to keep running override this."""
+        n_inps = np.prod(self.get_folded_input_shape()[:-1])
+        return {
+            "inputs": {"in0": [i for i in range(n_inps)]},
+            "outputs": {"out0": []},
+        }
+
+    def derive_token_access_vectors_using_tree_model(self):
         chr_node = get_tree_model(self)
 
         # The schedule is run-length encoded, so both periods come from one
@@ -555,18 +536,9 @@ class HWCustomOp(CustomOp):
         ) as f:
             f.write(template_wrapper)
 
-    def derive_token_access_vectors_using_rtlsim(
-        self,
-        model,
-        period,
-        fpga_part,
-        clk_period,
-        override_rtlsim_dict=None,
-        pre_hook=None,
-        periods_to_simulate=5,
-    ):
-        """Return the token access vectors for this node using rtlsim.
-        Used by analytical FIFO sizing approach.
+    def derive_token_access_vectors_using_rtlsim(self, pre_hook=None, periods_to_simulate=5):
+        """Derive the token access vectors for this node using rtlsim, driven
+        with ``get_tav_io_dict`` repeated for ``periods_to_simulate`` periods.
 
         Args:
             pre_hook: Optional callable that takes sim as argument, called after
@@ -580,42 +552,18 @@ class HWCustomOp(CustomOp):
                       repeated instead, for an operator with no periodic steady
                       state to find -- see ``FINNLoop``.
         """
-        # ensure rtlsim is ready
-
         periods_to_store = 2
 
+        # ensure rtlsim is ready
         if self.get_nodeattr("rtlsim_so") == "":
             self.prepare_rtlsim()
 
         assert self.get_nodeattr("rtlsim_so") != "", "rtlsim not ready for " + self.onnx_node.name
 
-        exp_cycles = (self.get_exp_cycles() + 20) * periods_to_simulate
-        n_inps = np.prod(self.get_folded_input_shape()[:-1]) * periods_to_simulate
-        n_outs = np.prod(self.get_folded_output_shape()[:-1]) * periods_to_simulate
-        if exp_cycles == 0:
-            # try to come up with an optimistic estimate
-            exp_cycles = min(n_inps, n_outs)
-        assert (
-            exp_cycles <= period * periods_to_simulate
-        ), "Period %d too short to characterize %s : expects min %d cycles" % (
-            period,
-            self.onnx_node.name,
-            exp_cycles,
-        )
         sim = self.get_rtlsim()
-        if override_rtlsim_dict is not None:
-            io_dict = override_rtlsim_dict
-
-            for input_key in io_dict["inputs"]:
-                io_dict["inputs"][input_key] = io_dict["inputs"][input_key] * periods_to_simulate
-
-        else:
-            io_dict = {
-                "inputs": {
-                    "in0": [i for i in range(n_inps)],
-                },
-                "outputs": {"out0": []},
-            }
+        io_dict = self.get_tav_io_dict()
+        for input_key in io_dict["inputs"]:
+            io_dict["inputs"][input_key] = io_dict["inputs"][input_key] * periods_to_simulate
 
         # extra dicts to keep track of cycle-by-cycle transaction behavior
         # note that we restrict key names to filter out weight streams etc
@@ -676,31 +624,21 @@ class HWCustomOp(CustomOp):
 
         all_txns_in = np.empty((len(txns_in.keys()), period * periods_to_store), dtype=np.int32)
         all_txns_out = np.empty((len(txns_out.keys()), period * periods_to_store), dtype=np.int32)
-        all_pad_in = []
-        all_pad_out = []
-        pad_in = 0
-        pad_out = 0
         for in_idx, in_strm_nm in enumerate(txns_in.keys()):
             txn_in = txns_in[in_strm_nm]
-            pad_in = 0
             # the trace must cover every simulated period, since the stored
             # window is indexed modulo that length
             if len(txn_in) < wrap:
-                pad_in = wrap - len(txn_in)
-                txn_in += [0 for x in range(pad_in)]
+                txn_in += [0 for x in range(wrap - len(txn_in))]
             txn_in = accumulate_char_fxn(txn_in, store_from, span, wrap)
             all_txns_in[in_idx, :] = txn_in
-            all_pad_in.append(pad_in)
 
         for out_idx, out_strm_nm in enumerate(txns_out.keys()):
             txn_out = txns_out[out_strm_nm]
-            pad_out = 0
             if len(txn_out) < wrap:
-                pad_out = wrap - len(txn_out)
-                txn_out += [0 for x in range(pad_out)]
+                txn_out += [0 for x in range(wrap - len(txn_out))]
             txn_out = accumulate_char_fxn(txn_out, store_from, span, wrap)
             all_txns_out[out_idx, :] = txn_out
-            all_pad_out.append(pad_out)
 
         tav_path_in = save_tav_npy(self, "io_chrc_in", all_txns_in)
         self.set_nodeattr("io_chrc_in", tav_path_in)

@@ -155,16 +155,11 @@ class StreamingSplit(HWCustomOp):
         in_width = self.get_instream_width()
         return roundup_to_integer_multiple(in_width, 8)
 
-    def derive_token_access_vectors(
-        self, model, period, strategy, fpga_part, clk_period, op_type, override_dict=None
-    ):
+    def get_tav_io_dict(self):
         # rtlsim has to drain every output: the round-robin stalls on the first
         # one that is not read
         n_inps = np.prod(self.get_folded_input_shape()[:-1])
-        io_dict = {
+        return {
             "inputs": {"in0": [0 for i in range(n_inps)]},
             "outputs": {"out%d" % i: [] for i in range(self.get_n_outputs())},
         }
-        super().derive_token_access_vectors(
-            model, period, strategy, fpga_part, clk_period, op_type, override_dict=io_dict
-        )

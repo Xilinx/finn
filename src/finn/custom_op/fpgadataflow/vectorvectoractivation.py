@@ -887,21 +887,9 @@ class VVAU(HWCustomOp):
             raise Exception("Unrecognized mem_mode for VectorVectorActivation")
         return cmd
 
-    def derive_token_access_vectors(
-        self, model, period, strategy, fpga_part, clk_period, op_type, override_dict=None
-    ):
-        n_inps = np.prod(self.get_folded_input_shape()[:-1])
-        io_dict = {
-            "inputs": {
-                "in0": [i for i in range(n_inps)],
-            },
-            "outputs": {"out0": []},
-        }
-
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode in ["internal_decoupled", "external"]:
-            io_dict["inputs"]["in1"] = [0 for i in range(1 * n_inps)]
-
-        super().derive_token_access_vectors(
-            model, period, strategy, fpga_part, clk_period, op_type, override_dict=io_dict
-        )
+    def get_tav_io_dict(self):
+        io_dict = super().get_tav_io_dict()
+        if self.get_nodeattr("mem_mode") in ["internal_decoupled", "external"]:
+            n_inps = np.prod(self.get_folded_input_shape()[:-1])
+            io_dict["inputs"]["in1"] = [0 for i in range(n_inps)]
+        return io_dict
