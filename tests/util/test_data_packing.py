@@ -37,6 +37,7 @@ from qonnx.util.basic import gen_finn_dt_tensor
 from finn.util.basic import make_build_dir, robust_rmtree
 from finn.util.data_packing import (
     finnpy_to_packed_bytearray,
+    hls_datatype_str,
     npy_to_rtlsim_input,
     numpy_to_hls_code,
     packed_bytearray_to_finnpy,
@@ -47,8 +48,10 @@ from finn.util.data_packing import (
 @pytest.mark.parametrize(
     "dtype",
     [
+        DataType["BIPOLAR"],
         DataType["BINARY"],
         DataType["INT2"],
+        DataType["UINT8"],
         DataType["INT32"],
         DataType["FIXED<9,6>"],
         DataType["FLOAT32"],
@@ -56,52 +59,30 @@ from finn.util.data_packing import (
 )
 @pytest.mark.parametrize("test_shape", [(1, 2, 4), (1, 1, 64), (2, 64)])
 @pytest.mark.vivado
-def test_npy2apintstream(test_shape, dtype):
-    ndarray = gen_finn_dt_tensor(dtype, test_shape)
-    test_dir = make_build_dir(prefix="test_npy2apintstream_")
+def test_npy2tensorstream(test_shape, dtype):
+    # round trip npy -> hls::stream<tensor<T, N>> -> npy, N = innermost dim
+    ndarray = gen_finn_dt_tensor(dtype, test_shape).astype(np.float32)
+    test_dir = make_build_dir(prefix="test_npy2tensorstream_")
     shape = ndarray.shape
-    packed_bits = shape[-1] * dtype.bitwidth()
-    packed_hls_type = "ap_uint<%d>" % packed_bits
-    elem_hls_type = dtype.get_hls_datatype_str()
+    elem_hls_type = hls_datatype_str(dtype)
     npy_in = test_dir + "/in.npy"
     npy_out = test_dir + "/out.npy"
-    # restrict the np datatypes we can handle
-    npyt_to_ct = {
-        "float32": "float",
-        "float64": "double",
-        "int8": "int8_t",
-        "int32": "int32_t",
-        "int64": "int64_t",
-        "uint8": "uint8_t",
-        "uint32": "uint32_t",
-        "uint64": "uint64_t",
-    }
-    npy_type = npyt_to_ct[str(ndarray.dtype)]
     shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")
     test_app_string = []
-    test_app_string += ["#include <cstddef>"]
     test_app_string += ["#define AP_INT_MAX_W 4096"]
-    test_app_string += ['#include "ap_int.h"']
-    test_app_string += ['#include "stdint.h"']
     test_app_string += ['#include "hls_stream.h"']
-    test_app_string += ['#include "cnpy.h"']
-    test_app_string += ['#include "npy2apintstream.hpp"']
+    test_app_string += ['#include "tensor.hpp"']
+    test_app_string += ['#include "npy2tensorstream.hpp"']
     test_app_string += ["int main(int argc, char *argv[]) {"]
-    test_app_string += ["hls::stream<%s> teststream;" % packed_hls_type]
-    test_app_string += [
-        'npy2apintstream<%s, %s, %s>("%s", teststream);'
-        % (packed_hls_type, elem_hls_type, npy_type, npy_in)
-    ]
-    test_app_string += [
-        'apintstream2npy<%s, %s, %s>(teststream, %s, "%s");'
-        % (packed_hls_type, elem_hls_type, npy_type, shape_cpp_str, npy_out)
-    ]
+    test_app_string += ["hls::stream<tensor<%s, %d>> teststream;" % (elem_hls_type, shape[-1])]
+    test_app_string += ['npy2tensorstream<float>("%s", teststream);' % npy_in]
+    test_app_string += ['tensorstream2npy<float>(teststream, %s, "%s");' % (shape_cpp_str, npy_out)]
     test_app_string += ["return 0;"]
     test_app_string += ["}"]
     with open(test_dir + "/test.cpp", "w") as f:
         f.write("\n".join(test_app_string))
     cmd_compile = """
-g++ -o test_npy2apintstream test.cpp $FINN_ROOT/src/finn/qnn-data/cpp/cnpy.cpp \
+g++ -o test_npy2tensorstream test.cpp $FINN_ROOT/src/finn/qnn-data/cpp/cnpy.cpp \
 -I{}/include -I{}/include -I$FINN_ROOT/src/finn/qnn-data/cpp \
 -I$FINN_ROOT/deps/finn-hlslib \
 --std=c++17 -lz""".format(
@@ -110,12 +91,15 @@ g++ -o test_npy2apintstream test.cpp $FINN_ROOT/src/finn/qnn-data/cpp/cnpy.cpp \
     with open(test_dir + "/compile.sh", "w") as f:
         f.write(cmd_compile)
     subprocess.check_call(["sh", "compile.sh"], cwd=test_dir)
-    # make copy before saving the array
-    ndarray = ndarray.copy()
     np.save(npy_in, ndarray)
-    subprocess.check_call(["./test_npy2apintstream"], cwd=test_dir)
+    subprocess.check_call(["./test_npy2tensorstream"], cwd=test_dir)
     produced = np.load(npy_out)
-    assert (produced == ndarray).all()
+    if dtype == DataType["BIPOLAR"]:
+        # Bipolar reads {-1, +1} but writes back its raw bit {0, 1}
+        expected = (ndarray + 1) / 2
+    else:
+        expected = ndarray
+    assert (produced == expected).all()
     robust_rmtree(test_dir)
 
 

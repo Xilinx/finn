@@ -32,6 +32,7 @@ from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.streamingdatawidthconverter import (
     StreamingDataWidthConverter,
 )
+from finn.util.data_packing import hls_datatype_str
 
 # does not do anything at the ONNX node-by-node level, and input-output
 # tensor shapes are the same. performs data width conversion at the rtlsim level
@@ -61,86 +62,53 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
         return my_attrs
 
     def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "streamtools.h"']
+        self.code_gen_dict["$GLOBALS$"] = ['#include "dwc.hpp"']
 
     def defines(self, var):
-        numReps = 1
-        numInWords = int(np.prod(self.get_folded_input_shape()[:-1]))
-        inWidth = self.get_nodeattr("inWidth")
-        outWidth = self.get_nodeattr("outWidth")
-        self.code_gen_dict["$DEFINES$"] = [
-            "#define InWidth %d " % inWidth,
-            "#define OutWidth %d " % outWidth,
-            "#define NumInWords %d " % numInWords,
-            "#define numReps %d" % numReps,
-        ]
-        if self._needs_element_width_split():
-            elemWidth = self.get_input_datatype().bitwidth()
-            assert inWidth % elemWidth == 0, "DWC input width must be element-aligned"
-            assert outWidth % elemWidth == 0, "DWC output width must be element-aligned"
-            numMiddleWords = numInWords * (inWidth // elemWidth)
-            assert (
-                numMiddleWords % (outWidth // elemWidth) == 0
-            ), "Error in DWC element-width split calculation"
-            self.code_gen_dict["$DEFINES$"].append("#define IntermediateWidth %d" % elemWidth)
-            self.code_gen_dict["$DEFINES$"].append("#define NumMiddleWords %d" % numMiddleWords)
-        elif self.needs_lcm():
-            lcmWidth = self.get_iowidth_lcm()
-            assert numInWords % (lcmWidth / inWidth) == 0, "Error in DWC LCM calculation"
-            numLCMToOut = numInWords // (lcmWidth / inWidth)
-            self.code_gen_dict["$DEFINES$"].append("#define LCMWidth %d" % lcmWidth)
-            self.code_gen_dict["$DEFINES$"].append("#define NumLCMToOut %d" % (numLCMToOut))
-
-    def strm_decl(self):
-        self.code_gen_dict["$STREAMDECLARATIONS$"] = []
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0_V ("in0_V");'.format(self.get_instream_width())
-        )
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out0_V ("out0_V");'.format(self.get_outstream_width())
-        )
+        self.code_gen_dict["$DEFINES$"] = []
 
     def docompute(self):
-        # TODO continue with fxns below, they are copy-pasted
-        op = "StreamingDataWidthConverter_Batch"
+        elem_hls_type = hls_datatype_str(self.get_input_datatype())
+        n_in = self.get_folded_input_shape()[-1]
+        n_out = self.get_folded_output_shape()[-1]
+        op = "StreamingDWC"
         if self._needs_element_width_split():
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                'hls::stream<ap_uint<IntermediateWidth>> intermediate ("intermediate");',
-                "%s<InWidth, IntermediateWidth, NumInWords>(in0_V, intermediate, numReps);" % op,
-                "%s<IntermediateWidth, OutWidth, NumMiddleWords>(intermediate, out0_V, numReps);"
-                % op,
+                'hls::stream<tensor<%s,1>> intermediate ("intermediate");' % elem_hls_type,
+                "%s<%s,%d,1>(in0_V, intermediate);" % (op, elem_hls_type, n_in),
+                "%s<%s,1,%d>(intermediate, out0_V);" % (op, elem_hls_type, n_out),
             ]
         elif self.needs_lcm():
+            elem_bits = self.get_input_datatype().bitwidth()
+            lcm_elems = self.get_iowidth_lcm() // elem_bits
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                'hls::stream<ap_uint<{}>> intermediate ("intermediate");'.format(
-                    self.get_iowidth_lcm()
-                ),
-                "%s<InWidth, LCMWidth, NumInWords>(in0_V, intermediate, numReps);" % op,
-                "%s<LCMWidth, OutWidth, NumLCMToOut>(intermediate, out0_V, numReps);" % op,
+                'hls::stream<tensor<%s,%d>> intermediate ("intermediate");'
+                % (elem_hls_type, lcm_elems),
+                "%s<%s,%d,%d>(in0_V, intermediate);" % (op, elem_hls_type, n_in, lcm_elems),
+                "%s<%s,%d,%d>(intermediate, out0_V);" % (op, elem_hls_type, lcm_elems, n_out),
             ]
         else:
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                "%s<InWidth, OutWidth, NumInWords>(in0_V, out0_V, numReps);" % op
+                "%s<%s,%d,%d>(in0_V, out0_V);" % (op, elem_hls_type, n_in, n_out)
             ]
 
     def blackboxfunction(self):
-        in_packed_bits = self.get_instream_width()
-        in_packed_hls_type = "ap_uint<%d>" % in_packed_bits
-        out_packed_bits = self.get_outstream_width()
-        out_packed_hls_type = "ap_uint<%d>" % out_packed_bits
+        elem_hls_type = hls_datatype_str(self.get_input_datatype())
+        n_in = self.get_folded_input_shape()[-1]
+        n_out = self.get_folded_output_shape()[-1]
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            "void %s(hls::stream<%s > &in0_V, hls::stream<%s > &out0_V)"
-            % (
-                self.onnx_node.name,
-                in_packed_hls_type,
-                out_packed_hls_type,
-            )
+            "void %s(hls::stream<tensor<%s,%d>> &in0_V, hls::stream<tensor<%s,%d>> &out0_V)"
+            % (self.onnx_node.name, elem_hls_type, n_in, elem_hls_type, n_out)
         ]
 
     def pragmas(self):
-        self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0_V"]
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out0_V")
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
+        self.code_gen_dict["$PRAGMAS$"] = [
+            "#pragma HLS INTERFACE axis port=in0_V",
+            "#pragma HLS INTERFACE axis port=out0_V",
+            "#pragma HLS INTERFACE ap_ctrl_none port=return",
+            "#pragma HLS aggregate variable=in0_V compact=bit",
+            "#pragma HLS aggregate variable=out0_V compact=bit",
+        ]
         if self.needs_lcm():
             self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS DATAFLOW disable_start_propagation")
 
@@ -154,3 +122,8 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
 
         elif mode == "rtlsim":
             HLSBackend.execute_node(self, context, graph)
+
+    def ipgen_extra_directives(self):
+        "Return a list of extra tcl directives for HLS synthesis."
+
+        return ["config_compile -pipeline_style flp"]
