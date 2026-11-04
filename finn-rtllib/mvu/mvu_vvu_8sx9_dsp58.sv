@@ -134,10 +134,9 @@ module mvu_vvu_8sx9_dsp58 #(
 
 			if (EXTERNAL_PREGS > 0) begin : genExternalPregAct
 				(* EXTRACT_SHREG = "true" *)
-				logic [0:EXTERNAL_PREGS-1][LANES_OCCUPIED-1:0][ACTIVATION_WIDTH-1:0] A = '{ default : '0 };
+				logic [0:EXTERNAL_PREGS-1][LANES_OCCUPIED-1:0][ACTIVATION_WIDTH-1:0]  A = 'x;
 				always_ff @(posedge clk) begin
-					if(rst)  A <= '0;
-					else if(en) begin
+					if(en) begin
 						A[EXTERNAL_PREGS-1] <=
 // synthesis translate_off
 							zero ? '1 :
@@ -181,10 +180,9 @@ module mvu_vvu_8sx9_dsp58 #(
 
 			if (EXTERNAL_PREGS > 0) begin : genExternalPregWeight
 				(* EXTRACT_SHREG = "true" *)
-				logic [0:PE-1][0:EXTERNAL_PREGS-1][LANES_OCCUPIED-1:0][WEIGHT_WIDTH-1:0] B = '{ default : '0 };
+				logic [0:PE-1][0:EXTERNAL_PREGS-1][LANES_OCCUPIED-1:0][WEIGHT_WIDTH-1:0]  B = 'x;
 				always_ff @(posedge clk) begin
-					if(rst)  B[i] <= '0;
-					else if(en) begin
+					if(en) begin
 						B[i][EXTERNAL_PREGS-1] <=
 // synthesis translate_off
 							zero ? '1 :
@@ -282,46 +280,38 @@ module mvu_vvu_8sx9_dsp58 #(
 					end
 					else	assign Preg = Mreg;
 				end
-				else if (LAST) begin : genLast
+				else if(LAST) begin : genLast
 					// Accumulation feedback + optional PCIN cascade addend.
 					// FIRST: no PCIN (single-DSP chain). !FIRST: add pcout[i][j-1].
-					uwire signed [57:0]  pcin = FIRST ? '0 : pcout[i][j-1];
+					uwire signed [57:0]  pcin = FIRST? '0 : pcout[i][j-1];
 
+					always_ff @(posedge clk) begin
+						if(rst)      Opmode <= 0;
+						else if(en)  Opmode <= L[1];
+					end
 					if(TH <= 1) begin : genAccP
 						always_ff @(posedge clk) begin
-							if (rst)		Opmode <= 0;
-							else if (en)	Opmode <= L[1];
-						end
-						always_ff @(posedge clk) begin
-							if (rst) 		Preg <= 0;
-							else if (en)	Preg <= (Opmode ? 0 : Preg) + Mreg + pcin;
+							if(rst)      Preg <= 0;
+							else if(en)  Preg <= (Opmode? 0 : Preg) + Mreg + pcin;
 						end
 					end : genAccP
 					else begin : genAccC
 						// TH>=2: C-port feedback ring of depth TH.
-						// Clearing ring of depth TH-1 parallel to AccLine.
-						always_ff @(posedge clk) begin
-							if (rst)		Opmode <= 0;
-							else if (en)	Opmode <= L[1];
-						end
+						// ClearRing initialized to '1 masks AccLine until valid
+						// data has propagated through — no reset needed on AccLine.
 						logic signed [57:0]  AccLine[TH-1];
-						logic  ClearRing[TH-1];
-						initial begin
-							foreach(AccLine[k])   AccLine[k] = 0;
-							foreach(ClearRing[k]) ClearRing[k] = 0;
-						end
+						logic  ClearRing[TH-1] = '{ default: 1 };
 						always_ff @(posedge clk) begin
-							if (rst) begin
-								Preg <= 0;
-								foreach(AccLine[k])   AccLine[k] <= 0;
-								foreach(ClearRing[k]) ClearRing[k] <= 0;
+							if(rst) begin
+								Preg      <= 0;
+								ClearRing <= '{ default: 1 };
 							end
-							else if (en) begin
-								Preg <= (ClearRing[TH-2] ? '0 : AccLine[TH-2]) + Mreg + pcin;
-								AccLine[0] <= Preg;
-								ClearRing[0] <= Opmode;
-								for(int k = TH-2; k > 0; k--)  AccLine[k] <= AccLine[k-1];
-								for(int k = TH-2; k > 0; k--)  ClearRing[k] <= ClearRing[k-1];
+							else if(en) begin
+								Preg <= (ClearRing[0]? '0 : AccLine[0]) + Mreg + pcin;
+								AccLine[TH-2] <= Preg;
+								ClearRing[TH-2] <= Opmode;
+								for(int unsigned  k = 0; k < TH-2; k++)  AccLine[k] <= AccLine[k+1];
+								for(int unsigned  k = 0; k < TH-2; k++)  ClearRing[k] <= ClearRing[k+1];
 							end
 						end
 					end : genAccC
@@ -341,39 +331,30 @@ module mvu_vvu_8sx9_dsp58 #(
 `ifndef VERILATOR
 			else begin: genDSP
 				// C-port feedback shift register for TH>=2 on LAST DSP
-				logic [57:0]  c_input_dsp58;
-				if(!LAST || TH <= 1) begin : genNoCSR
-					assign c_input_dsp58 = '0;
-				end : genNoCSR
+				uwire [57:0]  c_input_dsp58;
+				if(!LAST || TH <= 1)  assign  c_input_dsp58 = 'x;
 				else begin : genCSR
 					// External shift register between P output and C input.
 					// ClearRing: TH-1 deep (parallels AccLine + CREG).
 					// AccLine: TH-2 deep (only exists for TH>2; TH=2 feeds pp directly).
-					(* SHREG_EXTRACT = "yes" *) logic  ClearRing[TH-1];
-					initial  foreach(ClearRing[m]) ClearRing[m] = 0;
-					if(TH == 2) begin : genTH2
-						always_ff @(posedge clk) begin
-							if(rst)      ClearRing[0] <= 0;
-							else if(en)  ClearRing[0] <= L[1];
+					logic  ClearRing[TH-1] = '{ default: 1 };
+					always_ff @(posedge clk) begin
+						if(rst)  ClearRing <= '{ default: 1 };
+						else if(en) begin
+							ClearRing[TH-2] <= L[1];
+							for(int unsigned  m = 0; m < TH-2; m++)  ClearRing[m] <= ClearRing[m+1];
 						end
-						assign c_input_dsp58 = ClearRing[0]? '0 : pp;
-					end : genTH2
+					end
+					if(TH == 2)  assign  c_input_dsp58 = ClearRing[0]? '0 : pp;
 					else begin : genTHDeep
-						logic [57:0]  AccLine[TH-2];
-						initial  foreach(AccLine[m]) AccLine[m] = 0;
+						(* SHREG_EXTRACT = "yes" *) logic [57:0]  AccLine[TH-2];
 						always_ff @(posedge clk) begin
-							if(rst) begin
-								foreach(AccLine[m])   AccLine[m] <= 0;
-								foreach(ClearRing[m]) ClearRing[m] <= 0;
-							end
-							else if(en) begin
-								AccLine[0] <= pp;
-								ClearRing[0] <= L[1];
-								for(int m = TH-3; m > 0; m--)  AccLine[m] <= AccLine[m-1];
-								for(int m = TH-2; m > 0; m--)  ClearRing[m] <= ClearRing[m-1];
+							if(en) begin
+								AccLine[TH-3] <= pp;
+								for(int unsigned  m = 0; m < TH-3; m++)  AccLine[m] <= AccLine[m+1];
 							end
 						end
-						assign c_input_dsp58 = ClearRing[TH-2]? '0 : AccLine[TH-3];
+						assign  c_input_dsp58 = ClearRing[0]? '0 : AccLine[0];
 					end : genTHDeep
 				end : genCSR
 				DSP58 #(
@@ -478,8 +459,18 @@ module mvu_vvu_8sx9_dsp58 #(
 							7'b000_0000
 					}), // 9-bit input: Operation mode
 					// Data inputs: Data Ports
-					.A({ 7'bx, a_in_i[(IS_MVU ? 0 : CHAINLEN*i) + j] }),            // 34-bit input: A data
-					.B(b_in_i[i][j]),                   // 24-bit input: B data
+					.A(
+// synthesis translate_off
+						inmode_zero[TOTAL_PREGS > 0? TOTAL_PREGS-1 : 0]? '0 :
+// synthesis translate_on
+						{ 7'bx, a_in_i[(IS_MVU ? 0 : CHAINLEN*i) + j] }
+					),            // 34-bit input: A data
+					.B(
+// synthesis translate_off
+						inmode_zero[TOTAL_PREGS > 0? TOTAL_PREGS-1 : 0]? '0 :
+// synthesis translate_on
+						b_in_i[i][j]
+					),                   // 24-bit input: B data
 					.C(LAST && TH > 1 ? c_input_dsp58 : '0), // 58-bit input: C data
 					.CARRYIN('0),                       // 1-bit input: Carry-in
 					.D('x),                             // 27-bit input: D data
