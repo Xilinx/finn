@@ -51,14 +51,10 @@ from finn.transformation.fpgadataflow.alveo_build import VitisLink, VitisOptStra
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.derive_characteristic import (
     DeriveTokenAccessVectors,
+    JustInTimeSynthesize,
 )
 from finn.transformation.fpgadataflow.fifo_sizing.tav import load_tav_npy
-from finn.transformation.fpgadataflow.fifo_sizing.tree_models.base import get_tree_model
 from finn.transformation.fpgadataflow.make_pynq_proj import PYNQBuild
-from finn.transformation.fpgadataflow.prepare_ip import _codegen_single_node
-from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
-    ReplaceVerilogRelPaths,
-)
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import (
     make_build_dir,
@@ -67,7 +63,6 @@ from finn.util.basic import (
     vitis_default_platform,
     vitis_part_map,
 )
-from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 # map of (wbits,abits) -> model
 example_map = {
@@ -332,57 +327,10 @@ def get_characteristic_fnc(model, part, target_clk_ns, strategy):
     model = model.transform(SpecializeLayers(part))
     model = model.transform(GiveUniqueNodeNames())
 
-    node = model.graph.node[0]
-    inst = getCustomOp(node)
-    if (is_hls_node(node) or is_rtl_node(node)) and (
-        get_tree_model(inst) is None or strategy == "rtlsim"
-    ):
-        _codegen_single_node(node, model, part, target_clk_ns)
-
-        op_type = node.op_type
-        if is_hls_node(node):
-            try:
-                # lookup op_type in registry of CustomOps
-
-                # ensure that code is generated
-                assert (
-                    inst.get_nodeattr("code_gen_dir_ipgen") != ""
-                ), """Node
-                attribute "code_gen_dir_ipgen" is empty. Please run
-                transformation PrepareIP first."""
-                if os.path.isdir(inst.get_nodeattr("ipgen_path")) or inst.get_nodeattr(
-                    "code_gen_dir_ipgen"
-                ) not in inst.get_nodeattr("ipgen_path"):
-                    # call the compilation function for this node
-                    inst.ipgen_singlenode_code()
-                else:
-                    warnings.warn("Using pre-existing IP for %s" % node.name)
-                # ensure that executable path is now set
-                assert (
-                    inst.get_nodeattr("ipgen_path") != ""
-                ), """Transformation
-                HLSSynthIP was not successful. Node attribute "ipgen_path"
-                is empty."""
-            except KeyError:
-                # exception if op_type is not supported
-                raise Exception("Custom op_type %s is currently not supported." % op_type)
-
-    model = model.transform(ReplaceVerilogRelPaths())
-
-    node = model.graph.node[0]
-    inst = getCustomOp(node)
-    if (is_hls_node(node) or is_rtl_node(node)) and (
-        get_tree_model(inst) is None or strategy == "rtlsim"
-    ):
-        try:
-            inst.prepare_rtlsim()
-            # ensure that executable path is now set
-            assert (
-                inst.get_nodeattr("rtlsim_so") != ""
-            ), "Failed to prepare RTLSim, no rtlsim_so attribute found."
-        except KeyError:
-            # exception if op_type is not supported
-            raise Exception("Custom op_type %s is currently not supported." % op_type)
+    # code, IP and rtlsim for the node, unless the tree model is characterized
+    model = model.transform(
+        JustInTimeSynthesize(part, target_clk_ns, only_without_tree_model=strategy == "tree_model")
+    )
 
     model = model.transform(AnnotateCycles())
 

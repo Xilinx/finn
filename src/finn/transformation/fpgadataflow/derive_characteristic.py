@@ -45,12 +45,11 @@ The flow, as ``step_set_fifo_depths`` runs it:
 This module holds steps 1 and 2.
 """
 
-import os
 import qonnx.custom_op.registry as registry
-import warnings
 from qonnx.transformation.base import NodeLocalTransformation, Transformation
 
 from finn.transformation.fpgadataflow.fifo_sizing.tree_models.base import get_tree_model
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_ip import _codegen_single_node
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
@@ -83,79 +82,62 @@ def is_stream_join(node):
     return inst.get_nodeattr("lhs_style") == "input" and inst.get_nodeattr("rhs_style") == "input"
 
 
+def needs_rtlsim_characterization(node, only_without_tree_model=False):
+    """True if ``DeriveTokenAccessVectors`` characterizes ``node`` with rtlsim:
+    an HLS or RTL node that is characterized at all (not a fork, a FIFO or a
+    join) and, with ``only_without_tree_model``, has no tree model."""
+    if not (is_hls_node(node) or is_rtl_node(node)):
+        return False
+    if node.op_type in _UNCHARACTERIZED_OPS or is_stream_join(node):
+        return False
+    if only_without_tree_model:
+        return get_tree_model(registry.getCustomOp(node)) is None
+    return True
+
+
 class JustInTimeSynthesize(Transformation):
+    """Generate code, synthesize IP and prepare rtlsim for the nodes that are
+    characterized with rtlsim (``needs_rtlsim_characterization``) and have no
+    token access vector yet. IP that already exists is reused, with the same
+    check as ``HLSSynthIP``.
+
+    * part (str) FPGA part to generate code and IP for.
+    * clk_period (float) target clock period in ns.
+    * only_without_tree_model (bool) leave out the nodes that have a tree model,
+      for ``heuristic_analytical``.
+    """
+
     def __init__(self, part, clk_period, only_without_tree_model=False):
         super().__init__()
         self.part = part
         self.clk_period = clk_period
         self.only_without_tree_model = only_without_tree_model
 
-    def apply(self, model):
-        for node in model.graph.node:
-            inst = registry.getCustomOp(node)
-            if (is_hls_node(node) or is_rtl_node(node)) and (
-                (
-                    (get_tree_model(inst) is None and self.only_without_tree_model)
-                    or not self.only_without_tree_model
-                )
-                and (inst.get_nodeattr("io_chrc_in") == "")
-            ):
-                _codegen_single_node(
-                    node,
-                    model,
-                    self.part,
-                    self.clk_period,
-                )
+    def _nodes(self, model):
+        return [
+            node
+            for node in model.graph.node
+            if needs_rtlsim_characterization(node, self.only_without_tree_model)
+            and registry.getCustomOp(node).get_nodeattr("io_chrc_in") == ""
+        ]
 
-                op_type = node.op_type
-                if is_hls_node(node):
-                    try:
-                        # ensure that code is generated
-                        assert (
-                            inst.get_nodeattr("code_gen_dir_ipgen") != ""
-                        ), """Node
-                        attribute "code_gen_dir_ipgen" is empty. Please run
-                        transformation PrepareIP first."""
-                        if os.path.isdir(inst.get_nodeattr("ipgen_path")) or inst.get_nodeattr(
-                            "code_gen_dir_ipgen"
-                        ) not in inst.get_nodeattr("ipgen_path"):
-                            # call the compilation function for this node
-                            inst.ipgen_singlenode_code()
-                        else:
-                            warnings.warn("Using pre-existing IP for %s" % node.name)
-                        # ensure that executable path is now set
-                        assert (
-                            inst.get_nodeattr("ipgen_path") != ""
-                        ), """Transformation
-                        HLSSynthIP was not successful. Node attribute "ipgen_path"
-                        is empty."""
-                    except KeyError:
-                        raise Exception("Custom op_type %s is currently not supported." % op_type)
+    def apply(self, model):
+        hls_synth = HLSSynthIP(self.part)
+        for node in self._nodes(model):
+            _codegen_single_node(node, model, self.part, self.clk_period)
+            # synthesizes HLS nodes whose IP does not exist yet
+            hls_synth.applyNodeLocal(node)
 
         model = model.transform(ReplaceVerilogRelPaths())
-        for node in model.graph.node:
+        for node in self._nodes(model):
             inst = registry.getCustomOp(node)
-            if (
-                (is_hls_node(node) or is_rtl_node(node))
-                and (
-                    (get_tree_model(inst) is None and self.only_without_tree_model)
-                    or not self.only_without_tree_model
+            if inst.get_nodeattr("rtlsim_so") == "":
+                inst.prepare_rtlsim()
+                assert inst.get_nodeattr("rtlsim_so") != "", (
+                    "Failed to prepare rtlsim for %s, no rtlsim_so attribute found." % node.name
                 )
-                and node.op_type not in _UNCHARACTERIZED_OPS
-                and not is_stream_join(node)
-                and (inst.get_nodeattr("rtlsim_so") == "")
-            ):
-                try:
-                    inst.prepare_rtlsim()
-                    # ensure that executable path is now set
-                    assert (
-                        inst.get_nodeattr("rtlsim_so") != ""
-                    ), "Failed to prepare RTLSim, no rtlsim_so attribute found."
-                except KeyError:
-                    raise Exception("Custom op_type %s is currently not supported." % op_type)
 
         model = model.transform(SetExecMode("rtlsim"))
-
         return (model, False)
 
 
