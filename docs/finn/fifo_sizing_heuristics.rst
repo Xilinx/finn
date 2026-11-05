@@ -1,8 +1,8 @@
 .. _fifo_sizing_heuristics:
 
-********************************
-Analytical FIFO sizing from TAVs
-********************************
+**********************
+Analytical FIFO Sizing
+**********************
 
 This page describes how ``step_set_fifo_depths`` sizes the FIFOs between
 dataflow layers when ``auto_fifo_strategy`` is ``heuristic_analytical`` or

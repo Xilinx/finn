@@ -110,7 +110,8 @@ products are not enabled will still run, but will do nothing.
   every strategy except ``heuristic_analytical``. In an estimate-only build (only
   ``ESTIMATE_REPORTS`` requested) it is skipped for those strategies, and
   ``heuristic_analytical`` sizes the FIFOs from the operators' tree models only,
-  so the estimate flow stays fast and synthesis-free either way.
+  so the estimate flow stays fast and synthesis-free either way. How the
+  heuristic strategies size FIFOs is described in :ref:`fifo_sizing_heuristics`.
 
 The fine-grained steps are still available and can be composed into a custom
 ``steps`` list in the build configuration for standard (non-MLO) models, mixing
