@@ -108,9 +108,10 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
             "#pragma HLS INTERFACE ap_ctrl_none port=return",
             "#pragma HLS aggregate variable=in0_V compact=bit",
             "#pragma HLS aggregate variable=out0_V compact=bit",
+            # StreamingDWC moves one word per call, so the top has to call it
+            # free-running, also when it is a single converter
+            "#pragma HLS DATAFLOW disable_start_propagation",
         ]
-        if self.needs_lcm():
-            self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS DATAFLOW disable_start_propagation")
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")

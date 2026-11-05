@@ -266,10 +266,11 @@ def test_fpgadataflow_analytical_characterization_dwc(config, impl_style):
         pytest.param(([1, 64, 32], 32, 32, DataType["INT8"]), id="wire-through"),
     ],
 )
+@pytest.mark.parametrize("impl_style", ["hls", "rtl"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_dwc_rtl_throughput(config):
+def test_fpgadataflow_dwc_throughput(config, impl_style):
     shape, inWidth, outWidth, finn_dtype = config
 
     test_fpga_part = "xc7z020clg400-1"
@@ -277,7 +278,7 @@ def test_fpgadataflow_dwc_rtl_throughput(config):
     x = gen_finn_dt_tensor(finn_dtype, shape)
     input_dict = prepare_inputs(x, finn_dtype)
 
-    model = make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, "rtl")
+    model = make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_style)
     model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, 5))
@@ -292,7 +293,7 @@ def test_fpgadataflow_dwc_rtl_throughput(config):
         input values anymore."""
 
     node = model.graph.node[0]
-    assert node.op_type == "StreamingDataWidthConverter_rtl"
+    assert node.op_type == "StreamingDataWidthConverter_" + impl_style
     inst = getCustomOp(node)
     n_in = int(np.prod(inst.get_folded_input_shape()[:-1]))
     n_out = int(np.prod(inst.get_folded_output_shape()[:-1]))
