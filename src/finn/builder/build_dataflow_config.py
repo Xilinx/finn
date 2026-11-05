@@ -213,6 +213,13 @@ class DataflowBuildConfig:
     #: verification. Only required if verify_steps is not empty.
     verify_expected_output_npy: Optional[str] = "expected_output.npy"
 
+    #: (Optional) Number of frames to verify in a single stitched-IP rtlsim run.
+    #: Only the stitched_ip_rtlsim verification step uses this. All other steps and
+    #: stitched_ip_rtlsim when this is unset, verify one frame at a time.
+    #: A single-frame verification input/output pair is repeated to this many frames.
+    #: This is separate from rtlsim_batch_size, which controls performance simulation.
+    verify_batch_size: Optional[int] = None
+
     #: (Optional) Save full execution context for each of the verify_steps.
     #: By default, only the top-level graph output is saved.
     verify_save_full_context: Optional[bool] = False
