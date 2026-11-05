@@ -550,6 +550,14 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
         model, ["MultiThreshold"], to_hw.InferThresholdingLayer(), "threshold layers"
     )
 
+    # Piecewise polynomial activations (GELU, SiLU, Sigmoid, Tanh)
+    model = apply_if_relevant(
+        model,
+        ["PWPolyF", "Gelu", "Sigmoid", "Tanh", "Erf"],
+        to_hw.InferPWPolyFLayer(),
+        "piecewise polynomial activations",
+    )
+
     # Elementwise binary ops (Add/Mul/...). Before InferPool: promoting a preceding
     # integer-valued Add/Mul to an integer ElementwiseAdd/Mul lets the pool's
     # integer-input gate pass (e.g. QuantAvgPool2d).
@@ -622,13 +630,6 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     # Activation functions
     model = apply_if_relevant(model, ["Softmax"], to_hw.InferHWSoftmax(), "softmax layers")
-    # Piecewise polynomial activations (GELU, SiLU, Sigmoid, Tanh)
-    model = apply_if_relevant(
-        model,
-        ["PWPolyF", "Gelu", "Sigmoid", "Tanh", "Erf"],
-        to_hw.InferPWPolyFLayer(),
-        "piecewise polynomial activations",
-    )
 
     # Normalization layers
     model = apply_if_relevant(
