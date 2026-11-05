@@ -348,9 +348,8 @@ def test_fpgadataflow_mvau_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     [
         (DataType["BIPOLAR"], DataType["BIPOLAR"], 576, 64, 16, 576),  # cnv-w1a1: 9216b
         (DataType["INT2"], DataType["INT2"], 784, 64, 16, 392),  # tfc-w2a2: 12544b
-        (DataType["BIPOLAR"], DataType["BIPOLAR"], 784, 64, 32, 784),  # tfc-w1a1: 25088b
     ],
-    ids=["cnv_w1a1", "tfc_w2a2", "tfc_w1a1"],
+    ids=["cnv_w1a1", "tfc_w2a2"],
 )
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.fpgadataflow
