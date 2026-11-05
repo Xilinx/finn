@@ -152,11 +152,18 @@ class DeriveTokenAccessVectors(NodeLocalTransformation):
 
     * num_workers (int or None) number of parallel workers, see documentation in
       NodeLocalTransformation for more details.
+
+    * rtlsim_fallback (bool) with ``strategy="tree_model"``, characterize nodes
+      without a tree model with rtlsim (default). If False they get no token
+      access vectors, so no synthesis or simulation is needed, and the sizing
+      pass treats them as transparent.
     """
 
-    def __init__(self, strategy, num_workers=None):
+    def __init__(self, strategy, num_workers=None, rtlsim_fallback=True):
         super().__init__(num_workers=num_workers)
+        assert rtlsim_fallback or strategy == "tree_model", "only tree_model can skip rtlsim"
         self.strategy = strategy
+        self.rtlsim_fallback = rtlsim_fallback
 
     def applyNodeLocal(self, node):
         op_type = node.op_type
@@ -165,8 +172,11 @@ class DeriveTokenAccessVectors(NodeLocalTransformation):
                 inst = registry.getCustomOp(node)
                 # Forks, joins and FIFOs get no TAV; the sizing pass treats
                 # them as transparent.
-                if op_type not in _UNCHARACTERIZED_OPS and not is_stream_join(node):
-                    inst.derive_token_access_vectors(self.strategy)
+                if op_type in _UNCHARACTERIZED_OPS or is_stream_join(node):
+                    return (node, False)
+                if not self.rtlsim_fallback and get_tree_model(inst) is None:
+                    return (node, False)
+                inst.derive_token_access_vectors(self.strategy)
             except KeyError:
                 # exception if op_type is not supported
                 raise Exception("Custom op_type %s is currently not supported." % op_type)

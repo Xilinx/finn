@@ -112,6 +112,7 @@ from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.derive_characteristic import (
     DeriveTokenAccessVectors,
     JustInTimeSynthesize,
+    needs_rtlsim_characterization,
 )
 from finn.transformation.fpgadataflow.export_portable_rtl import ExportPortableRTL
 from finn.transformation.fpgadataflow.fifo_sizing.derive_fifo_sizes import (
@@ -1097,17 +1098,39 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
             model = model.transform(AnnotateCycles())
 
             # heuristic_analytical takes each node's schedule from its tree
-            # model, so only the nodes without one need IP generated for rtlsim
+            # model, so only the nodes without one need IP generated for rtlsim.
+            # An estimate-only build has to run without Vivado: it leaves those
+            # nodes uncharacterized instead (the sizer treats them as transparent).
             only_jit_nodes_without_tree = tav_strategy == "tree_model"
-
-            model = model.transform(
-                JustInTimeSynthesize(
-                    cfg._resolve_fpga_part(),
-                    cfg._resolve_hls_clk_period(),
-                    only_jit_nodes_without_tree,
-                )
+            only_estimates = all(
+                out == DataflowOutputType.ESTIMATE_REPORTS for out in cfg.generate_outputs
             )
-            model = model.transform(DeriveTokenAccessVectors(tav_strategy))
+            rtlsim_fallback = not (only_estimates and tav_strategy == "tree_model")
+
+            if rtlsim_fallback:
+                model = model.transform(
+                    JustInTimeSynthesize(
+                        cfg._resolve_fpga_part(),
+                        cfg._resolve_hls_clk_period(),
+                        only_jit_nodes_without_tree,
+                    )
+                )
+            model = model.transform(
+                DeriveTokenAccessVectors(tav_strategy, rtlsim_fallback=rtlsim_fallback)
+            )
+            if not rtlsim_fallback:
+                unsized = [
+                    n.name
+                    for n in model.graph.node
+                    if needs_rtlsim_characterization(n)
+                    and getCustomOp(n).get_nodeattr("io_chrc_in") == ""
+                ]
+                if unsized:
+                    print(
+                        "Estimate-only build: no tree model for %s, so their FIFOs are "
+                        "sized without their token access vectors. A full build "
+                        "characterizes them with rtlsim." % ", ".join(unsized)
+                    )
 
             period = int(
                 model.analysis(partial(dataflow_performance, use_characterized=True))["max_cycles"]

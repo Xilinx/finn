@@ -225,7 +225,8 @@ def phase_optimize_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
         # estimate-only build whose sizing strategy needs synthesis (the rtlsim-based
         # auto strategies or the folding-config path). This keeps the estimate flow
         # fast and synthesis-free. heuristic_analytical is not skipped, so it still
-        # feeds FIFO resources into the estimates.
+        # feeds FIFO resources into the estimates; in an estimate-only build it
+        # uses tree models only (see step_set_fifo_depths), so no synthesis either.
         only_estimates = all(
             out == DataflowOutputType.ESTIMATE_REPORTS for out in cfg.generate_outputs
         )
