@@ -943,3 +943,27 @@ def test_inner_shuffle_rtl_bursty(throttle, monkeypatch):
         "InnerShuffle_rtl output does not match reference transpose (throttle=%s): "
         "a read overtook its write on the ping-pong page" % (throttle,)
     )
+
+
+@pytest.mark.fpgadataflow
+def test_shuffle_decomposition_simd():
+    model = construct_onnx_model(
+        input_shape=(1, 12, 196, 196),
+        transpose_perm=(0, 2, 3, 1),
+        reshape1_shape=None,
+        reshape2_shape=None,
+        dt=DataType["INT8"],
+    )
+    model = model.transform(InferShuffle(_filter=lambda *_: True))
+    model = model.transform(SetShuffleSIMD(3))
+    model = model.transform(ShuffleDecomposition())
+    model = model.transform(InferInnerOuterShuffles())
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+    outer = model.get_nodes_by_op_type("OuterShuffle_hls")
+    inner = model.get_nodes_by_op_type("InnerShuffle_rtl")
+    assert len(outer) == 1
+    assert len(inner) == 1
+    assert getCustomOp(outer[0]).get_nodeattr("SIMD") == 4
+    assert getCustomOp(inner[0]).get_nodeattr("SIMD") == 3
