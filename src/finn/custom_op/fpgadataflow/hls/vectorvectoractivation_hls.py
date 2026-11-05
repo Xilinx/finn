@@ -161,20 +161,11 @@ class VVAU_hls(VVAU, HLSBackend):
                 ), """Input datatype is
                 not float32 as expected."""
                 expected_inp_shape = self.get_folded_input_shape()
-                pe = self.get_nodeattr("PE")
-                simd = self.get_nodeattr("SIMD")
-                # Folded shape has last dim = simd*pe in SIMD-major order
-                # (from SWG PE interleaving). Reshape to match tensor<TI, PE, 1, SIMD>
-                # which fills PE-major via npy2tensorstream.
-                reshaped_input = context[inputs].reshape(*expected_inp_shape[:-1], simd, pe)
-                reshaped_input = reshaped_input.transpose(
-                    *range(len(expected_inp_shape) - 1), -1, -2
-                )
-                # Flatten back to (..., pe*simd) for npy storage — now PE-major
-                reshaped_input = reshaped_input.reshape(expected_inp_shape)
                 export_idt = self.get_input_datatype(0)
-                # make copy before saving the array
-                reshaped_input = reshaped_input.copy()
+                # Input stays in SWG wire order (SIMD-major) — matches
+                # tensor<TI, SIMD, PE> stream type; the HLS kernel uses
+                # transpose<1,0>() for PE-major access (pure wiring).
+                reshaped_input = context[inputs].reshape(expected_inp_shape).copy()
                 np.save(
                     os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
                     reshaped_input,
@@ -314,19 +305,19 @@ class VVAU_hls(VVAU, HLSBackend):
 
         idtype = self.get_input_datatype(0)
         i_elem = hls_datatype_str(idtype)
-        # input: tensor<TI, PE, MMV=1, SIMD>
+        # input: tensor<TI, SIMD, PE> — SIMD-major, matching SWG wire format
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<tensor<{},{},1,{}>> in0_V ("in0_V");'.format(i_elem, pe, simd)
+            'hls::stream<tensor<{},{},{}>> in0_V ("in0_V");'.format(i_elem, simd, pe)
         )
 
         odtype = self.get_output_datatype()
         o_elem = hls_datatype_str(odtype)
-        # output: tensor<TO, MMV=1, PE>
+        # output: tensor<TO, PE>
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<tensor<{},1,{}>> out0_V ("out0_V");'.format(o_elem, pe)
+            'hls::stream<tensor<{},{}>> out0_V ("out0_V");'.format(o_elem, pe)
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<tensor<{},1,{}>> strm0 ("strm0");'.format(o_elem, pe)
+            'hls::stream<tensor<{},{}>> strm0 ("strm0");'.format(o_elem, pe)
         )
 
         if mem_mode == "internal_decoupled" or mem_mode == "external":
@@ -400,19 +391,19 @@ class VVAU_hls(VVAU, HLSBackend):
 
         if mem_mode == "internal_embedded":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                "void {}(hls::stream<tensor<{},{},1,{}>> &in0_V, "
-                "hls::stream<tensor<{},1,{}>> &out0_V)".format(
-                    self.onnx_node.name, i_elem, pe, simd, o_elem, pe
+                "void {}(hls::stream<tensor<{},{},{}>> &in0_V, "
+                "hls::stream<tensor<{},{}>> &out0_V)".format(
+                    self.onnx_node.name, i_elem, simd, pe, o_elem, pe
                 )
             ]
         elif mem_mode == "internal_decoupled" or mem_mode == "external":
             wdt = self.get_input_datatype(1)
             w_elem = hls_datatype_str(wdt)
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                "void {}(hls::stream<tensor<{},{},1,{}>> &in0_V, "
+                "void {}(hls::stream<tensor<{},{},{}>> &in0_V, "
                 "hls::stream<tensor<{},{},{}>> &in1_V, "
-                "hls::stream<tensor<{},1,{}>> &out0_V)".format(
-                    self.onnx_node.name, i_elem, pe, simd, w_elem, pe, simd, o_elem, pe
+                "hls::stream<tensor<{},{}>> &out0_V)".format(
+                    self.onnx_node.name, i_elem, simd, pe, w_elem, pe, simd, o_elem, pe
                 )
             ]
         else:

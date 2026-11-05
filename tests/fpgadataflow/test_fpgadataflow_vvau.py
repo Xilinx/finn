@@ -183,7 +183,7 @@ def _make_single_vvau_modelwrapper(
 # PE
 @pytest.mark.parametrize("pe", [1, 3, 6])
 # SIMD
-@pytest.mark.parametrize("simd", [1, 9])
+@pytest.mark.parametrize("simd", [1, 3, 9])
 # Input image shape
 @pytest.mark.parametrize("dim_h", [10])
 @pytest.mark.parametrize("dim_w", [10, 1])
