@@ -605,14 +605,15 @@ class VVAU(HWCustomOp):
             wmem = self.calc_wmem()
             # weight_tensor is (1, PE, WMEM, SIMD) in natural order (no SIMD flip).
             # Transpose to (WMEM, PE, SIMD) for aggregate initialization of
-            # tensor<TW, PE, SIMD> weights[WMEM].
+            # TW weights[WMEM][PE][SIMD]. A plain array (rather than a tensor<> per
+            # tile) avoids an ap_uint<PE*SIMD*W> exceeding the 8191-bit limit.
             wt = weight_tensor.reshape(pe, wmem, simd)
             wt = np.transpose(wt, (1, 0, 2))  # (WMEM, PE, SIMD)
             weight_hls_code = numpy_to_hls_code(wt, export_wdt, "weights", False, True)
             f_weights = open(weight_file_name, "w")
             f_weights.write(
-                "const tensor<{}, {}, {}> weights[{}] = ".format(
-                    hls_datatype_str(export_wdt), pe, simd, wmem
+                "const {} weights[{}][{}][{}] = ".format(
+                    hls_datatype_str(export_wdt), wmem, pe, simd
                 )
             )
             f_weights.write(weight_hls_code)

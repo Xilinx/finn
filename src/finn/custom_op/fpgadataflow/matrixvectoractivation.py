@@ -789,15 +789,15 @@ class MVAU(HWCustomOp):
             wmem = self.calc_wmem()
             # weight_tensor is (1, PE, WMEM, SIMD) with SIMD flipped (BE convention).
             # Undo the flip to get natural (LE) order, then transpose to (WMEM, PE, SIMD)
-            # for aggregate initialization of tensor<TW, PE, SIMD> weights[WMEM].
+            # for aggregate initialization of TW weights[WMEM][PE][SIMD].
             wt = np.flip(weight_tensor, axis=-1)  # undo SIMD flip → natural order
             wt = wt.reshape(pe, wmem, simd)
             wt = np.transpose(wt, (1, 0, 2))  # (WMEM, PE, SIMD)
             weight_hls_code = numpy_to_hls_code(wt, export_wdt, "weights", False, True)
             f_weights = open(weight_file_name, "w")
             f_weights.write(
-                "const tensor<{}, {}, {}> weights[{}] = ".format(
-                    hls_datatype_str(export_wdt), pe, simd, wmem
+                "const {} weights[{}][{}][{}] = ".format(
+                    hls_datatype_str(export_wdt), wmem, pe, simd
                 )
             )
             f_weights.write(weight_hls_code)

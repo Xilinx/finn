@@ -346,6 +346,56 @@ def test_fpgadataflow_mvau_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     assert (y_produced == y_expected).all(), "cppsim hls-op failed"
 
 
+# Embedded weights with tile widths PE*SIMD*W > 8191 bits (beyond the ap_int
+# limit). Foldings taken from benchmark models that rely on internal_embedded.
+# (wdt, idt, mw, mh, pe, simd)
+@pytest.mark.parametrize(
+    "cfg",
+    [
+        (DataType["BIPOLAR"], DataType["BIPOLAR"], 576, 64, 16, 576),  # cnv-w1a1: 9216b
+        (DataType["INT2"], DataType["INT2"], 784, 64, 16, 392),  # tfc-w2a2: 12544b
+        (DataType["BIPOLAR"], DataType["BIPOLAR"], 784, 64, 32, 784),  # tfc-w1a1: 25088b
+    ],
+    ids=["cnv_w1a1", "tfc_w2a2", "tfc_w1a1"],
+)
+@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_fpgadataflow_mvau_wide_embedded(cfg, exec_mode):
+    wdt, idt, mw, mh, pe, simd = cfg
+    assert pe * simd * wdt.bitwidth() > 8191
+    W = gen_finn_dt_tensor(wdt, (mw, mh))
+    x = gen_finn_dt_tensor(idt, (1, mw))
+    if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
+        odt = DataType["UINT32"]
+        y = xp.xnorpopcountmatmul((x + 1) / 2, (W + 1) / 2)
+    else:
+        odt = DataType["INT32"]
+        y = np.matmul(x, W)
+    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt)
+    for node in model.graph.node:
+        inst = getCustomOp(node)
+        inst.set_nodeattr("mem_mode", "internal_embedded")
+        inst.set_nodeattr("preferred_impl_style", "hls")
+    y_expected = y.reshape(model.get_tensor_shape("outp"))
+
+    part = "xczu7ev-ffvc1156-2-e"
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(GiveUniqueNodeNames())
+    if exec_mode == "cppsim":
+        model = model.transform(SetExecMode("cppsim"))
+        model = model.transform(PrepareCppSim())
+        model = model.transform(CompileCppSim())
+    else:
+        model = model.transform(SetExecMode("rtlsim"))
+        model = model.transform(PrepareIP(part, 5))
+        model = model.transform(HLSSynthIP())
+        model = model.transform(PrepareRTLSim())
+    y_produced = oxe.execute_onnx(model, prepare_inputs(x, idt, wdt))["outp"]
+    assert (y_produced.reshape(y_expected.shape) == y_expected).all(), exec_mode + " failed"
+
+
 # mem_mode: internal_embedded or internal_decoupled
 @pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled", "external_mem"])
 # activation: None or DataType
