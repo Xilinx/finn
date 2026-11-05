@@ -633,3 +633,76 @@ def test_fpgadataflow_analytical_characterization_vvau(
         volume_const,
         length_const,
     ), "characterized TAV does not match RTLsim'd one!"
+
+
+# The RTL VVU is DSP58-only (Versal), without an activation and with signed
+# weights. One configuration per folding regime, as for HLS above.
+@pytest.mark.parametrize(
+    "pe,simd,dim_w,k_w",
+    [
+        (1, 1, 5, 3),
+        (2, 3, 5, 3),
+        (4, 9, 5, 3),
+        (1, 9, 5, 3),
+        (4, 1, 5, 3),
+        (2, 1, 1, 1),
+    ],
+)
+@pytest.mark.parametrize("idt", [DataType["INT8"]])
+@pytest.mark.parametrize("wdt", [DataType["INT6"]])
+@pytest.mark.parametrize("dim_h", [5])
+@pytest.mark.parametrize("k_h", [3])
+@pytest.mark.parametrize("channels", [4])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_vvau_rtl(
+    idt, wdt, pe, simd, dim_h, dim_w, k_h, k_w, channels
+):
+    if (k_h * k_w) % simd != 0:
+        pytest.skip("Requirement kernel (k_h * k_w) divisable by SIMD is violated.")
+
+    W = gen_finn_dt_tensor(wdt, (channels, 1, k_h, k_w))
+    model = _make_single_vvau_modelwrapper(
+        W,
+        pe,
+        simd,
+        k_h,
+        k_w,
+        channels,
+        dim_h,
+        dim_w,
+        wdt,
+        idt,
+        DataType["INT32"],
+        mem_mode="internal_decoupled",
+    )
+    inst = getCustomOp(model.graph.node[0])
+    inst.set_nodeattr("resType", "dsp")
+    inst.set_nodeattr("preferred_impl_style", "rtl")
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
+
+    part = "xcvc1902-vsva2197-2MP-e-S"
+    model = model.transform(SpecializeLayers(part))
+    assert model.graph.node[0].op_type == "VVAU_rtl"
+
+    node_details = ("VVAU_rtl", idt, wdt, pe, simd, dim_h, dim_w, k_h, k_w, channels)
+    target_clk_ns = 5
+    # same budget as the HLS test above
+    max_allowed_volume_frac = 0.05
+    volume_const = 14
+    max_allowed_length_frac = 0.05
+    length_const = 14
+
+    assert tree_model_test(
+        model,
+        node_details,
+        part,
+        target_clk_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    ), "characterized TAV does not match RTLsim'd one!"

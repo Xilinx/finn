@@ -5,7 +5,6 @@
 
 import math
 import numpy as np
-from qonnx.custom_op.general.im2col import compute_conv_output_dim
 
 from finn.transformation.fpgadataflow.fifo_sizing.tav import CharacteristicNode
 from finn.transformation.fpgadataflow.fifo_sizing.tree_models.base import (
@@ -32,110 +31,26 @@ from finn.transformation.fpgadataflow.fifo_sizing.tree_models.base import (
 # ---------------------------------------------------------------------------
 
 
-def swg_default_params(ifm_ch, simd, k, ifm_dim, stride, dilation, depthwise, buffer_actual_size):
-    """The parameters that prepare_codegen_default() substitutes into the RTL.
+def swg_params(inst, impl_style):
+    """The parameters the node's code generation substitutes into its RTL
+    template (``prepare_codegen_default`` or ``prepare_codegen_parallel``),
+    keyed by placeholder name without the ``$``. Integers as ints, the
+    innermost loop state without its ``STATE_LOOP_`` prefix.
 
-    Deliberately a function of plain numbers rather than of the node: it has to
-    stay diffable against prepare_codegen_default, which is where these
-    expressions come from, and it must be callable without a ModelWrapper.
-    """
-    k_h, k_w = k
-    h, w = ifm_dim
-    stride_h, stride_w = stride
-    dilation_h, dilation_w = dilation
-    channel_factor = ifm_ch // simd
-
-    out_dim_h = compute_conv_output_dim(h, k_h, stride_h, 0, dilation_h)
-    out_dim_w = compute_conv_output_dim(w, k_w, stride_w, 0, dilation_w)
-
-    buffer_min_size = ((k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w + 1) * channel_factor
-
-    kernel_width = (k_w - 1) * dilation_w + 1
-    kernel_height = (k_h - 1) * dilation_h + 1
-    skip_columns = w % (kernel_width + (out_dim_w - 1) * stride_w)
-    skip_rows = h % (kernel_height + (out_dim_h - 1) * stride_h)
-
-    addr_incr_end_simd = 1
-    addr_incr_end_window_elem = (dilation_w - 1) * channel_factor + 1
-    addr_incr_end_window_row = (
-        ((w - kernel_width) * channel_factor) + ((dilation_h - 1) * w * channel_factor) + 1
-    )
-    addr_incr_end_window = -buffer_min_size + stride_w * channel_factor + 1
-    addr_incr_end_row = (
-        -buffer_min_size
-        + ((skip_columns + kernel_width) * channel_factor)
-        + ((stride_h - 1) * w * channel_factor)
-        + 1
-    )
-
-    if depthwise:
-        addr_incr_end_window_elem = dilation_w * channel_factor
-        addr_incr_end_window_row = (
-            channel_factor
-            + (w - kernel_width) * channel_factor
-            + (dilation_h - 1) * w * channel_factor
-        )
-        addr_incr_end_simd = -buffer_min_size + (channel_factor + 1)
-
-    loop_h_iterations = out_dim_h
-    loop_w_iterations = out_dim_w
-    loop_kh_iterations = k_h
-    loop_kw_iterations = k_w
-    loop_simd_iterations = channel_factor
-
-    if depthwise and channel_factor > 1:
-        loop_kh_iterations = channel_factor
-        loop_kw_iterations = k_h
-        loop_simd_iterations = k_w
-        addr_incr_end_simd_ = addr_incr_end_simd
-        addr_incr_end_simd = addr_incr_end_window_elem
-        addr_incr_end_window_elem = addr_incr_end_window_row
-        addr_incr_end_window_row = addr_incr_end_simd_
-        elem_per_window = k_h * k_w
-        tail_incr_w = addr_incr_end_window + buffer_min_size - channel_factor
-        tail_incr_h = addr_incr_end_row + buffer_min_size - channel_factor
-        is_depthwise = 1
+    Taken from the code generation itself, so the replayed FSM always runs on
+    what the hardware is generated with."""
+    if impl_style == "default":
+        _, code_gen_dict = inst.prepare_codegen_default()
     else:
-        elem_per_window = k_h * k_w * channel_factor
-        tail_incr_w = addr_incr_end_window + buffer_min_size - 1
-        tail_incr_h = addr_incr_end_row + buffer_min_size - 1
-        is_depthwise = 0
-    tail_incr_last_window = buffer_min_size - 1
-
-    if loop_simd_iterations == 1:
-        # the innermost loop always executes at least once, so the state it
-        # starts in is skipped and its counter loses an iteration
-        if loop_kw_iterations == 1:
-            innermost = "KH"
-            loop_kh_iterations -= 1
-        else:
-            innermost = "KW"
-            loop_kw_iterations -= 1
-    else:
-        innermost = "SIMD"
-        loop_simd_iterations -= 1
-
-    return {
-        "LOOP_H_ITERATIONS": loop_h_iterations - 2,
-        "LOOP_W_ITERATIONS": loop_w_iterations - 2,
-        "LOOP_KH_ITERATIONS": loop_kh_iterations - 2,
-        "LOOP_KW_ITERATIONS": loop_kw_iterations - 2,
-        "LOOP_SIMD_ITERATIONS": loop_simd_iterations - 2,
-        "HEAD_INCR_SIMD": addr_incr_end_simd,
-        "HEAD_INCR_KW": addr_incr_end_window_elem,
-        "HEAD_INCR_KH": addr_incr_end_window_row,
-        "HEAD_INCR_W": addr_incr_end_window,
-        "HEAD_INCR_H": addr_incr_end_row,
-        "TAIL_INCR_W": tail_incr_w,
-        "TAIL_INCR_H": tail_incr_h,
-        "TAIL_INCR_LAST": tail_incr_last_window,
-        "IS_DEPTHWISE": is_depthwise,
-        "INNERMOST_STATE": innermost,
-        "LAST_READ_ELEM": h * w * channel_factor - 1,
-        "LAST_WRITE_ELEM": ((h - skip_rows - 1) * w + (w - skip_columns)) * channel_factor - 1,
-        "BUF_ELEM_TOTAL": buffer_actual_size,
-        "ELEM_PER_WINDOW": elem_per_window,
-    }
+        _, code_gen_dict = inst.prepare_codegen_parallel()
+    p = {}
+    for key, value in code_gen_dict.items():
+        name = key.strip("$")
+        if name == "INNERMOST_STATE":
+            p[name] = value[0].replace("STATE_LOOP_", "")
+        elif len(value) == 1 and value[0].lstrip("-").isdigit():
+            p[name] = int(value[0])
+    return p
 
 
 def swg_default_schedule(p, n_feature_maps=4, hard_limit=None):
@@ -280,67 +195,6 @@ def swg_default_schedule(p, n_feature_maps=4, hard_limit=None):
         cycle += 1
 
     return sched, restarts
-
-
-def swg_parallel_params(ifm_ch, simd, k, ifm_dim, stride, dilation):
-    """The parameters that prepare_codegen_parallel() substitutes into the RTL."""
-    k_h, k_w = k
-    h, w = ifm_dim
-    stride_h, stride_w = stride
-    dilation_h, dilation_w = dilation
-    channel_factor = ifm_ch // simd
-
-    out_dim_h = compute_conv_output_dim(h, k_h, stride_h, 0, dilation_h)
-    out_dim_w = compute_conv_output_dim(w, k_w, stride_w, 0, dilation_w)
-
-    buffer_min_size = ((k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w) * channel_factor + 1
-    kernel_width = (k_w - 1) * dilation_w + 1
-    kernel_height = (k_h - 1) * dilation_h + 1
-    skip_columns = w % (kernel_width + (out_dim_w - 1) * stride_w)
-    skip_rows = h % (kernel_height + (out_dim_h - 1) * stride_h)
-
-    loop_h_iterations = out_dim_h
-    loop_w_iterations = out_dim_w
-    loop_kh_iterations = channel_factor
-    loop_kw_iterations = 1
-    loop_simd_iterations = 1
-
-    if loop_kh_iterations == 1:
-        if loop_w_iterations == 1:
-            innermost = "H"
-            loop_h_iterations -= 1
-        else:
-            innermost = "W"
-            loop_w_iterations -= 1
-    else:
-        innermost = "KH"
-        loop_kh_iterations -= 1
-
-    addr_incr_end_window = (stride_w - 1) * channel_factor + 1
-    addr_incr_end_row = ((skip_columns + (kernel_width - 1)) * channel_factor + 1) + (
-        (stride_h - 1) * w * channel_factor
-    )
-
-    return {
-        "LOOP_H_ITERATIONS": loop_h_iterations - 2,
-        "LOOP_W_ITERATIONS": loop_w_iterations - 2,
-        "LOOP_KH_ITERATIONS": loop_kh_iterations - 2,
-        "LOOP_KW_ITERATIONS": loop_kw_iterations - 2,
-        "LOOP_SIMD_ITERATIONS": loop_simd_iterations - 2,
-        "HEAD_INCR_SIMD": 1,
-        "HEAD_INCR_KW": 1,
-        "HEAD_INCR_KH": 1,
-        "HEAD_INCR_W": addr_incr_end_window,
-        "HEAD_INCR_H": addr_incr_end_row,
-        "TAIL_INCR_W": 0,
-        "TAIL_INCR_H": 0,
-        "TAIL_INCR_LAST": 0,
-        "IS_DEPTHWISE": 0,
-        "INNERMOST_STATE": innermost,
-        "LAST_READ_ELEM": h * w * channel_factor - 1,
-        "LAST_WRITE_ELEM": ((h - skip_rows - 1) * w + (w - skip_columns)) * channel_factor - 1,
-        "FIRST_WRITE_ELEM": buffer_min_size - 1,
-    }
 
 
 def swg_parallel_schedule(p, n_feature_maps=4, hard_limit=None):
@@ -488,27 +342,14 @@ def swg_default_tree(inst):
     if cached is not None and cached[0] == cache_key:
         return cached[1]
 
+    try:
+        p = swg_params(inst, impl_style)
+    except AssertionError:
+        # the code generation rejects this configuration, so it cannot be built
+        return None
     if impl_style == "default":
-        p = swg_default_params(
-            ifm_ch,
-            simd,
-            inst.get_nodeattr("ConvKernelDim"),
-            inst.get_nodeattr("IFMDim"),
-            inst.get_nodeattr("Stride"),
-            inst.get_nodeattr("Dilation"),
-            inst.get_nodeattr("depthwise"),
-            inst.get_buffer_depth(),
-        )
         sched, restarts = swg_default_schedule(p, n_feature_maps=4)
     else:
-        p = swg_parallel_params(
-            ifm_ch,
-            simd,
-            inst.get_nodeattr("ConvKernelDim"),
-            inst.get_nodeattr("IFMDim"),
-            inst.get_nodeattr("Stride"),
-            inst.get_nodeattr("Dilation"),
-        )
         sched, restarts = swg_parallel_schedule(p, n_feature_maps=4)
     if len(restarts) < 4:
         # the FSM did not settle into a repeating schedule; fall back rather

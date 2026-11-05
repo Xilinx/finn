@@ -979,23 +979,23 @@ def test_fpgadataflow_rtl_dynamic_mvau(
 # The two backends are different pipelines and get their own schedules, so both
 # are covered across the folding rather than crossed with everything else; the
 # memory mode changes when weights arrive, so it is covered on each backend.
-@pytest.mark.parametrize(
-    "preferred_impl_style,mem_mode,nf,sf",
-    [
-        ("hls", "internal_decoupled", -1, -1),
-        ("hls", "internal_decoupled", 2, -1),
-        ("hls", "internal_decoupled", -1, 2),
-        ("hls", "internal_decoupled", 8, 4),
-        ("hls", "internal_embedded", -1, -1),
-        ("hls", "internal_embedded", 2, 4),
-        ("rtl", "internal_decoupled", -1, -1),
-        ("rtl", "internal_decoupled", 2, -1),
-        ("rtl", "internal_decoupled", -1, 2),
-        ("rtl", "internal_decoupled", 8, 4),
-        ("rtl", "internal_embedded", -1, -1),
-        ("rtl", "internal_embedded", 2, 4),
-    ],
-)
+# The RTL MVAU is built from a different DSP primitive per device family, so it
+# runs on a DSP48E1 and a DSP48E2 part (the tiled test below covers DSP58).
+MVAU_TAV_CONFIGS = [
+    ("hls", "xc7z020clg400-1", "internal_decoupled", -1, -1),
+    ("hls", "xc7z020clg400-1", "internal_decoupled", 2, -1),
+    ("hls", "xc7z020clg400-1", "internal_decoupled", -1, 2),
+    ("hls", "xc7z020clg400-1", "internal_decoupled", 8, 4),
+    ("hls", "xc7z020clg400-1", "internal_embedded", -1, -1),
+    ("hls", "xc7z020clg400-1", "internal_embedded", 2, 4),
+] + [
+    ("rtl", part, "internal_decoupled", nf, sf)
+    for part in ["xc7z020clg400-1", "xczu7ev-ffvc1156-2-e"]
+    for nf, sf in [(-1, -1), (2, -1), (-1, 2), (8, 4)]
+]
+
+
+@pytest.mark.parametrize("preferred_impl_style,part,mem_mode,nf,sf", MVAU_TAV_CONFIGS)
 @pytest.mark.parametrize("act", [None])
 @pytest.mark.parametrize("wdt", [DataType["INT4"]])
 @pytest.mark.parametrize("idt", [DataType["INT4"]])
@@ -1005,7 +1005,7 @@ def test_fpgadataflow_rtl_dynamic_mvau(
 @pytest.mark.vivado
 @pytest.mark.node_tree_modeling
 def test_fpgadataflow_analytical_characterization_mvau(
-    mem_mode, idt, wdt, act, nf, sf, mw, mh, preferred_impl_style
+    mem_mode, idt, wdt, act, nf, sf, mw, mh, preferred_impl_style, part
 ):
     if preferred_impl_style == "rtl" and (mem_mode == "internal_embedded" or act is not None):
         pytest.skip("RTL-MVAU doesn't support const mem mode or embedded activations")
@@ -1020,6 +1020,10 @@ def test_fpgadataflow_analytical_characterization_mvau(
     assert mw % sf == 0
     # generate weights
     W = gen_finn_dt_tensor(wdt, (mw, mh))
+    if preferred_impl_style == "rtl" and wdt.signed():
+        # the RTL MVAU on DSP48E1 only takes narrow-range weights; the values do
+        # not change the schedule
+        W[W == wdt.min()] = wdt.min() + 1
 
     # no activation, produce accumulators
     T = None
@@ -1037,9 +1041,12 @@ def test_fpgadataflow_analytical_characterization_mvau(
         inst.set_nodeattr("numInputVectors", [16])
         inst.set_nodeattr("resType", "auto")
         inst.set_nodeattr("preferred_impl_style", preferred_impl_style)
+    # SpecializeLayers silently falls back to HLS where the RTL MVAU is not
+    # possible, which would test the other backend's tree model
+    model = model.transform(SpecializeLayers(part))
+    assert model.graph.node[0].op_type == "MVAU_" + preferred_impl_style
 
-    node_details = ("MVAU", mem_mode, idt, wdt, act, nf, sf, mw, mh, preferred_impl_style)
-    part = "xc7z020clg400-1"
+    node_details = ("MVAU", mem_mode, idt, wdt, act, nf, sf, mw, mh, preferred_impl_style, part)
     target_clk_ns = 4
     # TAV tolerances are fractions -- of the tokens moved and of the frame
     # length -- with a floor for the fixed part of the error (wind-up, adder

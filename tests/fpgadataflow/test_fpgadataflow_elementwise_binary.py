@@ -578,3 +578,69 @@ def test_fpgadataflow_analytical_characterization_elementwise_binary(
         volume_const,
         length_const,
     ), "characterized TAV does not match RTLsim'd one!"
+
+
+# The RTL backend shares the base-class tree model with HLS. It is Versal-only
+# and takes a float operand; the constant one is streamed from a memstream
+# (internal_decoupled).
+@pytest.mark.parametrize(
+    "op_type,lhs_shape,rhs_broadcast,pe",
+    [
+        ("ElementwiseAdd", [1, 3, 3, 16], False, 1),
+        ("ElementwiseAdd", [1, 3, 3, 16], False, 4),
+        ("ElementwiseAdd", [1, 3, 3, 16], True, 2),
+        ("ElementwiseSub", [1, 4, 4, 32], False, 2),
+        ("ElementwiseMul", [1, 3, 3, 16], False, 1),
+        ("ElementwiseMul", [1, 4, 4, 32], True, 4),
+    ],
+)
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_elementwise_binary_rtl(
+    op_type, lhs_shape, rhs_broadcast, pe
+):
+    np.random.seed(0)
+    lhs_dtype = rhs_dtype = out_dtype = "FLOAT32"
+    rhs_shape = [1] if rhs_broadcast else [lhs_shape[-1]]
+
+    model = create_elementwise_binary_operation_onnx(
+        op_type, lhs_dtype, rhs_dtype, out_dtype, lhs_shape, rhs_shape
+    )
+    model.set_initializer("in_y", gen_finn_dt_tensor(DataType[rhs_dtype], rhs_shape))
+
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(InferElementwiseBinaryOperation())
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+
+    assert len(model.graph.node) == 1
+    inst = getCustomOp(model.graph.node[0])
+    inst.set_nodeattr("PE", pe)
+    inst.set_nodeattr("mem_mode", "internal_decoupled")
+    inst.set_nodeattr("preferred_impl_style", "rtl")
+
+    part = "xcvc1902-vsva2197-2MP-e-S"
+    model = model.transform(SpecializeLayers(part))
+    assert model.graph.node[0].op_type == op_type + "_rtl"
+
+    node_details = ("ElementwiseBinary_rtl", op_type, str(lhs_shape), str(rhs_shape), pe)
+    target_clk_ns = 4
+    # same budget as the HLS test above
+    max_allowed_volume_frac = 0.02
+    volume_const = 5
+    max_allowed_length_frac = 0.05
+    length_const = 20
+
+    assert tree_model_test(
+        model,
+        node_details,
+        part,
+        target_clk_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    ), "characterized TAV does not match RTLsim'd one!"
