@@ -6,7 +6,6 @@ import pytest
 # custom steps for resnet50v1.5
 import os
 from benchmark_helpers import (
-    benchmark_config_paths,
     benchmark_root,
     check_build_outputs,
     check_verification,
@@ -64,19 +63,18 @@ resnet50_build_steps = [
 
 
 def configure_build(board, output_dir, **overrides):
-    folding, specialize = benchmark_config_paths(
-        "resnet50",
-        f"resnet50_folding_config_{board}",
-        f"resnet50_specialize_layers_{board}",
+    # No specialize layers config: the folding config's node names assume the
+    # default implementation styles (HLS MVAUs with fused thresholds, RTL final
+    # FC, RTL standalone thresholds, HLS elementwise ops).
+    folding = os.path.join(
+        build_flow_folder, "resnet50", "folding_config", f"resnet50_folding_config_{board}.json"
     )
     cfg = dict(
         steps=resnet50_build_steps,
-        standalone_thresholds=True,
         # TEMP(stitched-ip-only): stop at stitched IP (+ rtlsim performance) until
         # the V80/SLASH synth toolchain is available.
         generate_outputs=build_outputs,
         folding_config_file=folding,
-        specialize_layers_config_file=specialize,
         auto_fifo_depths=True,
         synth_clk_period_ns=4.0,
         # TEMP(stitched-ip-only): V80 (Versal) uses the SLASH shell, which requires
