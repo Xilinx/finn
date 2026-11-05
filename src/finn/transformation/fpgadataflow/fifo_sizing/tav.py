@@ -146,11 +146,18 @@ def save_tav_npy(inst, attr_name, arr):
     """Persist a Token Access Vector as a gzip-compressed .npy sidecar
     (``.npy.gz``) in the node's generated build folder and return the file path
     (to be stored in the ``attr_name`` node attribute instead of the inline
-    array). Falls back to a fresh build dir if the node has no code generation
-    directory yet."""
+    array). A node without a code generation directory gets one ``tav_*`` build
+    dir for all its sidecars (``cleanup_characterization`` removes it again)."""
     tav_dir = inst.get_nodeattr("code_gen_dir_ipgen")
     if not tav_dir or not os.path.isdir(tav_dir):
-        tav_dir = make_build_dir(prefix="tav_")
+        tav_dir = None
+        for other in ("io_chrc_in", "io_chrc_out"):
+            other_dir = os.path.dirname(inst.get_nodeattr(other))
+            if os.path.basename(other_dir).startswith("tav_") and os.path.isdir(other_dir):
+                tav_dir = other_dir
+                break
+        if tav_dir is None:
+            tav_dir = make_build_dir(prefix="tav_")
     safe_name = re.sub(r"[^0-9A-Za-z_.-]", "_", inst.onnx_node.name)
     path = os.path.join(tav_dir, "tav_%s_%s.npy.gz" % (safe_name, attr_name))
     save_gaps_npy(arr, path)

@@ -322,8 +322,9 @@ class HWCustomOp(CustomOp):
         With ``strategy="tree_model"`` they come from the node's tree model if
         it has one, otherwise (and with ``strategy="rtlsim"``) from rtlsim of the
         node in isolation, driven with ``get_tav_io_dict``."""
-        if strategy == "tree_model" and get_tree_model(self) is not None:
-            self.derive_token_access_vectors_using_tree_model()
+        tree = get_tree_model(self) if strategy == "tree_model" else None
+        if tree is not None:
+            self.derive_token_access_vectors_using_tree_model(tree)
         else:
             self.derive_token_access_vectors_using_rtlsim()
 
@@ -338,9 +339,9 @@ class HWCustomOp(CustomOp):
             "outputs": {"out0": []},
         }
 
-    def derive_token_access_vectors_using_tree_model(self):
-        chr_node = get_tree_model(self)
-
+    def derive_token_access_vectors_using_tree_model(self, chr_node):
+        """Store the token access vectors of the schedule tree ``chr_node``
+        (see ``get_tree_model``)."""
         # The schedule is run-length encoded, so both periods come from one
         # np.repeat plus one cumsum rather than a Python loop per cycle -- the
         # difference between milliseconds and a second on a 400k-cycle period.
@@ -616,11 +617,8 @@ class HWCustomOp(CustomOp):
             the default five frames the window lies inside the trace and nothing
             wraps.
             """
-            ret = []
-            for i in range(span):
-                v = chrc[(start + i) % wrap]
-                ret.append(v if i == 0 else ret[-1] + v)
-            return np.asarray(ret, dtype=np.int32)
+            idx = (start + np.arange(span)) % wrap
+            return np.cumsum(np.asarray(chrc)[idx]).astype(np.int32)
 
         all_txns_in = np.empty((len(txns_in.keys()), period * periods_to_store), dtype=np.int32)
         all_txns_out = np.empty((len(txns_out.keys()), period * periods_to_store), dtype=np.int32)

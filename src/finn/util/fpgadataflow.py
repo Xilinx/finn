@@ -225,9 +225,9 @@ def cleanup_characterization(model):
     """Drop the characterization attributes once FIFO sizing is done.
 
     The token access vectors are offloaded to sidecar .npy.gz files whose paths are
-    kept in the io_chrc_* attributes; unlink those files before dropping the
-    attributes, otherwise they are left behind in the build directory with
-    nothing referencing them."""
+    kept in the io_chrc_* attributes; unlink those files (and a ``tav_*`` build
+    dir they leave empty) before dropping the attributes, otherwise they are left
+    behind in the build directory with nothing referencing them."""
 
     #: Node attributes holding token access vectors. Their values are paths to
     #: sidecar .npy.gz files (see save_tav_npy), which are only needed while FIFO
@@ -245,6 +245,10 @@ def cleanup_characterization(model):
             fname = attr.s.decode("utf-8")
             if fname.endswith((".npy", ".npy.gz")) and os.path.isfile(fname):
                 os.remove(fname)
+                # the tav_* build dir of a node without a code generation dir
+                tav_dir = os.path.dirname(fname)
+                if os.path.basename(tav_dir).startswith("tav_") and not os.listdir(tav_dir):
+                    os.rmdir(tav_dir)
             node.attribute.remove(attr)
         attr = get_by_name(node.attribute, "io_chrc_period")
         if attr is not None:

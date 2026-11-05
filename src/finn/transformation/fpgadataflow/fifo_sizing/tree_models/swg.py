@@ -328,20 +328,6 @@ def swg_default_tree(inst):
     if simd <= 0 or ifm_ch % simd != 0:
         return None
 
-    cache_key = (
-        impl_style,
-        ifm_ch,
-        simd,
-        tuple(inst.get_nodeattr("ConvKernelDim")),
-        tuple(inst.get_nodeattr("IFMDim")),
-        tuple(inst.get_nodeattr("Stride")),
-        tuple(inst.get_nodeattr("Dilation")),
-        int(inst.get_nodeattr("depthwise")),
-    )
-    cached = getattr(inst, "_swg_tree_cache", None)
-    if cached is not None and cached[0] == cache_key:
-        return cached[1]
-
     try:
         p = swg_params(inst, impl_style)
     except AssertionError:
@@ -373,9 +359,7 @@ def swg_default_tree(inst):
             phases[-1][0] += 1
         else:
             phases.append([1, rw])
-    node = CharacteristicNode("swg_default_exact", [(cnt, list(rw)) for cnt, rw in phases], True)
-    inst._swg_tree_cache = (cache_key, node)
-    return node
+    return CharacteristicNode("swg_default_exact", [(cnt, list(rw)) for cnt, rw in phases], True)
 
 
 @register("ConvolutionInputGenerator")
