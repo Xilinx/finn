@@ -15,6 +15,7 @@ Users can:
 - Inject custom steps before/after phases using inject_steps_before/after config
 """
 
+import logging
 import os
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -48,6 +49,8 @@ from finn.builder.build_dataflow_steps import (
     step_transpose_decomposition,
 )
 from finn.util.fpgadataflow import is_mlo
+
+log = logging.getLogger(__name__)
 
 
 def _save_intermediate_model(model: ModelWrapper, step_name: str, cfg: DataflowBuildConfig):
@@ -234,7 +237,7 @@ def phase_optimize_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
             "largefifo_rtlsim",
         )
         if only_estimates and sizing_needs_synthesis:
-            print(
+            log.info(
                 "Skipping step_set_fifo_depths: only estimate reports requested and "
                 "the configured FIFO sizing strategy requires synthesis. FIFO sizing "
                 "is not needed for an estimate-only build."
@@ -268,7 +271,7 @@ def _apply_to_loop_bodies(model: ModelWrapper, cfg: DataflowBuildConfig, step_fn
         # emit per-loop debug_fifo logs / waveforms without needing a special
         # signature. Steps read this via model.get_metadata_prop("loop_context").
         loop_model.set_metadata_prop("loop_context", node.name)
-        print(f"Running {step_fn.__name__} for FINNLoop: {node.name}")
+        log.info(f"Running {step_fn.__name__} for FINNLoop: {node.name}")
         loop_model = step_fn(loop_model, cfg)
 
         # Clear the transient tag so it doesn't leak into the saved body graph

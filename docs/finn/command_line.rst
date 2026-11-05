@@ -137,7 +137,13 @@ depending on the chosen output products.
 
 The following outputs will be generated regardless of which particular outputs are selected:
 
-* ``build_dataflow.log`` is the build logfile that will contain any warnings/errors
+* ``build_dataflow.log`` is the build logfile. It holds the records of FINN's loggers and the Python warnings
+  of the build, each with its level and the configured step or phase that produced it, and the output of
+  tools launched through ``finn.util.basic.launch_process_helper`` (such as the rtlsim compile and run).
+  The console shows the step timeline, FINN's warnings and errors, and a count of Python warnings; with
+  ``verbose`` it also shows the other INFO records, the tool output and each Python warning (DEBUG
+  records stay in the file). Nothing redirects stdout/stderr: ``print()`` output and the logs of other
+  libraries go to the console only, and ``breakpoint()`` or ``pdb`` work inside a step
 * ``time_per_step.json`` will report the time (in seconds) each build step took
 * ``final_hw_config.json`` will contain the final (after parallelization, FIFO sizing etc) hardware configuration for the build. It is written by the FIFO sizing step, so it is not produced for estimate-only builds (where FIFO sizing is skipped)
 * ``template_specialize_layers_config.json`` is an example json file that can be used to set the specialize layers config
