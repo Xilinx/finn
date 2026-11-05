@@ -11,6 +11,7 @@ from onnx import TensorProto, helper
 from unittest.mock import patch
 
 from finn.builder.build_dataflow import build_dataflow_cfg
+from finn.builder.build_dataflow_checks import run_all_config_checks
 from finn.builder.build_dataflow_config import (
     DataflowBuildConfig,
     DataflowOutputType,
@@ -382,3 +383,24 @@ class TestConfigCheckIntegration:
             c["name"] for c in report["checks"] if not c["passed"] and c["severity"] == "ERROR"
         ]
         assert "folding_missing" not in error_names
+
+
+@pytest.mark.util
+@pytest.mark.parametrize(
+    "check_name,kw",
+    [
+        ("v80_vivado", {"board": "V80"}),
+        ("slash_vivado", {"shell_flow_type": ShellFlowType.SLASH_ALVEO}),
+        ("mlo_vivado", {"mlo": True}),
+        ("aupzu3_vivado", {"board": "AUP-ZU3_8GB"}),
+    ],
+)
+def test_vivado_version_checks_without_vivado(check_name, kw):
+    """Without Vivado (XILINX_VIVADO unset) a version check fails with a message
+    instead of crashing while formatting the version it did not find."""
+    output_dir = make_build_dir("test_config_check_no_vivado_")
+    with patch.dict("os.environ", {"XILINX_VIVADO": ""}):
+        report = run_all_config_checks(cfg(output_dir, **kw))
+    check = next(c for c in report.checks if c.name == check_name)
+    assert not check.passed
+    assert "found unknown" in check.message
