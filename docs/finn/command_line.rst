@@ -106,11 +106,11 @@ You can read a brief description of what each phase does on
 products are not enabled will still run, but will do nothing.
 
 .. note::
-  ``step_set_fifo_depths`` (FIFO sizing) uses rtl simulation and therefore
-  requires synthesis. It is skipped automatically for estimate-only builds
-  (where only ``ESTIMATE_REPORTS`` is requested and the configured FIFO sizing
-  strategy needs synthesis), so the estimate flow stays fast and
-  synthesis-free.
+  ``step_set_fifo_depths`` (FIFO sizing) needs synthesis and rtl simulation for
+  every strategy except ``heuristic_analytical``. In an estimate-only build (only
+  ``ESTIMATE_REPORTS`` requested) it is skipped for those strategies, and
+  ``heuristic_analytical`` sizes the FIFOs from the operators' tree models only,
+  so the estimate flow stays fast and synthesis-free either way.
 
 The fine-grained steps are still available and can be composed into a custom
 ``steps`` list in the build configuration for standard (non-MLO) models, mixing
@@ -139,7 +139,7 @@ The following outputs will be generated regardless of which particular outputs a
 
 * ``build_dataflow.log`` is the build logfile that will contain any warnings/errors
 * ``time_per_step.json`` will report the time (in seconds) each build step took
-* ``final_hw_config.json`` will contain the final (after parallelization, FIFO sizing etc) hardware configuration for the build. It is written by the FIFO sizing step, so it is not produced for estimate-only builds (where FIFO sizing is skipped)
+* ``final_hw_config.json`` will contain the final (after parallelization, FIFO sizing etc) hardware configuration for the build. It is written by the FIFO sizing step, so it is not produced for estimate-only builds where FIFO sizing is skipped (see the note above)
 * ``template_specialize_layers_config.json`` is an example json file that can be used to set the specialize layers config
 * ``intermediate_models/`` will contain the ONNX file(s) produced after each build step
 * ``debug/fifo_logs/`` will contain debug logs of each StreamingFIFO when ``debug_fifo=True`` is set in the ``DataflowBuildConfig`` (see :ref:`streaming_fifo`)
