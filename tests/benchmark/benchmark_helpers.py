@@ -273,6 +273,14 @@ def run_feature_build(tag, configure, model_file, name, **overrides):
     # set here, not passed on: make_benchmark_cfg drops None values
     for key, value in overrides.items():
         setattr(cfg, key, value)
+    # The throughput check uses the span between the first and the last output
+    # frame. Right after the pipeline has filled it can hold one cycle more than
+    # the steady state, which on a frame of a few cycles (tfc: 8) exceeds the 2 %
+    # tolerance; simulate enough frames that one cycle stays below 1 %.
+    if "rtlsim_batch_size" not in overrides:
+        est = _load_json(os.path.join(ref_dir, "report/estimate_network_performance.json"))
+        est_cycles = max(1, int((est or {}).get("max_cycles", 0)))
+        cfg.rtlsim_batch_size = max(2, -(-100 // est_cycles) + 1)
     # only the steps after the checkpoint
     steps = list(cfg.steps or build_cfg.default_build_dataflow_steps)
     cfg.steps = steps[steps.index(CHECKPOINT_PHASE) + 1 :]
