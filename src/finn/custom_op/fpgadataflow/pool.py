@@ -35,21 +35,15 @@ from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
 class Pool(HWCustomOp):
     """Abstraction layer for HW implementation of Pool.
-    Requires ConvolutionInputGenerator(depthwise == 1) to format its input
 
-    Input shape (BatchSize,OutImgDim,OutImgDim,TotalKernelSize*Channels)
-    Output shape (BatchSize,OutImgDim,OutImgDim,Channels)
+    Consolidated pooling node that fuses sliding-window generation (input_gen),
+    optional padding (pad), and the pooling reduction (Pool_batch) into a single
+    HLS kernel.
 
-    Notes:
+    Input shape (BatchSize, IFMDim_H, IFMDim_W, Channels)  — raw feature map
+    Output shape (BatchSize, OutImgDim_H, OutImgDim_W, Channels)
 
-    * The input shape was chosen to be compatible with im2col (only true when there
-      is not folding).
-    * The actual data layout produced by the hlslib kernels is different
-      for depthwise ops.
-
-        * depthwise SWG: (1, OFMDim, OFMDim, IFMChannels/PE, K, K, PE)
-
-    Channels can be folded using PE (SIMD from the input perspective)
+    Channels can be folded using PE (SIMD from the input perspective).
     """
 
     def get_nodeattr_types(self):
@@ -60,9 +54,17 @@ class Pool(HWCustomOp):
             # Function:
             #  - MaxPool
             #  - QuantAvgPool
-            # TODO add support for AvgPool and AccPool
             "Function": ("s", True, "", {"MaxPool", "QuantAvgPool"}),
+            # Input feature map spatial dimensions [H, W]
+            "IFMDim": ("ints", True, []),
+            # Output feature map spatial dimensions [H, W]
             "OutImgDims": ("ints", True, []),
+            # Stride [SH, SW]
+            "Stride": ("ints", True, []),
+            # Padding [H_begin, W_begin, H_end, W_end]
+            "Padding": ("ints", False, [0, 0, 0, 0]),
+            # Pad value (datatype min for MaxPool, 0 otherwise)
+            "PadValue": ("i", False, 0),
             # FINN DataTypes for inputs/outputs
             "InputDataType": ("s", True, ""),
             "OutputDataType": ("s", True, ""),
@@ -100,11 +102,9 @@ class Pool(HWCustomOp):
 
     def get_normal_input_shape(self, ind=0):
         ifm_ch = self.get_nodeattr("Channels")
-        odims = self.get_nodeattr("OutImgDims")
+        ifm_dims = self.get_nodeattr("IFMDim")
         batch_size = self.get_nodeattr("BatchSize")
-        k = self.get_nodeattr("KernelSize")
-        k_prod = int(np.prod(k))
-        ishape = (batch_size, *odims, k_prod * ifm_ch)
+        ishape = (batch_size, *ifm_dims, ifm_ch)
         return ishape
 
     def get_folded_input_shape(self, ind=0):
@@ -112,7 +112,7 @@ class Pool(HWCustomOp):
         ifm_ch = self.get_nodeattr("Channels")
         pe = self.get_nodeattr("PE")
         assert ifm_ch % pe == 0, "PE must divide input channels"
-        fold = int(normal_ishape[-1] / pe)
+        fold = int(ifm_ch / pe)
         folded_ishape = normal_ishape[:-1] + [fold, pe]
         return tuple(folded_ishape)
 
@@ -133,14 +133,55 @@ class Pool(HWCustomOp):
         return tuple(folded_oshape)
 
     def get_exp_cycles(self):
-        # (Channels * kernel * kernel) / PE * odim * odim * batch_size
+        # Fused kernel: [pad] -> input_gen -> Pool_batch in HLS dataflow.
+        #
+        # input_gen reads elements from a circular buffer driven by a Nest<>
+        # loop nest.  Output i reads buffer address addrs[i].  Data at
+        # address a becomes available WP_DELAY+1 cycles after it enters the
+        # buffer.  When pad<> precedes input_gen, an additional PAD_LATENCY
+        # accounts for the HLS dataflow pipeline between the two stages.
+        #
+        # Output i cannot be produced before cycle:
+        #   addrs[i] + WP_DELAY + 1 + PAD_LATENCY
+        # and outputs are serialised at 1/cycle, so:
+        #   earliest[i] = max(earliest[i-1]+1, addrs[i] + base_delay)
+        #
+        # The last output cycle is:
+        #   earliest[last] = max_slack + base_delay + total_out - 1
+        # where max_slack = max over i of (addrs[i] - i).
+        #
+        # For the pooling loop nest (oh, ow, cf, kh, kw), max_slack is at
+        # (oh=0, ow=0, cf=0, kh=KH-1, kw=KW-1):
+        #   max_slack = (KH-1)*(W*CF - KW) + (KW-1)*(CF-1)
+        #
+        # Total = max_slack + base_delay + total_out - 1 + PIPELINE_FLUSH
         ifm_ch = self.get_nodeattr("Channels")
         pe = self.get_nodeattr("PE")
-        k = self.get_nodeattr("KernelSize")
-        k_prod = int(np.prod(k))
-        odims = self.get_nodeattr("OutImgDims")
+        cf = ifm_ch // pe
+        k_h, k_w = self.get_nodeattr("KernelSize")
+        ifm_dim_h, ifm_dim_w = self.get_nodeattr("IFMDim")
+        ofm_dim_h, ofm_dim_w = self.get_nodeattr("OutImgDims")
+        pad = self.get_nodeattr("Padding")
         batch_size = self.get_nodeattr("BatchSize")
-        exp_cycles = ((ifm_ch * k_prod) / pe) * np.prod(odims) * batch_size
+        has_padding = any(p != 0 for p in pad)
+
+        # Padded spatial dimensions (what input_gen sees)
+        w_padded = ifm_dim_w + pad[1] + pad[3]
+
+        # Total output elements from input_gen
+        total_out = ofm_dim_h * ofm_dim_w * k_h * k_w * cf
+
+        # Max data-dependency slack in the address sequence
+        max_slack = (k_h - 1) * (w_padded * cf - k_w) + (k_w - 1) * (cf - 1)
+
+        # HLS pipeline constants
+        WP_DELAY = 4
+        PIPELINE_FLUSH = 3
+        PAD_LATENCY = 4 if has_padding else 0
+
+        base_delay = WP_DELAY + 1 + PAD_LATENCY
+        exp_cycles = max_slack + base_delay + total_out - 1 + PIPELINE_FLUSH
+        exp_cycles *= batch_size
         return int(exp_cycles)
 
     def get_instream_width(self, ind=0):
@@ -233,27 +274,45 @@ class Pool(HWCustomOp):
         # simulate behavior with Python functionality
         node = self.onnx_node
         fnx = self.get_nodeattr("Function")
-        k = self.get_nodeattr("KernelSize")
+        kh, kw = self.get_nodeattr("KernelSize")
+        sh, sw = self.get_nodeattr("Stride")
         ch = self.get_nodeattr("Channels")
-        k2 = k[0] * k[1]
+        pad = self.get_nodeattr("Padding")
+        pad_value = self.get_nodeattr("PadValue")
+        k2 = kh * kw
 
         inp_values = context[node.input[0]]
-        ishape = inp_values.shape
-        # reshape array to apply max or avg function only on kernel
-        tmp_shape = tuple(list(ishape)[:-1] + [k2, ch])
-        tmp_values = inp_values.reshape(tmp_shape)
-        if fnx == "MaxPool":
-            result = np.max(tmp_values, axis=3)
-        elif fnx == "QuantAvgPool":
-            # determine bits to shift
-            ibits = self.get_input_datatype().bitwidth()
-            obits = self.get_output_datatype().bitwidth()
-            max_value = 2**ibits - 1
-            max_value = max_value * k2
-            max_bit_width = int(max_value).bit_length()
-            shift_bits = max_bit_width - obits
-            shift_bits = shift_bits if shift_bits >= 0 else 0
-            result = np.sum(tmp_values, axis=3)
-            result = np.right_shift(result.astype(int), shift_bits)
+        # inp_values shape: (batch, IFM_H, IFM_W, Channels)
+
+        # Apply padding if needed
+        if any(p != 0 for p in pad):
+            inp_values = np.pad(
+                inp_values,
+                ((0, 0), (pad[0], pad[2]), (pad[1], pad[3]), (0, 0)),
+                mode="constant",
+                constant_values=pad_value,
+            )
+
+        batch, ph, pw, _ = inp_values.shape
+        ofm_h, ofm_w = self.get_nodeattr("OutImgDims")
+
+        # Extract sliding windows and reduce
+        # result shape: (batch, ofm_h, ofm_w, ch)
+        result = np.zeros((batch, ofm_h, ofm_w, ch), dtype=inp_values.dtype)
+        for b in range(batch):
+            for oh in range(ofm_h):
+                for ow in range(ofm_w):
+                    window = inp_values[b, oh * sh : oh * sh + kh, ow * sw : ow * sw + kw, :]
+                    if fnx == "MaxPool":
+                        result[b, oh, ow, :] = np.max(window, axis=(0, 1))
+                    elif fnx == "QuantAvgPool":
+                        ibits = self.get_input_datatype().bitwidth()
+                        obits = self.get_output_datatype().bitwidth()
+                        max_value = (2**ibits - 1) * k2
+                        max_bit_width = int(max_value).bit_length()
+                        shift_bits = max(0, max_bit_width - obits)
+                        acc = np.sum(window, axis=(0, 1))
+                        result[b, oh, ow, :] = np.right_shift(acc.astype(int), shift_bits)
+
         oshape = context[node.output[0]].shape
         context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)

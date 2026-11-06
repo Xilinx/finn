@@ -62,7 +62,7 @@ class DuplicateStreams_hls(DuplicateStreams, HLSBackend):
             self.get_nodeattr("inputDataType")
             info_messages.append("All necessary attributes exist")
         except Exception:
-            info_messages.append("""The required GlobalAccPool_Batch attributes do not exist.""")
+            info_messages.append("""The required DuplicateStreams attributes do not exist.""")
 
         return info_messages
 

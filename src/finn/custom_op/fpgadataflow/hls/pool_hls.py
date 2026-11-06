@@ -1,4 +1,4 @@
-# Copyright (C) 2023, Advanced Micro Devices, Inc.
+# Copyright (C) 2023-2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -26,30 +26,19 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import numpy as np
-
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.pool import Pool
 from finn.util.data_packing import hls_datatype_str
 
 
 class Pool_hls(Pool, HLSBackend):
-    """Class that corresponds to finn-hlslib Pool_batch function.
-    Requires ConvolutionInputGenerator(depthwise == 1) to format its input
+    """Consolidated HLS pooling: fuses pad<> + input_gen<> + Pool_batch()
+    into a single HLS dataflow kernel.
 
-    Input shape (BatchSize,OutImgDim,OutImgDim,TotalKernelSize*Channels)
-    Output shape (BatchSize,OutImgDim,OutImgDim,Channels)
+    Input shape (BatchSize, IFMDim_H, IFMDim_W, Channels)  — raw feature map
+    Output shape (BatchSize, OutImgDim_H, OutImgDim_W, Channels)
 
-    Notes:
-
-    * The input shape was chosen to be compatible with im2col (only true when there
-      is not folding).
-    * The actual data layout produced by the hlslib kernels is different
-      for depthwise ops.
-
-        * depthwise SWG: (1, OFMDim, OFMDim, IFMChannels/PE, K, K, PE)
-
-    Channels can be folded using PE (SIMD from the input perspective)
+    Channels can be folded using PE.
     """
 
     def get_nodeattr_types(self):
@@ -59,26 +48,66 @@ class Pool_hls(Pool, HLSBackend):
         return my_attrs
 
     def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "pool.hpp"']
+        includes = ['#include "pool.hpp"', '#include "input_gen.hpp"']
+        pad = self.get_nodeattr("Padding")
+        if any(p != 0 for p in pad):
+            includes.append('#include "pad.hpp"')
+        self.code_gen_dict["$GLOBALS$"] = includes
 
     def defines(self, var):
-        k = int(np.prod(self.get_nodeattr("KernelSize")))
-        self.code_gen_dict["$DEFINES$"] = [
-            "static constexpr unsigned K = {};".format(k),
+        pe = self.get_nodeattr("PE")
+        ch = self.get_nodeattr("Channels")
+        cf = ch // pe
+        kh, kw = self.get_nodeattr("KernelSize")
+        sh, sw = self.get_nodeattr("Stride")
+        ifm_h, ifm_w = self.get_nodeattr("IFMDim")
+        ofm_h, ofm_w = self.get_nodeattr("OutImgDims")
+        pad = self.get_nodeattr("Padding")
+        has_padding = any(p != 0 for p in pad)
+
+        # Padded dimensions (what input_gen sees)
+        ph = ifm_h + pad[0] + pad[2]
+        pw = ifm_w + pad[1] + pad[3]
+
+        defines = [
+            "static constexpr unsigned PE = {};".format(pe),
+            "static constexpr unsigned CF = {};".format(cf),
+            "static constexpr unsigned H = {};".format(ph),
+            "static constexpr unsigned W = {};".format(pw),
+            "static constexpr unsigned KH = {};".format(kh),
+            "static constexpr unsigned KW = {};".format(kw),
+            "static constexpr unsigned SH = {};".format(sh),
+            "static constexpr unsigned SW = {};".format(sw),
+            "static constexpr unsigned OH = {};".format(ofm_h),
+            "static constexpr unsigned OW = {};".format(ofm_w),
         ]
+        if has_padding:
+            defines += [
+                "static constexpr unsigned IFM_H = {};".format(ifm_h),
+                "static constexpr unsigned IFM_W = {};".format(ifm_w),
+                "static constexpr unsigned PAD_N = {};".format(pad[0]),
+                "static constexpr unsigned PAD_W = {};".format(pad[1]),
+                "static constexpr unsigned PAD_S = {};".format(pad[2]),
+                "static constexpr unsigned PAD_E = {};".format(pad[3]),
+            ]
+        self.code_gen_dict["$DEFINES$"] = defines
 
     def docompute(self):
         pe = self.get_nodeattr("PE")
         fxn = self.get_nodeattr("Function")
         idt = self.get_input_datatype()
         odt = self.get_output_datatype()
+        i_tensor_dt = "tensor<%s, %d>" % (hls_datatype_str(idt), pe)
         o_tensor_dt = "tensor<%s, %d>" % (hls_datatype_str(odt), pe)
 
-        self.code_gen_dict["$DOCOMPUTE$"] = []
+        pad = self.get_nodeattr("Padding")
+        has_padding = any(p != 0 for p in pad)
+
+        lines = []
+
+        # Pool functor type (used as template parameter to Pool_batch)
         if fxn == "MaxPool":
-            self.code_gen_dict["$DOCOMPUTE$"] += [
-                "MaxPoolFunction<{}> pool_fxn;".format(o_tensor_dt)
-            ]
+            pool_type = "MaxPool<%s>" % o_tensor_dt
         elif fxn == "QuantAvgPool":
             shift = self.get_nodeattr("Size")
             accum_bits = self.get_nodeattr("AccumBits")
@@ -87,13 +116,40 @@ class Pool_hls(Pool, HLSBackend):
                 accum_bits,
                 pe,
             )
-            self.code_gen_dict["$DOCOMPUTE$"] += [
-                "QuantAvgPoolFunction<{},{},{}> pool_fxn;".format(o_tensor_dt, act_tensor_dt, shift)
-            ]
+            pool_type = "QuantAvgPool<%s,%s,%d>" % (o_tensor_dt, act_tensor_dt, shift)
         else:
-            raise Exception("Pool_Batch doesn't currently support " + fxn)
+            raise Exception("Pool doesn't currently support " + fxn)
 
-        self.code_gen_dict["$DOCOMPUTE$"] += ["Pool_batch<K>(in0_V, out0_V, pool_fxn);"]
+        # input_gen loop nest for depthwise 2D pooling with stride:
+        #   for oh in OH: for ow in OW: for cf in CF: for kh in KH: for kw in KW:
+        #     addr = (oh*SH+kh)*W*CF + (ow*SW+kw)*CF + cf
+        # M=2: flit_t last marker fires upon completion of 2 innermost loops
+        #       (KW and KH), i.e. every KH*KW = K elements — one kernel window.
+        ig_call = "input_gen<2, H*W*CF, OH, SH*W*CF, OW, SW*CF, CF, 1, KH, W*CF, KW, CF>"
+        flit_dt = "flit_t<%s>" % i_tensor_dt
+        pool_call = "pool<%s>" % pool_type
+
+        if has_padding:
+            # Pad value expression
+            pad_val = self.get_nodeattr("PadValue")
+            lines.append('static hls::stream<%s>  padded("padded");' % i_tensor_dt)
+            lines.append("#pragma HLS stream depth=2 variable=padded")
+            lines.append('static hls::stream<%s>  feed("feed");' % flit_dt)
+            lines.append("#pragma HLS stream depth=2 variable=feed")
+            # Build pad value initializer (broadcasting constructor)
+            lines.append(
+                "pad<IFM_H, IFM_W, CF, PAD_N, PAD_E, PAD_S, PAD_W>"
+                "(in0_V, padded, %s(%s(%d)));" % (i_tensor_dt, hls_datatype_str(idt), pad_val)
+            )
+            lines.append("%s(padded, feed);" % ig_call)
+            lines.append("%s(feed, out0_V);" % pool_call)
+        else:
+            lines.append('static hls::stream<%s>  feed("feed");' % flit_dt)
+            lines.append("#pragma HLS stream depth=2 variable=feed")
+            lines.append("%s(in0_V, feed);" % ig_call)
+            lines.append("%s(feed, out0_V);" % pool_call)
+
+        self.code_gen_dict["$DOCOMPUTE$"] = lines
 
     def pragmas(self):
         super().pragmas()
