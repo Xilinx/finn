@@ -230,8 +230,10 @@ module local_weight_buffer #(
 	for(genvar i = 0; i < 2; i++) begin : genBank
 		for(genvar j = 0; j < PE; j++) begin : genPe
 			(* RAM_STYLE = RAM_STYLE *)
-			logic [SIMD-1:0][WEIGHT_WIDTH-1:0]  Ram[2**WGT_ADDR_BITS];
-			logic [SIMD-1:0][WEIGHT_WIDTH-1:0]  RdReg;
+			// Flat entries: Vivado cannot infer a RAM with structured (packed
+			// [SIMD][WEIGHT_WIDTH]) elements and would build it from registers.
+			logic [SIMD*WEIGHT_WIDTH-1:0]  Ram[2**WGT_ADDR_BITS];
+			logic [SIMD*WEIGHT_WIDTH-1:0]  RdReg;
 
 			always_ff @(posedge clk) begin
 				if(a_we[i][j])  Ram[a_addr[i]] <= a_data_in[i];
