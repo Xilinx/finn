@@ -57,6 +57,7 @@ from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODep
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import get_vivado_version, is_versal, make_build_dir
+from finn.util.test import tree_model_test
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -555,6 +556,121 @@ def test_fpgadataflow_thresholding_stitched_ip(
     assert (
         y_expected == y_produced
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
+
+
+# One entry per run: the schedule depends on the folding, the backend and, for
+# HLS, where the thresholds live, so those are covered across the entries rather
+# than crossed. BIPOLAR and UINT4 differ in the depth of the threshold search.
+@pytest.mark.parametrize(
+    "num_input_channels,num_input_vecs,fold,activation,impl_style,mem_mode",
+    [
+        (6, [1], -1, DataType["BIPOLAR"], "rtl", None),
+        (6, [1], 1, DataType["BIPOLAR"], "rtl", None),
+        (6, [1], 2, DataType["BIPOLAR"], "rtl", None),
+        (6, [1, 2, 2], -1, DataType["UINT4"], "rtl", None),
+        (16, [1], -1, DataType["UINT4"], "rtl", None),
+        (16, [1, 2, 2], 2, DataType["UINT4"], "rtl", None),
+        (6, [1], -1, DataType["BIPOLAR"], "hls", "internal_embedded"),
+        (6, [1], 2, DataType["UINT4"], "hls", "internal_embedded"),
+        (16, [1, 2, 2], 2, DataType["BIPOLAR"], "hls", "internal_embedded"),
+        (6, [1], -1, DataType["UINT4"], "hls", "internal_decoupled"),
+        (6, [1], 2, DataType["BIPOLAR"], "hls", "internal_decoupled"),
+        (16, [1, 2, 2], 1, DataType["UINT4"], "hls", "internal_decoupled"),
+    ],
+)
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_thresholding(
+    num_input_channels, num_input_vecs, fold, activation, impl_style, mem_mode
+):
+    input_data_type = threshold_data_type = DataType["INT8"]
+    narrow = False  # BIPOLAR requires it
+    per_tensor = False
+    num_steps = activation.get_num_possible_values() - 1
+
+    if fold == -1:
+        fold = num_input_channels
+    pe = num_input_channels // fold
+
+    output_data_type = activation
+    activation_bias = 0 if activation == DataType["BIPOLAR"] else activation.min()
+
+    # Generate thresholds and sort in ascending order
+    thresholds = generate_edge_threshold_values(
+        threshold_data_type, num_input_channels, num_steps, narrow, per_tensor
+    )
+
+    # provide non-decreasing/ascending thresholds
+    thresholds = sort_thresholds_increasing(thresholds)
+
+    # Make a Multithreshold graph and convert to thresholding binary search node
+    model = make_single_multithresholding_modelwrapper(
+        thresholds,
+        input_data_type,
+        threshold_data_type,
+        output_data_type,
+        activation_bias,
+        num_input_vecs,
+        num_input_channels,
+    )
+
+    model = model.transform(InferThresholdingLayer())
+
+    # Transform to the specified implementation style, either the
+    # RTL or HLS according to test parameters
+    node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("preferred_impl_style", impl_style)
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(InferShapes())
+    assert model.graph.node[0].op_type == "Thresholding_" + str(impl_style)
+
+    node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("PE", pe)
+
+    if impl_style == "hls":
+        inst.set_nodeattr("mem_mode", mem_mode)
+
+    node_details = (
+        "Thr",
+        input_data_type,
+        threshold_data_type,
+        output_data_type,
+        activation_bias,
+        num_input_vecs,
+        num_input_channels,
+        pe,
+        narrow,
+        per_tensor,
+        activation,
+        mem_mode,
+        impl_style,
+    )
+
+    # TAV tolerances are fractions -- of the tokens moved and of the frame
+    # length -- with a floor for the fixed part of the error (wind-up, adder
+    # tree depth, the cycle rtlsim's period rounds away). The floors are the
+    # flat budgets this test used before the split, so nothing that passed
+    # then fails now; the fractions are what govern once the frame is long
+    # enough to exceed them.
+    max_allowed_volume_frac = 0.02
+    volume_const = 8
+    max_allowed_length_frac = 0.02
+    length_const = 6
+
+    assert tree_model_test(
+        model,
+        node_details,
+        test_fpga_part,
+        target_clk_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    ), "characterized TAV does not match RTLsim'd one!"
 
 
 @pytest.mark.parametrize("num_input_channels", [6, 16])

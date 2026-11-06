@@ -12,6 +12,7 @@ from enum import Enum
 from typing import List, Optional, Tuple
 
 from finn.builder.build_dataflow_config import (
+    AutoFIFOSizingMethod,
     DataflowBuildConfig,
     DataflowOutputType,
     ShellFlowType,
@@ -73,6 +74,8 @@ def _cfg_default(field_name):
 def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
     """Run all configuration checks and return report."""
     v = get_vivado_version()
+    # for the check messages; v is None without Vivado (XILINX_VIVADO unset)
+    v_found = "%d.%d" % v if v else "unknown"
     checks = []
 
     has_bitfile = cfg.generate_outputs and DataflowOutputType.BITFILE in cfg.generate_outputs
@@ -86,8 +89,7 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                 "v80_vivado",
                 Severity.ERROR,
                 v and v >= (2024, 2),
-                "V80 board requires Vivado 2024.2 or later, "
-                f"found {v[0]}.{v[1] if v else 'unknown'}",
+                f"V80 board requires Vivado 2024.2 or later, found {v_found}",
                 "Upgrade to Vivado 2024.2 or later to use V80",
             )
         )
@@ -98,8 +100,7 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                 "slash_vivado",
                 Severity.ERROR,
                 v and v >= (2025, 1),
-                "SLASH_ALVEO shell flow requires Vivado 2025.1, "
-                f"found {v[0]}.{v[1] if v else 'unknown'}",
+                f"SLASH_ALVEO shell flow requires Vivado 2025.1, found {v_found}",
                 "Upgrade to Vivado 2025.1 for SLASH support",
             )
         )
@@ -110,7 +111,7 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                 "mlo_vivado",
                 Severity.ERROR,
                 v and v >= (2024, 2),
-                "MLO requires Vivado 2024.2 or later, " f"found {v[0]}.{v[1] if v else 'unknown'}",
+                f"MLO requires Vivado 2024.2 or later, found {v_found}",
                 "Upgrade to Vivado 2024.2 or later for MLO support",
             )
         )
@@ -121,8 +122,7 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                 "aupzu3_vivado",
                 Severity.ERROR,
                 v and v >= (2024, 1),
-                f"AUP-ZU3_8GB board requires Vivado 2024.1 or later, "
-                f"found {v[0]}.{v[1] if v else 'unknown'}",
+                f"AUP-ZU3_8GB board requires Vivado 2024.1 or later, found {v_found}",
                 "Upgrade to Vivado 2024.1 or later to use AUP-ZU3_8GB",
             )
         )
@@ -431,6 +431,33 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                             "this entry from verify_steps",
                         )
                     )
+
+    # === FIFO Sizing Strategy ===
+    # an unknown auto_fifo_strategy only fails in step_set_fifo_depths, partway into
+    # the build, so catch it here
+    if cfg.auto_fifo_depths:
+        strategy = cfg.auto_fifo_strategy
+        valid = [m.value for m in AutoFIFOSizingMethod]
+        checks.append(
+            _check(
+                "auto_fifo_strategy",
+                Severity.ERROR,
+                strategy in valid or strategy == "characterize",
+                f"auto_fifo_strategy={strategy!r} is not a FIFO sizing strategy",
+                "Set auto_fifo_strategy to one of " + ", ".join(valid),
+            )
+        )
+        if strategy == "characterize":
+            checks.append(
+                _check(
+                    "auto_fifo_strategy_deprecated",
+                    Severity.WARNING,
+                    False,
+                    "auto_fifo_strategy 'characterize' has been replaced by 'heuristic_rtlsim' "
+                    "(which it now runs) and will be removed in a future release",
+                    "Set auto_fifo_strategy to 'heuristic_rtlsim' or 'heuristic_analytical'",
+                )
+            )
 
     # === FIFO Debug Logging ===
     # fifo_log_flush_cycles reaches the RTL via int() in _attach_fifo_debug_logs and

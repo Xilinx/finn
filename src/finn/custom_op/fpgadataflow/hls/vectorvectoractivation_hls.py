@@ -420,9 +420,13 @@ class VVAU_hls(VVAU, HLSBackend):
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS DATAFLOW disable_start_propagation")
 
         if mem_mode == "internal_embedded":
-            # weights is tensor<TW, PE, SIMD> weights[WMEM] — fully partition
+            # weights is TW weights[WMEM][PE][SIMD]: one ROM per PE (dim 2),
+            # each WMEM deep with SIMD elements packed per word (dim 3)
             self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS ARRAY_PARTITION variable=weights complete"
+                "#pragma HLS ARRAY_RESHAPE variable=weights complete dim=3"
+            )
+            self.code_gen_dict["$PRAGMAS$"].append(
+                "#pragma HLS ARRAY_PARTITION variable=weights complete dim=2"
             )
         elif mem_mode == "internal_decoupled" or mem_mode == "external":
             self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=in1_V")

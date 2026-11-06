@@ -65,7 +65,6 @@ from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
-from qonnx.util.basic import get_by_name
 from qonnx.util.cleanup import cleanup_model
 from shutil import copy
 
@@ -111,10 +110,14 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
 )
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.derive_characteristic import (
-    DeriveCharacteristic,
-    DeriveFIFOSizes,
+    DeriveTokenAccessVectors,
+    JustInTimeSynthesize,
+    needs_rtlsim_characterization,
 )
 from finn.transformation.fpgadataflow.export_portable_rtl import ExportPortableRTL
+from finn.transformation.fpgadataflow.fifo_sizing.derive_fifo_sizes import (
+    DeriveFIFOSizes,
+)
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
@@ -135,6 +138,7 @@ from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
 )
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import (
+    CapConvolutionFIFODepths,
     InsertAndSetFIFODepths,
     RemoveShallowFIFOs,
     reset_implementation,
@@ -169,7 +173,11 @@ from finn.util.config import (
     extract_model_config_consolidate_shuffles,
     extract_model_config_to_json,
 )
-from finn.util.fpgadataflow import is_mlo, warn_hls_rtl_dsp_conflict
+from finn.util.fpgadataflow import (
+    cleanup_characterization,
+    is_mlo,
+    warn_hls_rtl_dsp_conflict,
+)
 from finn.util.rtlsim import annotate_rtlsim_performance
 from finn.util.test import execute_parent
 from finn.util.vivado import parse_ooc_synth_results
@@ -1040,8 +1048,12 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     """
 
     if cfg.auto_fifo_depths:
-        strategy = cfg.auto_fifo_strategy
-        if strategy == "characterize" or is_mlo(model):
+        strategy = cfg._resolve_auto_fifo_strategy()
+        # the two heuristic strategies differ only in where the token access
+        # vectors come from
+        tav_strategy = "tree_model" if strategy == "heuristic_analytical" else "rtlsim"
+
+        if is_mlo(model):
             model = model.transform(InsertDWC())
             model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
             model = model.transform(GiveUniqueNodeNames())
@@ -1060,39 +1072,86 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     )
             model = model.transform(PrepareRTLSim(behav=True))
             model = model.transform(AnnotateCycles())
-            period = model.analysis(dataflow_performance)["max_cycles"] + 10
-            model = model.transform(DeriveCharacteristic(period))
+            model = model.transform(DeriveTokenAccessVectors(tav_strategy))
             if cfg.fifosim_save_waveform:
                 for node in model.graph.node:
                     getCustomOp(node).set_nodeattr("rtlsim_trace", "")
-            model = model.transform(DeriveFIFOSizes())
+            period = int(
+                model.analysis(partial(dataflow_performance, use_characterized=True))["max_cycles"]
+            )
+            model = model.transform(DeriveFIFOSizes(period=period))
             model = model.transform(
                 InsertFIFO(
                     create_shallow_fifos=True,
                 )
             )
-            # Clean up characterization attributes after FIFO sizing. The
-            # io_chrc arrays are offloaded to sidecar .npy files referenced by
-            # the io_chrc_*_file attrs; unlink those files before dropping the
-            # attrs so we don't leak them.
-            for node in model.graph.node:
-                for file_attr_name in ["io_chrc_in_file", "io_chrc_out_file"]:
-                    attr = get_by_name(node.attribute, file_attr_name)
-                    if attr is not None:
-                        fname = attr.s.decode("utf-8")
-                        if fname != "" and os.path.isfile(fname):
-                            os.remove(fname)
-                for attr_name in [
-                    "io_chrc_period",
-                    "io_chrc_in_file",
-                    "io_chrc_out_file",
-                ]:
-                    attr = get_by_name(node.attribute, attr_name)
-                    if attr is not None:
-                        node.attribute.remove(attr)
+            cleanup_characterization(model)
             model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
             model = model.transform(GiveUniqueNodeNames())
             model = model.transform(GiveReadableTensorNames())
+
+        elif strategy in ("heuristic_analytical", "heuristic_rtlsim"):
+            # Heuristic FIFO sizing from per-node token access vectors. The two
+            # strategies share everything below and differ only in tav_strategy,
+            # i.e. whether a node's schedule comes from its tree model or rtlsim.
+            model = model.transform(InsertDWC())
+            model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
+            model = model.transform(GiveUniqueNodeNames())
+            model = model.transform(AnnotateCycles())
+
+            # heuristic_analytical takes each node's schedule from its tree
+            # model, so only the nodes without one need IP generated for rtlsim.
+            # An estimate-only build has to run without Vivado: it leaves those
+            # nodes uncharacterized instead (the sizer treats them as transparent).
+            only_jit_nodes_without_tree = tav_strategy == "tree_model"
+            only_estimates = all(
+                out == DataflowOutputType.ESTIMATE_REPORTS for out in cfg.generate_outputs
+            )
+            rtlsim_fallback = not (only_estimates and tav_strategy == "tree_model")
+
+            if rtlsim_fallback:
+                model = model.transform(
+                    JustInTimeSynthesize(
+                        cfg._resolve_fpga_part(),
+                        cfg._resolve_hls_clk_period(),
+                        only_jit_nodes_without_tree,
+                    )
+                )
+            model = model.transform(
+                DeriveTokenAccessVectors(tav_strategy, rtlsim_fallback=rtlsim_fallback)
+            )
+            if not rtlsim_fallback:
+                unsized = [
+                    n.name
+                    for n in model.graph.node
+                    if needs_rtlsim_characterization(n)
+                    and getCustomOp(n).get_nodeattr("io_chrc_in") == ""
+                ]
+                if unsized:
+                    print(
+                        "Estimate-only build: no tree model for %s, so their FIFOs are "
+                        "sized without their token access vectors. A full build "
+                        "characterizes them with rtlsim." % ", ".join(unsized)
+                    )
+
+            period = int(
+                model.analysis(partial(dataflow_performance, use_characterized=True))["max_cycles"]
+            )
+            model = model.transform(DeriveFIFOSizes(period=period))
+
+            model = model.transform(
+                InsertFIFO(
+                    create_shallow_fifos=True,
+                )
+            )
+
+            cleanup_characterization(model)
+            model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
+            model = model.transform(GiveUniqueNodeNames())
+            model = model.transform(GiveReadableTensorNames())
+            if cfg.default_swg_exception:
+                model = model.transform(CapConvolutionFIFODepths())
+
         elif strategy == "largefifo_rtlsim":
             if cfg.fifosim_save_waveform:
                 report_dir = cfg.output_dir + "/report"
@@ -1124,7 +1183,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
             # InsertAndSetFIFODepths internally removes any shallow FIFOs
             # so no need to call RemoveShallowFIFOs here
         else:
-            assert "Unsupported auto_fifo_strategy: " + cfg.auto_fifo_strategy
+            raise ValueError("Unsupported auto_fifo_strategy: %s" % strategy)
     else:
         print("auto_fifo_depths is set to False, assume folding cfg json contains FIFO sizes.")
         # assume folding cfg json contains FIFO sizes too
@@ -1169,13 +1228,15 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     # problems when trying to reuse the final config.
     model = model.transform(RemoveShallowFIFOs())
 
+    # NOTE: the FIFOs and DWCs created above are not code-generated or
+    # synthesized here. phase_build_hardware owns that: step_hw_codegen runs
+    # PrepareIP and step_hw_ipgen runs HLSSynthIP, both after this step for
+    # either placement of it (phase_optimize_hardware for plain models,
+    # phase_build_hardware for MLO ones). An explicit cfg.steps list that places
+    # this step after step_hw_ipgen has to list those two steps again after it.
+
     # Make sure every surviving top-level FIFO has a gauge log path.
     model = _attach_fifo_debug_logs(model, cfg)
-
-    # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again
-    # this will only run for the new nodes (e.g. FIFOs and DWCs)
-    model = model.transform(PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()))
-    model = model.transform(HLSSynthIP(cfg._resolve_fpga_part()))
     return model
 
 

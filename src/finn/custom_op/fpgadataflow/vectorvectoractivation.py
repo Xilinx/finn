@@ -605,14 +605,15 @@ class VVAU(HWCustomOp):
             wmem = self.calc_wmem()
             # weight_tensor is (1, PE, WMEM, SIMD) in natural order (no SIMD flip).
             # Transpose to (WMEM, PE, SIMD) for aggregate initialization of
-            # tensor<TW, PE, SIMD> weights[WMEM].
+            # TW weights[WMEM][PE][SIMD]. A plain array (rather than a tensor<> per
+            # tile) avoids an ap_uint<PE*SIMD*W> exceeding the 8191-bit limit.
             wt = weight_tensor.reshape(pe, wmem, simd)
             wt = np.transpose(wt, (1, 0, 2))  # (WMEM, PE, SIMD)
             weight_hls_code = numpy_to_hls_code(wt, export_wdt, "weights", False, True)
             f_weights = open(weight_file_name, "w")
             f_weights.write(
-                "const tensor<{}, {}, {}> weights[{}] = ".format(
-                    hls_datatype_str(export_wdt), pe, simd, wmem
+                "const {} weights[{}][{}][{}] = ".format(
+                    hls_datatype_str(export_wdt), wmem, pe, simd
                 )
             )
             f_weights.write(weight_hls_code)
@@ -768,21 +769,6 @@ class VVAU(HWCustomOp):
             ret_dict[thres_param_type] = thres_count
         return ret_dict
 
-    def derive_characteristic_fxns(self, period):
-        n_inps = np.prod(self.get_folded_input_shape()[:-1])
-        io_dict = {
-            "inputs": {
-                "in0": [0 for i in range(n_inps)],
-            },
-            "outputs": {"out0": []},
-        }
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode in ["internal_decoupled", "external"]:
-            n_weight_inps = self.calc_wmem()
-            num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
-            io_dict["inputs"]["in1"] = [0 for i in range(num_w_reps * n_weight_inps)]
-        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
-
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         mem_mode = self.get_nodeattr("mem_mode")
@@ -901,3 +887,10 @@ class VVAU(HWCustomOp):
         else:
             raise Exception("Unrecognized mem_mode for VectorVectorActivation")
         return cmd
+
+    def get_tav_io_dict(self):
+        io_dict = super().get_tav_io_dict()
+        if self.get_nodeattr("mem_mode") in ["internal_decoupled", "external"]:
+            n_inps = np.prod(self.get_folded_input_shape()[:-1])
+            io_dict["inputs"]["in1"] = [0 for i in range(n_inps)]
+        return io_dict
