@@ -12,6 +12,7 @@ from benchmark_helpers import (
     benchmark_root,
     bitfile_output_files,
     check_build_outputs,
+    check_verification,
     get_verify_steps,
     make_benchmark_cfg,
     run_feature_build,
@@ -162,6 +163,7 @@ def test_bnnpynq(board, model, bench_recorder):
     # artifacts depend on the shell flow (Zynq boards -> .bit/.hwh, U55C -> .xclbin).
     build_output_files = CORE_BUILD_OUTPUT_FILES + bitfile_output_files(board)
     check_build_outputs(output_dir, build_output_files)
+    check_verification(output_dir, cfg.verify_steps)
 
 
 # --- feature tests: FIFO sizing ----------------------------------------------

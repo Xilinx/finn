@@ -46,7 +46,7 @@ relative to it). Models are fetched by `models/download_models.sh`.
 
 | Var | Default | Effect |
 |-----|---------|--------|
-| `VERIFICATION_EN` | `0` | When truthy (`1`/`true`/`yes`/`on`), run the numeric cppsim/rtlsim verification steps. Off by default for faster benchmark runs. |
+| `VERIFICATION_EN` | `0` | When truthy (`1`/`true`/`yes`/`on`), run the numeric cppsim/rtlsim verification steps; a failed step fails the test. Off by default for faster benchmark runs. |
 | `VERIFICATION_IO` | in-repo `verification_io/` | Override the directory holding the golden `*.npy` I/O. |
 
 Some multi-board models additionally scope verification to a single baseline board
@@ -98,7 +98,8 @@ Each `test_build_<model>.py` has three layers:
 
 3. **The test** — a thin orchestrator: build the cfg, run
    `build.build_dataflow_cfg`, register with `bench_recorder`, and assert on the
-   output products via `check_build_outputs`.
+   output products via `check_build_outputs` and on the verification results via
+   `check_verification`.
 
 ## Extending: add a build case with different settings
 

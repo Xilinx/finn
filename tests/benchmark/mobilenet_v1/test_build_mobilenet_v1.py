@@ -13,6 +13,7 @@ from benchmark_helpers import (
     benchmark_root,
     bitfile_output_files,
     check_build_outputs,
+    check_verification,
     get_verify_steps,
     make_benchmark_cfg,
     run_feature_build,
@@ -116,6 +117,7 @@ def test_mobilenetv1(board, bench_recorder):
     # (ZCU104 -> .bit/.hwh via Vivado/Zynq, U55C -> .xclbin via Vitis/Alveo).
     build_output_files = CORE_BUILD_OUTPUT_FILES + bitfile_output_files(board)
     check_build_outputs(output_dir, build_output_files)
+    check_verification(output_dir, cfg.verify_steps)
 
 
 # --- feature tests: FIFO sizing ----------------------------------------------

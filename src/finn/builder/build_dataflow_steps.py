@@ -543,9 +543,6 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
         model, ["MatMul"], to_hw.InferVectorVectorActivation(), "vector-vector activation"
     )
 
-    # Classification/output layers
-    model = apply_if_relevant(model, ["TopK"], to_hw.InferLabelSelectLayer(), "label select layers")
-
     # Input quantization (if any) - high-bitwidth MultiThreshold and Quant as Requant,
     # low-bitwidth MultiThreshold as Thresholding
     model = apply_if_relevant(
@@ -580,6 +577,11 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
         to_hw.InferElementwiseBinaryOperation(),
         "elementwise binary operations",
     )
+
+    # Classification/output layers. After the elementwise ops: a final bias Add
+    # in front of TopK only becomes integer once it is an ElementwiseAdd, and
+    # InferLabelSelectLayer skips non-integer inputs.
+    model = apply_if_relevant(model, ["TopK"], to_hw.InferLabelSelectLayer(), "label select layers")
 
     # Convolution-related transformations
     model = apply_if_relevant(
