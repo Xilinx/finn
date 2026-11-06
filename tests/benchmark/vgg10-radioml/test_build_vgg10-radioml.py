@@ -3,6 +3,8 @@
 
 import pytest
 
+import functools
+
 # custom steps for vgg10-radioml
 import os
 from benchmark_helpers import (
@@ -13,6 +15,7 @@ from benchmark_helpers import (
     check_build_outputs,
     get_verify_steps,
     make_benchmark_cfg,
+    run_feature_build,
     verification_io_dir,
 )
 from custom_steps_vgg10 import step_pre_streamline
@@ -90,3 +93,26 @@ def test_vgg10radioml(board, bench_recorder):
     # aborting on the first one.
     build_output_files = CORE_BUILD_OUTPUT_FILES + bitfile_output_files(board)
     check_build_outputs(output_dir, build_output_files)
+
+
+# --- feature tests: FIFO sizing ----------------------------------------------
+# The committed folding with FIFOs sized by each strategy; see "FIFO sizing tests"
+# in tests/benchmark/README.md and run_feature_build in benchmark_helpers.py.
+
+
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.finn_examples
+@pytest.mark.fifo_sizing
+@pytest.mark.xdist_group("vgg10-radioml")
+@pytest.mark.parametrize("strategy", ["heuristic_analytical", "heuristic_rtlsim"])
+@pytest.mark.parametrize("board", ["ZCU104"])
+def test_vgg10radioml_fifo_sizing(board, strategy):
+    run_feature_build(
+        f"vgg10-radioml_{board}",
+        functools.partial(configure_build, board),
+        model_file,
+        f"fifo-{strategy}",
+        auto_fifo_depths=True,
+        auto_fifo_strategy=strategy,
+    )

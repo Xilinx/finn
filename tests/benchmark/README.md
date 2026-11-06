@@ -113,7 +113,7 @@ GTSRB_BUILDS = [
     # estimate-only variant (stop before synth):
     ("AUP-ZU3_8GB", {"generate_outputs": [DataflowOutputType.ESTIMATE_REPORTS]}),
     # a FIFO-sizing strategy variant:
-    ("AUP-ZU3_8GB", {"auto_fifo_depths": False, "auto_fifo_strategy": "characterize"}),
+    ("AUP-ZU3_8GB", {"auto_fifo_strategy": "heuristic_analytical"}),
     # reuse a cached synthesized model with a different FIFO-annotated folding JSON:
     ("AUP-ZU3_8GB", {"folding_config_file": my_strategy_json}),
 ]
@@ -139,3 +139,21 @@ of rebuilding from scratch.
 3. Add `<model>/test_build_<model>.py` following the three-layer anatomy above.
 4. Add `verification_io/<model>_input.npy` / `_output.npy` if the model should be
    verified.
+
+## FIFO sizing tests
+
+Each model's test file also carries `test_<model>_fifo_sizing[<board>-<strategy>]`
+(marker `fifo_sizing`): the committed folding, with FIFOs sized by
+`heuristic_analytical` or `heuristic_rtlsim`.
+
+The test resumes the `phase_convert_to_hardware` checkpoint of a cached estimate-only build
+with the committed folding (`$FINN_BUILD_DIR/est_<model>_<board>_*`), builds up to stitched
+IP (no bitfile) and passes if the stitched-IP rtlsim output matches the golden output and
+the rtlsim throughput is at least 98 % of the build's own analytic estimate.
+Numbers (estimated and rtlsim throughput, FIFO storage, step times) are written to
+`report/feature_metrics.json`. The shared code is `run_feature_build` in `benchmark_helpers.py`.
+
+```bash
+pytest tests/benchmark/gtsrb/test_build_gtsrb.py -m fifo_sizing -k heuristic_analytical
+pytest tests/benchmark -m fifo_sizing -k heuristic_analytical -n 4 --dist loadgroup
+```

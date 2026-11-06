@@ -754,7 +754,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
 
         return ["config_compile -pipeline_style frp"]
 
-    def derive_characteristic_fxns(self, period):
+    def get_tav_io_dict(self):
         n_inps = np.prod(self.get_folded_input_shape()[:-1])
         io_dict = {
             "inputs": {
@@ -767,7 +767,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
             n_weight_inps = self.calc_tmem()
             num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
             io_dict["inputs"]["in1"] = [0 for i in range(num_w_reps * n_weight_inps)]
-        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
+        return io_dict
 
     def minimize_weight_bit_width(self, model, datatype_only=False):
         """Minimize threshold datatype, with HLS-specific adjustments.

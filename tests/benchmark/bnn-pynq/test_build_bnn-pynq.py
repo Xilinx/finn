@@ -3,6 +3,7 @@
 
 import pytest
 
+import functools
 import os
 import torch
 from benchmark_helpers import (
@@ -13,6 +14,7 @@ from benchmark_helpers import (
     check_build_outputs,
     get_verify_steps,
     make_benchmark_cfg,
+    run_feature_build,
     verification_io_dir,
 )
 from brevitas.export import export_qonnx
@@ -160,3 +162,29 @@ def test_bnnpynq(board, model, bench_recorder):
     # artifacts depend on the shell flow (Zynq boards -> .bit/.hwh, U55C -> .xclbin).
     build_output_files = CORE_BUILD_OUTPUT_FILES + bitfile_output_files(board)
     check_build_outputs(output_dir, build_output_files)
+
+
+# --- feature tests: FIFO sizing ----------------------------------------------
+# The committed folding with FIFOs sized by each strategy; see "FIFO sizing tests"
+# in tests/benchmark/README.md and run_feature_build in benchmark_helpers.py.
+
+FEATURE_BUILDS = [
+    pytest.param(board, model, marks=pytest.mark.xdist_group(model)) for board, model in BNN_BUILDS
+]
+
+
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.finn_examples
+@pytest.mark.fifo_sizing
+@pytest.mark.parametrize("strategy", ["heuristic_analytical", "heuristic_rtlsim"])
+@pytest.mark.parametrize("board,model", FEATURE_BUILDS)
+def test_bnnpynq_fifo_sizing(board, model, strategy):
+    run_feature_build(
+        f"bnn-pynq_{model}_{board}",
+        functools.partial(configure_build, board, model),
+        get_model_file(model),
+        f"fifo-{strategy}",
+        auto_fifo_depths=True,
+        auto_fifo_strategy=strategy,
+    )
