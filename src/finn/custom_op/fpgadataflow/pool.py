@@ -37,7 +37,7 @@ class Pool(HWCustomOp):
     """Abstraction layer for HW implementation of Pool.
 
     Consolidated pooling node that fuses sliding-window generation (input_gen),
-    optional padding (pad), and the pooling reduction (Pool_batch) into a single
+    optional padding (pad), and the pooling reduction (pool<F>) into a single
     HLS kernel.
 
     Input shape (BatchSize, IFMDim_H, IFMDim_W, Channels)  — raw feature map
@@ -96,7 +96,7 @@ class Pool(HWCustomOp):
             ), """QuantAvgPool: Can't mix signed
             and unsigned datatypes"""
         else:
-            raise Exception("Pool_Batch doesn't currently support " + fxn)
+            raise Exception("Pool doesn't currently support " + fxn)
 
         return odt
 
@@ -133,32 +133,27 @@ class Pool(HWCustomOp):
         return tuple(folded_oshape)
 
     def get_exp_cycles(self):
-        # Fused kernel: [pad] -> input_gen -> Pool_batch in HLS dataflow.
+        # Fused kernel: [pad] -> input_gen -> pool<F> in HLS dataflow.
         #
-        # input_gen reads elements from a circular buffer driven by a Nest<>
-        # loop nest.  Output i reads buffer address addrs[i].  Data at
-        # address a becomes available WP_DELAY+1 cycles after it enters the
-        # buffer.  When pad<> precedes input_gen, an additional PAD_LATENCY
-        # accounts for the HLS dataflow pipeline between the two stages.
-        #
-        # Output i cannot be produced before cycle:
-        #   addrs[i] + WP_DELAY + 1 + PAD_LATENCY
-        # and outputs are serialised at 1/cycle, so:
+        # Output bound: input_gen reads elements from a circular buffer
+        # driven by a Nest<> loop nest. Output i reads buffer address addrs[i],
+        # whose data becomes available WP_DELAY+1 cycles after it enters the
+        # buffer (plus PAD_LATENCY when pad<> precedes input_gen). Outputs are
+        # serialised at 1/cycle, so:
         #   earliest[i] = max(earliest[i-1]+1, addrs[i] + base_delay)
+        # and the last output is due at max_slack + base_delay + total_out - 1
+        # with max_slack = max over i of (addrs[i] - i). For the pooling nest
+        # (oh, ow, cf, kh, kw), addrs[i] - i is linear in every loop index, so
+        # its maximum is attained at a corner of the index box.
         #
-        # The last output cycle is:
-        #   earliest[last] = max_slack + base_delay + total_out - 1
-        # where max_slack = max over i of (addrs[i] - i).
-        #
-        # For the pooling loop nest (oh, ow, cf, kh, kw), max_slack is at
-        # (oh=0, ow=0, cf=0, kh=KH-1, kw=KW-1):
-        #   max_slack = (KH-1)*(W*CF - KW) + (KW-1)*(CF-1)
-        #
-        # Total = max_slack + base_delay + total_out - 1 + PIPELINE_FLUSH
+        # Input bound: the whole (padded) feature map streams through, also
+        # where no window reads it (floor remainder), and the
+        # simulation only completes once all input has been consumed.
         ifm_ch = self.get_nodeattr("Channels")
         pe = self.get_nodeattr("PE")
         cf = ifm_ch // pe
         k_h, k_w = self.get_nodeattr("KernelSize")
+        s_h, s_w = self.get_nodeattr("Stride")
         ifm_dim_h, ifm_dim_w = self.get_nodeattr("IFMDim")
         ofm_dim_h, ofm_dim_w = self.get_nodeattr("OutImgDims")
         pad = self.get_nodeattr("Padding")
@@ -166,13 +161,25 @@ class Pool(HWCustomOp):
         has_padding = any(p != 0 for p in pad)
 
         # Padded spatial dimensions (what input_gen sees)
+        h_padded = ifm_dim_h + pad[0] + pad[2]
         w_padded = ifm_dim_w + pad[1] + pad[3]
 
         # Total output elements from input_gen
         total_out = ofm_dim_h * ofm_dim_w * k_h * k_w * cf
 
-        # Max data-dependency slack in the address sequence
-        max_slack = (k_h - 1) * (w_padded * cf - k_w) + (k_w - 1) * (cf - 1)
+        def slack(oh, ow, c, kh, kw):
+            addr = ((oh * s_h + kh) * w_padded + (ow * s_w + kw)) * cf + c
+            idx = (((oh * ofm_dim_w + ow) * cf + c) * k_h + kh) * k_w + kw
+            return addr - idx
+
+        max_slack = max(
+            slack(oh, ow, c, kh, kw)
+            for oh in (0, ofm_dim_h - 1)
+            for ow in (0, ofm_dim_w - 1)
+            for c in (0, cf - 1)
+            for kh in (0, k_h - 1)
+            for kw in (0, k_w - 1)
+        )
 
         # HLS pipeline constants
         WP_DELAY = 4
@@ -180,8 +187,9 @@ class Pool(HWCustomOp):
         PAD_LATENCY = 4 if has_padding else 0
 
         base_delay = WP_DELAY + 1 + PAD_LATENCY
-        exp_cycles = max_slack + base_delay + total_out - 1 + PIPELINE_FLUSH
-        exp_cycles *= batch_size
+        out_bound = max_slack + base_delay + total_out - 1 + PIPELINE_FLUSH
+        in_bound = h_padded * w_padded * cf + PAD_LATENCY + PIPELINE_FLUSH
+        exp_cycles = max(out_bound, in_bound) * batch_size
         return int(exp_cycles)
 
     def get_instream_width(self, ind=0):
@@ -260,7 +268,7 @@ class Pool(HWCustomOp):
         if len(self.onnx_node.input) == 1:
             info_messages.append("The number of inputs is correct")
         else:
-            info_messages.append("""Pool_Batch needs 1 data input""")
+            info_messages.append("""Pool needs 1 data input""")
 
         # check supported function
         fnx = self.get_nodeattr("Function")

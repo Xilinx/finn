@@ -21,13 +21,10 @@
   "Thresholding_2": {
     "preferred_impl_style": ""
   },
-  "ConvolutionInputGenerator_2": {
-    "preferred_impl_style": ""
-  },
   "Pool_0": {
     "preferred_impl_style": ""
   },
-  "ConvolutionInputGenerator_3": {
+  "ConvolutionInputGenerator_2": {
     "preferred_impl_style": ""
   },
   "MVAU_2": {
@@ -36,7 +33,7 @@
   "Thresholding_3": {
     "preferred_impl_style": ""
   },
-  "ConvolutionInputGenerator_4": {
+  "ConvolutionInputGenerator_3": {
     "preferred_impl_style": ""
   },
   "MVAU_3": {
@@ -45,13 +42,10 @@
   "Thresholding_4": {
     "preferred_impl_style": ""
   },
-  "ConvolutionInputGenerator_5": {
-    "preferred_impl_style": ""
-  },
   "Pool_1": {
     "preferred_impl_style": ""
   },
-  "ConvolutionInputGenerator_6": {
+  "ConvolutionInputGenerator_4": {
     "preferred_impl_style": ""
   },
   "MVAU_4": {
@@ -60,7 +54,7 @@
   "Thresholding_5": {
     "preferred_impl_style": ""
   },
-  "ConvolutionInputGenerator_7": {
+  "ConvolutionInputGenerator_5": {
     "preferred_impl_style": ""
   },
   "MVAU_5": {

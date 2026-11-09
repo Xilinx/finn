@@ -147,9 +147,6 @@ def test_convert_to_hw_pool(idt, odt, pool_config, ifm_ch, pe, op_type, exec_mod
     if ifm_ch % pe != 0:
         pytest.skip("ifm_ch%pe != 0. Skipping")
 
-    if pad != 0 and idt.signed():
-        pytest.skip("No support for pal_val != 0. Skipping")
-
     ofm_dim = int(((ifm_dim + 2 * pad - k) / stride) + 1)
 
     ishape = (1, ifm_ch, ifm_dim, ifm_dim)
@@ -202,18 +199,11 @@ def test_convert_to_hw_pool(idt, odt, pool_config, ifm_ch, pe, op_type, exec_mod
         new_accum = pool_inst.get_nodeattr("AccumBits")
         assert new_accum <= initial_accum
 
-    if stride <= k:
-        # Consolidated Pool: Transpose → Pool → Transpose (3 nodes)
-        assert len(new_model.graph.node) == 3
-        assert new_model.graph.node[0].op_type == "Transpose"
-        assert new_model.graph.node[1].op_type.startswith("Pool")
-        assert new_model.graph.node[2].op_type == "Transpose"
-    else:
-        # not currently converted to HLS, node stays as-is
-        assert len(new_model.graph.node) == 1
-        assert new_model.graph.node[0].op_type in ["MaxPool", "QuantAvgPool2d"]
-        # no need to exec
-        return
+    # Consolidated Pool: Transpose → Pool → Transpose (3 nodes)
+    assert len(new_model.graph.node) == 3
+    assert new_model.graph.node[0].op_type == "Transpose"
+    assert new_model.graph.node[1].op_type.startswith("Pool")
+    assert new_model.graph.node[2].op_type == "Transpose"
 
     if exec_mode == "cppsim":
         new_model = new_model.transform(SetExecMode("cppsim"))
@@ -299,6 +289,173 @@ def test_convert_to_hw_maxpool_ceil_mode(ceil_config, exec_mode):
 
     y_produced = oxe.execute_onnx(new_model, input_dict)["outp"]
     assert (y_produced == y_expected).all()
+
+
+# Non-square MaxPool geometries: the fused Pool node carries independent H/W
+# for feature map, kernel, stride and padding ([H_begin, W_begin, H_end, W_end]).
+#   (ifm_h, ifm_w, kh, kw, sh, sw, pads)          exercises
+nonsquare_configs = [
+    (6, 10, 2, 2, 2, 2, [0, 0, 0, 0]),  # non-square feature map
+    (8, 9, 2, 3, 2, 3, [0, 0, 0, 0]),  # asymmetric kernel + stride
+    (7, 5, 3, 2, 2, 1, [1, 0, 1, 1]),  # asymmetric padding, overlapping windows
+    (9, 7, 2, 3, 2, 3, [0, 0, 0, 0]),  # floor remainder: unused last row and column
+    (5, 8, 3, 3, 2, 2, [1, 1, 0, 0]),  # leading-only padding, floor remainder
+]
+
+
+@pytest.mark.parametrize("nonsquare_config", nonsquare_configs)
+# (idt, pe): signed input exercises the negative pad value; PE=1 vs PE>1 the
+# scalar vs broadcasting tensor<> pad value construction
+@pytest.mark.parametrize("idt_pe", [(DataType["UINT4"], 2), (DataType["INT4"], 1)])
+@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_convert_to_hw_maxpool_nonsquare(nonsquare_config, idt_pe, exec_mode):
+    ifm_h, ifm_w, kh, kw, sh, sw, pads = nonsquare_config
+    idt, pe = idt_pe
+    ifm_ch = 4
+    ofm_h = (ifm_h + pads[0] + pads[2] - kh) // sh + 1
+    ofm_w = (ifm_w + pads[1] + pads[3] - kw) // sw + 1
+
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ifm_ch, ifm_h, ifm_w])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, ifm_ch, ofm_h, ofm_w])
+    mp_node = helper.make_node(
+        "MaxPool", ["inp"], ["outp"], kernel_shape=[kh, kw], pads=pads, strides=[sh, sw]
+    )
+    graph = helper.make_graph(nodes=[mp_node], name="mp_graph", inputs=[inp], outputs=[outp])
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="mp-model"))
+    model.set_tensor_datatype("inp", idt)
+    model.set_tensor_datatype("outp", idt)
+    model = model.transform(InferShapes())
+
+    x = gen_finn_dt_tensor(idt, (1, ifm_ch, ifm_h, ifm_w))
+    input_dict = prepare_inputs(x)
+    y_expected = oxe.execute_onnx(model, input_dict)["outp"]
+
+    new_model = model.transform(to_hw.InferPool())
+    new_model = new_model.transform(GiveUniqueNodeNames())
+    pool_nodes = new_model.get_nodes_by_op_type("Pool")
+    assert len(pool_nodes) == 1, "non-square MaxPool was not converted"
+    pool_inst = getCustomOp(pool_nodes[0])
+    assert pool_inst.get_nodeattr("IFMDim") == [ifm_h, ifm_w]
+    assert pool_inst.get_nodeattr("OutImgDims") == [ofm_h, ofm_w]
+    y_produced = oxe.execute_onnx(new_model, input_dict)["outp"]
+    assert (y_produced == y_expected).all(), "python execution mismatch"
+
+    new_model = new_model.transform(SpecializeLayers("xc7z020clg400-1"))
+    for n in new_model.graph.node:
+        if n.op_type.startswith("Pool"):
+            getCustomOp(n).set_nodeattr("PE", pe)
+
+    if exec_mode == "cppsim":
+        new_model = new_model.transform(SetExecMode("cppsim"))
+        new_model = new_model.transform(PrepareCppSim())
+        new_model = new_model.transform(CompileCppSim())
+    elif exec_mode == "rtlsim":
+        new_model = new_model.transform(SetExecMode("rtlsim"))
+        new_model = new_model.transform(GiveUniqueNodeNames())
+        new_model = new_model.transform(PrepareIP("xc7z020clg400-1", 5))
+        new_model = new_model.transform(HLSSynthIP())
+        new_model = new_model.transform(PrepareRTLSim())
+    else:
+        raise Exception("Unknown exec_mode")
+
+    y_produced = oxe.execute_onnx(new_model, input_dict)["outp"]
+    assert (y_produced == y_expected).all(), exec_mode + " mismatch"
+
+    if exec_mode == "rtlsim":
+        node = new_model.get_nodes_by_op_type("Pool_hls")[0]
+        cycles_rtlsim = getCustomOp(node).get_nodeattr("cycles_rtlsim")
+        exp_cycles = new_model.analysis(exp_cycles_per_layer)[node.name]
+        assert np.isclose(exp_cycles, cycles_rtlsim, atol=10), (exp_cycles, cycles_rtlsim)
+
+
+# Multi-frame streaming through the Pool IP.  Geometries leave input pixels
+# outside every window (floor remainder), which the fused
+# pad<>/input_gen<> must still consume and discard, or the next frame is
+# misaligned.  BatchSize > 1 makes node-level rtlsim stream all frames
+# back-to-back through a single IP instance.
+#   (ifm_h, ifm_w, kh, kw, sh, sw, pads, idt, pe)
+multiframe_configs = [
+    (7, 7, 2, 2, 2, 2, [0, 0, 0, 0], DataType["INT8"], 4),  # odd dims: last row/col unused
+    (10, 8, 3, 3, 2, 2, [0, 0, 0, 0], DataType["INT4"], 1),  # overlap + unused row/column
+    (5, 8, 3, 3, 2, 2, [1, 1, 0, 0], DataType["UINT4"], 2),  # padding + floor remainder
+]
+
+
+@pytest.mark.parametrize("multiframe_config", multiframe_configs)
+@pytest.mark.parametrize("n_frames", [3])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_pool_multiframe_rtlsim(multiframe_config, n_frames):
+    ifm_h, ifm_w, kh, kw, sh, sw, pads, idt, pe = multiframe_config
+    ifm_ch = 4
+    fpga_part, clk_ns = "xc7z020clg400-1", 5
+    ofm_h = (ifm_h + pads[0] + pads[2] - kh) // sh + 1
+    ofm_w = (ifm_w + pads[1] + pads[3] - kw) // sw + 1
+
+    # NCHW MaxPool (supports uneven padding, as produced by ceil_mode)
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ifm_ch, ifm_h, ifm_w])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, ifm_ch, ofm_h, ofm_w])
+    mp_node = helper.make_node(
+        "MaxPool", ["inp"], ["outp"], kernel_shape=[kh, kw], pads=pads, strides=[sh, sw]
+    )
+    graph = helper.make_graph(nodes=[mp_node], name="mp_graph", inputs=[inp], outputs=[outp])
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="mp-model"))
+    model.set_tensor_datatype("inp", idt)
+    model.set_tensor_datatype("outp", idt)
+    model = model.transform(InferShapes())
+
+    # per-frame reference from the original (pre-HW) node
+    x = gen_finn_dt_tensor(idt, (n_frames, ifm_ch, ifm_h, ifm_w))
+    y_expected = np.concatenate(
+        [oxe.execute_onnx(model, {"inp": x[i : i + 1]})["outp"] for i in range(n_frames)]
+    )
+
+    model = model.transform(to_hw.InferPool())
+    assert [n.op_type for n in model.graph.node] == ["Transpose", "Pool", "Transpose"]
+    model = model.transform(SpecializeLayers(fpga_part))
+    inst = getCustomOp(model.get_nodes_by_op_type("Pool_hls")[0])
+    inst.set_nodeattr("PE", pe)
+    inst.set_nodeattr("BatchSize", n_frames)
+    # stream all frames through one IP instance: batch every tensor in the graph
+    for vi in list(model.graph.input) + list(model.graph.value_info) + list(model.graph.output):
+        shape = model.get_tensor_shape(vi.name)
+        model.set_tensor_shape(vi.name, [n_frames] + list(shape[1:]))
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareIP(fpga_part, clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+
+    y_produced = oxe.execute_onnx(model, {"inp": x})["outp"]
+    for i in range(n_frames):
+        assert (y_produced[i] == y_expected[i]).all(), "frame %d mismatch" % i
+
+
+@pytest.mark.parametrize("kernel_stride", [((1, 2), (2, 2)), ((2, 1), (2, 2)), ((1, 2), (2, 3))])
+@pytest.mark.fpgadataflow
+def test_pool_kernel_lt_stride_not_converted(kernel_stride):
+    """Pooling with kernel < stride (in either dimension) skips input that no
+    window reads. Its efficient support is shelved, so InferPool must leave
+    such nodes untouched."""
+    (kh, kw), (sh, sw) = kernel_stride
+    ifm_ch, ifm_h, ifm_w = 4, 8, 8
+    ofm_h, ofm_w = (ifm_h - kh) // sh + 1, (ifm_w - kw) // sw + 1
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ifm_ch, ifm_h, ifm_w])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, ifm_ch, ofm_h, ofm_w])
+    mp_node = helper.make_node(
+        "MaxPool", ["inp"], ["outp"], kernel_shape=[kh, kw], pads=[0, 0, 0, 0], strides=[sh, sw]
+    )
+    graph = helper.make_graph(nodes=[mp_node], name="mp_graph", inputs=[inp], outputs=[outp])
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="mp-model"))
+    model.set_tensor_datatype("inp", DataType["UINT4"])
+    model.set_tensor_datatype("outp", DataType["UINT4"])
+    model = model.transform(InferShapes())
+    model = model.transform(to_hw.InferPool())
+    assert [n.op_type for n in model.graph.node] == ["MaxPool"]
 
 
 @pytest.mark.fpgadataflow

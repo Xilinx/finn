@@ -32,7 +32,7 @@ from finn.util.data_packing import hls_datatype_str
 
 
 class Pool_hls(Pool, HLSBackend):
-    """Consolidated HLS pooling: fuses pad<> + input_gen<> + Pool_batch()
+    """Consolidated HLS pooling: fuses pad<> + input_gen<> + pool<F>()
     into a single HLS dataflow kernel.
 
     Input shape (BatchSize, IFMDim_H, IFMDim_W, Channels)  — raw feature map
@@ -105,7 +105,7 @@ class Pool_hls(Pool, HLSBackend):
 
         lines = []
 
-        # Pool functor type (used as template parameter to Pool_batch)
+        # Pool functor type (template parameter F of pool<F>())
         if fxn == "MaxPool":
             pool_type = "MaxPool<%s>" % o_tensor_dt
         elif fxn == "QuantAvgPool":
@@ -156,6 +156,14 @@ class Pool_hls(Pool, HLSBackend):
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS dataflow disable_start_propagation")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS aggregate variable=in0_V compact=bit")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS aggregate variable=out0_V compact=bit")
+
+    def timeout_value(self):
+        """The cppsim loop stops after this many consecutive calls without
+        output.  input_gen must buffer up to (KH-1) padded rows of CF folds
+        before the first window completes, which exceeds the default of 1000
+        for wide/deeply folded inputs and left the final stream read blocking
+        forever.  Bound it by the expected cycle count instead."""
+        self.code_gen_dict["$TIMEOUT_VALUE$"] = [str(self.get_exp_cycles() + 1000)]
 
     def ipgen_extra_directives(self):
         "Return a list of extra tcl directives for HLS synthesis."

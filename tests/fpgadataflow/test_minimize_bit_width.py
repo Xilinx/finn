@@ -855,9 +855,11 @@ def test_full_bit_width_optimization_pipeline():
 
 
 def make_pool_model(idt: DataType, k: int, function: str):
-    """Create a simple Pool node for testing."""
+    """Create a simple fused Pool node (raw NHWC feature map in, windows
+    generated internally) with non-overlapping k x k windows."""
     channels, odim = 4, 4
-    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, odim, odim, k * k * channels])
+    idim = odim * k
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, idim, idim, channels])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, odim, odim, channels])
 
     node = helper.make_node(
@@ -869,6 +871,9 @@ def make_pool_model(idt: DataType, k: int, function: str):
         Channels=channels,
         PE=1,
         KernelSize=[k, k],
+        Stride=[k, k],
+        IFMDim=[idim, idim],
+        Padding=[0, 0, 0, 0],
         Function=function,
         OutImgDims=[odim, odim],
         InputDataType=idt.name,
@@ -882,6 +887,10 @@ def make_pool_model(idt: DataType, k: int, function: str):
     model = ModelWrapper(model)
     model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("outp", idt)
+    # guard against the helper drifting from the node's shape contract again
+    inst = getCustomOp(node)
+    assert inst.get_normal_input_shape() == tuple(model.get_tensor_shape("inp"))
+    assert inst.get_normal_output_shape() == tuple(model.get_tensor_shape("outp"))
     return model
 
 

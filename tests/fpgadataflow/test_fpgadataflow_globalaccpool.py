@@ -52,7 +52,8 @@ from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
 def make_accpool_modelwrapper(ch, pe, idim, idt, impl_style):
-    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, idim, idim, ch])
+    idim_h, idim_w = (idim, idim) if isinstance(idim, int) else idim
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, idim_h, idim_w, ch])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, 1, 1, ch])
 
     accpool_node = helper.make_node(
@@ -64,7 +65,7 @@ def make_accpool_modelwrapper(ch, pe, idim, idt, impl_style):
         NumChannels=ch,
         PE=pe,
         inputDataType=idt.name,
-        numInputVectors=[1, idim, idim],
+        numInputVectors=[1, idim_h, idim_w],
         preferred_impl_style=impl_style,
     )
     graph = helper.make_graph(nodes=[accpool_node], name="graph", inputs=[inp], outputs=[outp])
@@ -82,13 +83,13 @@ def prepare_inputs(input_tensor, idt):
 
 
 # data type
-@pytest.mark.parametrize("idt", [DataType["UINT4"], DataType["UINT16"]])
+@pytest.mark.parametrize("idt", [DataType["UINT4"], DataType["UINT16"], DataType["INT8"]])
 # channels
 @pytest.mark.parametrize("ch", [64])
 # folding
 @pytest.mark.parametrize("fold", [-1, 2, 1])
-# image dimension
-@pytest.mark.parametrize("imdim", [7])
+# image dimension: square size or (H, W)
+@pytest.mark.parametrize("imdim", [7, (5, 9)])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 # impl_style
@@ -103,7 +104,8 @@ def test_fpgadataflow_globalaccpool(idt, ch, fold, imdim, exec_mode, impl_style)
     assert ch % pe == 0
 
     # generate input data
-    x = gen_finn_dt_tensor(idt, (1, imdim, imdim, ch))
+    imdim_h, imdim_w = (imdim, imdim) if isinstance(imdim, int) else imdim
+    x = gen_finn_dt_tensor(idt, (1, imdim_h, imdim_w, ch))
 
     # prepare input data and execute
     input_dict = prepare_inputs(x, idt)
@@ -118,7 +120,7 @@ def test_fpgadataflow_globalaccpool(idt, ch, fold, imdim, exec_mode, impl_style)
     # MinimizeAccumulatorWidth - should set output datatype based on accumulation range
     model = model.transform(MinimizeAccumulatorWidth())
     odt = model.get_tensor_datatype("outp")
-    npixels = imdim * imdim
+    npixels = imdim_h * imdim_w
     if idt.signed():
         assert odt.min() <= npixels * idt.min()
     else:
@@ -149,10 +151,4 @@ def test_fpgadataflow_globalaccpool(idt, ch, fold, imdim, exec_mode, impl_style)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)
         exp_cycles = exp_cycles_dict[node.name]
-        # commented out, needs performance debug:
-        # test_fpgadataflow_globalaccpool[rtlsim-7-1-64-DataType["UINT4"]]
-        # assert False where False =
-        # <function isclose at 0x7eff26d5ca60>(50, 103, atol=(0.1 * 103))
-        # assert np.isclose(exp_cycles, cycles_rtlsim, atol=0.1 * cycles_rtlsim)
-        assert exp_cycles != 0
-        assert cycles_rtlsim != 0
+        assert np.isclose(exp_cycles, cycles_rtlsim, atol=0.1 * cycles_rtlsim)

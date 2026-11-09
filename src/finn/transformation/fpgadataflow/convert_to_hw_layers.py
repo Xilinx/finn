@@ -1228,7 +1228,7 @@ class InferGlobalAccPoolLayer(Transformation):
 class InferPool(Transformation):
     """Replace MaxPool / QuantAvgPool2d / MaxPoolNHWC ONNX nodes with a
     consolidated Pool HW custom op that internally fuses pad<> + input_gen<>
-    + Pool_batch<K>().  Transpose nodes are inserted around the Pool node
+    + pool<F>().  Transpose nodes are inserted around the Pool node
     when the original data layout is NCHW."""
 
     def apply(self, model):
@@ -1272,6 +1272,11 @@ class InferPool(Transformation):
                     pad = [0, 0, 0, 0]
 
                 if not idt.is_integer():
+                    continue
+
+                if (kh < sh) or (kw < sw):
+                    # kernel < stride skips input no window reads, which input_gen
+                    # would have to buffer regardless; not supported (yet)
                     continue
 
                 odt = model.get_tensor_datatype(node_output)

@@ -394,10 +394,6 @@
     "depth_trigger_bram": 16384,
     "depth_trigger_uram": 32768
   },
-  "ConvolutionInputGenerator_rtl_14": {
-    "SIMD": 1,
-    "ram_style": "block"
-  },
   "Pool_hls_0": {
     "PE": 1
   },
