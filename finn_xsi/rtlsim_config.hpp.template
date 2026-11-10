@@ -40,4 +40,3 @@ constexpr unsigned  max_iters = @TIMEOUT_CYCLES@;
 
 // filename for trace and debug, if enabled. This needs xelab -debug option too.
 static char const *const trace_filename = @TRACE_FILE@;
-static char const *const xsim_log_filename = @XSIM_LOG_FILE@;
