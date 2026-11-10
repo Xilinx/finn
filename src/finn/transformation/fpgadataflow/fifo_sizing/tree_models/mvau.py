@@ -14,6 +14,7 @@ from finn.transformation.fpgadataflow.fifo_sizing.tree_models.base import (
     TreeModel,
     register,
 )
+from finn.util.input_gen import input_gen_buffer_depth
 
 
 @register("MVAU")
@@ -286,7 +287,8 @@ class MVAURtlModel(MVAUModel):
         # The stall at the group boundary is the largest of three effects
         # (they overlap):
         # * activation replay: input_gen holds the group's SF*TH input words
-        #   in a 2^ceil(log2(SF*TH+2))-word circular buffer and replays them
+        #   in a circular buffer (the stall-free input_gen sizing of its nest
+        #   DIMS {NF, SF, TH}, COEFS {0, 1, SF}) and replays them
         #   NF times with the TH vectors interleaved innermost, so the TH-th
         #   beat already needs word (TH-1)*SF. The words are only freed after
         #   the last replay, so only the buffer's spare slots prefetch the next
@@ -294,7 +296,8 @@ class MVAURtlModel(MVAUModel):
         #   arrives one word per cycle. The power-of-two buffer is why the
         #   stall is not smooth in SF.
         # * output reorder: input_gen holds all NF*TH words of a group in a
-        #   2^ceil(log2((NF-1)*TH+3))-word buffer until the last fold arrives;
+        #   buffer (stall-free sizing of DIMS {TH, NF}, COEFS {1, TH}) until the
+        #   last fold arrives;
         #   then the remaining run drains back to back while the next group
         #   already produces outputs. If those do not fit the spare slots
         #   (plus TH-4 words of slack), the pipeline freezes until the drain is
@@ -302,9 +305,10 @@ class MVAURtlModel(MVAUModel):
         # Exact for power-of-two TH (and the replay part for any TH), within
         # ~10 % of a group otherwise; verified against rtlsim for SF 1..64,
         # NF 1..48, TH 2..16 and bert's foldings.
-        buf_in = 1 << math.ceil(math.log2(fm + 2))
+        # the two input_gen buffers of mvu_vvu_axi.sv, as input_gen.sv sizes them
+        buf_in = input_gen_buffer_depth(fm, [NF, SF, TH], [0, 1, SF])
         in_stall = max(0, (TH - 1) * (SF - 1) + 3 - (buf_in - fm))
-        spare = (1 << math.ceil(math.log2((NF - 1) * TH + 3))) - NF * TH
+        spare = input_gen_buffer_depth(NF * TH, [TH, NF], [1, TH]) - NF * TH
         run = TH * NF - (NF - 1)
         out_stall = 0
         if NF > 1:
