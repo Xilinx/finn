@@ -201,7 +201,7 @@ class MVAU_rtl(MVAU, RTLBackend):
         ]
         if self.get_nodeattr("TH") > 1:
             sourcefiles += [
-                "input_gen.sv",
+                "../input_gen/hdl/input_gen.sv",
                 "weights_buff_tile.sv",
                 "../skid/skid.sv",
             ]
@@ -446,7 +446,7 @@ class MVAU_rtl(MVAU, RTLBackend):
         ]
         if self.get_nodeattr("TH") > 1:
             sourcefiles += [
-                "input_gen.sv",
+                "../input_gen/hdl/input_gen.sv",
                 "weights_buff_tile.sv",
                 "../skid/skid.sv",
             ]
@@ -459,4 +459,5 @@ class MVAU_rtl(MVAU, RTLBackend):
     def get_verilog_paths(self):
         verilog_paths = super().get_verilog_paths()
         verilog_paths.append(os.environ["FINN_ROOT"] + "/finn-rtllib/mvu")
+        verilog_paths.append(os.environ["FINN_ROOT"] + "/finn-rtllib/input_gen/hdl")
         return verilog_paths

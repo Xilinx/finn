@@ -15,6 +15,7 @@ from finn.transformation.fpgadataflow.fifo_sizing.tree_models.base import (
     TreeModel,
     register,
 )
+from finn.util.input_gen import pool_schedule
 
 
 @register("ElementwiseBinaryOperation")
@@ -283,33 +284,31 @@ class LabelSelectHlsModel(TreeModel):
 
 @register("GlobalAccPool_hls")
 class GlobalAccPoolHlsModel(TreeModel):
-    #: cycles per input word. finn-hlslib's ``AccPool_Batch`` asks for
-    #: ``pipeline II=1``, but Vitis HLS reports an II violation (HLS 200-880,
-    #: carried dependence on ``accumulators``) and schedules it at II=2.
-    II = 2
+    #: cycles per input word. finn-hlslib's ``pool_global<>`` declares the
+    #: true distance-CF dependence on its accumulators and pipelines at II=1
+    #: (also for a single channel fold, whose accumulator becomes a register).
+    II = 1
     #: cycles from reading the last pixel of a channel fold to writing the
-    #: fold's result (the synthesized latency of one ``AccPool_Batch`` call)
-    WRITE_LATENCY = 4
+    #: fold's result (the synthesized latency of one ``pool_global`` call)
+    WRITE_LATENCY = 3
 
     def schedule(self, op):
         """Read every pixel, write each channel fold with its last pixel.
 
-        The function-pipelined ``AccPool_Batch`` takes one input word per call,
+        The function-pipelined ``pool_global`` takes one input word per call,
         ``II`` cycles apart, and adds it to the accumulator of its channel fold.
         The call that reads a fold's last pixel also writes that fold's result,
         so a frame of ``N`` input words is a solid run of reads whose last
         ``NumChannels / PE`` also produce the writes, ``WRITE_LATENCY`` cycles
         later. Consecutive frames run back to back.
 
-        ``NumChannels / PE == 1`` is not modelled: there the accumulator
-        dependence is real, and the interval HLS reaches is not known.
-
         Checked against node rtlsim for the configurations of
-        ``test_fpgadataflow_analytical_characterization_globalaccpool``.
+        ``test_fpgadataflow_analytical_characterization_globalaccpool`` and a
+        single channel fold (exact, except one token for ``NumChannels == PE``).
         """
         n_in = int(np.prod(op.get_folded_input_shape()[:-1]))
         n_out = int(np.prod(op.get_folded_output_shape()[:-1]))
-        if n_in < 1 or n_out < 2 or n_out > n_in:
+        if n_in < 1 or n_out < 1 or n_out > n_in:
             return None
         period = self.II * n_in
         rd = np.zeros(period, dtype=np.int8)
@@ -322,89 +321,36 @@ class GlobalAccPoolHlsModel(TreeModel):
 
 @register("Pool_hls")
 class PoolHlsModel(TreeModel):
-    def folding(self, op):
-        """``(NF, SF, reps)``: ``SF = prod(KernelSize)`` folded words per channel
-        tile of a pooling window, ``NF = Channels / PE`` tiles per window, and
-        ``reps`` windows per frame."""
-        PE = op.get_nodeattr("PE")
-        Channels = op.get_nodeattr("Channels")
-        KernelSize = op.get_nodeattr("KernelSize")
-        OutImgDims = op.get_nodeattr("OutImgDims")
-        BatchSize = op.get_nodeattr("BatchSize")
-
-        # Derived parameters
-        NF = Channels // PE  # neuron folding
-        func = op.get_nodeattr("Function")
-        if func == "MaxPool":
-            SF = KernelSize[1] ** 2  # spatial folding per pooling window
-            if KernelSize[0] == 1 or KernelSize[1] == 1:
-                if KernelSize[0] == 1:
-                    SF = KernelSize[1] ** 2
-                else:
-                    SF = KernelSize[0] ** 2
-                SF = np.prod(KernelSize)
-            reps = BatchSize * np.prod(OutImgDims)  # number of pooling windows to process
-        else:
-            SF = np.prod(KernelSize)  # spatial folding per pooling window
-            reps = BatchSize * np.prod(OutImgDims)  # number of pooling windows to process
-        return NF, SF, reps
-
     def schedule(self, op):
-        """The HLS pool reads one folded word every cycle for the whole frame and
-        emits one every SF, with the first write at cycle 1 rather than SF - 1:
-        the writes fall at ``1, 1 + SF, 1 + 2*SF, ...``, i.e. the write for a
-        window lands on the *second* cycle of it, not the last.
+        """The fused ``[pad<>] -> input_gen<> -> pool<F>`` kernel, see
+        ``finn.util.input_gen.pool_schedule``.
 
-        A flat leaf because the nested form (``nested_schedule``) can only place
-        the write at the *end* of its SF-cycle window. Degenerate foldings fall
-        back to that form.
+        The node reads the raw (unpadded) feature map; ``input_gen`` buffers it
+        and replays every window, ``pool<F>`` writes one folded word per window
+        when it consumes the window's last element. A frame thus takes
+        max(input words, window reads) cycles: input-bound for floor remainders
+        (pixels no window reads still stream in), read-bound for overlapping
+        windows. Input acceptance follows the buffer's free pointer, which is
+        exact as ``input_gen`` is sized for stall-free reads.
 
-        The modulo on the write positions matters when ``SF == 1``: the last write
-        of a period then lands at cycle 0 of the next one, and dropping it instead
-        of wrapping it costs one token per period, which the sizer's occupancy sum
-        accumulates over every frame.
+        Checked against node rtlsim (exact tiling, overlap, floor remainders,
+        symmetric/ceil/asymmetric padding, global and 1D pools): exact period
+        and per-period token counts; cumulative error at most 3 input and 1
+        output tokens.
         """
-        NF, SF, reps = self.folding(op)
-        if SF >= 1 and NF >= 1 and reps >= 1:
-            n_in = int(reps) * int(NF) * int(SF)
-            n_out = int(reps) * int(NF)
-            if n_in > 2:
-                rd = np.ones(n_in, dtype=np.int8)
-                wr = np.zeros(n_in, dtype=np.int8)
-                wr[(1 + int(SF) * np.arange(n_out)) % n_in] = 1
-                return flat_characteristic_leaf(rd, wr, "Pool_hls schedule")
-        return self.nested_schedule(op)
-
-    def nested_schedule(self, op):
-        """Read every folded word of a pooling window, write one when it closes.
-
-        This nested form can only put a write at the end of its SF-cycle window.
-        It is the fallback for degenerate foldings (``n_in <= 2``), whose
-        schedules have not been measured.
-        """
-        NF, SF, reps = self.folding(op)
-
-        # One input read per SF iteration
-        read_pooling_input = CharacteristicNode("Read Pool Input", [(1, [1, 0])], True)
-
-        readwrite_pooling_input = CharacteristicNode("Read Write Pool Input", [(1, [1, 1])], True)
-
-        # SF - 1 reads + 1 read that overlaps with write
-        compute_pool_window = CharacteristicNode(
-            "Compute Pool Window",
-            [(SF - 1, read_pooling_input), (1, readwrite_pooling_input)],  # overlap with output
-            False,
+        k_h, k_w = op.get_nodeattr("KernelSize")
+        cf = op.get_nodeattr("Channels") // op.get_nodeattr("PE")
+        batch = op.get_nodeattr("BatchSize")
+        rd, wr = pool_schedule(
+            tuple(op.get_nodeattr("IFMDim")),
+            (k_h, k_w),
+            tuple(op.get_nodeattr("Stride")),
+            cf,
+            tuple(op.get_nodeattr("Padding")),
         )
-
-        # For each NF tile per pooling window
-        compute_all_tiles = CharacteristicNode(
-            "Compute All Tiles", [(NF, compute_pool_window)], False
-        )
-
-        # For each image region (spatial + batch)
-        pool_top = CharacteristicNode("Top Pool Loop", [(reps, compute_all_tiles)], False)
-
-        return pool_top
+        if batch > 1:
+            rd, wr = np.tile(rd, batch), np.tile(wr, batch)
+        return flat_characteristic_leaf(rd, wr, "Pool_hls schedule")
 
 
 @register("FMPadding")

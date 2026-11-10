@@ -16,14 +16,6 @@
     "mem_mode": "internal_decoupled",
     "runtime_writeable_weights": 0
   },
-  "FMPadding_rtl_1": {
-    "SIMD": 4
-  },
-  "ConvolutionInputGenerator_rtl_1": {
-    "SIMD": 4,
-    "parallel_window": 0,
-    "ram_style": "distributed"
-  },
   "Pool_hls_0": {
     "PE": 4
   },
@@ -46,10 +38,10 @@
     "mem_mode": "internal_decoupled",
     "runtime_writeable_weights": 0
   },
-  "FMPadding_rtl_2": {
+  "FMPadding_rtl_1": {
     "SIMD": 4
   },
-  "ConvolutionInputGenerator_rtl_2": {
+  "ConvolutionInputGenerator_rtl_1": {
     "SIMD": 4,
     "parallel_window": 0,
     "ram_style": "distributed"
@@ -102,10 +94,10 @@
     "mem_mode": "internal_decoupled",
     "runtime_writeable_weights": 0
   },
-  "FMPadding_rtl_3": {
+  "FMPadding_rtl_2": {
     "SIMD": 4
   },
-  "ConvolutionInputGenerator_rtl_3": {
+  "ConvolutionInputGenerator_rtl_2": {
     "SIMD": 4,
     "parallel_window": 0,
     "ram_style": "distributed"
@@ -158,10 +150,10 @@
     "mem_mode": "internal_decoupled",
     "runtime_writeable_weights": 0
   },
-  "FMPadding_rtl_4": {
+  "FMPadding_rtl_3": {
     "SIMD": 4
   },
-  "ConvolutionInputGenerator_rtl_4": {
+  "ConvolutionInputGenerator_rtl_3": {
     "SIMD": 4,
     "parallel_window": 0,
     "ram_style": "distributed"
@@ -216,10 +208,10 @@
     "mem_mode": "internal_decoupled",
     "runtime_writeable_weights": 0
   },
-  "FMPadding_rtl_5": {
+  "FMPadding_rtl_4": {
     "SIMD": 4
   },
-  "ConvolutionInputGenerator_rtl_5": {
+  "ConvolutionInputGenerator_rtl_4": {
     "SIMD": 4,
     "parallel_window": 0,
     "ram_style": "distributed"
@@ -272,10 +264,10 @@
     "mem_mode": "internal_decoupled",
     "runtime_writeable_weights": 0
   },
-  "FMPadding_rtl_6": {
+  "FMPadding_rtl_5": {
     "SIMD": 4
   },
-  "ConvolutionInputGenerator_rtl_6": {
+  "ConvolutionInputGenerator_rtl_5": {
     "SIMD": 4,
     "parallel_window": 0,
     "ram_style": "distributed"
@@ -328,10 +320,10 @@
     "mem_mode": "internal_decoupled",
     "runtime_writeable_weights": 0
   },
-  "FMPadding_rtl_7": {
+  "FMPadding_rtl_6": {
     "SIMD": 4
   },
-  "ConvolutionInputGenerator_rtl_7": {
+  "ConvolutionInputGenerator_rtl_6": {
     "SIMD": 4,
     "parallel_window": 0,
     "ram_style": "distributed"
@@ -384,10 +376,10 @@
     "mem_mode": "internal_decoupled",
     "runtime_writeable_weights": 0
   },
-  "FMPadding_rtl_8": {
+  "FMPadding_rtl_7": {
     "SIMD": 4
   },
-  "ConvolutionInputGenerator_rtl_8": {
+  "ConvolutionInputGenerator_rtl_7": {
     "SIMD": 4,
     "parallel_window": 0,
     "ram_style": "distributed"
@@ -442,10 +434,10 @@
     "mem_mode": "internal_decoupled",
     "runtime_writeable_weights": 0
   },
-  "FMPadding_rtl_9": {
+  "FMPadding_rtl_8": {
     "SIMD": 4
   },
-  "ConvolutionInputGenerator_rtl_9": {
+  "ConvolutionInputGenerator_rtl_8": {
     "SIMD": 4,
     "parallel_window": 0,
     "ram_style": "distributed"
@@ -498,10 +490,10 @@
     "mem_mode": "internal_decoupled",
     "runtime_writeable_weights": 0
   },
-  "FMPadding_rtl_10": {
+  "FMPadding_rtl_9": {
     "SIMD": 4
   },
-  "ConvolutionInputGenerator_rtl_10": {
+  "ConvolutionInputGenerator_rtl_9": {
     "SIMD": 4,
     "parallel_window": 0,
     "ram_style": "distributed"
@@ -554,10 +546,10 @@
     "mem_mode": "internal_decoupled",
     "runtime_writeable_weights": 0
   },
-  "FMPadding_rtl_11": {
+  "FMPadding_rtl_10": {
     "SIMD": 4
   },
-  "ConvolutionInputGenerator_rtl_11": {
+  "ConvolutionInputGenerator_rtl_10": {
     "SIMD": 4,
     "parallel_window": 0,
     "ram_style": "distributed"
@@ -610,10 +602,10 @@
     "mem_mode": "internal_decoupled",
     "runtime_writeable_weights": 0
   },
-  "FMPadding_rtl_12": {
+  "FMPadding_rtl_11": {
     "SIMD": 4
   },
-  "ConvolutionInputGenerator_rtl_12": {
+  "ConvolutionInputGenerator_rtl_11": {
     "SIMD": 4,
     "parallel_window": 0,
     "ram_style": "distributed"
@@ -666,10 +658,10 @@
     "mem_mode": "internal_decoupled",
     "runtime_writeable_weights": 0
   },
-  "FMPadding_rtl_13": {
+  "FMPadding_rtl_12": {
     "SIMD": 4
   },
-  "ConvolutionInputGenerator_rtl_13": {
+  "ConvolutionInputGenerator_rtl_12": {
     "SIMD": 4,
     "parallel_window": 0,
     "ram_style": "distributed"
@@ -722,10 +714,10 @@
     "mem_mode": "internal_decoupled",
     "runtime_writeable_weights": 0
   },
-  "FMPadding_rtl_14": {
+  "FMPadding_rtl_13": {
     "SIMD": 4
   },
-  "ConvolutionInputGenerator_rtl_14": {
+  "ConvolutionInputGenerator_rtl_13": {
     "SIMD": 4,
     "parallel_window": 0,
     "ram_style": "distributed"
@@ -784,10 +776,10 @@
     "mem_mode": "internal_decoupled",
     "runtime_writeable_weights": 0
   },
-  "FMPadding_rtl_15": {
+  "FMPadding_rtl_14": {
     "SIMD": 4
   },
-  "ConvolutionInputGenerator_rtl_15": {
+  "ConvolutionInputGenerator_rtl_14": {
     "SIMD": 4,
     "parallel_window": 0,
     "ram_style": "distributed"
@@ -840,10 +832,10 @@
     "mem_mode": "internal_decoupled",
     "runtime_writeable_weights": 0
   },
-  "FMPadding_rtl_16": {
+  "FMPadding_rtl_15": {
     "SIMD": 4
   },
-  "ConvolutionInputGenerator_rtl_16": {
+  "ConvolutionInputGenerator_rtl_15": {
     "SIMD": 4,
     "parallel_window": 0,
     "ram_style": "distributed"
@@ -896,10 +888,10 @@
     "mem_mode": "internal_decoupled",
     "runtime_writeable_weights": 0
   },
-  "FMPadding_rtl_17": {
+  "FMPadding_rtl_16": {
     "SIMD": 4
   },
-  "ConvolutionInputGenerator_rtl_17": {
+  "ConvolutionInputGenerator_rtl_16": {
     "SIMD": 4,
     "parallel_window": 0,
     "ram_style": "distributed"
@@ -933,22 +925,17 @@
     "PE": 2,
     "ram_style": "distributed"
   },
+  "ConvolutionInputGenerator_rtl_17": {
+    "SIMD": 4,
+    "parallel_window": 0,
+    "ram_style": "distributed"
+  },
   "ConvolutionInputGenerator_rtl_18": {
     "SIMD": 4,
     "parallel_window": 0,
     "ram_style": "distributed"
   },
   "ConvolutionInputGenerator_rtl_19": {
-    "SIMD": 4,
-    "parallel_window": 0,
-    "ram_style": "distributed"
-  },
-  "ConvolutionInputGenerator_rtl_20": {
-    "SIMD": 4,
-    "parallel_window": 0,
-    "ram_style": "distributed"
-  },
-  "ConvolutionInputGenerator_rtl_21": {
     "SIMD": 4,
     "parallel_window": 0,
     "ram_style": "distributed"

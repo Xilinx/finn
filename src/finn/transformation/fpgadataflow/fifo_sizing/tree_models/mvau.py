@@ -373,8 +373,8 @@ class VVAUModel(TreeModel):
         The depthwise VVAU accumulates ``SF`` folded words per output and
         produces ``NF`` outputs per pixel, over ``numReps`` pixels: a solid read
         run of ``numReps * NF * SF`` cycles with a write on every ``SF``-th --
-        the same accumulate-and-flush shape as ``Pool``, and unlike ``MVAU``
-        there is no per-feature-map read burst to place.
+        an accumulate-and-flush shape over pre-windowed input, and unlike
+        ``MVAU`` there is no per-feature-map read burst to place.
 
         This nested tree has no wind-up. It is the RTL variant's schedule, which
         has not been measured, and the HLS variant's fallback for small foldings.
