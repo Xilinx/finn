@@ -12,7 +12,6 @@ import warnings
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
-from finn.util.basic import get_vivado_version
 from finn.util.input_gen import input_gen_buffer_depth
 
 
@@ -183,45 +182,22 @@ class OuterShuffle(HWCustomOp):
     def get_input_gen_ii(self):
         """Pipeline II the HLS kernel achieves for its reorder buffer.
 
-        input_gen() carries a dependence from the buffer read into its output
-        register, so the buffer's read latency bounds the II. Measured with
-        csynth (xcvc1902, 10 ns, 16-bit words):
-          - depth <= 262144 words: II=1 for any storage (auto/BRAM, and URAM
-            bound via ram_style="ultra", checked at 64K, 128K and 256K);
-          - deeper: HLS builds a latency-pipelined XPM cascade (automatically
-            in URAM; ram_style="ultra" behaves the same) and the II drops:
-            2024.2: 3 at 512K; 2025.1, 2025.2 and 2026.1: 5 at 512K, and 9 at 1M
-            on 2026.1, i.e. 1 + depth/131072. Earlier versions reach II=1.
+        Always 1: buffers up to 262144 words read with latency 1, and deeper
+        ones, which HLS maps to a latency-pipelined memory cascade (URAM), are
+        read ahead into a small queue by input_gen() (finn-hlslib 5f0aec0+), so
+        the cascade latency no longer enters the loop recurrence. Before that,
+        deep buffers dropped to II=3 (Vivado 2024.2) or 1 + depth/131072
+        (2025.1+). Explicit storage (ram_style) does not change the II either.
         """
-        depth = self.get_buffer_depth()
-        if depth <= 262144:
-            return 1
-        warnings.warn(
-            "%s: the input_gen reorder buffer needs %d words; beyond 262144 words "
-            "HLS maps it to a latency-pipelined memory cascade and the pipeline II "
-            "drops well below one word per cycle. Consider reshaping or splitting "
-            "this shuffle." % (self.onnx_node.name, depth)
-        )
-        vivado_version = get_vivado_version()
-        if vivado_version is None:
-            warnings.warn(
-                "%s: XILINX_VIVADO is not set; OuterShuffle cycle estimates are "
-                "Vivado-version dependent, assuming the newest behaviour." % self.onnx_node.name
-            )
-            vivado_version = (9999, 9)
-        if vivado_version < (2024, 2):
-            return 1
-        if vivado_version < (2025, 1):
-            return 3
-        return 1 + depth // 131072
+        return 1
 
     def get_exp_cycles(self):
         """Estimate cycles by simulating the input_gen HLS pipeline.
 
         Derives the loop nest from transpose_in_shape, perm and SIMD
         (get_input_gen_nest), the buffer depth from the stall-free sizing of
-        finn-hlslib input_gen() (get_buffer_depth) and the pipeline II from the
-        buffer storage (get_input_gen_ii).
+        finn-hlslib input_gen() (get_buffer_depth) and its pipeline II
+        (get_input_gen_ii).
 
         The HLS pipeline has three stall sources:
         1. WP_DELAY (=4): write-pointer pipeline latency before reads begin

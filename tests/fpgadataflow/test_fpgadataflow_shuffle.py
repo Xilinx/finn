@@ -828,9 +828,9 @@ def test_shuffle_config_consolidation(fold_with):
 def test_outer_shuffle_exp_cycles_without_vivado(monkeypatch):
     """get_exp_cycles must work for estimate-only builds with no Vivado configured.
 
-    Only buffers deeper than 262144 words depend on the Vivado version (their
-    memory cascade lowers the II): shallow ones estimate the same without Vivado
-    and without a warning, deep ones assume the newest behaviour and warn.
+    The estimate does not depend on the Vivado version: input_gen reads even
+    buffers deeper than 262144 words (memory cascades) at II=1. So it is the same
+    without Vivado, and needs no warning.
     """
     dt = DataType["INT8"]
 
@@ -868,16 +868,13 @@ def test_outer_shuffle_exp_cycles_without_vivado(monkeypatch):
         assert cycles > 0
         assert cycles == expected
 
-    # A 524288-word buffer: only the II depends on the version (no cycle simulation)
+    # A 524288-word buffer, read ahead by input_gen: II=1 (no cycle simulation)
     deep = outer_shuffles((1, 512, 768), (1, 512, 24, 32))[0]
     deep.set_nodeattr("SIMD", 2)
     assert deep.get_buffer_depth() == 524288
-    with pytest.warns(UserWarning, match="assuming the newest behaviour"):
-        assert deep.get_input_gen_ii() == 5
-    for version, ii in (("2023.2", 1), ("2024.2", 3), ("2025.2", 5), ("2026.1", 5)):
-        monkeypatch.setenv("XILINX_VIVADO", f"/tools/Xilinx/Vivado/{version}")
-        with pytest.warns(UserWarning, match="beyond 262144 words"):
-            assert deep.get_input_gen_ii() == ii
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert deep.get_input_gen_ii() == 1
 
 
 @pytest.mark.fpgadataflow
