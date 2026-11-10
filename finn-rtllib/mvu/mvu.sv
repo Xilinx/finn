@@ -561,7 +561,7 @@ module mvu #(
 					.ACASCREG(1),		// A-cascade tap after A1REG
 					.ADREG(1),			// Pre-adder output register (stage 2)
 					.ALUMODEREG(0),		// Number of pipeline stages for ALUMODE (0 or 1)
-					.AREG(2),			// A1REG (stage 1) + A2REG (stage 2)
+					.AREG(1),			// A1REG only (stage 1): INMODE[0]=1 selects A1, A2 is never used
 					.BCASCREG(1),		// B-cascade tap after B1REG
 					.BREG(2),			// B1REG (stage 1) + B2REG (stage 2)
 					.CARRYINREG(0),		// Number of pipeline stages for CARRYIN (0 or 1)
@@ -618,7 +618,7 @@ module mvu #(
 
 					// Reset/Clock Enable: 1-bit (each) input: Reset/Clock Enable Inputs
 					.CEA1(en),			// Stage 1: A1REG
-					.CEA2(en),			// Stage 2: A2REG (unused by pre-adder, INMODE[0]=1 selects A1)
+					.CEA2('0),			// A2REG unused (INMODE[0]=1 selects A1)
 					.CEAD(en),			// Stage 2: ADREG
 					.CEALUMODE('0),
 					.CEB1(en),			// Stage 1: B1REG
@@ -684,7 +684,7 @@ module mvu #(
 					.ACASCREG(1),		// A-cascade tap after A1REG
 					.ADREG(1),			// Pre-adder output register (stage 2)
 					.ALUMODEREG(0),
-					.AREG(2),			// A1REG (stage 1) + A2REG (stage 2)
+					.AREG(1),			// A1REG only (stage 1): INMODE[0]=1 selects A1, A2 is never used
 					.BCASCREG(1),		// B-cascade tap after B1REG
 					.BREG(2),			// B1REG (stage 1) + B2REG (stage 2)
 					.CARRYINREG(0),
@@ -742,7 +742,7 @@ module mvu #(
 
 					// Reset/Clock Enable inputs
 					.CEA1(en),			// Stage 1: A1REG
-					.CEA2(en),			// Stage 2: A2REG
+					.CEA2('0),			// A2REG unused (INMODE[0]=1 selects A1)
 					.CEAD(en),			// Stage 2: ADREG
 					.CEALUMODE('0),
 					.CEB1(en),			// Stage 1: B1REG
@@ -810,7 +810,7 @@ module mvu #(
 					.ACASCREG(1),		// A-cascade tap after A1REG
 					.ADREG(1),			// Pre-adder output register (stage 2)
 					.ALUMODEREG(0),
-					.AREG(2),			// A1REG (stage 1) + A2REG (stage 2)
+					.AREG(1),			// A1REG only (stage 1): INMODE[0]=1 selects A1, A2 is never used
 					.BCASCREG(1),		// B-cascade tap after B1REG
 					.BREG(2),			// B1REG (stage 1) + B2REG (stage 2)
 					.CARRYINREG(0),
@@ -871,7 +871,7 @@ module mvu #(
 					// Reset/Clock Enable inputs
 					.ASYNC_RST('0),
 					.CEA1(en),			// Stage 1: A1REG
-					.CEA2(en),			// Stage 2: A2REG
+					.CEA2('0),			// A2REG unused (a clock enable here is a DRC error, REQPXA-226)
 					.CEAD(en),			// Stage 2: ADREG
 					.CEALUMODE('0),
 					.CEB1(en),			// Stage 1: B1REG
