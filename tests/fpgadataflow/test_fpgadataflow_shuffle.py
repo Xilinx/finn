@@ -661,6 +661,75 @@ def test_rtlsim_outer_shuffle_ram_style(ram_style, monkeypatch):
         assert np.isclose(exp_cycles_dict[node.name], cycles_rtlsim, atol=10)
 
 
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_rtlsim_outer_shuffle_deep_buffer(monkeypatch):
+    """rtlsim of an OuterShuffle whose reorder buffer HLS maps to a URAM cascade.
+
+    A (1, 512, 24, 32) transpose at SIMD=2 needs 524288 words, beyond the
+    262144 at which HLS builds a latency-pipelined memory cascade by itself.
+    input_gen reads such buffers ahead (finn-hlslib 5f0aec0), so the node must
+    still run at II=1 -- formerly it dropped to II=5.
+    """
+    monkeypatch.setenv("LIVENESS_THRESHOLD", "10000000")
+    dt = DataType["INT8"]
+    in_shape = (1, 512, 768)
+    model = construct_onnx_model(
+        input_shape=in_shape,
+        transpose_perm=(0, 2, 1, 3),
+        reshape1_shape=(1, 512, 24, 32),
+        reshape2_shape=None,
+        dt=dt,
+    )
+    input_t = {model.get_first_global_in(): gen_finn_dt_tensor(dt, in_shape)}
+    out_name = model.get_first_global_out()
+    y_ref = oxe.execute_onnx(model, input_t)[out_name]
+
+    model = model.transform(InferShuffle(_filter=lambda *_: True))
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(SetShuffleSIMD(2))
+    model = model.transform(ShuffleDecomposition())
+    model = model.transform(InferInnerOuterShuffles())
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
+
+    outer = [n for n in model.graph.node if n.op_type == "OuterShuffle_hls"]
+    assert len(outer) == 1, "expected exactly one OuterShuffle_hls node"
+    outer_name = outer[0].name
+    op = getCustomOp(outer[0])
+    assert op.get_nodeattr("ram_style") == "auto"
+    assert op.get_buffer_depth() == 524288
+
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareIP(test_fpga_part, test_synth_clk_period_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+
+    # HLS put the buffer into URAM by itself
+    op = getCustomOp(model.get_node_from_name(outer_name))
+    report_dir = os.path.join(
+        op.get_nodeattr("code_gen_dir_ipgen"), f"project_{outer_name}/sol1/syn/report"
+    )
+    rows = []
+    for rpt in os.listdir(report_dir):
+        with open(os.path.join(report_dir, rpt)) as f:
+            rows += [line.split("|") for line in f if line.strip().startswith("|buf_r_U")]
+    assert len(rows) > 0, "no buffer memory found in the HLS reports"
+    assert int(rows[0][6]) > 0, "expected the deep buffer in URAM"
+
+    y_hw = oxe.execute_onnx(model, input_t)[out_name]
+    assert np.allclose(y_ref, y_hw), "Model output does not match expected output"
+
+    exp_cycles_dict = model.analysis(exp_cycles_per_layer)
+    for node in model.graph.node:
+        cycles_rtlsim = getCustomOp(node).get_nodeattr("cycles_rtlsim")
+        assert np.isclose(
+            exp_cycles_dict[node.name], cycles_rtlsim, atol=10
+        ), f"{node.name}: expected {exp_cycles_dict[node.name]}, rtlsim {cycles_rtlsim}"
+
+
 @pytest.mark.parametrize(
     "shuffle_sip_param",
     [
