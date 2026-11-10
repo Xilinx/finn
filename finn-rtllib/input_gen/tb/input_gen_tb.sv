@@ -26,7 +26,8 @@ module input_gen_tb #(
 	int unsigned  SH = 2,
 	int unsigned  SW = 3,
 	int unsigned  FRAMES = 3,
-	int unsigned  SEED = 1
+	int unsigned  SEED = 1,
+	int unsigned  READ_AHEAD_DEPTH = 262144	// 0: force the read-ahead path
 );
 
 	localparam int unsigned  OH = (H-KH)/SH + 1;
@@ -57,7 +58,8 @@ module input_gen_tb #(
 	input_gen #(
 		.DATA_WIDTH(DATA_WIDTH),
 		.FM_SIZE(FM_SIZE),
-		.D(D), .DIMS(DIMS), .COEFS(COEFS)
+		.D(D), .DIMS(DIMS), .COEFS(COEFS),
+		.READ_AHEAD_DEPTH(READ_AHEAD_DEPTH)
 	) dut (
 		.clk, .rst,
 		.idat, .ivld, .irdy,

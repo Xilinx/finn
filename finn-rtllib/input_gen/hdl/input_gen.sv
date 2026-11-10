@@ -35,7 +35,11 @@ module input_gen #(
 	int unsigned  D,
 	int unsigned  DIMS[D],
 	int unsigned  COEFS[D],
-	parameter  RAM_STYLE = "auto"	// buffer implementation hint (Vivado RAM_STYLE)
+	parameter  RAM_STYLE = "auto",	// buffer implementation hint (Vivado RAM_STYLE)
+	// Buffers deeper than this are read through a latency pipeline with a
+	// read-ahead queue (see Output Stage). Matches the HLS input_gen<>;
+	// override (e.g. 0) only to exercise the read-ahead path in tests.
+	int unsigned  READ_AHEAD_DEPTH = 262144
 )(
 	input	logic  clk,
 	input	logic  rst,
@@ -308,10 +312,14 @@ module input_gen #(
 	assign	irdy = Cap[$left(Cap)];
 
 	// Buffer memory — one write port, one registered read port.
-	// Speculative pre-fetch: on advance, read from the next Rp so that
-	// BufRd is ready without a settling cycle.
+	//	- Direct path: speculative pre-fetch, i.e. on advance, read from the
+	//	  next Rp so that BufRd is ready without a settling cycle.
+	//	- Read-ahead path: read from Rp as the read is issued (on advance);
+	//	  the result is delayed by RD_LAT register stages, which Vivado can
+	//	  absorb into a deep (URAM) memory cascade.
+	localparam bit  READ_AHEAD = BUF_SIZE > READ_AHEAD_DEPTH;
 	logic [DATA_WIDTH-1:0]  BufRd;
-	uwire ptr_t  rd_ptr = Rp + (advance? ptr_t'(rp_inc) : ptr_t'(0));
+	uwire ptr_t  rd_ptr = READ_AHEAD? Rp : Rp + (advance? ptr_t'(rp_inc) : ptr_t'(0));
 	always_ff @(posedge clk) begin
 		if(irdy)  Buf[Wp[ADDR_BITS-1:0]] <= idat;
 		BufRd <= Buf[rd_ptr[ADDR_BITS-1:0]];
@@ -369,22 +377,106 @@ module input_gen #(
 	logic [DATA_WIDTH-1:0]  OBuf = 'x;
 	logic [D-1:0]  OLst  = 'x;
 	logic [D-1:0]  ODone = 'x;
-	always_ff @(posedge clk) begin
-		if(rst) begin
-			OVld  <= 0;
-			OBuf  <= 'x;
-			OLst  <= 'x;
-			ODone <= 'x;
-		end
-		else if(!OVld || ordy) begin
-			OVld  <= has_data;
-			OBuf  <= BufRd;
-			OLst  <= term[D-1:0];
-			ODone <= done[D-1:0];
-		end
-	end
 
-	assign	advance = has_data && (!OVld || ordy);
+	if(!READ_AHEAD) begin : genDirect
+		// The output register loads the pre-fetched buffer word directly.
+		always_ff @(posedge clk) begin
+			if(rst) begin
+				OVld  <= 0;
+				OBuf  <= 'x;
+				OLst  <= 'x;
+				ODone <= 'x;
+			end
+			else if(!OVld || ordy) begin
+				OVld  <= has_data;
+				OBuf  <= BufRd;
+				OLst  <= term[D-1:0];
+				ODone <= done[D-1:0];
+			end
+		end
+
+		assign	advance = has_data && (!OVld || ordy);
+	end : genDirect
+	else begin : genReadAhead
+		// Deep buffers become memory cascades whose read latency grows with
+		// depth. As in the HLS input_gen<>, reads are issued ahead of the output
+		// into a small queue; credits bound the reads in flight plus those
+		// queued, so that the queue never overruns. RD_LAT follows the latency
+		// Vitis HLS picks for such cascades: 5 at 512K, 9 at 1M words.
+		localparam int unsigned  RD_LAT   = 1 + BUF_SIZE/131072 > 3? 1 + BUF_SIZE/131072 : 3;
+		localparam int unsigned  RA_DEPTH = 1 << $clog2(RD_LAT + 4 > 16? RD_LAT + 4 : 16);
+		localparam int unsigned  QA_BITS  = $clog2(RA_DEPTH);
+
+		// Read pipeline: BufRd is stage 1, flags travel alongside.
+		logic [DATA_WIDTH-1:0]  RdDat[2:RD_LAT];
+		logic          RdVld[1:RD_LAT];
+		logic [D-1:0]  RdLst[1:RD_LAT];
+		logic [D-1:0]  RdDone[1:RD_LAT];
+		always_ff @(posedge clk) begin
+			if(rst) begin
+				for(int unsigned  i = 1; i <= RD_LAT; i++)  RdVld[i] <= 0;
+			end
+			else begin
+				RdVld[1] <= advance;
+				for(int unsigned  i = 2; i <= RD_LAT; i++)  RdVld[i] <= RdVld[i-1];
+			end
+			RdLst [1] <= term[D-1:0];
+			RdDone[1] <= done[D-1:0];
+			RdDat [2] <= BufRd;
+			for(int unsigned  i = 2; i <= RD_LAT; i++) begin
+				if(i > 2)  RdDat[i] <= RdDat[i-1];
+				RdLst [i] <= RdLst [i-1];
+				RdDone[i] <= RdDone[i-1];
+			end
+		end
+
+		// Read-ahead queue
+		logic [DATA_WIDTH-1:0]  QDat [RA_DEPTH];
+		logic [D-1:0]           QLst [RA_DEPTH];
+		logic [D-1:0]           QDone[RA_DEPTH];
+		logic [QA_BITS:0]  QWr = 0;
+		logic [QA_BITS:0]  QRd = 0;
+		logic [$clog2(RA_DEPTH+1)-1:0]  Credits = RA_DEPTH;
+		uwire  qvld = QWr != QRd;
+		uwire  pop  = qvld && (!OVld || ordy);
+		always_ff @(posedge clk) begin
+			if(RdVld[RD_LAT]) begin
+				QDat [QWr[QA_BITS-1:0]] <= RdDat [RD_LAT];
+				QLst [QWr[QA_BITS-1:0]] <= RdLst [RD_LAT];
+				QDone[QWr[QA_BITS-1:0]] <= RdDone[RD_LAT];
+			end
+		end
+		always_ff @(posedge clk) begin
+			if(rst) begin
+				QWr <= 0;
+				QRd <= 0;
+				Credits <= RA_DEPTH;
+				OVld  <= 0;
+				OBuf  <= 'x;
+				OLst  <= 'x;
+				ODone <= 'x;
+			end
+			else begin
+				QWr <= QWr + RdVld[RD_LAT];
+				QRd <= QRd + pop;
+				Credits <= Credits + pop - advance;
+				if(!OVld || ordy) begin
+					OVld  <= qvld;
+					OBuf  <= QDat [QRd[QA_BITS-1:0]];
+					OLst  <= QLst [QRd[QA_BITS-1:0]];
+					ODone <= QDone[QRd[QA_BITS-1:0]];
+				end
+			end
+		end
+
+		assign	advance = has_data && (Credits != 0);
+
+		// synthesis translate_off
+		always_ff @(posedge clk) begin
+			if(!rst)  assert((QA_BITS+1)'(QWr - QRd) <= RA_DEPTH) else $error("%m: read-ahead queue overrun.");
+		end
+		// synthesis translate_on
+	end : genReadAhead
 
 	assign	odat  = OBuf;
 	assign	ovld  = OVld;
