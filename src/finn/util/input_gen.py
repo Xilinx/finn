@@ -92,9 +92,7 @@ def input_gen_buffer_depth(fm_size, dims, coefs):
     return 1 << (required_depth - 1).bit_length()
 
 
-def pool_schedule(
-    ifm_dim, kernel, stride, cf, padding=(0, 0, 0, 0), frames=5, end_latency=7
-):
+def pool_schedule(ifm_dim, kernel, stride, cf, padding=(0, 0, 0, 0), frames=5, end_latency=7):
     """Steady-state token schedule of the fused HLS pooling kernel
     ``[pad<>] -> input_gen<> -> pool<F>`` (``Pool_hls``) with input always valid
     and output always ready.
