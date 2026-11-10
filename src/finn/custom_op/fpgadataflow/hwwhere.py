@@ -7,6 +7,7 @@ import warnings
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.input_gen import input_gen_buffer_depth
 
 
 class HWWhere(HWCustomOp):
@@ -330,80 +331,3 @@ class HWWhere(HWCustomOp):
 
     def get_op_and_param_counts(self):
         return {"op_where": int(np.prod(self.get_normal_output_shape()))}
-
-
-def input_gen_buffer_depth(fm_size, dims, coefs):
-    """Buffer depth finn-rtllib/input_gen/hdl/input_gen.sv derives at
-    elaboration for the loop nest (dims, coefs) over a feature map of fm_size
-    elements. Mirrors the
-    SystemVerilog functions R_FLAG, TERMINAL_RP_INC, TERMINAL_FP_INC,
-    INIT_MAX_OCCUPANCY and INIT_THROUGHPUT_OCC; keep the two in sync."""
-    d = len(dims)
-    w = [fm_size] + list(coefs)
-
-    # free-pointer responsibility flags (R_FLAG)
-    fw_if_r = [0] * (d + 1)
-    for i in range(d - 1, -1, -1):
-        fw = (dims[i] - 1) * coefs[i] + fw_if_r[i + 1]
-        fw_if_r[i] = fw if coefs[i] > 0 and fw <= w[i] else 0
-    r_flag = [True]
-    for i in range(d):
-        r_flag.append(
-            r_flag[-1] and coefs[i] > 0 and (dims[i] - 1) * coefs[i] + fw_if_r[i + 1] <= w[i]
-        )
-
-    # terminal read/free pointer increments (free pointer stored negated)
-    rp_inc = [0] * (d + 1)
-    fp_inc = [0] * (d + 1)
-    rw = fw = 0
-    for i in range(d, -1, -1):
-        if i < d:
-            rw = (dims[i] - 1) * coefs[i] + rw
-            fw = (dims[i] - 1) * coefs[i] + fw if r_flag[i + 1] else 0
-        rp_inc[i] = w[i] - rw
-        fp_inc[i] = fw - w[i] if r_flag[i] else 0
-
-    # functional bound: max backward retraction and read-free pointer gap
-    max_occupancy = max([0] + [-rp_inc[i] for i in range(d)])
-    rw = fw = 0
-    for i in range(d - 1, -1, -1):
-        rw = (dims[i] - 1) * coefs[i] + rw
-        fw = (dims[i] - 1) * coefs[i] + fw if r_flag[i + 1] else 0
-        max_occupancy = max(max_occupancy, rw - fw)
-
-    # throughput-preserving occupancy (INIT_THROUGHPUT_OCC)
-    neg = -(1 << 60)
-
-    def compose(b, n, j):
-        tot, pre, suf, best = b
-        if n > 1:
-            step = max(0, (n - 1) * (tot + j))
-            return (
-                n * tot + (n - 1) * j,
-                pre + step,
-                suf + step,
-                max(best, suf + j + pre + max(0, (n - 2) * (tot + j))),
-            )
-        return b
-
-    q = max(i for i in range(d + 1) if r_flag[i])
-    pq, delta, gapq = 1, 0, 0
-    for i in range(d - 1, q - 1, -1):
-        delta += (dims[i] - 1) * max(0, coefs[i] - pq)
-        gapq += (dims[i] - 1) * coefs[i]
-        pq *= dims[i]
-    u = delta + pq - 1
-    bp = bn = (0, 0, 0, neg)
-    for i in range(q - 1, -1, -1):
-        j = -fp_inc[i + 1] - pq
-        bp = compose(bp, dims[i], j)
-        bn = compose(bn, dims[i], -j)
-    jf = -fp_inc[0] - pq
-    if bp[0] + jf <= 0:
-        occ = max(gapq, u + max(bp[3], bp[2] + jf + bp[1]))
-    else:
-        occ = u + max(0, max(bn[3], bn[2] - jf + bn[1]))
-
-    # WP_DELAY = 1: functional floor max_occupancy + 3; stall-free occ + 4
-    required_depth = max(occ + 4, max_occupancy + 3)
-    return 1 << (required_depth - 1).bit_length()

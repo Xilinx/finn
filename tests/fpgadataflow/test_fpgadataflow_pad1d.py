@@ -26,6 +26,7 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.test import tree_model_test
 from finn.util.vivado import parse_ooc_synth_results
 
 FPGA_PART = "xc7z020clg400-1"
@@ -228,3 +229,96 @@ def test_pad1d_stitched_ip_synth_ooc():
     assert ret["BRAM_18K"] == 0
     assert ret["BRAM_36K"] == 0
     assert ret["WNS"] >= 0
+
+
+def make_pad1d_hw_modelwrapper(num_tokens, num_channels, simd, pad_left, pad_right, finn_dtype):
+    """A single Pad1D node with constant pad tokens, for schedule characterization."""
+    ishape = [1, num_tokens, num_channels]
+    oshape = [1, num_tokens + pad_left + pad_right, num_channels]
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, ishape)
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, oshape)
+
+    initializers = []
+    node_inputs = ["inp"]
+    if pad_left > 0:
+        left = np.ones((1, pad_left, num_channels), dtype=np.float32)
+        initializers.append(numpy_helper.from_array(left, name="left_pad"))
+        node_inputs.append("left_pad")
+    else:
+        node_inputs.append("")
+    if pad_right > 0:
+        right = np.full((1, pad_right, num_channels), 2, dtype=np.float32)
+        initializers.append(numpy_helper.from_array(right, name="right_pad"))
+        node_inputs.append("right_pad")
+
+    node = helper.make_node(
+        "Pad1D",
+        node_inputs,
+        ["outp"],
+        domain="finn.custom_op.fpgadataflow",
+        backend="fpgadataflow",
+        NumTokens=num_tokens,
+        NumChannels=num_channels,
+        PadLeft=pad_left,
+        PadRight=pad_right,
+        SIMD=simd,
+        inputDataType=finn_dtype.name,
+        outputDataType=finn_dtype.name,
+    )
+    graph = helper.make_graph([node], "pad1d_hw", [inp], [outp], initializer=initializers)
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="pad1d-hw-model"))
+    model.set_tensor_datatype("inp", finn_dtype)
+    model.set_tensor_datatype("outp", finn_dtype)
+    for init in initializers:
+        model.set_tensor_datatype(init.name, finn_dtype)
+    return model
+
+
+# NumTokens, NumChannels, SIMD, PadLeft, PadRight
+@pytest.mark.parametrize(
+    "config",
+    [
+        (3, 4, 1, 2, 3),
+        (8, 8, 2, 1, 0),
+        (5, 16, 16, 3, 2),
+        (12, 6, 3, 0, 4),
+        (6, 4, 4, 0, 0),
+        # a frame of several thousand folded words, so that the fixed part of the
+        # error is visibly fixed rather than hidden by a short frame
+        (256, 16, 1, 2, 2),
+    ],
+)
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_pad1d(config):
+    num_tokens, num_channels, simd, pad_left, pad_right = config
+    part = "xczu7ev-ffvc1156-2-e"
+    target_clk_ns = 5.0
+    model = make_pad1d_hw_modelwrapper(
+        num_tokens, num_channels, simd, pad_left, pad_right, DataType["INT8"]
+    )
+
+    # The schedule is exact: same period, same token counts, same phase. What is
+    # left is the output register between reading a word and writing it, worth at
+    # most one token of cumulative divergence. That is a fixed cost, not a
+    # proportional one -- the last config's frame is two orders of magnitude
+    # longer than the first's and diverges by no more -- so the budget is a
+    # single-digit floor with a fraction that only matters if the error ever
+    # starts scaling.
+    max_allowed_volume_frac = 0.005
+    volume_const = 2
+    max_allowed_length_frac = 0.005
+    length_const = 2
+
+    assert tree_model_test(
+        model,
+        ("Pad1D", config),
+        part,
+        target_clk_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    ), "characterized TAV does not match RTLsim'd one!"

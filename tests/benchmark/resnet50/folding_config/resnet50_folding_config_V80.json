@@ -784,11 +784,6 @@
     "parallel_window": 0,
     "ram_style": "distributed"
   },
-  "ConvolutionInputGenerator_rtl_17": {
-    "SIMD": 4,
-    "parallel_window": 0,
-    "ram_style": "distributed"
-  },
   "MVAU_hls_45": {
     "PE": 2,
     "SIMD": 64,
@@ -841,11 +836,6 @@
     "SIMD": 4
   },
   "ConvolutionInputGenerator_rtl_15": {
-    "SIMD": 4,
-    "parallel_window": 0,
-    "ram_style": "distributed"
-  },
-  "ConvolutionInputGenerator_rtl_18": {
     "SIMD": 4,
     "parallel_window": 0,
     "ram_style": "distributed"
@@ -906,11 +896,6 @@
     "parallel_window": 0,
     "ram_style": "distributed"
   },
-  "ConvolutionInputGenerator_rtl_19": {
-    "SIMD": 4,
-    "parallel_window": 0,
-    "ram_style": "distributed"
-  },
   "MVAU_hls_51": {
     "PE": 2,
     "SIMD": 64,
@@ -938,6 +923,21 @@
   },
   "ElementwiseAdd_hls_16": {
     "PE": 2,
+    "ram_style": "distributed"
+  },
+  "ConvolutionInputGenerator_rtl_17": {
+    "SIMD": 4,
+    "parallel_window": 0,
+    "ram_style": "distributed"
+  },
+  "ConvolutionInputGenerator_rtl_18": {
+    "SIMD": 4,
+    "parallel_window": 0,
+    "ram_style": "distributed"
+  },
+  "ConvolutionInputGenerator_rtl_19": {
+    "SIMD": 4,
+    "parallel_window": 0,
     "ram_style": "distributed"
   },
   "Pool_hls_1": {

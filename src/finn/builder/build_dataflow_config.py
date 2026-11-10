@@ -29,6 +29,7 @@
 
 import numpy as np
 import os
+import warnings
 from dataclasses import dataclass, field
 from dataclasses_json import dataclass_json
 from enum import Enum
@@ -47,10 +48,37 @@ from finn.util.basic import (
 
 
 class AutoFIFOSizingMethod(str, Enum):
-    "Select the type of automatic FIFO sizing strategy."
+    """Select the type of automatic FIFO sizing strategy.
 
-    CHARACTERIZE = "characterize"
+    The two heuristic strategies differ only in where each node's token access
+    vector comes from. ``heuristic_analytical`` builds it from the node's tree
+    model, which needs no IP generation and no simulator; ``heuristic_rtlsim``
+    measures it per node with rtlsim, which is far slower but covers operators
+    that have no tree model. Both then size the FIFOs with the chained-TAV pass
+    (``DeriveFIFOSizes``).
+
+    ``"characterize"``, the name of the rtlsim-based strategy these replaced, is
+    still accepted as a deprecated alias of ``heuristic_rtlsim``.
+    """
+
+    #: token access vectors from the operators' tree models
+    HEURISTIC_ANALYTICAL = "heuristic_analytical"
+    #: token access vectors measured per node with rtlsim
+    HEURISTIC_RTLSIM = "heuristic_rtlsim"
+    #: set every FIFO large, rtlsim the whole graph, then trim to the high-water mark
     LARGEFIFO_RTLSIM = "largefifo_rtlsim"
+
+    @classmethod
+    def _missing_(cls, value):
+        if value == "characterize":
+            warnings.warn(
+                "auto_fifo_strategy 'characterize' has been replaced by 'heuristic_rtlsim' "
+                "and will be removed in a future release; use 'heuristic_rtlsim' "
+                "(or 'heuristic_analytical') instead.",
+                DeprecationWarning,
+            )
+            return cls.HEURISTIC_RTLSIM
+        return None
 
 
 class ShellFlowType(str, Enum):
@@ -286,7 +314,9 @@ class DataflowBuildConfig:
     auto_fifo_depths: Optional[bool] = True
 
     #: When `auto_fifo_depths = True`, select which method will be used for
-    #: setting the FIFO sizes.
+    #: setting the FIFO sizes. See :class:`AutoFIFOSizingMethod`; the two
+    #: heuristic strategies differ only in whether each node's token access
+    #: vector comes from its tree model or from rtlsim.
     auto_fifo_strategy: Optional[AutoFIFOSizingMethod] = AutoFIFOSizingMethod.LARGEFIFO_RTLSIM
 
     #: Enable input throttling for simulation-based FIFO sizing
@@ -298,9 +328,10 @@ class DataflowBuildConfig:
     fifosim_n_inferences: Optional[int] = 2
 
     #: Enable saving waveforms from simulation-based FIFO sizing.
-    #: Applies to the LARGEFIFO_RTLSIM strategy as well as the characterize
-    #: strategy (used for MLO/FINNLoop models), where it traces the per-node
-    #: characterization simulations.
+    #: Applies to the LARGEFIFO_RTLSIM strategy (including the FIFO sizing of
+    #: MLO/FINNLoop loop bodies) and, for MLO models sized with a heuristic
+    #: strategy, to the per-node characterization simulations that derive the
+    #: token access vectors (HEURISTIC_RTLSIM, or nodes without a tree model).
     fifosim_save_waveform: Optional[bool] = False
 
     #: Enable FIFOs to output log files documenting what they witness.
@@ -482,6 +513,13 @@ class DataflowBuildConfig:
             n_clock_cycles_per_sec = 10**9 / self.synth_clk_period_ns
             n_cycles_per_frame = n_clock_cycles_per_sec / self.target_fps
             return int(n_cycles_per_frame)
+
+    def _resolve_auto_fifo_strategy(self):
+        """The ``AutoFIFOSizingMethod`` for ``auto_fifo_strategy``, which may be
+        given as the enum or its string value. Maps the deprecated
+        ``"characterize"`` to ``HEURISTIC_RTLSIM``; raises ValueError for an
+        unknown strategy."""
+        return AutoFIFOSizingMethod(self.auto_fifo_strategy)
 
     def _resolve_vitis_opt_strategy(self):
         # convert human-readable enum to value expected by v++

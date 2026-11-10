@@ -51,6 +51,7 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.test import tree_model_test
 
 
 def make_single_maxpool_modelwrapper(
@@ -456,6 +457,177 @@ def test_pool_kernel_lt_stride_not_converted(kernel_stride):
     model = model.transform(InferShapes())
     model = model.transform(to_hw.InferPool())
     assert [n.op_type for n in model.graph.node] == ["MaxPool"]
+
+
+# input datatype
+@pytest.mark.parametrize("idt", [DataType["UINT4"]])
+# output datatype
+@pytest.mark.parametrize("odt", [DataType["UINT4"]])
+# pool configuration:                   ( k,stride, pad, ifm_dim )
+@pytest.mark.parametrize("pool_config", [(2, 1, 0, 512)])
+# input channels
+@pytest.mark.parametrize("ifm_ch", [32])
+# number of out channel computed in parallel
+@pytest.mark.parametrize("pe", [32])
+# pool type
+@pytest.mark.parametrize("op_type", ["MaxPool1D"])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_analytical_characterization_pool(idt, odt, pool_config, ifm_ch, pe, op_type):
+    k, stride, pad, ifm_dim = pool_config
+
+    if ifm_ch % pe != 0:
+        pytest.skip("ifm_ch%pe != 0. Skipping")
+
+    if pad != 0 and idt.signed():
+        pytest.skip("No support for pal_val != 0. Skipping")
+
+    np.random.seed(0)
+
+    part = "xc7z020clg400-1"
+
+    ofm_dim = int(((ifm_dim + 2 * pad - k) / stride) + 1)
+
+    ishape = (1, ifm_ch, ifm_dim, ifm_dim)
+    use_1d = False
+    if op_type == "MaxPool1D":
+        use_1d = True
+        ishape = (1, ifm_ch, 1, ifm_dim)
+        op_type = "MaxPool"
+
+    if op_type == "MaxPool":
+        if idt != odt:
+            pytest.skip("Skipping Maxpool with idt != odt")
+
+        model = make_single_maxpool_modelwrapper(
+            k, stride, pad, ifm_ch, ifm_dim, ofm_dim, idt, use_1d
+        )
+    elif op_type == "QuantAvgPool2d":
+        if pad != 0:
+            pytest.skip("No padding support for QuantAvgPool2d. Skipping")
+
+        if idt.signed() != odt.signed():
+            pytest.skip("Skipping QuantAvgPool2d with idt.signed() != odt.signed()")
+        model = make_single_quantavpool_modelwrapper(k, stride, ifm_ch, ifm_dim, ofm_dim, idt, odt)
+    else:
+        assert False, "{} is not a supported op_type".format(op_type)
+
+    model = model.transform(to_hw.InferPool())
+
+    # Folding
+    for n in model.graph.node:
+        if n.op_type.startswith("Pool"):
+            inst = getCustomOp(n)
+
+            ishape = inst.get_folded_input_shape()
+            oshape = inst.get_folded_output_shape()
+
+            inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, ishape)
+            outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, oshape)
+
+            graph = helper.make_graph(nodes=[n], name="mp_graph", inputs=[inp], outputs=[outp])
+            model = qonnx_make_model(graph, producer_name="mp-model")
+            model = ModelWrapper(model)
+            model.set_tensor_datatype("inp", idt)
+            model.set_tensor_datatype("outp", odt)
+            model = model.transform(InferShapes())
+
+            inst.set_nodeattr("PE", pe)
+            model = model.transform(SpecializeLayers(part))
+
+    node_details = ("Pool", op_type, k, ifm_ch, ifm_dim, ofm_dim, pe, idt)
+
+    target_clk_ns = 4
+
+    # TAV tolerances are fractions -- of the tokens moved and of the frame
+    # length -- with a floor for the fixed part of the error (wind-up, adder
+    # tree depth, the cycle rtlsim's period rounds away). The floors are the
+    # flat budgets this test used before the split, so nothing that passed
+    # then fails now; the fractions are what govern once the frame is long
+    # enough to exceed them.
+    max_allowed_volume_frac = 0.2
+    volume_const = 5000
+    max_allowed_length_frac = 0.2
+    length_const = 5000
+
+    assert tree_model_test(
+        model,
+        node_details,
+        part,
+        target_clk_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    ), "characterized TAV does not match RTLsim'd one!"
+
+
+# Fused Pool_hls tree model (finn.util.input_gen.pool_schedule) vs. rtlsim with
+# tight tolerances. The TAV length differs from rtlsim's by its fill/drain
+# artifact (rtlsim takes total cycles / frames as the period), up to ~13% for a
+# global pool; the token counts must match within a few tokens.
+#   (ifm_h, ifm_w, ch, kh, kw, sh, sw, pads, pe)
+tree_model_pool_configs = [
+    (8, 8, 4, 2, 2, 2, 2, [0, 0, 0, 0], 1),  # exact tiling
+    (6, 10, 4, 2, 2, 2, 2, [0, 0, 0, 0], 2),  # non-square
+    (9, 9, 4, 3, 3, 1, 1, [0, 0, 0, 0], 2),  # overlap, stride 1
+    (7, 7, 4, 2, 2, 2, 2, [0, 0, 0, 0], 1),  # floor remainder (input-bound)
+    (5, 5, 4, 3, 3, 2, 2, [1, 1, 1, 1], 2),  # padding
+    (7, 5, 4, 3, 2, 2, 1, [1, 0, 1, 1], 2),  # asymmetric padding
+    (7, 7, 16, 7, 7, 7, 7, [0, 0, 0, 0], 4),  # global
+    (12, 9, 3, 5, 3, 2, 1, [0, 0, 0, 0], 3),  # overlap + remainder
+]
+
+
+@pytest.mark.parametrize("config", tree_model_pool_configs)
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_analytical_characterization_pool_fused(config):
+    ifm_h, ifm_w, ch, kh, kw, sh, sw, pads, pe = config
+    idt = DataType["UINT4"]
+    part, target_clk_ns = "xczu7ev-ffvc1156-2-e", 5.0
+    ofm_h = (ifm_h + pads[0] + pads[2] - kh) // sh + 1
+    ofm_w = (ifm_w + pads[1] + pads[3] - kw) // sw + 1
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ch, ifm_h, ifm_w])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, ch, ofm_h, ofm_w])
+    mp_node = helper.make_node(
+        "MaxPool", ["inp"], ["outp"], kernel_shape=[kh, kw], pads=pads, strides=[sh, sw]
+    )
+    graph = helper.make_graph(nodes=[mp_node], name="mp_graph", inputs=[inp], outputs=[outp])
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="mp-model"))
+    model.set_tensor_datatype("inp", idt)
+    model.set_tensor_datatype("outp", idt)
+    model = model.transform(InferShapes())
+    model = model.transform(to_hw.InferPool())
+
+    # single-node model around the (NHWC) Pool node
+    pool = model.get_nodes_by_op_type("Pool")[0]
+    getCustomOp(pool).set_nodeattr("PE", pe)
+    i = helper.make_tensor_value_info(
+        pool.input[0], TensorProto.FLOAT, model.get_tensor_shape(pool.input[0])
+    )
+    o = helper.make_tensor_value_info(
+        pool.output[0], TensorProto.FLOAT, model.get_tensor_shape(pool.output[0])
+    )
+    single = ModelWrapper(qonnx_make_model(helper.make_graph([pool], "pool", [i], [o])))
+    single.set_tensor_datatype(pool.input[0], idt)
+    single.set_tensor_datatype(pool.output[0], idt)
+    single = single.transform(InferShapes())
+
+    assert tree_model_test(
+        single,
+        ("Pool fused",) + tuple(map(str, config)),
+        part,
+        target_clk_ns,
+        max_allowed_volume_frac=0.0,
+        max_allowed_length_frac=0.15,
+        volume_const=3,
+        length_const=8,
+    ), "characterized TAV does not match RTLsim'd one!"
 
 
 @pytest.mark.fpgadataflow

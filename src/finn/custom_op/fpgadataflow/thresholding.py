@@ -293,6 +293,7 @@ class Thresholding(HWCustomOp):
         return num_channels // pe
 
     def get_verilog_top_module_intf_names(self):
+        """Return dict of names of input and output interfaces for MLO support."""
         intf_names = {}
         intf_names["clk"] = ["ap_clk"]
         intf_names["rst"] = ["ap_rst_n"]

@@ -152,3 +152,14 @@ class StreamingConcat(HWCustomOp):
             inp_values.append(context[inp])
         result = np.concatenate(inp_values, axis=-1)
         context[node.output[0]] = result
+
+    def get_tav_io_dict(self):
+        # rtlsim has to feed every input: the round-robin stalls on the first
+        # one that runs dry
+        return {
+            "inputs": {
+                "in%d" % i: [0 for j in range(np.prod(self.get_folded_input_shape(i)[:-1]))]
+                for i in range(self.get_n_inputs())
+            },
+            "outputs": {"out0": []},
+        }
