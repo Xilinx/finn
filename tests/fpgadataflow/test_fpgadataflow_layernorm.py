@@ -15,7 +15,6 @@ import pytest
 import json
 import numpy as np
 import os
-import warnings
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -483,19 +482,14 @@ def test_hls_rtl_dsp_conflict_detection():
         ],
     )
 
-    # Capture warnings during build
-    with warnings.catch_warnings(record=True) as caught_warnings:
-        warnings.simplefilter("always")
-        build.build_dataflow_cfg(tmp_output_dir + "/model.onnx", cfg)
+    build.build_dataflow_cfg(tmp_output_dir + "/model.onnx", cfg)
 
-    # Check that DSP conflict warning was issued
-    dsp_conflict_warnings = [
-        w for w in caught_warnings if "HLS+RTL DSP CONFLICT DETECTED" in str(w.message)
-    ]
-    assert len(dsp_conflict_warnings) > 0, (
-        "Expected DSP conflict warning to be issued. "
-        f"Found warnings: {[str(w.message)[:100] for w in caught_warnings]}"
-    )
+    # Check that DSP conflict warning was issued. The build routes Python
+    # warnings into its log (finn.util.build_log), so a warnings recorder
+    # around the build would never see them.
+    assert "HLS+RTL DSP CONFLICT DETECTED" in build_log_text(
+        tmp_output_dir
+    ), "Expected DSP conflict warning in build_dataflow.log"
 
     # Verify cppsim still passed (not affected by DSP conflict)
     verif_dir = tmp_output_dir + "/verification_output"
@@ -521,6 +515,12 @@ def test_hls_rtl_dsp_conflict_detection():
     assert not os.path.isfile(
         stitched_success
     ), "stitched_ip_rtlsim should have been skipped due to DSP conflict"
+
+
+def build_log_text(output_dir):
+    """The build's log, where build_dataflow_cfg routes Python warnings."""
+    with open(os.path.join(output_dir, "build_dataflow.log")) as f:
+        return f.read()
 
 
 def create_layernorm_threshold_mul_model(ishape):
@@ -693,10 +693,7 @@ def test_integer_hls_elementwise_no_dsp_conflict():
         ],
     )
 
-    # Capture warnings during build
-    with warnings.catch_warnings(record=True) as caught_warnings:
-        warnings.simplefilter("always")
-        build.build_dataflow_cfg(tmp_output_dir + "/model.onnx", cfg)
+    build.build_dataflow_cfg(tmp_output_dir + "/model.onnx", cfg)
 
     # Check that layers were specialized as expected:
     intermediate_model_path = tmp_output_dir + "/intermediate_models/step_specialize_layers.onnx"
@@ -724,14 +721,10 @@ def test_integer_hls_elementwise_no_dsp_conflict():
         len(mul_hls_nodes) == 1
     ), f"Expected exactly 1 ElementwiseMul_hls, found {len(mul_hls_nodes)}. Op types: {op_types}"
 
-    # Check that NO DSP conflict warning was issued
-    dsp_conflict_warnings = [
-        w for w in caught_warnings if "HLS+RTL DSP CONFLICT DETECTED" in str(w.message)
-    ]
-    assert len(dsp_conflict_warnings) == 0, (
-        f"No DSP conflict warning should be issued for integer HLS Elementwise. "
-        f"Found warnings: {[str(w.message)[:100] for w in dsp_conflict_warnings]}"
-    )
+    # Check that NO DSP conflict warning was issued (see build_log_text)
+    assert "HLS+RTL DSP CONFLICT DETECTED" not in build_log_text(
+        tmp_output_dir
+    ), "No DSP conflict warning should be issued for integer HLS Elementwise."
 
     # Verify that stitched_ip_rtlsim ran successfully (was NOT skipped)
     verif_dir = tmp_output_dir + "/verification_output"

@@ -1347,8 +1347,8 @@ def test_mvau_tiled_tree_model_token_counts():
     # TH must divide numInputVectors; the tiled MVU stalls otherwise, and the
     # RTL backend raises on it, so the model must not invent a schedule
     assert tiled_tree(32, 2, 18, 1, 4) is None
-    # the output reorder buffer stalls these (SF=1, NF=18: 37 and 63 cycles per
-    # group), which the schedule does not model: left to rtlsim
+    # SF=1, NF=18: a group's output run outlasts its span, so the next group's
+    # outputs queue up behind it, which the schedule does not model: left to rtlsim
     assert tiled_tree(1, 18, 18, 9, 9) is None
     assert tiled_tree(1, 18, 18, 6, 6) is None
 

@@ -333,6 +333,14 @@ class MVAURtlModel(MVAUModel):
         drain = 4 + (SIMD - 1).bit_length() + (SIMD == 1) + 1
         stall = max(in_stall, out_stall, drain)
         span = NF * fm + stall
+        if (NF - 1) * fm + run > span:
+            # the group's output run is still draining when the next group's
+            # first fold is ready (SF=1, NF*TH outputs in barely more cycles):
+            # rtlsim queues the next group's outputs behind the run, a shape
+            # the schedule below does not have (it would drop the overlapping
+            # writes). The output reorder stall above used to catch these,
+            # but the stall-free buffer is deep enough not to stall them.
+            return None
         # the first output of a group, as an offset from the group's first
         # read; tree_depth = clog2(ceil(SIMD/3)) is the add_multi depth inside
         # the core, which delays every output by that many cycles, and
