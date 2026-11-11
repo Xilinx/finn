@@ -85,6 +85,9 @@ def warn_in_worker(index):
 
 
 @pytest.mark.util
+# Python 3.12+ warns on each fork of a multi-threaded process; in a long pytest
+# session a thread left behind by an earlier test adds one per pool worker.
+@pytest.mark.filterwarnings("ignore:This process .* is multi-threaded:DeprecationWarning")
 def test_warnings_of_forked_workers_are_counted(tmp_path, capsys):
     # as in a NodeLocalTransformation, whose pool is made inside the step
     path = tmp_path / "run.log"
