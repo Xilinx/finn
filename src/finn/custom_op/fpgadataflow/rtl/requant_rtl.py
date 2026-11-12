@@ -402,6 +402,7 @@ class Requant_rtl(Requant, RTLBackend):
         sv_code = sv_code.replace("$SCALES$", scales_sv)
         sv_code = sv_code.replace("$BIASES$", biases_sv)
         sv_code = sv_code.replace("$SIGNED_OUT$", str(int(odt.signed())))
+        sv_code = sv_code.replace("$SIGNED_IN$", str(int(idt.signed())))
         sv_code = sv_code.replace("$IN_STREAM_WIDTH$", str(in_stream_width))
         sv_code = sv_code.replace("$OUT_STREAM_WIDTH$", str(out_stream_width))
 
@@ -544,19 +545,20 @@ class Requant_rtl(Requant, RTLBackend):
                 "$SIGNED_OUT$": str(int(odt.signed())),
             }
         else:
-            k = self.get_input_datatype(0).bitwidth()
+            idt = self.get_input_datatype(0)
             rtllib_dir = os.environ["FINN_ROOT"] + "/finn-rtllib/requant/hdl/"
             template_name = "requant_wrapper_decoupled_template.v"
             subst = {
                 "$TOP_MODULE_NAME$": top_module_name,
                 "$VERSION$": str(info["version"]),
-                "$K$": str(k),
+                "$K$": str(idt.bitwidth()),
                 "$N$": str(n),
                 "$C$": str(num_channels),
                 "$PE$": str(pe),
                 "$SHIFT_MIN$": str(info["shift_min"]),
                 "$SHIFT_MAX$": str(info["shift_max"]),
                 "$SIGNED_OUT$": str(int(odt.signed())),
+                "$SIGNED_IN$": str(int(idt.signed())),
             }
 
         # Verilog wrapper (.v) for IP packaging

@@ -20,7 +20,9 @@ module requant_axi #(
 	shortreal     BIASES[PE][C/PE],
 
 	bit  SIGNED_OUT = 0,  // 0: unsigned clip [0, 2^N-1], 1: signed clip [-2^(N-1), 2^(N-1)-1]
+	bit  SIGNED_IN = 1,   // 0: unsigned input, zero-extended by one bit for the signed core
 
+	localparam int unsigned  KC = SIGNED_IN? K : K+1,  // Core Input Precision
 	localparam int unsigned  INPUT_STREAM_WIDTH = ((PE*K+7)/8)*8,
 	localparam int unsigned  OUTPUT_STREAM_WIDTH = ((PE*N+7)/8)*8
 )(
@@ -66,12 +68,16 @@ module requant_axi #(
 
 	//-----------------------------------------------------------------------
 	// Free-running requant compute core
-	uwire signed [PE-1:0][K-1:0]  core_idat = s_axis_tdata[0+:PE*K];
+	uwire [PE-1:0][K-1:0]  idat = s_axis_tdata[0+:PE*K];
+	uwire signed [PE-1:0][KC-1:0]  core_idat;
+	for(genvar  pe = 0; pe < PE; pe++) begin : genInput
+		assign	core_idat[pe] = idat[pe];  // zero-extends unsigned inputs (KC = K+1)
+	end
 	uwire [PE-1:0][N-1:0]  core_odat;
 	uwire  core_ovld;
 	requant #(
 		.VERSION(VERSION),
-		.K(K), .N(N), .C(C), .PE(PE),
+		.K(KC), .N(N), .C(C), .PE(PE),
 		.SCALES(SCALES), .BIASES(BIASES),
 		.SIGNED_OUT(SIGNED_OUT)
 	) impl (

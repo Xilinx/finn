@@ -28,10 +28,11 @@
 
 from finn.custom_op.fpgadataflow.globalaccpool import GlobalAccPool
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
+from finn.util.data_packing import hls_datatype_str
 
 
 class GlobalAccPool_hls(GlobalAccPool, HLSBackend):
-    """Class that corresponds to finn-hlslib AccPool_Batch function."""
+    """Class that corresponds to finn-hlslib pool_global function."""
 
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
@@ -60,11 +61,11 @@ class GlobalAccPool_hls(GlobalAccPool, HLSBackend):
             self.get_nodeattr("inputDataType")
             info_messages.append("All necessary attributes exist")
         except Exception:
-            info_messages.append("""The required GlobalAccPool_Batch attributes do not exist.""")
+            info_messages.append("""The required GlobalAccPool attributes do not exist.""")
 
         # verify that input data is 2D
         if len(self.get_nodeattr("numInputVectors")) != 3:
-            info_messages.append("""GlobalAccPool_Batch requires 2D data input.""")
+            info_messages.append("""GlobalAccPool requires 2D data input.""")
             raise Exception
 
         return info_messages
@@ -73,28 +74,48 @@ class GlobalAccPool_hls(GlobalAccPool, HLSBackend):
         HLSBackend.execute_node(self, context, graph)
 
     def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "maxpool.h"']
+        self.code_gen_dict["$GLOBALS$"] = ['#include "pool.hpp"']
 
     def defines(self, var):
-        self.code_gen_dict["$DEFINES$"] = []
-
-    def docompute(self):
-        self.code_gen_dict["$DOCOMPUTE$"] = [
-            """AccPool_Batch<{}, {}, {}, {}, {}> (in0_V, out0_V, 1);""".format(
-                self.get_normal_input_shape()[1],
-                self.get_nodeattr("NumChannels"),
-                self.get_input_datatype().get_hls_datatype_str(),
-                self.get_nodeattr("PE"),
-                self.get_output_datatype().get_hls_datatype_str(),
-            )
+        pe = self.get_nodeattr("PE")
+        ch = self.get_nodeattr("NumChannels")
+        cf = ch // pe
+        ishape = self.get_normal_input_shape()
+        pixels = ishape[1] * ishape[2]
+        self.code_gen_dict["$DEFINES$"] = [
+            "static constexpr unsigned PE = {};".format(pe),
+            "static constexpr unsigned CF = {};".format(cf),
+            "static constexpr unsigned PIXELS = {};".format(pixels),
         ]
 
+    def docompute(self):
+        pe = self.get_nodeattr("PE")
+        odt = self.get_output_datatype()
+        o_tensor_dt = "tensor<%s, %d>" % (hls_datatype_str(odt), pe)
+        self.code_gen_dict["$DOCOMPUTE$"] = [
+            "pool_global<SumPool<%s>, CF, PIXELS>(in0_V, out0_V);" % (o_tensor_dt)
+        ]
+
+    def timeout_value(self):
+        """pool_global is function-pipelined and processes one input per call.
+        It needs CF * PIXELS calls before the first output, so the
+        default timeout of 1000 is insufficient for large configurations."""
+        ishape = self.get_normal_input_shape()
+        pixels = ishape[1] * ishape[2]
+        num_ch = self.get_nodeattr("NumChannels")
+        pe = self.get_nodeattr("PE")
+        total_inputs = (num_ch // pe) * pixels
+        self.code_gen_dict["$TIMEOUT_VALUE$"] = [str(total_inputs + 1000)]
+
+    def ipgen_extra_directives(self):
+        "Return a list of extra tcl directives for HLS synthesis."
+        return ["config_compile -pipeline_style flp"]
+
     def blackboxfunction(self):
+        pe = self.get_nodeattr("PE")
+        idt = hls_datatype_str(self.get_input_datatype())
+        odt = hls_datatype_str(self.get_output_datatype())
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            """void {}(hls::stream<ap_uint<{}>> &in0_V,
-                hls::stream<ap_uint<{}>> &out0_V)""".format(
-                self.onnx_node.name,
-                self.get_instream_width(),
-                self.get_outstream_width(),
-            )
+            "void {}(hls::stream<tensor<{}, {}>> &in0_V, "
+            "hls::stream<tensor<{}, {}>> &out0_V)".format(self.onnx_node.name, idt, pe, odt, pe)
         ]

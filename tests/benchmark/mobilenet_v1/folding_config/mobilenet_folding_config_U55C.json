@@ -245,10 +245,6 @@
       "mem_mode": "internal_decoupled",
       "resType": "lut"
     },
-    "ConvolutionInputGenerator_rtl_14": {
-      "SIMD": 4,
-      "ram_style": "distributed"
-    },
     "Pool_hls_0": {
       "PE": 4
     },

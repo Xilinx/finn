@@ -259,9 +259,11 @@ class FINNLoop(HWCustomOp, RTLBackend):
         iteration = self.get_nodeattr("iteration")
         perf = loop_body.analysis(dataflow_performance)
         body_latency = perf["critical_path_cycles"]
-        body_throughput = perf["max_cycles"]
-        overhead_per_iter = 40
-        return body_latency + (iteration - 1) * body_throughput + overhead_per_iter * iteration
+        # For a single input the iterations run serially: an intermediate frame
+        # can only be read back once it has been fully written. body_latency is
+        # an overlap-free sum of node cycles, so this is a conservative estimate.
+        overhead_between_iter = 40
+        return body_latency * iteration + overhead_between_iter * (iteration - 1)
 
     def get_outstream_width(self, ind=0):
         loop_body = self.get_nodeattr("body")
@@ -298,9 +300,27 @@ class FINNLoop(HWCustomOp, RTLBackend):
         sim_base, sim_rel = rtlsim_so
         self.set_nodeattr("rtlsim_so", sim_base + "/" + sim_rel)
 
-    def derive_characteristic_fxns(self, period):
-        mlo_prehook = mlo_prehook_func_factory(self.onnx_node)
-        super().derive_characteristic_fxns(period, pre_hook=mlo_prehook)
+    def derive_token_access_vectors(self, strategy):
+        """Characterize with rtlsim over a single frame, and with the MLO prehook,
+        whatever the strategy: the loop has no tree model.
+
+        A streaming layer is driven with five frames and the middle two are
+        stored. The loop buffers its intermediate feature maps in DDR
+        (``intermediate_frames.sv``, 128 outstanding frames), so when simulated
+        in isolation against a testbench that offers input as fast as it is
+        taken, it accepts every queued frame up front, computes, and then
+        drains. That trace has no periodic steady state to sample: the middle
+        two periods contain no input transactions at all, and the first two
+        contain the whole batch.
+
+        One frame instead measures one loop invocation -- absorb the input
+        frame, iterate, emit the output frame -- which is self-consistent and is
+        the schedule the loop presents to its neighbours in a graph that paces
+        it.
+        """
+        self.derive_token_access_vectors_using_rtlsim(
+            pre_hook=mlo_prehook_func_factory(self.onnx_node), periods_to_simulate=1
+        )
 
     def execute_node(self, context, graph):
         node = self.onnx_node

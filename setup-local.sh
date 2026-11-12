@@ -295,15 +295,13 @@ echo ""
 if [ "$SKIP_XSI" -eq 0 ] && [ "$XILINX_AVAILABLE" -eq 1 ]; then
     gecho "Step 6: Building finn_xsi..."
 
-    if [ -f "${FINN_ROOT}/finn_xsi/xsi.so" ]; then
-        gecho "  Found existing finn_xsi at ${FINN_ROOT}/finn_xsi/xsi.so"
+    # skips an up-to-date xsi.so; rebuilds one that is missing, broken or
+    # older than its sources
+    python -m finn.xsi.setup --quiet
+    if [ $? -eq 0 ]; then
+        gecho "  finn_xsi is up to date"
     else
-        python -m finn.xsi.setup --quiet
-        if [ $? -eq 0 ]; then
-            gecho "  finn_xsi built successfully"
-        else
-            yecho "Failed to build finn_xsi - RTL simulation may not work"
-        fi
+        yecho "Failed to build finn_xsi - RTL simulation may not work"
     fi
 elif [ "$SKIP_XSI" -eq 1 ]; then
     yecho "Step 6: Skipping finn_xsi build (--skip-xsi)"

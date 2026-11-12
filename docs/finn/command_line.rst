@@ -106,11 +106,12 @@ You can read a brief description of what each phase does on
 products are not enabled will still run, but will do nothing.
 
 .. note::
-  ``step_set_fifo_depths`` (FIFO sizing) uses rtl simulation and therefore
-  requires synthesis. It is skipped automatically for estimate-only builds
-  (where only ``ESTIMATE_REPORTS`` is requested and the configured FIFO sizing
-  strategy needs synthesis), so the estimate flow stays fast and
-  synthesis-free.
+  ``step_set_fifo_depths`` (FIFO sizing) needs synthesis and rtl simulation for
+  every strategy except ``heuristic_analytical``. In an estimate-only build (only
+  ``ESTIMATE_REPORTS`` requested) it is skipped for those strategies, and
+  ``heuristic_analytical`` sizes the FIFOs from the operators' tree models only,
+  so the estimate flow stays fast and synthesis-free either way. How the
+  heuristic strategies size FIFOs is described in :ref:`fifo_sizing_heuristics`.
 
 The fine-grained steps are still available and can be composed into a custom
 ``steps`` list in the build configuration for standard (non-MLO) models, mixing
@@ -137,12 +138,18 @@ depending on the chosen output products.
 
 The following outputs will be generated regardless of which particular outputs are selected:
 
-* ``build_dataflow.log`` is the build logfile that will contain any warnings/errors
+* ``build_dataflow.log`` is the build logfile. It holds the records of FINN's loggers and the Python warnings
+  of the build, each with its level and the configured step or phase that produced it, and the output of
+  tools launched through ``finn.util.basic.launch_process_helper`` (such as the rtlsim compile and run).
+  The console shows the step timeline, FINN's warnings and errors, and a count of Python warnings; with
+  ``verbose`` it also shows the other INFO records, the tool output and each Python warning (DEBUG
+  records stay in the file). Nothing redirects stdout/stderr: ``print()`` output and the logs of other
+  libraries go to the console only, and ``breakpoint()`` or ``pdb`` work inside a step
 * ``time_per_step.json`` will report the time (in seconds) each build step took
-* ``final_hw_config.json`` will contain the final (after parallelization, FIFO sizing etc) hardware configuration for the build. It is written by the FIFO sizing step, so it is not produced for estimate-only builds (where FIFO sizing is skipped)
+* ``final_hw_config.json`` will contain the final (after parallelization, FIFO sizing etc) hardware configuration for the build. It is written by the FIFO sizing step, so it is not produced for estimate-only builds where FIFO sizing is skipped (see the note above)
 * ``template_specialize_layers_config.json`` is an example json file that can be used to set the specialize layers config
 * ``intermediate_models/`` will contain the ONNX file(s) produced after each build step
-
+* ``debug/fifo_logs/`` will contain debug logs of each StreamingFIFO when ``debug_fifo=True`` is set in the ``DataflowBuildConfig`` (see :ref:`streaming_fifo`)
 
 The other output products are controlled by the `generate_outputs` field in the
 build configuration), and are detailed below.

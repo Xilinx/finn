@@ -39,6 +39,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter  PE = $PE$,
 	parameter  SIMD = $SIMD$,
 	parameter  TH = $TH$,
+	parameter  WSIMD = $WSIMD$,
 	parameter  N_REPS = $N_REPS$,
 	parameter  WEIGHT_WIDTH = $WEIGHT_WIDTH$,
 	parameter  N_LAYERS = $N_LAYERS$,
@@ -52,8 +53,8 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter [ADDR_BITS-1:0]  ADDRESS_OFFSET = $ADDRESS_OFFSET$,
 
 	// Safely deducible parameters (parameter due to Verilog port-width visibility)
-	parameter  DS_BITS_BA = (((TH > 1)? ((PE*SIMD)/TH) : SIMD)*WEIGHT_WIDTH+7)/8 * 8,
-	parameter  WS_BITS_BA = (((PE*SIMD)/TH)*WEIGHT_WIDTH+7)/8 * 8
+	parameter  DS_BITS_BA = (((TH > 1)? WSIMD : SIMD)*WEIGHT_WIDTH+7)/8 * 8,
+	parameter  WS_BITS_BA = (((TH > 1)? WSIMD : PE*SIMD)*WEIGHT_WIDTH+7)/8 * 8
 )(
 	// Global Control
 	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF axi_mm:in_idx0_V:out0_V, ASSOCIATED_RESET ap_rst_n" *)
@@ -148,7 +149,8 @@ wire [DS_BITS_BA-1:0]  axis_dwc_tdata;
 // fetch_weights. When IWSIMD*WEIGHT_WIDTH is already byte-aligned the pad width
 // is zero and this is a no-op. (Deriving PO from DS_BITS_BA/WEIGHT_WIDTH would
 // wrongly treat the byte-pad bits as extra elements for sub-byte groups.)
-localparam  IWSIMD = (TH > 1)? ((PE*SIMD)/TH) : SIMD;
+localparam  IWSIMD = (TH > 1)? WSIMD : SIMD;
+localparam  OWSIMD = (TH > 1)? WSIMD : PE*SIMD;
 wire [IWSIMD*WEIGHT_WIDTH-1:0]  vpc_odat;
 vpc #(.W(WEIGHT_WIDTH), .N(MH*MW), .PI(DATA_BITS/WEIGHT_WIDTH), .PO(IWSIMD)) inst_dwc (
 	.clk(ap_clk), .rst(!ap_rst_n),
@@ -163,6 +165,7 @@ fetch_weights #(
 	.PE(PE), .SIMD(SIMD), .TH(TH),
 	.MH(MH), .MW(MW), .N_REPS(N_REPS),
 	.WEIGHT_WIDTH(WEIGHT_WIDTH),
+	.IWSIMD(IWSIMD), .OWSIMD(OWSIMD),
 	.ADDR_BITS(ADDR_BITS), .DATA_BITS(DATA_BITS), .LEN_BITS(LEN_BITS), .IDX_BITS(IDX_BITS),
 	.N_LAYERS(N_LAYERS), .ADDRESS_OFFSET(ADDRESS_OFFSET)
 ) inst (

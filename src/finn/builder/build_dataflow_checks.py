@@ -6,20 +6,24 @@
 import importlib
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional, Tuple
 
 from finn.builder.build_dataflow_config import (
+    AutoFIFOSizingMethod,
     DataflowBuildConfig,
     DataflowOutputType,
     ShellFlowType,
     verify_step_prereqs,
 )
 from finn.util.basic import (
+    get_pynq_golden_dir,
     get_vivado_version,
+    is_versal,
     part_map,
+    pynq_golden_files,
     pynq_part_map,
     retired_pynq_boards,
     vitis_part_map,
@@ -58,9 +62,20 @@ def _check(name, severity, condition, msg_fail, suggestion=None):
     return Check(name, severity, False, msg_fail, suggestion)
 
 
+def _cfg_default(field_name):
+    """The declared default of a DataflowBuildConfig field, so checks that compare
+    against "unset" track the dataclass rather than a hard-coded copy of it."""
+    for f in fields(DataflowBuildConfig):
+        if f.name == field_name:
+            return f.default
+    raise AttributeError("DataflowBuildConfig has no field %r" % field_name)
+
+
 def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
     """Run all configuration checks and return report."""
     v = get_vivado_version()
+    # for the check messages; v is None without Vivado (XILINX_VIVADO unset)
+    v_found = "%d.%d" % v if v else "unknown"
     checks = []
 
     has_bitfile = cfg.generate_outputs and DataflowOutputType.BITFILE in cfg.generate_outputs
@@ -74,8 +89,7 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                 "v80_vivado",
                 Severity.ERROR,
                 v and v >= (2024, 2),
-                "V80 board requires Vivado 2024.2 or later, "
-                f"found {v[0]}.{v[1] if v else 'unknown'}",
+                f"V80 board requires Vivado 2024.2 or later, found {v_found}",
                 "Upgrade to Vivado 2024.2 or later to use V80",
             )
         )
@@ -86,8 +100,7 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                 "slash_vivado",
                 Severity.ERROR,
                 v and v >= (2025, 1),
-                "SLASH_ALVEO shell flow requires Vivado 2025.1, "
-                f"found {v[0]}.{v[1] if v else 'unknown'}",
+                f"SLASH_ALVEO shell flow requires Vivado 2025.1, found {v_found}",
                 "Upgrade to Vivado 2025.1 for SLASH support",
             )
         )
@@ -98,7 +111,7 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                 "mlo_vivado",
                 Severity.ERROR,
                 v and v >= (2024, 2),
-                "MLO requires Vivado 2024.2 or later, " f"found {v[0]}.{v[1] if v else 'unknown'}",
+                f"MLO requires Vivado 2024.2 or later, found {v_found}",
                 "Upgrade to Vivado 2024.2 or later for MLO support",
             )
         )
@@ -109,8 +122,7 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                 "aupzu3_vivado",
                 Severity.ERROR,
                 v and v >= (2024, 1),
-                f"AUP-ZU3_8GB board requires Vivado 2024.1 or later, "
-                f"found {v[0]}.{v[1] if v else 'unknown'}",
+                f"AUP-ZU3_8GB board requires Vivado 2024.1 or later, found {v_found}",
                 "Upgrade to Vivado 2024.1 or later to use AUP-ZU3_8GB",
             )
         )
@@ -209,27 +221,46 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
             )
         )
 
-    if has_bitfile and cfg.board in pynq_boards and resolved_shell != ShellFlowType.VIVADO_ZYNQ:
+    if has_bitfile and cfg.board in pynq_boards:
+        expected_flow = (
+            ShellFlowType.VIVADO_VERSAL
+            if is_versal(pynq_part_map[cfg.board])
+            else ShellFlowType.VIVADO_ZYNQ
+        )
         checks.append(
             _check(
                 "pynq_shell",
                 Severity.ERROR,
-                False,
-                f"Zynq board '{cfg.board}' requires VIVADO_ZYNQ shell flow, "
+                resolved_shell == expected_flow,
+                f"PYNQ board '{cfg.board}' requires {expected_flow.name} shell flow, "
                 f"but {resolved_shell} was specified",
-                "Set shell_flow_type=ShellFlowType.VIVADO_ZYNQ for Zynq/PYNQ boards",
+                f"Set shell_flow_type=ShellFlowType.{expected_flow.name} for this board",
             )
         )
 
-    if cfg.board in ("VEK280", "VCK190") and has_bitfile:
+    if cfg.board == "VEK280" and has_bitfile:
         checks.append(
             _check(
                 "versal_deploy",
                 Severity.ERROR,
                 False,
                 f"Versal board '{cfg.board}' does not yet support bitfile generation. "
-                "System deployment is not available for Versal devices",
-                "Remove BITFILE from generate_outputs, or use a non-Versal board",
+                "System deployment is not available for this Versal device",
+                "Remove BITFILE from generate_outputs, or use a different board",
+            )
+        )
+
+    if has_bitfile and cfg.board == "VCK190":
+        golden_dir = get_pynq_golden_dir(cfg.board)
+        missing = [f for f in pynq_golden_files if not os.path.isfile(os.path.join(golden_dir, f))]
+        checks.append(
+            _check(
+                "vck190_golden",
+                Severity.ERROR,
+                not missing,
+                f"VCK190 golden reference files missing from {golden_dir}: {', '.join(missing)}",
+                "Launch the container with FINN_VCK190_GOLDEN=1 ./run-docker.sh to build them "
+                "(needs Vivado, takes a while on first launch)",
             )
         )
 
@@ -246,16 +277,23 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
             )
         )
 
-    if has_bitfile and cfg.shell_flow_type == ShellFlowType.VIVADO_ZYNQ and cfg.board is None:
+    if (
+        has_bitfile
+        and cfg.shell_flow_type in (ShellFlowType.VIVADO_ZYNQ, ShellFlowType.VIVADO_VERSAL)
+        and cfg.board is None
+    ):
+        flow_name = (
+            "VIVADO_VERSAL" if cfg.shell_flow_type == ShellFlowType.VIVADO_VERSAL else "VIVADO_ZYNQ"
+        )
         checks.append(
             _check(
-                "zynq_board",
+                "pynq_board",
                 Severity.ERROR,
                 False,
-                "BITFILE generation with VIVADO_ZYNQ requires 'board' to be set. "
-                "ZynqBuild needs the board name and will fail in step_synthesize_bitfile "
+                f"BITFILE generation with {flow_name} requires 'board' to be set. "
+                "PYNQBuild needs the board name and will fail in step_synthesize_bitfile "
                 "if missing",
-                "Set board to a valid Zynq board name (e.g., 'AUP-ZU3_8GB', 'ZCU104')",
+                f"Set board to a valid {flow_name} board name",
             )
         )
 
@@ -393,6 +431,80 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                             "this entry from verify_steps",
                         )
                     )
+
+    # === FIFO Sizing Strategy ===
+    # an unknown auto_fifo_strategy only fails in step_set_fifo_depths, partway into
+    # the build, so catch it here
+    if cfg.auto_fifo_depths:
+        strategy = cfg.auto_fifo_strategy
+        valid = [m.value for m in AutoFIFOSizingMethod]
+        checks.append(
+            _check(
+                "auto_fifo_strategy",
+                Severity.ERROR,
+                strategy in valid or strategy == "characterize",
+                f"auto_fifo_strategy={strategy!r} is not a FIFO sizing strategy",
+                "Set auto_fifo_strategy to one of " + ", ".join(valid),
+            )
+        )
+        if strategy == "characterize":
+            checks.append(
+                _check(
+                    "auto_fifo_strategy_deprecated",
+                    Severity.WARNING,
+                    False,
+                    "auto_fifo_strategy 'characterize' has been replaced by 'heuristic_rtlsim' "
+                    "(which it now runs) and will be removed in a future release",
+                    "Set auto_fifo_strategy to 'heuristic_rtlsim' or 'heuristic_analytical'",
+                )
+            )
+
+    # === FIFO Debug Logging ===
+    # fifo_log_flush_cycles reaches the RTL via int() in _attach_fifo_debug_logs and
+    # InsertAndSetFIFODepths; None or a negative value only fails there, partway into
+    # the build, so catch it here instead. 0 is legal: it disables periodic flushing.
+    if cfg.debug_fifo and not isinstance(cfg.fifo_log_flush_cycles, int):
+        checks.append(
+            _check(
+                "fifo_log_flush_cycles",
+                Severity.ERROR,
+                False,
+                "debug_fifo=True but fifo_log_flush_cycles="
+                f"{cfg.fifo_log_flush_cycles!r} is not an integer",
+                "Set fifo_log_flush_cycles to a non-negative integer number of cycles, "
+                "or 0 to only flush the logs when the simulation ends",
+            )
+        )
+    elif cfg.debug_fifo and cfg.fifo_log_flush_cycles < 0:
+        checks.append(
+            _check(
+                "fifo_log_flush_cycles",
+                Severity.ERROR,
+                False,
+                f"fifo_log_flush_cycles={cfg.fifo_log_flush_cycles} is negative",
+                "Set fifo_log_flush_cycles to a non-negative integer number of cycles, "
+                "or 0 to only flush the logs when the simulation ends",
+            )
+        )
+
+    if not cfg.debug_fifo:
+        fifo_log_opts = [
+            (name, getattr(cfg, name), _cfg_default(name))
+            for name in ["fifo_log_verbose", "fifo_log_flush_cycles"]
+        ]
+        customized = [(n, val) for n, val, default in fifo_log_opts if val != default]
+        if customized:
+            checks.append(
+                _check(
+                    "fifo_log_without_debug",
+                    Severity.WARNING,
+                    False,
+                    ", ".join(f"{n}={v!r}" for n, v in customized)
+                    + " differs from the default but debug_fifo=False, so no FIFO logs "
+                    "are written and the setting has no effect",
+                    "Set debug_fifo=True to enable FIFO logging, or drop these settings",
+                )
+            )
 
     # === Warnings ===
     if cfg.shell_flow_type is not None and not has_bitfile:

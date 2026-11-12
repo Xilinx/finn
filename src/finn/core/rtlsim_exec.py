@@ -294,8 +294,6 @@ def rtlsim_exec_cppxsi(
         "TRACE_FILE": "nullptr" if trace_file is None else f'"{trace_file}"',
         # sim kernel .so to use (depends on Vivado version)
         "SIMKERNEL_SO": finnxsi.get_simkernel_so(),
-        # log file for xsi (not the sim driver)
-        "XSIM_LOG_FILE": '"xsi.log"',
     }
     for key, val in template_dict.items():
         fifsom_config_template = fifsom_config_template.replace(f"@{key}@", str(val))
@@ -346,6 +344,11 @@ def rtlsim_exec_cppxsi(
     for result_line in results:
         key, val = result_line.split("\t")
         ret_dict[key] = int(val)
+    if ret_dict.get("SIM_ERRORS", 0) > 0:
+        raise finnxsi.SimulationError(
+            f"Simulated design reported {ret_dict['SIM_ERRORS']} error(s)."
+            f" See {sim_base}/rtlsim.log for the simulator output."
+        )
     if "TIMEOUT" in ret_dict.keys():
         assert ret_dict["TIMEOUT"] == 0, (
             get_rtlsim_timeout_error_message(timeout_cycles, timeout_estimate)

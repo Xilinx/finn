@@ -175,11 +175,11 @@ Some operators only have one backend implementation and are infrastructure ops r
 
 - ``IODMA_hls(HWCustomOp, HLSBackend)`` - DMA operator
 - ``CheckSum_hls(HWCustomOp, HLSBackend)`` - Checksum verification
-- ``TLastMarker_hls(HWCustomOp, HLSBackend)`` - AXI stream TLAST marker
 
 **RTL-only operators**:
 
 - ``FINNLoop(HWCustomOp, RTLBackend)`` - Loop control operator
+- ``TLastMarker_rtl(HWCustomOp, RTLBackend)`` - AXI stream TLAST marker
 
 
 Non-Hardware Operators
