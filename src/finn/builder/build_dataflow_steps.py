@@ -1063,7 +1063,9 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(GiveReadableTensorNames())
         if cfg.folding_config_file is not None:
-            model = model.transform(ApplyConfig(cfg.folding_config_file))
+            # the config may carry FIFO depths for FINNLoop bodies as well, as
+            # written to final_hw_config.json with apply_to_subgraphs=True
+            model = model.transform(ApplyConfig(cfg.folding_config_file, apply_to_subgraphs=True))
 
     # extract the final configuration and save it as json
     hw_attrs = [
