@@ -73,6 +73,8 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
         code_gen_dict["$IN_RANGE$"] = "[{}:0]".format(in_width - 1)
         code_gen_dict["$OUT_RANGE$"] = "[{}:0]".format(in_width - 1)
         code_gen_dict["$WIDTH$"] = str(in_width)
+        # only the unpadded payload is stored, see fifo_template.v
+        code_gen_dict["$REAL_WIDTH$"] = str(self.get_instream_width())
         code_gen_dict["$DEPTH$"] = str(depth)
         ram_style = self.get_nodeattr("ram_style")
         # fifo.sv's RAM_STYLE_EFF ladder still uses the legacy "shift" token for the SRL

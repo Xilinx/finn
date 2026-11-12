@@ -12,16 +12,13 @@
   "Thresholding_0": {
     "preferred_impl_style": "rtl"
   },
-  "ConvolutionInputGenerator_1": {
-    "preferred_impl_style": "rtl"
-  },
   "Pool_0": {
     "preferred_impl_style": "hls"
   },
   "FMPadding_1": {
     "preferred_impl_style": "rtl"
   },
-  "ConvolutionInputGenerator_2": {
+  "ConvolutionInputGenerator_1": {
     "preferred_impl_style": "rtl"
   },
   "MVAU_1": {
@@ -30,16 +27,13 @@
   "Thresholding_1": {
     "preferred_impl_style": "rtl"
   },
-  "ConvolutionInputGenerator_3": {
-    "preferred_impl_style": "rtl"
-  },
   "Pool_1": {
     "preferred_impl_style": "hls"
   },
   "FMPadding_2": {
     "preferred_impl_style": "rtl"
   },
-  "ConvolutionInputGenerator_4": {
+  "ConvolutionInputGenerator_2": {
     "preferred_impl_style": "rtl"
   },
   "MVAU_2": {
@@ -48,16 +42,13 @@
   "Thresholding_2": {
     "preferred_impl_style": "rtl"
   },
-  "ConvolutionInputGenerator_5": {
-    "preferred_impl_style": "rtl"
-  },
   "Pool_2": {
     "preferred_impl_style": "hls"
   },
   "FMPadding_3": {
     "preferred_impl_style": "rtl"
   },
-  "ConvolutionInputGenerator_6": {
+  "ConvolutionInputGenerator_3": {
     "preferred_impl_style": "rtl"
   },
   "MVAU_3": {
@@ -66,16 +57,13 @@
   "Thresholding_3": {
     "preferred_impl_style": "rtl"
   },
-  "ConvolutionInputGenerator_7": {
-    "preferred_impl_style": "rtl"
-  },
   "Pool_3": {
     "preferred_impl_style": "hls"
   },
   "FMPadding_4": {
     "preferred_impl_style": "rtl"
   },
-  "ConvolutionInputGenerator_8": {
+  "ConvolutionInputGenerator_4": {
     "preferred_impl_style": "rtl"
   },
   "MVAU_4": {
@@ -84,16 +72,13 @@
   "Thresholding_4": {
     "preferred_impl_style": "rtl"
   },
-  "ConvolutionInputGenerator_9": {
-    "preferred_impl_style": "rtl"
-  },
   "Pool_4": {
     "preferred_impl_style": "hls"
   },
   "FMPadding_5": {
     "preferred_impl_style": "rtl"
   },
-  "ConvolutionInputGenerator_10": {
+  "ConvolutionInputGenerator_5": {
     "preferred_impl_style": "rtl"
   },
   "MVAU_5": {
@@ -102,25 +87,19 @@
   "Thresholding_5": {
     "preferred_impl_style": "rtl"
   },
-  "ConvolutionInputGenerator_11": {
-    "preferred_impl_style": "rtl"
-  },
   "Pool_5": {
     "preferred_impl_style": "hls"
   },
   "FMPadding_6": {
     "preferred_impl_style": "rtl"
   },
-  "ConvolutionInputGenerator_12": {
+  "ConvolutionInputGenerator_6": {
     "preferred_impl_style": "rtl"
   },
   "MVAU_6": {
     "preferred_impl_style": "rtl"
   },
   "Thresholding_6": {
-    "preferred_impl_style": "rtl"
-  },
-  "ConvolutionInputGenerator_13": {
     "preferred_impl_style": "rtl"
   },
   "Pool_6": {

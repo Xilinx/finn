@@ -459,13 +459,6 @@ def test_fused_reshape_inner_transpose(
             "perm": (1, 0, 2),
         },
         {
-            "in_shape": (1, 1024, 768),
-            "transpose_in_shape": (1, 1024, 24, 32),
-            "out_shape": (1, 24, 1024, 32),
-            "transpose_out_shape": None,
-            "perm": (0, 2, 1, 3),
-        },
-        {
             "in_shape": (8, 128, 256),
             "transpose_in_shape": None,
             "out_shape": (256, 128, 8),
@@ -592,6 +585,149 @@ def test_rtlsim_shuffle_layer(shuffle_param, datatype, simd, monkeypatch):
         exp_cycles = exp_cycles_dict[node.name]
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
         assert exp_cycles != 0
+
+
+@pytest.mark.parametrize("ram_style", ["ultra", "block"])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_rtlsim_outer_shuffle_ram_style(ram_style, monkeypatch):
+    """rtlsim of an OuterShuffle whose reorder buffer is bound to URAM or BRAM.
+
+    A (1, 64, 24, 32) transpose needs a 65536-word buffer: deep enough for an
+    explicit URAM binding to occupy several URAMs, yet well below the 262144
+    words beyond which the memory cascade lowers the II. It replaces a
+    (1, 1024, 24, 32) case whose 1M-word buffer HLS put into URAM at II=9.
+    """
+    monkeypatch.setenv("LIVENESS_THRESHOLD", "10000000")
+    dt = DataType["INT8"]
+    in_shape = (1, 64, 768)
+    model = construct_onnx_model(
+        input_shape=in_shape,
+        transpose_perm=(0, 2, 1, 3),
+        reshape1_shape=(1, 64, 24, 32),
+        reshape2_shape=None,
+        dt=dt,
+    )
+    input_t = {model.get_first_global_in(): gen_finn_dt_tensor(dt, in_shape)}
+    out_name = model.get_first_global_out()
+    y_ref = oxe.execute_onnx(model, input_t)[out_name]
+
+    model = model.transform(InferShuffle(_filter=lambda *_: True))
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(SetShuffleSIMD(2))
+    model = model.transform(ShuffleDecomposition())
+    model = model.transform(InferInnerOuterShuffles())
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
+
+    outer = [n for n in model.graph.node if n.op_type == "OuterShuffle_hls"]
+    assert len(outer) == 1, "expected exactly one OuterShuffle_hls node"
+    op = getCustomOp(outer[0])
+    op.set_nodeattr("ram_style", ram_style)
+    assert op.get_buffer_depth() == 65536
+    assert op.get_input_gen_ii() == 1
+
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareIP(test_fpga_part, test_synth_clk_period_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+
+    # the buffer landed in the requested memory resource (the transformations
+    # copy the model, so look the node up again)
+    outer_name = outer[0].name
+    op = getCustomOp(model.get_node_from_name(outer_name))
+    report_dir = os.path.join(
+        op.get_nodeattr("code_gen_dir_ipgen"), f"project_{outer_name}/sol1/syn/report"
+    )
+    rows = []
+    for rpt in os.listdir(report_dir):
+        with open(os.path.join(report_dir, rpt)) as f:
+            rows += [line.split("|") for line in f if line.strip().startswith("|buf_r_U")]
+    assert len(rows) > 0, "no buffer memory found in the HLS reports"
+    bram, uram = int(rows[0][3]), int(rows[0][6])
+    if ram_style == "ultra":
+        assert uram > 0 and bram == 0, f"expected URAM only, got BRAM={bram} URAM={uram}"
+    else:
+        assert bram > 0 and uram == 0, f"expected BRAM only, got BRAM={bram} URAM={uram}"
+
+    y_hw = oxe.execute_onnx(model, input_t)[out_name]
+    assert np.allclose(y_ref, y_hw), "Model output does not match expected output"
+
+    exp_cycles_dict = model.analysis(exp_cycles_per_layer)
+    for node in model.graph.node:
+        cycles_rtlsim = getCustomOp(node).get_nodeattr("cycles_rtlsim")
+        assert np.isclose(exp_cycles_dict[node.name], cycles_rtlsim, atol=10)
+
+
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_rtlsim_outer_shuffle_deep_buffer(monkeypatch):
+    """rtlsim of an OuterShuffle whose reorder buffer HLS maps to a URAM cascade.
+
+    A (1, 512, 24, 32) transpose at SIMD=2 needs 524288 words, beyond the
+    262144 at which HLS builds a latency-pipelined memory cascade by itself.
+    input_gen reads such buffers ahead (finn-hlslib 5f0aec0), so the node must
+    still run at II=1 -- formerly it dropped to II=5.
+    """
+    monkeypatch.setenv("LIVENESS_THRESHOLD", "10000000")
+    dt = DataType["INT8"]
+    in_shape = (1, 512, 768)
+    model = construct_onnx_model(
+        input_shape=in_shape,
+        transpose_perm=(0, 2, 1, 3),
+        reshape1_shape=(1, 512, 24, 32),
+        reshape2_shape=None,
+        dt=dt,
+    )
+    input_t = {model.get_first_global_in(): gen_finn_dt_tensor(dt, in_shape)}
+    out_name = model.get_first_global_out()
+    y_ref = oxe.execute_onnx(model, input_t)[out_name]
+
+    model = model.transform(InferShuffle(_filter=lambda *_: True))
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(SetShuffleSIMD(2))
+    model = model.transform(ShuffleDecomposition())
+    model = model.transform(InferInnerOuterShuffles())
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
+
+    outer = [n for n in model.graph.node if n.op_type == "OuterShuffle_hls"]
+    assert len(outer) == 1, "expected exactly one OuterShuffle_hls node"
+    outer_name = outer[0].name
+    op = getCustomOp(outer[0])
+    assert op.get_nodeattr("ram_style") == "auto"
+    assert op.get_buffer_depth() == 524288
+
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareIP(test_fpga_part, test_synth_clk_period_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+
+    # HLS put the buffer into URAM by itself
+    op = getCustomOp(model.get_node_from_name(outer_name))
+    report_dir = os.path.join(
+        op.get_nodeattr("code_gen_dir_ipgen"), f"project_{outer_name}/sol1/syn/report"
+    )
+    rows = []
+    for rpt in os.listdir(report_dir):
+        with open(os.path.join(report_dir, rpt)) as f:
+            rows += [line.split("|") for line in f if line.strip().startswith("|buf_r_U")]
+    assert len(rows) > 0, "no buffer memory found in the HLS reports"
+    assert int(rows[0][6]) > 0, "expected the deep buffer in URAM"
+
+    y_hw = oxe.execute_onnx(model, input_t)[out_name]
+    assert np.allclose(y_ref, y_hw), "Model output does not match expected output"
+
+    exp_cycles_dict = model.analysis(exp_cycles_per_layer)
+    for node in model.graph.node:
+        cycles_rtlsim = getCustomOp(node).get_nodeattr("cycles_rtlsim")
+        assert np.isclose(
+            exp_cycles_dict[node.name], cycles_rtlsim, atol=10
+        ), f"{node.name}: expected {exp_cycles_dict[node.name]}, rtlsim {cycles_rtlsim}"
 
 
 @pytest.mark.parametrize(
@@ -761,40 +897,53 @@ def test_shuffle_config_consolidation(fold_with):
 def test_outer_shuffle_exp_cycles_without_vivado(monkeypatch):
     """get_exp_cycles must work for estimate-only builds with no Vivado configured.
 
-    With no XILINX_VIVADO the estimate assumes the recommended Vivado 2024.2+
-    behaviour (and warns about it), so it must match the estimate produced with
-    a 2024.2 install configured.
+    The estimate does not depend on the Vivado version: input_gen reads even
+    buffers deeper than 262144 words (memory cascades) at II=1. So it is the same
+    without Vivado, and needs no warning.
     """
     dt = DataType["INT8"]
-    model = construct_onnx_model(
-        input_shape=(1, 128, 384),
-        transpose_perm=(0, 2, 1, 3),
-        reshape1_shape=(1, 128, 12, 32),
-        reshape2_shape=None,
-        dt=dt,
-    )
-    model = model.transform(InferShuffle(_filter=lambda *_: True))
-    model = model.transform(SpecializeLayers(test_fpga_part))
-    model = model.transform(ShuffleDecomposition())
-    model = model.transform(InferInnerOuterShuffles())
-    model = model.transform(SpecializeLayers(test_fpga_part))
-    model = model.transform(GiveUniqueNodeNames())
 
-    outer_nodes = [n for n in model.graph.node if n.op_type == "OuterShuffle_hls"]
-    assert len(outer_nodes) > 0, "expected at least one OuterShuffle_hls node"
+    def outer_shuffles(in_shape, reshape1_shape):
+        model = construct_onnx_model(
+            input_shape=in_shape,
+            transpose_perm=(0, 2, 1, 3),
+            reshape1_shape=reshape1_shape,
+            reshape2_shape=None,
+            dt=dt,
+        )
+        model = model.transform(InferShuffle(_filter=lambda *_: True))
+        model = model.transform(SpecializeLayers(test_fpga_part))
+        model = model.transform(ShuffleDecomposition())
+        model = model.transform(InferInnerOuterShuffles())
+        model = model.transform(SpecializeLayers(test_fpga_part))
+        model = model.transform(GiveUniqueNodeNames())
+        nodes = [getCustomOp(n) for n in model.graph.node if n.op_type == "OuterShuffle_hls"]
+        assert len(nodes) > 0, "expected at least one OuterShuffle_hls node"
+        return nodes
 
+    shallow = outer_shuffles((1, 128, 384), (1, 128, 12, 32))
     monkeypatch.setenv("XILINX_VIVADO", "/tools/Xilinx/Vivado/2024.2")
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        expected_cycles = [getCustomOp(n).get_exp_cycles() for n in outer_nodes]
+        expected_cycles = [op.get_exp_cycles() for op in shallow]
 
     monkeypatch.delenv("XILINX_VIVADO", raising=False)
-    for node, expected in zip(outer_nodes, expected_cycles):
-        with pytest.warns(UserWarning, match="assuming Vivado 2024.2 or newer"):
-            cycles = getCustomOp(node).get_exp_cycles()
+    for op, expected in zip(shallow, expected_cycles):
+        assert op.get_buffer_depth() <= 262144
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            cycles = op.get_exp_cycles()
         assert isinstance(cycles, int)
         assert cycles > 0
         assert cycles == expected
+
+    # A 524288-word buffer, read ahead by input_gen: II=1 (no cycle simulation)
+    deep = outer_shuffles((1, 512, 768), (1, 512, 24, 32))[0]
+    deep.set_nodeattr("SIMD", 2)
+    assert deep.get_buffer_depth() == 524288
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert deep.get_input_gen_ii() == 1
 
 
 @pytest.mark.fpgadataflow
@@ -1020,6 +1169,13 @@ def test_shuffle_tree_model(tav_param, simd, monkeypatch):
     max_allowed_volume_frac = 0.01
     volume_const = 4
     max_allowed_length_frac = 0.10
+    if node_details[1].startswith("OuterShuffle"):
+        # Its stall-free reorder buffer (finn-hlslib input_gen sizing) keeps the
+        # steady-state period at exactly one frame, while rtlsim's period, a fifth
+        # of 5 frames' cycles, also carries a fifth of the wind-up: the transpose
+        # latency, which stays below one frame. So rtlsim runs long by up to a
+        # fifth of the model's period, i.e. 1/6 of its own length.
+        max_allowed_length_frac = 0.17
     length_const = 16
 
     assert tree_model_test_up_to_rotation(
@@ -1037,7 +1193,8 @@ def test_shuffle_tree_model(tav_param, simd, monkeypatch):
 @pytest.mark.parametrize(
     "declining_param",
     [
-        {"in_shape": (2, 6, 4, 4), "perm": (0, 2, 1, 3)},
+        # a 64-word buffer for a 96-word frame (finn-hlslib stall-free sizing)
+        {"in_shape": (4, 6, 2, 4), "perm": (0, 2, 1, 3)},
         {"in_shape": (8, 16, 12, 32), "perm": (0, 2, 1, 3)},
     ],
 )

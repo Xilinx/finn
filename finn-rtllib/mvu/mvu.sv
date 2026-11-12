@@ -561,7 +561,7 @@ module mvu #(
 					.ACASCREG(1),		// A-cascade tap after A1REG
 					.ADREG(1),			// Pre-adder output register (stage 2)
 					.ALUMODEREG(0),		// Number of pipeline stages for ALUMODE (0 or 1)
-					.AREG(2),			// A1REG (stage 1) + A2REG (stage 2)
+					.AREG(1),			// A1REG only (stage 1): INMODE[0]=1 selects A1, A2 is never used
 					.BCASCREG(1),		// B-cascade tap after B1REG
 					.BREG(2),			// B1REG (stage 1) + B2REG (stage 2)
 					.CARRYINREG(0),		// Number of pipeline stages for CARRYIN (0 or 1)
@@ -602,7 +602,7 @@ module mvu #(
 					.ALUMODE('0),			// 4-bit input: ALU control input
 					.CARRYINSEL('0),		// 3-bit input: Carry select input
 					.INMODE(inmode),		// 5-bit input: INMODE control input
-					.OPMODE(opmode),			// 7-bit input: Operation mode input
+					.OPMODE(opmode),		// 7-bit input: Operation mode input
 
 					// Data: 30-bit (each) input: Data Ports
 					.A({5'b0, aa}),	// 30-bit input: A data input
@@ -612,18 +612,13 @@ module mvu #(
 // synthesis translate_on
 						bb
 					),
-					.C(				// 48-bit input: C data input
-// synthesis translate_off
-						clr? '0 :
-// synthesis translate_on
-						cc
-					),
+					.C(cc),			// 48-bit input: C data input
 					.CARRYIN('0),	// 1-bit input: Carry input signal
 					.D(dd),			// 25-bit input: D data input
 
 					// Reset/Clock Enable: 1-bit (each) input: Reset/Clock Enable Inputs
 					.CEA1(en),			// Stage 1: A1REG
-					.CEA2(en),			// Stage 2: A2REG (unused by pre-adder, INMODE[0]=1 selects A1)
+					.CEA2('0),			// A2REG unused (INMODE[0]=1 selects A1)
 					.CEAD(en),			// Stage 2: ADREG
 					.CEALUMODE('0),
 					.CEB1(en),			// Stage 1: B1REG
@@ -689,7 +684,7 @@ module mvu #(
 					.ACASCREG(1),		// A-cascade tap after A1REG
 					.ADREG(1),			// Pre-adder output register (stage 2)
 					.ALUMODEREG(0),
-					.AREG(2),			// A1REG (stage 1) + A2REG (stage 2)
+					.AREG(1),			// A1REG only (stage 1): INMODE[0]=1 selects A1, A2 is never used
 					.BCASCREG(1),		// B-cascade tap after B1REG
 					.BREG(2),			// B1REG (stage 1) + B2REG (stage 2)
 					.CARRYINREG(0),
@@ -741,18 +736,13 @@ module mvu #(
 // synthesis translate_on
 						bb
 					),
-					.C(				// 48-bit input: C data
-// synthesis translate_off
-						clr? '0 :
-// synthesis translate_on
-						cc
-					),
+					.C(cc),			// 48-bit input: C data
 					.CARRYIN('0),	// 1-bit input: Carry-in
 					.D(dd),			// 27-bit input: D data
 
 					// Reset/Clock Enable inputs
 					.CEA1(en),			// Stage 1: A1REG
-					.CEA2(en),			// Stage 2: A2REG
+					.CEA2('0),			// A2REG unused (INMODE[0]=1 selects A1)
 					.CEAD(en),			// Stage 2: ADREG
 					.CEALUMODE('0),
 					.CEB1(en),			// Stage 1: B1REG
@@ -820,7 +810,7 @@ module mvu #(
 					.ACASCREG(1),		// A-cascade tap after A1REG
 					.ADREG(1),			// Pre-adder output register (stage 2)
 					.ALUMODEREG(0),
-					.AREG(2),			// A1REG (stage 1) + A2REG (stage 2)
+					.AREG(1),			// A1REG only (stage 1): INMODE[0]=1 selects A1, A2 is never used
 					.BCASCREG(1),		// B-cascade tap after B1REG
 					.BREG(2),			// B1REG (stage 1) + B2REG (stage 2)
 					.CARRYINREG(0),
@@ -874,19 +864,14 @@ module mvu #(
 // synthesis translate_on
 						bb
 					),
-					.C(							// 58-bit input: C data
-// synthesis translate_off
-						clr? '0 :
-// synthesis translate_on
-						cc
-					),
+					.C(cc),						// 58-bit input: C data
 					.CARRYIN('0),				// 1-bit input: Carry-in
 					.D(dd),						// 27-bit input: D data
 
 					// Reset/Clock Enable inputs
 					.ASYNC_RST('0),
 					.CEA1(en),			// Stage 1: A1REG
-					.CEA2(en),			// Stage 2: A2REG
+					.CEA2('0),			// A2REG unused (a clock enable here is a DRC error, REQPXA-226)
 					.CEAD(en),			// Stage 2: ADREG
 					.CEALUMODE('0),
 					.CEB1(en),			// Stage 1: B1REG

@@ -28,6 +28,7 @@
 
 import pytest
 
+import functools
 import numpy as np
 import qonnx.custom_op.general.xnorpopcount as xp
 from onnx import TensorProto, helper
@@ -49,6 +50,7 @@ from finn import xsi
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.core.rtlsim_exec import rtlsim_exec
+from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.fifo_sizing.tav import load_tav_npy
@@ -1148,7 +1150,7 @@ TILED_TAV_CONFIGS = [
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.node_tree_modeling
-def test_fpgadataflow_analytical_characterization_mvau_tiled(mw_pe_simd_th, mem_mode):
+def test_fpgadataflow_analytical_characterization_mvau_tiled(mw_pe_simd_th, mem_mode, monkeypatch):
     """The tiled MVAU_rtl (TH > 1) tree model against rtlsim.
 
     Compared *up to one shared phase offset*: the tiled schedule's steady state
@@ -1162,6 +1164,19 @@ def test_fpgadataflow_analytical_characterization_mvau_tiled(mw_pe_simd_th, mem_
     mw, pe, simd, th = mw_pe_simd_th
     mh = 18
     idt = wdt = DataType["INT4"]
+
+    # The tree model is the steady state. The activation input_gen's stall-free
+    # buffer can hold well over a group beyond what the replay needs, and the
+    # writer gains only the per-group pipeline drain on the core, so filling
+    # it takes up to ~27 groups (NF=1, (32, 18, 1, 3)). The default five
+    # frames of six groups never leave that wind-up; twelve do.
+    monkeypatch.setattr(
+        HWCustomOp,
+        "derive_token_access_vectors_using_rtlsim",
+        functools.partialmethod(
+            HWCustomOp.derive_token_access_vectors_using_rtlsim, periods_to_simulate=12
+        ),
+    )
     odt = DataType["INT32"]
 
     # tiling is DSP58-only, so this is a Versal-part test by construction
@@ -1332,8 +1347,8 @@ def test_mvau_tiled_tree_model_token_counts():
     # TH must divide numInputVectors; the tiled MVU stalls otherwise, and the
     # RTL backend raises on it, so the model must not invent a schedule
     assert tiled_tree(32, 2, 18, 1, 4) is None
-    # the output reorder buffer stalls these (SF=1, NF=18: 37 and 63 cycles per
-    # group), which the schedule does not model: left to rtlsim
+    # SF=1, NF=18: a group's output run outlasts its span, so the next group's
+    # outputs queue up behind it, which the schedule does not model: left to rtlsim
     assert tiled_tree(1, 18, 18, 9, 9) is None
     assert tiled_tree(1, 18, 18, 6, 6) is None
 

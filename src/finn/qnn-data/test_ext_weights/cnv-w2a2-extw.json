@@ -28,13 +28,10 @@
   "Thresholding_rtl_2": {
     "PE": 1
   },
-  "ConvolutionInputGenerator_rtl_2": {
-    "SIMD": 1
-  },
   "Pool_hls_0": {
     "PE": 1
   },
-  "ConvolutionInputGenerator_rtl_3": {
+  "ConvolutionInputGenerator_rtl_2": {
     "SIMD": 16,
     "ram_style": "distributed"
   },
@@ -47,7 +44,7 @@
   "Thresholding_rtl_3": {
     "PE": 1
   },
-  "ConvolutionInputGenerator_rtl_4": {
+  "ConvolutionInputGenerator_rtl_3": {
     "SIMD": 16,
     "ram_style": "distributed"
   },
@@ -60,13 +57,10 @@
   "Thresholding_rtl_4": {
     "PE": 1
   },
-  "ConvolutionInputGenerator_rtl_5": {
-    "SIMD": 1
-  },
   "Pool_hls_1": {
     "PE": 1
   },
-  "ConvolutionInputGenerator_rtl_6": {
+  "ConvolutionInputGenerator_rtl_4": {
     "SIMD": 8,
     "ram_style": "distributed"
   },
@@ -79,7 +73,7 @@
   "Thresholding_rtl_5": {
     "PE": 1
   },
-  "ConvolutionInputGenerator_rtl_7": {
+  "ConvolutionInputGenerator_rtl_5": {
     "SIMD": 8,
     "ram_style": "distributed"
   },

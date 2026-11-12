@@ -3,7 +3,6 @@
 
 """Tree models of the transposing operators, InnerShuffle and OuterShuffle."""
 
-import math
 import numpy as np
 
 from finn.transformation.fpgadataflow.fifo_sizing.tav import (
@@ -14,7 +13,7 @@ from finn.transformation.fpgadataflow.fifo_sizing.tree_models.base import (
     TreeModel,
     register,
 )
-from finn.util.basic import get_vivado_version
+from finn.util.input_gen import input_gen_r_flags
 
 
 @register("InnerShuffle")
@@ -182,9 +181,7 @@ class OuterShuffleHlsModel(OuterShuffleModel):
             L = len(extents)
             # W[j] is the read-pointer increment one full period of level j stands for
             W = [num_words] + [coeffs[j - 1] for j in range(1, L + 1)]
-            carries = [True] * (L + 1)
-            for j in range(L):
-                carries[j + 1] = carries[j] and coeffs[j] > 0 and coeffs[j] * extents[j] <= W[j]
+            carries = input_gen_r_flags(num_words, extents, coeffs)
             rewind = [0] * (L + 1)
             for j in range(L - 1, -1, -1):
                 rewind[j] = ((extents[j] - 1) * coeffs[j] + rewind[j + 1]) if carries[j + 1] else 0
@@ -206,26 +203,6 @@ class OuterShuffleHlsModel(OuterShuffleModel):
                 released = released + step * (outputs // period - outer)
                 enclosing = period
             return released
-
-        def buffer_depth(extents, coeffs, num_words):
-            """``BUF_SIZE`` of the reorder buffer, as ``input_gen()`` dimensions it.
-
-            A completed loop always leaves the read pointer net forward, so the only
-            backward movement is a single loop's terminal retraction; the deepest of
-            those bounds how far behind the write pointer a read can reach.
-
-            The closed form over the nest of what ``get_exp_cycles`` reads off
-            ``_NestSim.max_rp_retract``, to the same ``WP_DELAY``.
-            """
-            WP_DELAY = 4
-            L = len(extents)
-            W = [num_words] + [coeffs[j - 1] for j in range(1, L + 1)]
-            rewind = [0] * (L + 1)
-            for j in range(L - 1, -1, -1):
-                rewind[j] = (extents[j] - 1) * coeffs[j] + rewind[j + 1]
-            retract = max([0] + [-(W[j] - rewind[j]) for j in range(L)])
-            addr_bits = max(1, math.ceil(math.log2(max(1, retract + WP_DELAY + 2))))
-            return 1 << addr_bits
 
         def free_lead(extents, coeffs, num_words, buf_size):
             """How far into a frame the reader must get before the writer may go on.
@@ -291,17 +268,15 @@ class OuterShuffleHlsModel(OuterShuffleModel):
         # runs WP_DELAY cycles ahead of it
         READ_TO_WRITE = 3
         extents, coeffs, num_words = loop_nest()
-        buf_size = buffer_depth(extents, coeffs, num_words)
+        # BUF_SIZE as input_gen() dimensions it (stall-free sizing)
+        buf_size = op.get_buffer_depth()
         if buf_size < num_words:
             return None
         lead = free_lead(extents, coeffs, num_words, buf_size)
         if lead is None:
             return None
-        # Vivado pipelines input_gen at II=1, except from 2024.2 on where a buffer
-        # deep enough to be inferred as URAM carries its read latency of 3 into
-        # the recurrence (as in get_exp_cycles, which warns when no Vivado is set)
-        vivado_version = get_vivado_version() or (2024, 2)
-        ii = 3 if vivado_version >= (2024, 2) and buf_size > 262144 else 1
+        # the II input_gen achieves for this buffer storage (as in get_exp_cycles)
+        ii = op.get_input_gen_ii()
         if lead == 0:
             # a slot is released per output, so the writer never waits and a
             # frame costs exactly its own words

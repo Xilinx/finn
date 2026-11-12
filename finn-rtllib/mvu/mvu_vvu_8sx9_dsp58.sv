@@ -134,10 +134,9 @@ module mvu_vvu_8sx9_dsp58 #(
 
 			if (EXTERNAL_PREGS > 0) begin : genExternalPregAct
 				(* EXTRACT_SHREG = "true" *)
-				logic [0:EXTERNAL_PREGS-1][LANES_OCCUPIED-1:0][ACTIVATION_WIDTH-1:0] A = '{ default : '0 };
+				logic [0:EXTERNAL_PREGS-1][LANES_OCCUPIED-1:0][ACTIVATION_WIDTH-1:0]  A = 'x;
 				always_ff @(posedge clk) begin
-					if(rst)  A <= '0;
-					else if(en) begin
+					if(en) begin
 						A[EXTERNAL_PREGS-1] <=
 // synthesis translate_off
 							zero ? '1 :
@@ -181,10 +180,9 @@ module mvu_vvu_8sx9_dsp58 #(
 
 			if (EXTERNAL_PREGS > 0) begin : genExternalPregWeight
 				(* EXTRACT_SHREG = "true" *)
-				logic [0:PE-1][0:EXTERNAL_PREGS-1][LANES_OCCUPIED-1:0][WEIGHT_WIDTH-1:0] B = '{ default : '0 };
+				logic [0:PE-1][0:EXTERNAL_PREGS-1][LANES_OCCUPIED-1:0][WEIGHT_WIDTH-1:0]  B = 'x;
 				always_ff @(posedge clk) begin
-					if(rst)  B[i] <= '0;
-					else if(en) begin
+					if(en) begin
 						B[i][EXTERNAL_PREGS-1] <=
 // synthesis translate_off
 							zero ? '1 :
@@ -219,163 +217,118 @@ module mvu_vvu_8sx9_dsp58 #(
 //-------------------- Instantiate PE x CHAINLEN DSPs --------------------\\
 	for (genvar i=0; i<PE; i++) begin : genDSPPE
 		for (genvar j=0; j<CHAINLEN; j++) begin : genDSPChain
-			localparam int TOTAL_PREGS = j/SEGLEN;
-			localparam int INTERNAL_PREGS = TOTAL_PREGS>0 ? 2 : 1; // 1 : 0
-			localparam bit PREG = (j+1)%SEGLEN==0 || j == CHAINLEN-1;
-			localparam bit FIRST = j == 0;
-			localparam bit LAST = j == CHAINLEN-1;
-			uwire [57:0] pp;
+			localparam int unsigned  TOTAL_PREGS    = j/SEGLEN;
+			localparam int unsigned  INTERNAL_PREGS = TOTAL_PREGS? 2 : 1;
+			localparam bit  FIRST = j == 0;
+			localparam bit  LAST  = j == CHAINLEN-1;
+			localparam bit  PREG  = (j+1)%SEGLEN==0 || LAST;
 
-			if (LAST) begin : genPOUT
-				assign p[i] = pp[ACCU_WIDTH-1:0];
-			end
+			uwire [57:0]  pp;
+			if(LAST)  assign  p[i] = pp[ACCU_WIDTH-1:0];
 
 			// Note: Since the product B * AD is computed,
 			//       rst can be only applied to AD and zero only to B
 			//       with the same effect as zeroing both.
+
+			// C-port feedback shift register for TH>=2 on LAST DSP
+			uwire [57:0]  cc;
+			uwire         clear;
+			if(!LAST || TH <= 1) begin
+				assign  cc = 'x;
+				assign  clear = L[1];
+			end
+			else begin : genCSR
+				// External shift register between P output and C input.
+				// ClearRing: TH-1 deep (parallels AccLine + CREG).
+				// AccLine: TH-2 deep (only exists for TH>2; TH=2 feeds pp directly).
+				logic  ClearRing[TH-1] = '{ default: 1 };
+				always_ff @(posedge clk) begin
+					if(rst)  ClearRing <= '{ default: 1 };
+					else if(en) begin
+						ClearRing[TH-2] <= L[1];
+						for(int unsigned  m = 0; m < TH-2; m++)  ClearRing[m] <= ClearRing[m+1];
+					end
+				end
+				assign  clear = ClearRing[0];
+
+				if(TH == 2)  assign  cc = pp;
+				else begin : genTHDeep
+					(* SHREG_EXTRACT = "yes" *) logic [57:0]  AccLine[TH-2];
+					always_ff @(posedge clk) begin
+						if(en) begin
+							AccLine[TH-3] <= pp;
+							for(int unsigned  m = 0; m < TH-3; m++)  AccLine[m] <= AccLine[m+1];
+						end
+					end
+					assign  cc = AccLine[0];
+				end : genTHDeep
+			end : genCSR
+
 			if(BEHAVIORAL) begin : genBehav
-				// Stage #1: Input A/B
-				logic signed [33:0] Areg [INTERNAL_PREGS];
+				// Behavioral DSP58 model — stage-indexed register naming
+
+				// Stage #1: A1/B1 (AREG, BREG), Zero1 (INMODEREG)
+				logic signed [33:0]  A1[INTERNAL_PREGS] = '{ default: 0 };
+				logic signed [23:0]  B1[INTERNAL_PREGS] = '{ default: 0 };
+				logic  Zero1 = 0;
 				always_ff @(posedge clk) begin
-					if (rst)	Areg <= '{ default : 0};
-					else if (en) begin
-						Areg[0] <= { 7'bx, a_in_i[(IS_MVU ? 0 : CHAINLEN*i) + j] };
-						if (INTERNAL_PREGS == 2) Areg[1] <= Areg[0];
+					if(rst) begin
+						A1    <= '{ default: 0 };
+						B1    <= '{ default: 0 };
+						Zero1 <= 0;
 					end
-				end
-				logic signed [23:0] Breg [INTERNAL_PREGS];
-				always_ff @(posedge clk) begin
-					if (rst)	Breg <= '{ default : 0};
-					else if (en) begin
-						Breg[0] <= b_in_i[i][j];
-						if (INTERNAL_PREGS == 2) Breg[1] <= Breg[0];
+					else if(en) begin
+						A1[0] <= { 7'bx, a_in_i[(IS_MVU? 0 : CHAINLEN*i) + j] };
+						B1[0] <= b_in_i[i][j];
+						Zero1 <= inmode_zero[TOTAL_PREGS];
+						if(INTERNAL_PREGS == 2) begin
+							A1[1] <= A1[0];
+							B1[1] <= B1[0];
+						end
 					end
 				end
 
-				// Stage #2: Multiply-Accumulate
-				logic signed [57:0] Mreg;
-				logic InmodeZero = 0;
+				// Stage #2: M2 (MREG), Clear2 (OPMODEREG), C2 (CREG)
+				logic signed [57:0]  M2 = 0;
+				logic signed [57:0]  C2 = 0;
+				logic  Clear2 = 0;
 				always_ff @(posedge clk) begin
-					if (rst)		InmodeZero <= 0;
-					else if (en)	InmodeZero <= inmode_zero[TOTAL_PREGS];
-				end
-				always_ff @(posedge clk) begin
-					if (rst)	Mreg <= 0;
-					else if (en) begin
-						automatic logic signed [57:0] m = 0;
-						for (int k = 0; k < 3; k++) begin
-							m = m + (InmodeZero ? 0 : $signed(Areg[INTERNAL_PREGS-1][9*k +: 9]) * $signed(Breg[INTERNAL_PREGS-1][8*k +: 8]));
-						end
-						Mreg <= m;
+					if(rst) begin
+						M2     <= 0;
+						C2     <= 0;
+						Clear2 <= 0;
+					end
+					else if(en) begin
+						automatic logic signed [57:0]  m = 0;
+						for(int k = 0; k < 3; k++)
+							m += Zero1? 0 : $signed(A1[INTERNAL_PREGS-1][9*k +: 9]) * $signed(B1[INTERNAL_PREGS-1][8*k +: 8]);
+						M2 <= m;
+						C2     <= cc;
+						Clear2 <= clear;
 					end
 				end
 
-				// Stage #3: Accumulate
-				logic signed [57:0] Preg;
-				logic Opmode = 0;
-				if (FIRST && !LAST) begin : genFirst
-					if (PREG) begin : genPregBehav
-						always_ff @(posedge clk) begin
-							if (rst)		Preg <= 0;
-							else if (en)	Preg <= Mreg;
-						end
-					end
-					else	assign Preg = Mreg;
-				end
-				else if (LAST) begin : genLast
-					// Accumulation feedback + optional PCIN cascade addend.
-					// FIRST: no PCIN (single-DSP chain). !FIRST: add pcout[i][j-1].
-					uwire signed [57:0]  pcin = FIRST ? '0 : pcout[i][j-1];
+				// Stage #3: combinational ALU + P3 register
+				//   p = M2 + W + Z
+				//   W: !LAST? 0 : Clear2? 0 : TH<=1? P3 : C2
+				//   Z: FIRST? 0 : pcout[i][j-1]
+				logic signed [57:0]  P3 = 0;
+				uwire signed [57:0]  p = M2
+					+ (FIRST? 0 : pcout[i][j-1])
+					+ (!LAST || Clear2? 0 : TH <= 1? P3 : C2);
 
-					if(TH <= 1) begin : genAccP
-						always_ff @(posedge clk) begin
-							if (rst)		Opmode <= 0;
-							else if (en)	Opmode <= L[1];
-						end
-						always_ff @(posedge clk) begin
-							if (rst) 		Preg <= 0;
-							else if (en)	Preg <= (Opmode ? 0 : Preg) + Mreg + pcin;
-						end
-					end : genAccP
-					else begin : genAccC
-						// TH>=2: C-port feedback ring of depth TH.
-						// Clearing ring of depth TH-1 parallel to AccLine.
-						always_ff @(posedge clk) begin
-							if (rst)		Opmode <= 0;
-							else if (en)	Opmode <= L[1];
-						end
-						logic signed [57:0]  AccLine[TH-1];
-						logic  ClearRing[TH-1];
-						initial begin
-							foreach(AccLine[k])   AccLine[k] = 0;
-							foreach(ClearRing[k]) ClearRing[k] = 0;
-						end
-						always_ff @(posedge clk) begin
-							if (rst) begin
-								Preg <= 0;
-								foreach(AccLine[k])   AccLine[k] <= 0;
-								foreach(ClearRing[k]) ClearRing[k] <= 0;
-							end
-							else if (en) begin
-								Preg <= (ClearRing[TH-2] ? '0 : AccLine[TH-2]) + Mreg + pcin;
-								AccLine[0] <= Preg;
-								ClearRing[0] <= Opmode;
-								for(int k = TH-2; k > 0; k--)  AccLine[k] <= AccLine[k-1];
-								for(int k = TH-2; k > 0; k--)  ClearRing[k] <= ClearRing[k-1];
-							end
-						end
-					end : genAccC
-				end
-				else begin : genMid
-					if (PREG) begin : genPregBehav
-						always_ff @(posedge clk) begin
-							if (rst)		Preg <= 0;
-							else if (en)	Preg <= Mreg + pcout[i][j-1];
-						end
+				if(!PREG)  assign  pp = p;
+				else begin
+					always_ff @(posedge clk) begin
+						if(rst)      P3 <= 0;
+						else if(en)  P3 <= p;
 					end
-					else	assign Preg = Mreg + pcout[i][j-1];
+					assign  pp = P3;
 				end
-				assign pp = Preg;
-				assign pcout[i][j] = Preg;
+				assign  pcout[i][j] = pp;
 			end : genBehav
 `ifndef VERILATOR
 			else begin: genDSP
-				// C-port feedback shift register for TH>=2 on LAST DSP
-				logic [57:0]  c_input_dsp58;
-				if(!LAST || TH <= 1) begin : genNoCSR
-					assign c_input_dsp58 = '0;
-				end : genNoCSR
-				else begin : genCSR
-					// External shift register between P output and C input.
-					// ClearRing: TH-1 deep (parallels AccLine + CREG).
-					// AccLine: TH-2 deep (only exists for TH>2; TH=2 feeds pp directly).
-					(* SHREG_EXTRACT = "yes" *) logic  ClearRing[TH-1];
-					initial  foreach(ClearRing[m]) ClearRing[m] = 0;
-					if(TH == 2) begin : genTH2
-						always_ff @(posedge clk) begin
-							if(rst)      ClearRing[0] <= 0;
-							else if(en)  ClearRing[0] <= L[1];
-						end
-						assign c_input_dsp58 = ClearRing[0]? '0 : pp;
-					end : genTH2
-					else begin : genTHDeep
-						logic [57:0]  AccLine[TH-2];
-						initial  foreach(AccLine[m]) AccLine[m] = 0;
-						always_ff @(posedge clk) begin
-							if(rst) begin
-								foreach(AccLine[m])   AccLine[m] <= 0;
-								foreach(ClearRing[m]) ClearRing[m] <= 0;
-							end
-							else if(en) begin
-								AccLine[0] <= pp;
-								ClearRing[0] <= L[1];
-								for(int m = TH-3; m > 0; m--)  AccLine[m] <= AccLine[m-1];
-								for(int m = TH-2; m > 0; m--)  ClearRing[m] <= ClearRing[m-1];
-							end
-						end
-						assign c_input_dsp58 = ClearRing[TH-2]? '0 : AccLine[TH-3];
-					end : genTHDeep
-				end : genCSR
 				DSP58 #(
 					// Feature Control Attributes: Data Path Selection
 					.AMULTSEL("A"),                     // Selects A input to multiplier (A, AD)
@@ -402,16 +355,15 @@ module mvu_vvu_8sx9_dsp58 #(
 					.IS_ALUMODE_INVERTED(4'b0000),      // Optional inversion for ALUMODE
 					.IS_CARRYIN_INVERTED(1'b0),         // Optional inversion for CARRYIN
 					.IS_CLK_INVERTED(1'b0),             // Optional inversion for CLK
-					.IS_INMODE_INVERTED(5'b00000),      // Optional inversion for INMODE
+					.IS_INMODE_INVERTED(
+						INTERNAL_PREGS==2? 5'b00000 : 5'b10001
+					),                                  // Optional inversion for INMODE
 					.IS_NEGATE_INVERTED(3'b000),        // Optional inversion for NEGATE
 					.IS_OPMODE_INVERTED({
-							LAST && TH <= 1 ? 2'b01 :          // W: TH=1 LAST ? (L[1]?0:P) :
-							LAST && TH > 1 && !FIRST ? 2'b11 : // W: TH>=2 !FIRST LAST ? C (via ClearRing) :
-							                           2'b00,  // W: else 0
-							LAST && TH > 1 && FIRST ? 3'b011 : // Z: TH>=2 FIRST LAST ? C :
-							FIRST                   ? 3'b000 : 3'b001, // Z: FIRST ? 0 : PCIN
-							2'b01, // Y : M
-							2'b01  // X: M
+						!LAST? 2'b00 : TH <= 1? 2'b01 : 2'b11, // W: !LAST? 0 : clear? 0/RND : TH<=1? P : C
+						FIRST? 3'b000 : 3'b001,                // Z: FIRST? 0 : PCIN
+						2'b01, // Y: M
+						2'b01  // X: M
 					}), // Optional inversion for OPMODE
 					.IS_RSTALLCARRYIN_INVERTED(1'b0),   // Optional inversion for RSTALLCARRYIN
 					.IS_RSTALUMODE_INVERTED(1'b0),      // Optional inversion for RSTALUMODE
@@ -432,11 +384,11 @@ module mvu_vvu_8sx9_dsp58 #(
 					.BREG(INTERNAL_PREGS),              // Pipeline stages for B (0-2)
 					.CARRYINREG(0),                     // Pipeline stages for CARRYIN (0-1)
 					.CARRYINSELREG(0),                  // Pipeline stages for CARRYINSEL (0-1)
-					.CREG(LAST && TH > 1 ? 1 : 0),     // Pipeline stages for C (0-1)
+					.CREG(LAST && TH > 1),              // Pipeline stages for C (0-1)
 					.DREG(0),                           // Pipeline stages for D (0-1)
 					.INMODEREG(1),                      // Pipeline stages for INMODE (0-1)
 					.MREG(1),                           // Multiplier pipeline stages (0-1)
-					.OPMODEREG(LAST && TH > 1 ? 0 : 1), // Pipeline stages for OPMODE (0-1)
+					.OPMODEREG(LAST),                   // Pipeline stages for OPMODE (0-1)
 					.PREG(PREG),                        // Number of pipeline stages for P (0-1)
 					.RESET_MODE("SYNC")                 // Selection of synchronous or asynchronous reset. (ASYNC, SYNC).
 				)
@@ -461,39 +413,48 @@ module mvu_vvu_8sx9_dsp58 #(
 					.BCIN('x),                          // 24-bit input: B cascade
 					.CARRYCASCIN('x),                   // 1-bit input: Cascade carry
 					.MULTSIGNIN('x),                    // 1-bit input: Multiplier sign cascade
-					.PCIN(FIRST ? 'x : pcout[i][j-1]),  // 58-bit input: P cascade
+					.PCIN(FIRST? 'x : pcout[i][j-1]),   // 58-bit input: P cascade
 					// Control inputs: Control Inputs/Status Bits
 					.ALUMODE(4'h0),                     // 4-bit input: ALU control
 					.CARRYINSEL('0),                    // 3-bit input: Carry select
 					.CLK(clk),                          // 1-bit input: Clock
 					.INMODE({
-							INTERNAL_PREGS==2 ? 1'b0 : 1'b1,
-							2'b00,
-							inmode_zero[TOTAL_PREGS],
-							INTERNAL_PREGS==2 ? 1'b0 : 1'b1
+						2'b00,
+						inmode_zero[TOTAL_PREGS],
+						2'b00
 					}),                                 // 5-bit input: INMODE control
 					.NEGATE('0),                        // 3-bit input: Negates the input of the multiplier
 					.OPMODE({
-							LAST && TH <= 1 ? {1'b0, L[1]} : 2'b00,
-							7'b000_0000
+						1'b0, LAST? clear : 1'b0,
+						7'b000_0000
 					}), // 9-bit input: Operation mode
 					// Data inputs: Data Ports
-					.A({ 7'bx, a_in_i[(IS_MVU ? 0 : CHAINLEN*i) + j] }),            // 34-bit input: A data
-					.B(b_in_i[i][j]),                   // 24-bit input: B data
-					.C(LAST && TH > 1 ? c_input_dsp58 : '0), // 58-bit input: C data
+					.A(
+// synthesis translate_off
+						inmode_zero[TOTAL_PREGS > 0? TOTAL_PREGS-1 : 0]? '0 :
+// synthesis translate_on
+						{ 7'bx, a_in_i[(IS_MVU ? 0 : CHAINLEN*i) + j] }
+					),  // 34-bit input: A data
+					.B(
+// synthesis translate_off
+						inmode_zero[TOTAL_PREGS > 0? TOTAL_PREGS-1 : 0]? '0 :
+// synthesis translate_on
+						b_in_i[i][j]
+					),  // 24-bit input: B data
+					.C(cc),                             // 58-bit input: C data
 					.CARRYIN('0),                       // 1-bit input: Carry-in
 					.D('x),                             // 27-bit input: D data
 					// Reset/Clock Enable inputs: Reset/Clock Enable Inputs
 					.ASYNC_RST('0),                     // 1-bit input: Asynchronous reset for all registers.
 					.CEA1(en),                          // 1-bit input: Clock enable for 1st stage AREG
-					.CEA2(INTERNAL_PREGS==2 ? en : '0), // 1-bit input: Clock enable for 2nd stage AREG
+					.CEA2(INTERNAL_PREGS==2? en : '0),  // 1-bit input: Clock enable for 2nd stage AREG
 					.CEAD('0),                          // 1-bit input: Clock enable for ADREG
 					.CEALUMODE('0),                     // 1-bit input: Clock enable for ALUMODE
 					.CEB1(en),                          // 1-bit input: Clock enable for 1st stage BREG
-					.CEB2(INTERNAL_PREGS==2 ? en : '0), // 1-bit input: Clock enable for 2nd stage BREG
-					.CEC(LAST && TH > 1 ? en : 1'b0),  // 1-bit input: Clock enable for CREG
+					.CEB2(INTERNAL_PREGS==2? en : '0),  // 1-bit input: Clock enable for 2nd stage BREG
+					.CEC(LAST && TH > 1? en : '0),      // 1-bit input: Clock enable for CREG
 					.CECARRYIN('0),                     // 1-bit input: Clock enable for CARRYINREG
-					.CECTRL(LAST && TH > 1 ? 1'b0 : en), // 1-bit input: Clock enable for OPMODEREG and CARRYINSELREG
+					.CECTRL(LAST? en : '0),             // 1-bit input: Clock enable for OPMODEREG and CARRYINSELREG
 					.CED('0),                           // 1-bit input: Clock enable for DREG
 					.CEINMODE(en),                      // 1-bit input: Clock enable for INMODEREG
 					.CEM(en),                           // 1-bit input: Clock enable for MREG

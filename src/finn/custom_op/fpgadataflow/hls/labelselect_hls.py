@@ -105,13 +105,12 @@ class LabelSelect_hls(LabelSelect, HLSBackend):
         )
 
     def docompute(self):
+        # PE and the input/output element types are inferred from the stream
+        # types tensor<TI, PE> / tensor<TO, 1> declared by strm_decl/blackboxfunction
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """LabelSelect_Batch<{}, {}, {}, {}, {} > (in0_V, out0_V);""".format(
+            "LabelSelect_Batch<{}, {}>(in0_V, out0_V);".format(
                 self.get_nodeattr("Labels"),
-                self.get_nodeattr("PE"),
                 self.get_nodeattr("K"),
-                hls_datatype_str(self.get_input_datatype()),
-                hls_datatype_str(self.get_output_datatype()),
             )
         ]
 

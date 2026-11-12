@@ -97,6 +97,19 @@ class OuterShuffle_hls(OuterShuffle, HLSBackend):
             """
         ]
 
+    def ipgen_extra_directives(self):
+        """Bind the input_gen reorder buffer to the requested memory resource.
+
+        The buffer is a function-local static inside the finn-hlslib template, so
+        it is bound from the synthesis script rather than by a source pragma.
+        """
+        impl = {"block": "bram", "distributed": "lutram", "ultra": "uram"}.get(
+            self.get_nodeattr("ram_style")
+        )
+        if impl is None:
+            return []
+        return [f'set_directive_bind_storage -type ram_s2p -impl {impl} "input_gen" buf']
+
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             f"""

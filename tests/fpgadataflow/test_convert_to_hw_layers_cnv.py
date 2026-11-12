@@ -141,10 +141,12 @@ def _test_convert_to_hw_layers_cnv_w1a1(fused_activation, build_dir):
             inst.set_nodeattr("SIMD", simd)
     # check topology status
     finn_nodes = model.get_finn_nodes()
+    # Consolidated Pool absorbs its SWG, so 2 fewer SWG nodes vs. the old
+    # decomposed flow (6 conv SWGs remain, 2 pool SWGs are internal to Pool_hls).
     if fused_activation:
-        assert len(finn_nodes) == 20
+        assert len(finn_nodes) == 18
     else:
-        assert len(finn_nodes) == 28
+        assert len(finn_nodes) == 26
         thr_nodes = model.get_nodes_by_op_type("Thresholding_rtl")
         assert len(thr_nodes) == 9
     non_finn_nodes = model.get_non_finn_nodes()
@@ -154,7 +156,7 @@ def _test_convert_to_hw_layers_cnv_w1a1(fused_activation, build_dir):
     fc_nodes = model.get_nodes_by_op_type("MVAU_hls")
     assert len(fc_nodes) == 9
     swg_nodes = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")
-    assert len(swg_nodes) == 8
+    assert len(swg_nodes) == 6
     mp_nodes = model.get_nodes_by_op_type("Pool_hls")
     assert len(mp_nodes) == 2
     model = model.transform(MinimizeWeightBitWidth())
