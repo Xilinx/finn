@@ -1,4 +1,4 @@
-# Copyright Advanced Micro Devices, Inc.
+# Copyright (C) Advanced Micro Devices, Inc.
 # SPDX-License-Identifier: BSD-3-Clause
 
 import pytest
@@ -255,6 +255,43 @@ def test_loader_notices_are_not_quoted():
     )
     printed = f"{notice}\nERROR: [Common 17-69] Command failed: bad\n{notice}\n"
     assert ToolFailed.of("vivado", printed).errors == ("ERROR: [Common 17-69] Command failed: bad",)
+
+
+@pytest.mark.util
+@pytest.mark.parametrize(
+    "cause",
+    [
+        "/usr/bin/ld: cannot find -lmissing: No such file or directory",
+        "main.cpp:(.text+0x10): undefined reference to `missing_function'",
+    ],
+)
+def test_linker_failures_quote_the_cause_and_name_the_stderr_transcript(tmp_path, cause):
+    tool = make_tool(
+        tmp_path / "tools",
+        "g++",
+        "import sys\n"
+        + f"print({cause!r}, file=sys.stderr)\n"
+        + "print('collect2: error: ld returned 1 exit status', file=sys.stderr)\n"
+        + "raise SystemExit(1)\n",
+    )
+    with pytest.raises(ToolFailed) as failed:
+        run_tool([tool], transcript=tmp_path / "compile")
+    assert failed.value.errors[0] == cause
+    assert failed.value.transcript == tmp_path / "compile.stderr.log"
+    assert not (tmp_path / "compile.stdout.log").read_bytes()
+    assert cause in failed.value.transcript.read_text()
+
+
+@pytest.mark.util
+def test_tool_transcripts_preserve_raw_newlines(tmp_path):
+    out, err = b"a\r\nb\rc\n", b"e\r\n"
+    result = run_tool(
+        [sys.executable, "-c", f"import os; os.write(1, {out!r}); os.write(2, {err!r})"],
+        transcript=tmp_path / "raw",
+    )
+    assert (result.stdout, result.stderr) == (out, err)
+    assert (tmp_path / "raw.stdout.log").read_bytes() == out
+    assert (tmp_path / "raw.stderr.log").read_bytes() == err
 
 
 @pytest.mark.util

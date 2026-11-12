@@ -16,12 +16,8 @@ from finn_xsi.sim_engine import SimEngine
 from finn_xsi.srcutil import order_pkg_first
 from typing import Optional
 
-from finn.util.basic import (
-    get_rtlsim_timeout_error_message,
-    launch_process_helper,
-    resolve_xilinx_tool,
-)
-from finn.util.launcher import ToolUnavailable
+from finn.util.basic import get_rtlsim_timeout_error_message
+from finn.util.launcher import ToolUnavailable, run_tool
 
 
 def locate_glbl() -> Optional[str]:
@@ -93,7 +89,7 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False, beha
     ]
 
     cmd_xelab = [
-        resolve_xilinx_tool("xelab"),
+        "xelab",
         "work." + top_module_name,
         "-relax",
         "-prj",
@@ -123,8 +119,12 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False, beha
     if locate_glbl() is not None:
         cmd_xelab.insert(1, "work.glbl")
 
-    # check=True so an xelab failure is raised here, not later as a missing xsimk.so
-    launch_process_helper(cmd_xelab, cwd=sim_out_dir, check=True)
+    run_tool(
+        cmd_xelab,
+        cwd=sim_out_dir,
+        replay=os.path.join(sim_out_dir, "compile_xelab.sh"),
+        log_output=True,
+    )
     out_so_relative_path = "xsim.dir/%s/xsimk.so" % top_module_name
     out_so_full_path = sim_out_dir + "/" + out_so_relative_path
 

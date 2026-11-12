@@ -36,18 +36,18 @@ import qonnx
 import qonnx.util.basic
 import shlex
 import shutil
-import subprocess
 import warnings
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.util.basic import get_by_name, roundup_to_integer_multiple
 from string import Template
-from typing import Dict, Tuple
+from typing import Dict, Optional, Sequence, Tuple, Union
 
 import finn.util
 from finn.util.basic import get_driver_shapes, make_build_dir
 from finn.util.data_packing import to_external_tensor
+from finn.util.launcher import ToolFailed, run_tool
 from finn.util.rtlsim import dat_file_to_numpy_array
 
 from . import template_driver
@@ -144,6 +144,7 @@ class MakeCPPDriver(Transformation):
             "slash-vrt",
         ], "CPP driver only supports Vitis/XRT and SLASH/VRT devices, use PYNQ driver instead."
         self.version = version
+        self.command_log_dir: Optional[str] = None
 
         # Define variables for the repository URL and commit hash
         if self.platform == "vitis-xrt":
@@ -157,16 +158,31 @@ class MakeCPPDriver(Transformation):
             self.commit_hash = version
 
     # Get the base C++ driver repo
-    def _run_command(self, command, cwd=None, debug=False):
+    def _run_command(
+        self,
+        command: Union[str, Sequence[str]],
+        cwd: Optional[str] = None,
+        debug: bool = False,
+    ) -> None:
+        """Run a driver-generation utility, keeping separate transcripts per operation."""
+        argv = shlex.split(command) if isinstance(command, str) else list(command)
+        if not argv:
+            raise ValueError("Empty command")
+        stem = os.path.basename(argv[0])
+        replay_dir = cwd or os.getcwd()
+        if stem == "git":
+            if self.command_log_dir is None:
+                self.command_log_dir = make_build_dir(prefix="cpp_driver_logs_")
+            replay_dir = self.command_log_dir
+            if len(argv) > 1:
+                stem += "-" + argv[1]
         try:
-            result = subprocess.run(
-                shlex.split(command), cwd=cwd, check=True, text=True, capture_output=True
-            )
+            result = run_tool(argv, cwd=cwd, replay=os.path.join(replay_dir, stem + ".sh"))
             if debug:
-                log.debug(result.stdout)
-        except subprocess.CalledProcessError as e:
-            log.error(f"Error running command: {command}\nOutput: {e.stdout}\nError: {e.stderr}")
-            raise e
+                log.debug(result.stdout.decode("utf-8", errors="replace"))
+        except ToolFailed as exc:
+            log.error(str(exc))
+            raise
 
     def _build_vitis_config(self, model: ModelWrapper):
         """
@@ -177,13 +193,15 @@ class MakeCPPDriver(Transformation):
 
         # Path of the xclbin in the finn compiler project
         # Get kernel names using xclbinutil
-        if shutil.which("xclbinutil") is None:
-            raise RuntimeError(
-                "xclbinutil not in PATH or not installed.\
-                Required to read kernel names for driver config!"
-            )
         self._run_command(
-            f"xclbinutil -i {bitfile_path} --dump-section IP_LAYOUT:JSON:ip_layout.json --force",
+            [
+                "xclbinutil",
+                "-i",
+                bitfile_path,
+                "--dump-section",
+                "IP_LAYOUT:JSON:ip_layout.json",
+                "--force",
+            ],
             cwd=os.path.dirname(bitfile_path),
         )
         ips = None
@@ -214,7 +232,7 @@ class MakeCPPDriver(Transformation):
                     "kernelName": [
                         formatKernelName(name)
                         for name in idmas
-                        if driver_shapes["idma_names"][i] in name
+                        if driver_shapes["idma_names"][i] == name.rsplit(":", 1)[-1]
                     ][0],
                     "normalShape": driver_shapes["ishape_normal"][i],
                     "foldedShape": driver_shapes["ishape_folded"][i],
@@ -227,7 +245,7 @@ class MakeCPPDriver(Transformation):
                     "kernelName": [
                         formatKernelName(name)
                         for name in odmas
-                        if driver_shapes["odma_names"][i] in name
+                        if driver_shapes["odma_names"][i] == name.rsplit(":", 1)[-1]
                     ][0],
                     "normalShape": driver_shapes["oshape_normal"][i],
                     "foldedShape": driver_shapes["oshape_folded"][i],
@@ -300,15 +318,25 @@ class MakeCPPDriver(Transformation):
         # create a temporary folder for the generated driver
         cpp_driver_dir = make_build_dir(prefix="cpp_driver_")
         model.set_metadata_prop("cpp_driver_dir", cpp_driver_dir)
+        # Diagnostics contain build-host paths; keep them outside the driver
+        # tree copied into the deployment package.
+        self.command_log_dir = make_build_dir(prefix="cpp_driver_logs_")
+        model.set_metadata_prop("cpp_driver_log_dir", self.command_log_dir)
         json_path = os.path.join(cpp_driver_dir, "acceleratorconfig.json")
         header_path = os.path.join(cpp_driver_dir, "AcceleratorDatatypes.h")
 
         # Step-by-step equivalent of the provided bash script
-        self._run_command("git init", cwd=cpp_driver_dir)
-        self._run_command(f"git remote add origin {self.repository_url}", cwd=cpp_driver_dir)
-        self._run_command(f"git fetch origin {self.commit_hash} --depth=1", cwd=cpp_driver_dir)
-        self._run_command("git checkout FETCH_HEAD", cwd=cpp_driver_dir)
-        self._run_command("git submodule update --init --recursive", cwd=cpp_driver_dir)
+        self._run_command(["git", "init"], cwd=cpp_driver_dir)
+        self._run_command(
+            ["git", "remote", "add", "origin", self.repository_url], cwd=cpp_driver_dir
+        )
+        self._run_command(
+            ["git", "fetch", "origin", self.commit_hash, "--depth=1"], cwd=cpp_driver_dir
+        )
+        self._run_command(["git", "checkout", "FETCH_HEAD"], cwd=cpp_driver_dir)
+        self._run_command(
+            ["git", "submodule", "update", "--init", "--recursive"], cwd=cpp_driver_dir
+        )
 
         # * Writing the header file
         inputDatatype: str = MakeCPPDriver.resolve_dt_name(

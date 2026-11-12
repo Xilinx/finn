@@ -37,10 +37,10 @@ from finn.util.basic import (
     get_rtlsim_timeout_error_message,
     get_vivado_root,
     get_watchdog_timeout_cycles,
-    launch_process_helper,
     make_build_dir,
 )
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from finn.util.launcher import run_tool
 from finn.util.rtlsim import dat_file_to_numpy_array, mlo_prehook_func_factory
 
 finnxsi = xsi if xsi.is_available() else None
@@ -316,25 +316,23 @@ def rtlsim_exec_cppxsi(
         "-ldl",
         "-lrt",
     ]
-    # write compilation command to a file for easy re-running/debugging
-    with open(sim_base + "/compile_rtlsim.sh", "w") as f:
-        f.write(" ".join(build_cmd))
-    launch_process_helper(build_cmd, cwd=sim_base)
+    run_tool(
+        build_cmd,
+        cwd=sim_base,
+        replay=sim_base + "/compile_rtlsim.sh",
+        log_output=True,
+    )
     assert os.path.isfile(sim_base + "/rtlsim_xsi"), "Failed to compile rtlsim executable"
 
     # launch the rtlsim executable
     # important to specify LD_LIBRARY_PATH here for XSI to work correctly
-    runsim_env = os.environ.copy()
-    runsim_env["LD_LIBRARY_PATH"] = get_vivado_root() + "/lib/lnx64.o"
-    runsim_cmd = ["bash", "run_rtlsim.sh"]
-    with open(sim_base + "/run_rtlsim.sh", "w") as f:
-        ld_path = runsim_env["LD_LIBRARY_PATH"]
-        f.write(
-            f"LD_LIBRARY_PATH={ld_path}"
-            " ./rtlsim_xsi > rtlsim_xsi_log.txt"
-            " 2> rtlsim_xsi_stderr.log"
-        )
-    launch_process_helper(runsim_cmd, cwd=sim_base)
+    run_tool(
+        ["./rtlsim_xsi"],
+        cwd=sim_base,
+        env_overrides={"LD_LIBRARY_PATH": get_vivado_root() + "/lib/lnx64.o"},
+        replay=sim_base + "/run_rtlsim.sh",
+        transcript=sim_base + "/rtlsim_xsi",
+    )
 
     # parse results file and return dict
     results_filename = sim_base + "/results.txt"
