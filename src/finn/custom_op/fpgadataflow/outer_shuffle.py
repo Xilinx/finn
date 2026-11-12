@@ -7,6 +7,7 @@
 # @author       Shane T. Fleming <shane.fleming@amd.com>
 ############################################################################
 
+import math
 import numpy as np
 import warnings
 from qonnx.core.datatype import DataType
