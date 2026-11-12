@@ -15,37 +15,31 @@
   "MVAU_1": {
     "preferred_impl_style": "hls"
   },
-  "ConvolutionInputGenerator_2": {
-    "preferred_impl_style": "rtl"
-  },
   "Pool_0": {
     "preferred_impl_style": "hls"
   },
-  "ConvolutionInputGenerator_3": {
+  "ConvolutionInputGenerator_2": {
     "preferred_impl_style": "rtl"
   },
   "MVAU_2": {
     "preferred_impl_style": "hls"
   },
-  "ConvolutionInputGenerator_4": {
+  "ConvolutionInputGenerator_3": {
     "preferred_impl_style": "rtl"
   },
   "MVAU_3": {
     "preferred_impl_style": "hls"
   },
-  "ConvolutionInputGenerator_5": {
-    "preferred_impl_style": "rtl"
-  },
   "Pool_1": {
     "preferred_impl_style": "hls"
   },
-  "ConvolutionInputGenerator_6": {
+  "ConvolutionInputGenerator_4": {
     "preferred_impl_style": "rtl"
   },
   "MVAU_4": {
     "preferred_impl_style": "hls"
   },
-  "ConvolutionInputGenerator_7": {
+  "ConvolutionInputGenerator_5": {
     "preferred_impl_style": "rtl"
   },
   "MVAU_5": {

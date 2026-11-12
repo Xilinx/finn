@@ -57,6 +57,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.util.basic import get_vivado_version, make_build_dir, robust_rmtree
+from finn.util.test import tree_model_test
 
 
 def make_lookup_model(embeddings, ishape, idt, edt, build_dir):
@@ -237,3 +238,35 @@ def _test_fpgadataflow_lookup_external(build_dir):
     assert ifnames["s_axis"] == [["s_axis_0", 32]]
     assert ifnames["m_axis"] == [["m_axis_0", 32]]
     assert ifnames["axilite"] == ["s_axi_control_0"]
+
+
+# The Lookup_hls tree model is a pass-through (one index in, one embedding word
+# out per cycle) for internal_embedded; external declines to rtlsim.
+@pytest.mark.parametrize(
+    "embedding_cfg", [(130, DataType["UINT8"], 25), (5145, DataType["UINT16"], 20)]
+)
+@pytest.mark.parametrize("ishape", [(1, 10), (1, 64)])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_lookup(embedding_cfg, ishape):
+    build_dir = make_build_dir(prefix="test_fpgadataflow_lookup_tav_")
+    try:
+        num_embeddings, idt, embedding_dim = embedding_cfg
+        edt = DataType["FIXED<8,2>"]
+        embeddings = gen_finn_dt_tensor(edt, (num_embeddings, embedding_dim))
+        model = make_lookup_model(embeddings, ishape, idt, edt, build_dir)
+        model = model.transform(InferLookupLayer())
+        part = "xczu3eg-sbva484-1-e"
+        model = model.transform(SpecializeLayers(part))
+        assert model.graph.node[0].op_type == "Lookup_hls"
+        assert getCustomOp(model.graph.node[0]).get_nodeattr("mem_mode") == "internal_embedded"
+
+        node_details = ("Lookup", embedding_cfg, ishape)
+        # a pass-through: the same budget as the elementwise operations
+        assert tree_model_test(
+            model, node_details, part, 10, 0.02, 0.05, 5, 20
+        ), "characterized TAV does not match RTLsim'd one!"
+    finally:
+        robust_rmtree(build_dir)

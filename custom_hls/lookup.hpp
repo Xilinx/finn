@@ -33,28 +33,24 @@
 #include <ap_int.h>
 #include <hls_stream.h>
 
+#include "tensor.hpp"
 #include "utils.hpp"
 
 
 template <
     unsigned NumEmbeddings,
     unsigned EmbeddingDim,
-    unsigned NumInputs,
     typename InputType,
-    typename EmbeddingType,
-    typename InputPackedType = ap_uint<InputType::width>,
-    typename OutputPackedType = ap_uint<EmbeddingDim*EmbeddingType::width>>
+    typename EmbeddingType>
 void StreamingLookup(
-    hls::stream<InputPackedType> &in,
-    hls::stream<OutputPackedType> &out,
-    OutputPackedType const embeddings[NumEmbeddings]
+    hls::stream<tensor<InputType, 1>> &in,
+    hls::stream<tensor<EmbeddingType, EmbeddingDim>> &out,
+    tensor<EmbeddingType, EmbeddingDim> const embeddings[NumEmbeddings]
 ) {
-    for(unsigned i = 0; i < NumInputs; i++) {
-#pragma HLS PIPELINE II=1
-        InputPackedType inPackedElem = in.read();
-        InputType inElem = *(reinterpret_cast<InputType*>(&inPackedElem));
-        OutputPackedType outElem = embeddings[inElem];
-        out.write(outElem);
+#pragma HLS pipeline II=1 style=flp
+    if(!in.empty()) {
+        auto const  inElem = in.read();
+        out.write(embeddings[InputType(inElem[0])]);
     }
 }
 

@@ -23,14 +23,10 @@
     "ram_style": "auto",
     "resType": "lut"
   },
-  "ConvolutionInputGenerator_rtl_2": {
-    "SIMD": 16,
-    "ram_style": "distributed"
-  },
   "Pool_hls_0": {
     "PE": 16
   },
-  "ConvolutionInputGenerator_rtl_3": {
+  "ConvolutionInputGenerator_rtl_2": {
     "SIMD": 32,
     "ram_style": "distributed"
   },
@@ -40,7 +36,7 @@
     "ram_style": "auto",
     "resType": "lut"
   },
-  "ConvolutionInputGenerator_rtl_4": {
+  "ConvolutionInputGenerator_rtl_3": {
     "SIMD": 32,
     "ram_style": "distributed"
   },
@@ -50,14 +46,10 @@
     "ram_style": "auto",
     "resType": "lut"
   },
-  "ConvolutionInputGenerator_rtl_5": {
-    "SIMD": 4,
-    "ram_style": "distributed"
-  },
   "Pool_hls_1": {
     "PE": 4
   },
-  "ConvolutionInputGenerator_rtl_6": {
+  "ConvolutionInputGenerator_rtl_4": {
     "SIMD": 4,
     "ram_style": "distributed"
   },
@@ -67,7 +59,7 @@
     "ram_style": "auto",
     "resType": "lut"
   },
-  "ConvolutionInputGenerator_rtl_7": {
+  "ConvolutionInputGenerator_rtl_5": {
     "SIMD": 1,
     "ram_style": "distributed"
   },

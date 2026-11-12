@@ -243,9 +243,6 @@
   "Thresholding_26": {
     "preferred_impl_style": "rtl"
   },
-  "ConvolutionInputGenerator_14": {
-    "preferred_impl_style": "rtl"
-  },
   "Pool_0": {
     "preferred_impl_style": "hls"
   },

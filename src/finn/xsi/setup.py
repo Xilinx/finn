@@ -122,10 +122,19 @@ def build_xsi(force: bool = False, verbose: bool = True) -> bool:
         print(f"Error: finn_xsi source not found at {xsi_path}")
         return False
 
+    # Source files
+    source_files = ["xsi_bind.cpp", "xsi_finn.cpp"]
+
     # Check if already built
     if not force:
         xsi_so = xsi_path / "xsi.so"
-        if xsi_so.exists():
+        # Rebuild if any C++ source or header is newer than xsi.so
+        so_mtime = xsi_so.stat().st_mtime if xsi_so.exists() else None
+        deps = list(xsi_path.glob("*.hpp")) + [xsi_path / f for f in source_files]
+        if so_mtime is not None and any(f.stat().st_mtime > so_mtime for f in deps):
+            if verbose:
+                print("xsi.so is older than its sources, rebuilding...")
+        elif so_mtime is not None:
             # Try importing to see if it works
             sys.path.insert(0, str(xsi_path))
             try:
@@ -146,9 +155,6 @@ def build_xsi(force: bool = False, verbose: bool = True) -> bool:
 
     # Get build configuration
     include_dirs, compiler, compile_args = get_build_paths()
-
-    # Source files
-    source_files = ["xsi_bind.cpp", "xsi_finn.cpp"]
 
     # Build command
     cmd = [compiler] + compile_args

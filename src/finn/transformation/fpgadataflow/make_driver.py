@@ -481,12 +481,10 @@ class MakePYNQDriver(Transformation):
                     dma_sdp_output = sdp_inst.onnx_node.output[0]
                     dma_target_sdp = getCustomOp(model.find_consumer(dma_sdp_output))
                     dma_target_model = ModelWrapper(dma_target_sdp.get_nodeattr("model"))
-                    iodma_output_tensor = iodma_node.onnx_node.output[0]
-                    dma_consumer = dma_target_model.find_consumer(iodma_output_tensor)
-                    # The driver repeats the weights once per output pixel of the
-                    # layer they feed, so the shape must be that layer's output. A
-                    # FIFO or DWC inserted on the weight stream would report the
-                    # weight shape, and a conv layer would stall after one pixel.
+                    # follow the partition output, as a DWC may sit after the IODMA
+                    dma_consumer = dma_target_model.find_consumer(df_model.graph.output[0].name)
+                    # skip FIFOs/DWCs: the driver repeats the weights once per output
+                    # pixel, so it needs the output shape of the consuming layer
                     while dma_consumer.op_type.startswith(
                         ("StreamingFIFO", "StreamingDataWidthConverter")
                     ):

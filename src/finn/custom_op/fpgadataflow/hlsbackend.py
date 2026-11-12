@@ -38,7 +38,11 @@ from qonnx.core.datatype import DataType
 from finn import xsi
 from finn.custom_op.fpgadataflow import templates
 from finn.util.basic import CppBuilder, make_build_dir
-from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from finn.util.data_packing import (
+    hls_datatype_str,
+    npy_to_rtlsim_input,
+    rtlsim_output_to_npy,
+)
 from finn.util.hls import CallHLS
 
 finnxsi = xsi if xsi.is_available() else None
@@ -55,10 +59,6 @@ class HLSBackend(ABC):
             "code_gen_dir_cppsim": ("s", False, ""),
             "executable_path": ("s", False, ""),
             "res_hls": ("s", False, ""),
-            # temporary node attribute to keep track of interface style of hls ops
-            "cpp_interface": ("s", False, "packed", {"packed", "hls_vector"}),
-            # temporary node attribute to keep track of execution style of hls ops
-            "hls_style": ("s", False, "ifm_aware", {"ifm_aware", "freerunning"}),
         }
 
     def find_subcore_path(self):
@@ -225,13 +225,10 @@ class HLSBackend(ABC):
         self.dataoutstrm()
         self.save_as_npy()
 
-        if self.get_nodeattr("hls_style") == "freerunning":
-            self.timeout_value()
-            self.timeout_condition()
-            self.timeout_read_stream()
-            template = templates.docompute_template_timeout
-        else:
-            template = templates.docompute_template
+        self.timeout_value()
+        self.timeout_condition()
+        self.timeout_read_stream()
+        template = templates.docompute_template_timeout
 
         for key in self.code_gen_dict:
             # transform list into long string separated by '\n'
@@ -253,14 +250,15 @@ class HLSBackend(ABC):
         """Builds the bash script for compilation using the CppBuilder from
         finn.util.basic and executes the script to produce the executable."""
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        vivado_path = os.environ.get("XILINX_VIVADO")
-        # xsi kernel lib name depends on Vivado version (renamed in 2024.2)
+        # Determine HLS include path — prefer VITIS_PATH (2024.2+), fall back to HLS_PATH
+        vivado_path = os.environ.get("XILINX_VIVADO", "")
         match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
-        year, minor = int(match.group(1)), int(match.group(2))
-        if (year, minor) < (2024, 2):
+        if match and (int(match.group(1)), int(match.group(2))) < (2024, 2):
             hls_path = os.environ["HLS_PATH"]
-        else:
+        elif "VITIS_PATH" in os.environ:
             hls_path = os.environ["VITIS_PATH"]
+        else:
+            hls_path = os.environ["HLS_PATH"]
         builder = CppBuilder()
         # to enable additional debug features please uncommand the next line
         # builder.append_includes("-DDEBUG")
@@ -343,11 +341,6 @@ compilation transformations?
                 inp_val = inp_val.astype(np.float32)
             assert inp_val.shape == exp_ishape, "Input shape doesn't match expected shape."
             export_idt = self.get_input_datatype(i)
-
-            if export_idt == DataType["BIPOLAR"]:
-                # store bipolar activations as binary
-                inp_val = (inp_val + 1) / 2
-                export_idt = DataType["BINARY"]
 
             reshaped_input = self.fold_input_for_npy(inp_val, i)
             reshaped_input = reshaped_input.copy()
@@ -438,106 +431,50 @@ compilation transformations?
         might need to be overwritten depending on custom op."""
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         self.code_gen_dict["$READNPYDATA$"] = []
-        cpp_interface = self.get_nodeattr("cpp_interface")
 
         for i, inp in enumerate(self.onnx_node.input):
-            iwidth = self.get_instream_width(i)
             # if the stream is not exposed, it has 0 width and no npy file will be created
-            if iwidth == 0:
+            if not self.get_instream_width(i):
                 continue
-
             dtype = self.get_input_datatype(i)
-            if dtype == DataType["BIPOLAR"]:
-                # use binary for bipolar storage
-                dtype = DataType["BINARY"]
-            elem_hls_type = dtype.get_hls_datatype_str()
-            npy_type = "half" if elem_hls_type == "half" else "float"
+            npy_type = "half" if hls_datatype_str(dtype) == "half" else "float"
             npy_in = "%s/input_%s.npy" % (code_gen_dir, i)
-            if cpp_interface == "packed":
-                packed_bits = iwidth
-                packed_hls_type = "ap_uint<%d>" % packed_bits
-                self.code_gen_dict["$READNPYDATA$"].append(
-                    'npy2apintstream<%s, %s, %s>("%s", in%s_V);'
-                    % (
-                        packed_hls_type,
-                        elem_hls_type,
-                        npy_type,
-                        npy_in,
-                        i,
-                    )
-                )
-            else:
-                folded_shape = self.get_folded_input_shape()
-                self.code_gen_dict["$READNPYDATA$"].append(
-                    'npy2vectorstream<%s, %s, %d>("%s", in%s_V, false);'
-                    % (
-                        elem_hls_type,
-                        npy_type,
-                        folded_shape[-1],
-                        npy_in,
-                        i,
-                    )
-                )
+            self.code_gen_dict["$READNPYDATA$"].append(
+                'npy2tensorstream<%s>("%s", in%s_V);' % (npy_type, npy_in, i)
+            )
 
     def strm_decl(self):
         """Function to generate the commands for the stream declaration in c++,
         is member function of HLSBackend class but might need to be filled
         by node."""
         node = self.onnx_node
-        cpp_interface = self.get_nodeattr("cpp_interface")
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
-        if cpp_interface == "packed":
-            for i, inp in enumerate(node.input):
-                if self.get_instream_width(i):
-                    self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-                        'hls::stream<ap_uint<{}>> in{}_V ("in{}_V");'.format(
-                            self.get_instream_width(i), i, i
-                        )
+        for i, inp in enumerate(node.input):
+            if self.get_instream_width(i):
+                dtype = self.get_input_datatype(i)
+                elem_hls_type = hls_datatype_str(dtype)
+                n_elems = self.get_folded_input_shape(i)[-1]
+                self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+                    'hls::stream<tensor<{},{}>> in{}_V ("in{}_V");'.format(
+                        elem_hls_type, n_elems, i, i
                     )
-            for o, outp in enumerate(node.output):
-                if self.get_outstream_width(o):
-                    self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-                        'hls::stream<ap_uint<{}>> out{}_V ("out{}_V");'.format(
-                            self.get_outstream_width(o), o, o
-                        )
+                )
+        for o, outp in enumerate(node.output):
+            if self.get_outstream_width(o):
+                dtype = self.get_output_datatype(o)
+                elem_hls_type = hls_datatype_str(dtype)
+                n_elems = self.get_folded_output_shape(o)[-1]
+                self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+                    'hls::stream<tensor<{},{}>> out{}_V ("out{}_V");'.format(
+                        elem_hls_type, n_elems, o, o
                     )
-        else:
-            for i, inp in enumerate(node.input):
-                if self.get_instream_width(i):
-                    dtype = self.get_input_datatype(i)
-                    if dtype == DataType["BIPOLAR"]:
-                        # use binary for bipolar storage
-                        dtype = DataType["BINARY"]
-                    elem_input_hls_type = dtype.get_hls_datatype_str()
-
-                    self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-                        'hls::stream<hls::vector<{},{}>> in{}_V ("in{}_V");'.format(
-                            elem_input_hls_type, self.get_folded_input_shape(i)[-1], i, i
-                        )
+                )
+                # buffer stream for freerunning timeout template
+                self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+                    'hls::stream<tensor<{},{}>> strm{} ("strm{}");'.format(
+                        elem_hls_type, n_elems, o, o
                     )
-
-            for o, outp in enumerate(node.output):
-                if self.get_outstream_width(o):
-                    dtype = self.get_output_datatype(o)
-                    if dtype == DataType["BIPOLAR"]:
-                        # use binary for bipolar storage
-                        dtype = DataType["BINARY"]
-                    elem_output_hls_type = dtype.get_hls_datatype_str()
-
-                    self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-                        'hls::stream<hls::vector<{},{}>> out{}_V ("out{}_V");'.format(
-                            elem_output_hls_type, self.get_folded_output_shape(o)[-1], o, o
-                        )
-                    )
-
-            if self.get_nodeattr("hls_style") == "freerunning":
-                for o, outp in enumerate(node.output):
-                    if self.get_outstream_width(o):
-                        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-                            'hls::stream<hls::vector<{},{}>> strm{} ("strm{}");'.format(
-                                elem_output_hls_type, self.get_folded_output_shape(o)[-1], o, o
-                            )
-                        )
+                )
 
     @abstractmethod
     def docompute(self):
@@ -555,48 +492,15 @@ compilation transformations?
 
         for o, outp in enumerate(self.onnx_node.output):
             dtype = self.get_output_datatype(o)
-            if dtype == DataType["BIPOLAR"]:
-                # use binary for bipolar storage
-                dtype = DataType["BINARY"]
-            elem_hls_type = dtype.get_hls_datatype_str()
+            elem_hls_type = hls_datatype_str(dtype)
             npy_type = "half" if elem_hls_type == "half" else "float"
             npy_out = "%s/output_%s.npy" % (code_gen_dir, o)
             oshape = self.get_folded_output_shape(o)
             oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
 
-            cpp_interface = self.get_nodeattr("cpp_interface")
-
-            if cpp_interface == "packed":
-                packed_bits = self.get_outstream_width(o)
-                packed_hls_type = "ap_uint<%d>" % packed_bits
-
-                self.code_gen_dict["$DATAOUTSTREAM$"].append(
-                    'apintstream2npy<%s, %s, %s>(out%s_V, %s, "%s");'
-                    % (
-                        packed_hls_type,
-                        elem_hls_type,
-                        npy_type,
-                        o,
-                        oshape_cpp_str,
-                        npy_out,
-                    )
-                )
-            else:
-                folded_shape = self.get_folded_output_shape(o)
-                out_vector = (
-                    f"strm{o}" if self.get_nodeattr("hls_style") == "freerunning" else f"out{o}_V"
-                )
-                self.code_gen_dict["$DATAOUTSTREAM$"].append(
-                    'vectorstream2npy<%s, %s, %d>(%s, %s, "%s");'
-                    % (
-                        elem_hls_type,
-                        npy_type,
-                        folded_shape[-1],
-                        out_vector,
-                        oshape_cpp_str,
-                        npy_out,
-                    )
-                )
+            self.code_gen_dict["$DATAOUTSTREAM$"].append(
+                'tensorstream2npy<%s>(strm%s, %s, "%s");' % (npy_type, o, oshape_cpp_str, npy_out)
+            )
 
     def save_as_npy(self):
         """Function to generate the commands for saving data in .npy file in c++"""
@@ -615,6 +519,7 @@ compilation transformations?
         self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0_V"]
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out0_V")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS DATAFLOW disable_start_propagation")
 
     def get_ap_int_max_w(self):
         """Return the maximum width of any ap_int used in this module. Used to set the

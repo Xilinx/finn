@@ -162,9 +162,6 @@
     "MVAU_13": {
       "preferred_impl_style": "hls"
     },
-    "ConvolutionInputGenerator_14": {
-      "preferred_impl_style": "rtl"
-    },
     "Pool_0": {
       "preferred_impl_style": "hls"
     },

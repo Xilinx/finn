@@ -37,6 +37,21 @@ from finn.transformation.general import ApplyConfig
 from finn.util.basic import make_build_dir
 
 
+def get_attached_iodma(model, node):
+    """Return the IODMA node that a DWC inserted by InsertIODMA is attached to,
+    i.e. the IODMA directly producing or consuming the DWC's stream. Returns
+    None for all other nodes."""
+    if not node.op_type.startswith("StreamingDataWidthConverter"):
+        return None
+    producer = model.find_producer(node.input[0])
+    if producer is not None and producer.op_type == "IODMA_hls":
+        return producer
+    consumer = model.find_consumer(node.output[0])
+    if consumer is not None and consumer.op_type == "IODMA_hls":
+        return consumer
+    return None
+
+
 class Floorplan(Transformation):
     """Perform Floorplanning of the dataflow design:
 
@@ -45,8 +60,10 @@ class Floorplan(Transformation):
                the ApplyConfig transform.
 
     The transform applies the properties in the supplied JSON then:
-    -Separates DMAs into their own partitions IDs,
+    -Separates DMAs into their own partitions IDs, together with the DWCs
+     attached to them by InsertIODMA,
     -If not explicitly assigned, assigns DWCs to SLRs to minimize SLLs required
+     (DWCs attached to a DMA follow the SLR of the DMA)
     -If not explicitly assigned, assigns FIFOs to the SLR of the upstream node
 
     """
@@ -85,6 +102,12 @@ class Floorplan(Transformation):
                 # if we have SLR assignment already. use that
                 if node_slr != -1:
                     continue
+                # DWCs attached to a DMA share its partition, hence its SLR
+                dma = get_attached_iodma(model, node)
+                if dma is not None:
+                    dma_slr = getCustomOp(dma).get_nodeattr("slr")
+                    node_inst.set_nodeattr("slr", default_slr if dma_slr == -1 else dma_slr)
+                    continue
                 # optimize for possible SLR crossing
                 in_width = node_inst.get_nodeattr("inWidth")
                 out_width = node_inst.get_nodeattr("outWidth")
@@ -120,12 +143,21 @@ class Floorplan(Transformation):
             filter(lambda x: get_by_name(x.attribute, "backend") is not None, all_nodes)
         )
         dma_nodes = list(filter(lambda x: x.op_type == "IODMA_hls", df_nodes))
-        non_dma_nodes = list(filter(lambda x: x not in dma_nodes, df_nodes))
+        dma_dwc_nodes = list(filter(lambda x: get_attached_iodma(model, x) is not None, df_nodes))
+        non_dma_nodes = list(
+            filter(lambda x: x not in dma_nodes and x not in dma_dwc_nodes, df_nodes)
+        )
 
         for node in dma_nodes:
             node_inst = getCustomOp(node)
             node_inst.set_nodeattr("partition_id", partition_cnt)
             partition_cnt += 1
+
+        # DWCs attached to a DMA go into the partition of that DMA, so that
+        # compute partitions start and end with compute nodes
+        for node in dma_dwc_nodes:
+            dma_inst = getCustomOp(get_attached_iodma(model, node))
+            getCustomOp(node).set_nodeattr("partition_id", dma_inst.get_nodeattr("partition_id"))
 
         for node in non_dma_nodes:
             pre_node = model.find_producer(node.input[0])
@@ -151,7 +183,9 @@ class Floorplan(Transformation):
                 pre_slr = pre_inst.get_nodeattr("slr")
                 if node_slr == pre_slr:
                     axilite_intf_name = pre_inst.get_verilog_top_module_intf_names()["axilite"]
-                    if len(axilite_intf_name) != 0:
+                    # a DWC attached to a DMA belongs to the DMA partition, so treat
+                    # it like the DMA itself (which has an AXI-lite interface)
+                    if len(axilite_intf_name) != 0 or pre_node in dma_dwc_nodes:
                         node_inst.set_nodeattr("partition_id", partition_cnt)
                         partition_cnt += 1
                     else:

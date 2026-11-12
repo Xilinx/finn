@@ -120,17 +120,13 @@ Coding Standards
 ================
 
 FINN follows specific coding conventions for Python, HLS/C++, and SystemVerilog code.
-Please refer to the style guides in the repository root for detailed guidelines:
+Please refer to the coding rules in the `rules/ <https://github.com/Xilinx/finn/blob/dev/rules>`_ directory of the repository:
 
-* `PYTHON_STYLE_GUIDE.md <https://github.com/Xilinx/finn/blob/dev/PYTHON_STYLE_GUIDE.md>`_
-
-  - Python naming conventions, docstrings, type hints, and error handling
-  - FINN-specific patterns: CustomOps, transformations, node attributes, testing
-
-* `HDL_STYLE_GUIDE.md <https://github.com/Xilinx/finn/blob/dev/HDL_STYLE_GUIDE.md>`_
-
-  - HLS/C++ template parameters, function naming, and pragma usage
-  - SystemVerilog module structure, signal naming, and design patterns
+* `style_common.md <https://github.com/Xilinx/finn/blob/dev/rules/style_common.md>`_: file headers and licenses, comments, domain abbreviations
+* `style_python.md <https://github.com/Xilinx/finn/blob/dev/rules/style_python.md>`_: Python formatting, naming, docstrings, type hints, and errors
+* `patterns_finn.md <https://github.com/Xilinx/finn/blob/dev/rules/patterns_finn.md>`_: FINN-specific patterns: custom ops, transformations, node attributes, testing
+* `style_cpp.md <https://github.com/Xilinx/finn/blob/dev/rules/style_cpp.md>`_ and `style_hls.md <https://github.com/Xilinx/finn/blob/dev/rules/style_hls.md>`_: C++/HLS naming, documentation, formatting, and kernel architecture
+* `style_sv.md <https://github.com/Xilinx/finn/blob/dev/rules/style_sv.md>`_: SystemVerilog module structure, signal naming, and design patterns
 
 Following these standards ensures consistency across the codebase and makes code
 easier to read, review, and maintain.

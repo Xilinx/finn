@@ -33,4 +33,19 @@
  *
  *******************************************************************************/
 #include "checksum.hpp"
-CHECKSUM_TOP(WORDS_PER_FRAME, WORD_SIZE, ITEMS_PER_WORD)
+
+using T = ap_uint<WORD_SIZE>;
+
+void checksum_top(
+	hls::stream<T> &src,
+	hls::stream<T> &dst,
+	ap_uint<32>    &chk,
+	ap_uint<1>     drain
+) {
+#pragma HLS interface port=src axis
+#pragma HLS interface port=dst axis
+#pragma HLS interface port=chk s_axilite
+#pragma HLS interface port=drain s_axilite
+#pragma HLS interface port=return ap_ctrl_none
+	checksum<WORDS_PER_FRAME, ITEMS_PER_WORD>(src, dst, chk, drain);
+}

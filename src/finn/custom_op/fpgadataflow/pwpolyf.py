@@ -138,12 +138,12 @@ class PWPolyF(HWCustomOp):
         # II=1, latency amortised over stream length
         return np.prod(self.get_folded_output_shape()[:-1])
 
-    def lut_estimation(self):
+    def lut_estimation(self, fpgapart):
         pe = self.get_nodeattr("PE")
         degree = self.get_nodeattr("degree")
         return 100 * degree * pe
 
-    def bram_estimation(self):
+    def bram_estimation(self, fpgapart):
         pe = self.get_nodeattr("PE")
         degree = self.get_nodeattr("degree")
         num_segs = self.get_num_segments()
@@ -161,10 +161,10 @@ class PWPolyF(HWCustomOp):
             bram18_per_coeff_rom = math.ceil(num_segs / 512) * math.ceil(coeff_width / 36)
         return pe * (degree - 1) * bram18_per_coeff_rom
 
-    def uram_estimation(self):
+    def uram_estimation(self, fpgapart):
         return 0
 
-    def dsp_estimation(self, fpgapart=None):
+    def dsp_estimation(self, fpgapart):
         pe = self.get_nodeattr("PE")
         degree = self.get_nodeattr("degree")
         return degree * pe

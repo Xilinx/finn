@@ -102,8 +102,7 @@ class SetFolding(Transformation):
       (configurable in the SetFolding initializer, defaults to 36)
     * then increases PE until the target is met or max PE reached
 
-    When folding depthwise convolutions ("VVAU"/VectorVectorActivation)
-    or spatial reduction ops (Pool_Batch):
+    When folding depthwise convolutions ("VVAU"/VectorVectorActivation):
 
     * the producer of the node is expected to be a ConvolutionInputGenerator
       with depthwise=1, whose SIMD value will be set equal to the PE value of
@@ -111,6 +110,9 @@ class SetFolding(Transformation):
     * the VVAU also supports SIMD ("input window") parallelism next to
       PE ("channels"), but current ConvInpGen limitations require PE to be fully
       unfolded before SIMD is increased
+
+    The consolidated Pool node (Pool_hls) fuses input_gen + pooling internally,
+    so it only needs PE folding (like other PE-only ops) — no upstream SWG.
     """
 
     def __init__(self, target_cycles_per_frame=1000, mvau_wwidth_max=36, two_pass_relaxation=True):
@@ -134,6 +136,7 @@ class SetFolding(Transformation):
         pe_ops = [
             "DuplicateStreams_hls",
             "GlobalAccPool_hls",
+            "Pool_hls",
             "PWPolyF_rtl",
             "Requant_hls",
             "Requant_rtl",
@@ -158,7 +161,7 @@ class SetFolding(Transformation):
         ]
         # these ops are preceded by depthwise SWG and have special behavior,
         # as explained in the SetFolding docstring
-        depthwise_op_exceptions = ["VVAU_hls", "VVAU_rtl", "Pool_hls"]
+        depthwise_op_exceptions = ["VVAU_hls", "VVAU_rtl"]
         for node in graph.node:
             # Shuffle is still a generic layer here (it is decomposed into
             # Inner/OuterShuffle stages by step_transpose_decomposition, which
@@ -261,13 +264,8 @@ class SetFolding(Transformation):
                         else:
                             swu_node_inst.set_nodeattr("parallel_window", 0)
                 else:
-                    if op_type in ["VVAU_hls", "VVAU_rtl"]:
-                        ksize = np.prod(node_inst.get_nodeattr("Kernel"))
-                    elif op_type == "Pool_hls":
-                        ksize = node_inst.get_nodeattr("KernelSize")
-                    else:
-                        raise Exception("Undefined edge case for %s" % op_type)
-                    if ksize != 1:  # pointwise vvau/pool lack a SWU
+                    ksize = np.prod(node_inst.get_nodeattr("Kernel"))
+                    if ksize != 1:  # pointwise vvau lacks a SWU
                         raise Exception("Expected SWU on DW op input, found " + swu_node.op_type)
             elif op_type in simd_ops:
                 if op_type.startswith("ConvolutionInputGenerator"):

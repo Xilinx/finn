@@ -45,7 +45,7 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
-from finn.transformation.fpgadataflow.floorplan import Floorplan
+from finn.transformation.fpgadataflow.floorplan import Floorplan, get_attached_iodma
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
@@ -75,7 +75,7 @@ def create_one_fc_model(mem_mode="internal_embedded"):
     odt = DataType["INT32"]
     m = 4
     no_act = 1
-    binary_xnor_mode = 0
+
     actval = 0
     simd = 4
     pe = 4
@@ -97,7 +97,6 @@ def create_one_fc_model(mem_mode="internal_embedded"):
         weightDataType=wdt.name,
         outputDataType=odt.name,
         ActVal=actval,
-        binaryXnorMode=binary_xnor_mode,
         noActivation=no_act,
         mem_mode=mem_mode,
     )
@@ -127,7 +126,7 @@ def create_two_fc_model(mem_mode="internal_decoupled"):
     m = 4
     actval = 0
     no_act = 1
-    binary_xnor_mode = 0
+
     pe = 2
     simd = 2
 
@@ -149,7 +148,6 @@ def create_two_fc_model(mem_mode="internal_decoupled"):
         weightDataType=wdt.name,
         outputDataType=odt.name,
         ActVal=actval,
-        binaryXnorMode=binary_xnor_mode,
         noActivation=no_act,
         mem_mode=mem_mode,
     )
@@ -168,7 +166,6 @@ def create_two_fc_model(mem_mode="internal_decoupled"):
         weightDataType=wdt.name,
         outputDataType=odt.name,
         ActVal=actval,
-        binaryXnorMode=binary_xnor_mode,
         noActivation=no_act,
         mem_mode=mem_mode,
     )
@@ -294,11 +291,128 @@ def test_fpgadataflow_ipstitch_iodma_floorplan():
         model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))
     model = model.transform(InferDataLayouts())
     model = model.transform(InsertIODMA())
+    model = model.transform(GiveUniqueNodeNames())
     model = model.transform(Floorplan())
-    assert getCustomOp(model.graph.node[0]).get_nodeattr("partition_id") == 0
-    assert getCustomOp(model.graph.node[1]).get_nodeattr("partition_id") == 2
-    assert getCustomOp(model.graph.node[2]).get_nodeattr("partition_id") == 1
+    # Verify that IODMAs and compute nodes get distinct partition_ids.
+    # After DWC externalization, the graph may have more than 3 nodes
+    # (DWC nodes inserted when intfWidth != streamWidth), so we look up
+    # nodes by op_type rather than by positional index.
+    iodma_partitions = set()
+    compute_partitions = set()
+    for node in model.graph.node:
+        node_inst = getCustomOp(node)
+        pid = node_inst.get_nodeattr("partition_id")
+        if node.op_type == "IODMA_hls":
+            iodma_partitions.add(pid)
+        elif node.op_type in ("MVAU_hls", "MVAU_rtl"):
+            compute_partitions.add(pid)
+    # Each IODMA (input + output) gets its own partition
+    assert len(iodma_partitions) == 2, f"Expected 2 IODMA partitions, got {iodma_partitions}"
+    # Compute node(s) get a separate partition from the IODMAs
+    assert len(compute_partitions) >= 1, f"Expected compute partition, got {compute_partitions}"
+    assert iodma_partitions.isdisjoint(
+        compute_partitions
+    ), f"IODMA partitions {iodma_partitions} overlap with compute partitions {compute_partitions}"
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_iodma_floorplan.onnx")
+
+
+def create_iodma_dwc_model():
+    # single MVAU with external weights whose input, weight and output stream
+    # widths all differ from the DMA interface width (max_intfwidth=32):
+    # input 2 x INT8 = 16 bit, weights 2 x 2 x INT2 = 8 bit, output 2 x INT32 = 64 bit
+    wdt = DataType["INT2"]
+    idt = DataType["INT8"]
+    odt = DataType["INT32"]
+    m = 8
+    pe = 2
+    simd = 2
+
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, m])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, m])
+
+    fc0 = helper.make_node(
+        "MVAU_hls",
+        ["inp", "w0"],
+        ["outp"],
+        domain="finn.custom_op.fpgadataflow.hls",
+        backend="fpgadataflow",
+        MW=m,
+        MH=m,
+        SIMD=simd,
+        PE=pe,
+        inputDataType=idt.name,
+        weightDataType=wdt.name,
+        outputDataType=odt.name,
+        ActVal=0,
+        noActivation=1,
+        mem_mode="external",
+    )
+
+    graph = helper.make_graph(nodes=[fc0], name="fclayer_graph", inputs=[inp], outputs=[outp])
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="fclayer-model"))
+    model.set_tensor_datatype("inp", idt)
+    model.set_tensor_datatype("outp", odt)
+    model.set_tensor_datatype("w0", wdt)
+    model.set_initializer("w0", gen_finn_dt_tensor(wdt, (m, m)))
+    return model
+
+
+@pytest.mark.fpgadataflow
+def test_fpgadataflow_ipstitch_iodma_dwc_floorplan():
+    model = create_iodma_dwc_model()
+    model = model.transform(InferDataLayouts())
+    model = model.transform(InsertIODMA())
+    model = model.transform(GiveUniqueNodeNames())
+
+    # every IODMA is straight-through, width conversion happens in a DWC next to it
+    dma_nodes = model.get_nodes_by_op_type("IODMA_hls")
+    assert len(dma_nodes) == 3, "Expected input, output and weight IODMA"
+    for dma in dma_nodes:
+        dma_inst = getCustomOp(dma)
+        assert dma_inst.get_nodeattr("intfWidth") == dma_inst.get_nodeattr("streamWidth")
+    dwc_nodes = [n for n in model.graph.node if n.op_type.startswith("StreamingDataWidthConverter")]
+    assert len(dwc_nodes) == 3, "Expected one DWC per IODMA"
+    attached = {get_attached_iodma(model, n).name for n in dwc_nodes}
+    assert attached == {n.name for n in dma_nodes}, "Each IODMA needs its own attached DWC"
+    # the MVAU is fed by DWCs on both inputs and feeds a DWC on its output
+    mvau = model.get_nodes_by_op_type("MVAU_hls")[0]
+    for in_tensor in mvau.input:
+        assert model.find_producer(in_tensor) in dwc_nodes
+    assert model.find_consumer(mvau.output[0]) in dwc_nodes
+
+    # each DWC shares the partition (and SLR) of its IODMA, the MVAU is separate
+    model = model.transform(Floorplan())
+    # transform() returns a copy, so look the nodes up again
+    dwc_nodes = [n for n in model.graph.node if n.op_type.startswith("StreamingDataWidthConverter")]
+    mvau = model.get_nodes_by_op_type("MVAU_hls")[0]
+    dma_partitions = set()
+    for dwc in dwc_nodes:
+        dwc_inst = getCustomOp(dwc)
+        dma_inst = getCustomOp(get_attached_iodma(model, dwc))
+        assert dwc_inst.get_nodeattr("partition_id") == dma_inst.get_nodeattr("partition_id")
+        assert dwc_inst.get_nodeattr("slr") == dma_inst.get_nodeattr("slr")
+        dma_partitions.add(dma_inst.get_nodeattr("partition_id"))
+    assert len(dma_partitions) == 3, "Each IODMA needs its own partition"
+    assert getCustomOp(mvau).get_nodeattr("partition_id") not in dma_partitions
+
+    # the compute partition holds only the MVAU, i.e. starts and ends with a compute node;
+    # DMA partitions keep the IODMA first (input, weights) or last (output) as the
+    # driver generation expects
+    parent = model.transform(CreateDataflowPartition())
+    sdp_nodes = parent.get_nodes_by_op_type("StreamingDataflowPartition")
+    assert len(sdp_nodes) == 4
+    partition_ops = [
+        [n.op_type for n in ModelWrapper(getCustomOp(sdp).get_nodeattr("model")).graph.node]
+        for sdp in sdp_nodes
+    ]
+    assert sorted(partition_ops) == sorted(
+        [
+            ["IODMA_hls", "StreamingDataWidthConverter"],
+            ["IODMA_hls", "StreamingDataWidthConverter"],
+            ["MVAU_hls"],
+            ["StreamingDataWidthConverter", "IODMA_hls"],
+        ]
+    )
 
 
 # board

@@ -12,6 +12,7 @@ import errno
 import os
 import os.path
 import re
+import xsi
 from finn_xsi.sim_engine import SimEngine
 from finn_xsi.srcutil import order_pkg_first
 from typing import Optional
@@ -148,12 +149,39 @@ def get_simkernel_so():
 def load_sim_obj(sim_out_dir, out_so_relative_path, tracefile=None, simkernel_so=None):
     if simkernel_so is None:
         simkernel_so = get_simkernel_so()
-    oldcwd = os.getcwd()
-    os.chdir(sim_out_dir)
-    sim = SimEngine(simkernel_so, out_so_relative_path, "finnxsi_rtlsim.log", tracefile)
+    # The xsim kernel opens some snapshot files lazily during simulation, e.g.
+    # xsim.dir/<top>/xsim.svtype on the first executed $readmemh (XPM memories with
+    # a MEMORY_INIT_FILE do so at #10). With a relative design path, these lookups
+    # use the process CWD at that later time and abort the process (exit(1)) if it
+    # is no longer sim_out_dir. Hence, load by absolute paths and pass the snapshot
+    # directory as xsimDir, which does not change the CWD at all.
+    sim_out_dir = os.path.abspath(sim_out_dir)
+    transcript = os.path.join(sim_out_dir, "rtlsim.log")
+    if tracefile:
+        # relative trace files land in sim_out_dir
+        tracefile = os.path.join(sim_out_dir, tracefile)
+    if xsi.has_xsim_dir:
+        sim = SimEngine(
+            simkernel_so,
+            os.path.join(sim_out_dir, out_so_relative_path),
+            tracefile,
+            os.path.join(sim_out_dir, "xsim.dir"),
+            transcript,
+        )
+    else:
+        # XSI < 2023.1 lacks xsimDir: fall back to a temporary chdir around the
+        # design load. Only covers lazy file accesses during the load itself (e.g.
+        # $readmemh at t=0), not ones after the first time advance.
+        oldcwd = os.getcwd()
+        os.chdir(sim_out_dir)
+        try:
+            sim = SimEngine(simkernel_so, out_so_relative_path, tracefile, transcript=transcript)
+        finally:
+            os.chdir(oldcwd)
     if tracefile:
         sim.top.trace_all()
-    os.chdir(oldcwd)
+    # messages from the design load, incl. t=0 initial blocks
+    sim.drain_messages()
     return sim
 
 
@@ -165,17 +193,22 @@ def reset_rtlsim(
 
 
 def close_rtlsim(sim):
-    sim_finish = sim.top.getPort("sim_finish")
-    if sim_finish is not None:
-        sim_finish.set(1).write_back()
-        sim.cycle({})
-    # Explicitly finalize the design (calls xsi_close -> flushes+closes the .wdb)
-    # instead of relying on GC of sim.top. Port back-refs and the pybind use_map
-    # can keep the Design alive past `del sim`, so without this the waveform can
-    # be left unflushed on a timeout/pdb exit, corrupting its trace tail.
-    close = getattr(sim.top, "close", None)
-    if close is not None:
-        close()
+    try:
+        sim_finish = sim.top.getPort("sim_finish")
+        if sim_finish is not None:
+            sim_finish.set(1).write_back()
+            sim.cycle({})
+        # messages since the last run(), incl. final-block output
+        sim.drain_messages()
+    finally:
+        # Explicitly finalize the design (calls xsi_close -> flushes+closes the
+        # .wdb) instead of relying on GC of sim.top. Port back-refs and the pybind
+        # use_map can keep the Design alive past `del sim`, so without this the
+        # waveform can be left unflushed on a timeout/pdb exit, corrupting its
+        # trace tail.
+        close = getattr(sim.top, "close", None)
+        if close is not None:
+            close()
     del sim
 
 

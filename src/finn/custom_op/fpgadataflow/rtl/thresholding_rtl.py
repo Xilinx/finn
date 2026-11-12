@@ -358,12 +358,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                     expected_inp_shape = self.get_folded_input_shape()
                     reshaped_input = context[inputs].reshape(expected_inp_shape)
 
-                    if self.get_input_datatype(0) == DataType["BIPOLAR"]:
-                        # store bipolar activations as binary
-                        reshaped_input = (reshaped_input + 1) / 2
-                        export_idt = DataType["BINARY"]
-                    else:
-                        export_idt = self.get_input_datatype(0)
+                    export_idt = self.get_input_datatype(0)
 
                     # make copy before saving the array
                     reshaped_input = reshaped_input.copy()

@@ -22,18 +22,13 @@
     "depth_trigger_uram": 0,
     "depth_trigger_bram": 0
   },
-  "ConvolutionInputGenerator_rtl_1": {
-    "SIMD": 32,
-    "parallel_window": 0,
-    "ram_style": "distributed"
-  },
   "Pool_hls_0": {
     "PE": 32
   },
   "FMPadding_rtl_1": {
     "SIMD": 32
   },
-  "ConvolutionInputGenerator_rtl_2": {
+  "ConvolutionInputGenerator_rtl_1": {
     "SIMD": 32,
     "parallel_window": 1,
     "ram_style": "distributed"
@@ -52,18 +47,13 @@
     "depth_trigger_uram": 0,
     "depth_trigger_bram": 0
   },
-  "ConvolutionInputGenerator_rtl_3": {
-    "SIMD": 32,
-    "parallel_window": 0,
-    "ram_style": "distributed"
-  },
   "Pool_hls_1": {
     "PE": 32
   },
   "FMPadding_rtl_2": {
     "SIMD": 32
   },
-  "ConvolutionInputGenerator_rtl_4": {
+  "ConvolutionInputGenerator_rtl_2": {
     "SIMD": 32,
     "parallel_window": 1,
     "ram_style": "distributed"
@@ -82,18 +72,13 @@
     "depth_trigger_uram": 0,
     "depth_trigger_bram": 0
   },
-  "ConvolutionInputGenerator_rtl_5": {
-    "SIMD": 32,
-    "parallel_window": 0,
-    "ram_style": "distributed"
-  },
   "Pool_hls_2": {
     "PE": 32
   },
   "FMPadding_rtl_3": {
     "SIMD": 32
   },
-  "ConvolutionInputGenerator_rtl_6": {
+  "ConvolutionInputGenerator_rtl_3": {
     "SIMD": 32,
     "parallel_window": 1,
     "ram_style": "distributed"
@@ -112,18 +97,13 @@
     "depth_trigger_uram": 0,
     "depth_trigger_bram": 0
   },
-  "ConvolutionInputGenerator_rtl_7": {
-    "SIMD": 32,
-    "parallel_window": 0,
-    "ram_style": "distributed"
-  },
   "Pool_hls_3": {
     "PE": 32
   },
   "FMPadding_rtl_4": {
     "SIMD": 32
   },
-  "ConvolutionInputGenerator_rtl_8": {
+  "ConvolutionInputGenerator_rtl_4": {
     "SIMD": 32,
     "parallel_window": 1,
     "ram_style": "distributed"
@@ -142,18 +122,13 @@
     "depth_trigger_uram": 0,
     "depth_trigger_bram": 0
   },
-  "ConvolutionInputGenerator_rtl_9": {
-    "SIMD": 32,
-    "parallel_window": 0,
-    "ram_style": "distributed"
-  },
   "Pool_hls_4": {
     "PE": 32
   },
   "FMPadding_rtl_5": {
     "SIMD": 32
   },
-  "ConvolutionInputGenerator_rtl_10": {
+  "ConvolutionInputGenerator_rtl_5": {
     "SIMD": 32,
     "parallel_window": 1,
     "ram_style": "distributed"
@@ -172,18 +147,13 @@
     "depth_trigger_uram": 0,
     "depth_trigger_bram": 0
   },
-  "ConvolutionInputGenerator_rtl_11": {
-    "SIMD": 32,
-    "parallel_window": 0,
-    "ram_style": "distributed"
-  },
   "Pool_hls_5": {
     "PE": 32
   },
   "FMPadding_rtl_6": {
     "SIMD": 32
   },
-  "ConvolutionInputGenerator_rtl_12": {
+  "ConvolutionInputGenerator_rtl_6": {
     "SIMD": 32,
     "parallel_window": 1,
     "ram_style": "distributed"
@@ -201,11 +171,6 @@
     "runtime_writeable_weights": 0,
     "depth_trigger_uram": 0,
     "depth_trigger_bram": 0
-  },
-  "ConvolutionInputGenerator_rtl_13": {
-    "SIMD": 32,
-    "parallel_window": 0,
-    "ram_style": "distributed"
   },
   "Pool_hls_6": {
     "PE": 32
