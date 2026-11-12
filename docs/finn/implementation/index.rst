@@ -10,7 +10,7 @@ If you're new to FINN development, we recommend:
 
 1. Reading the :doc:`/concepts` documentation to understand FINN's core concepts (IR, ModelWrapper, transformations)
 2. Reviewing the :doc:`/developers` guide for contribution workflow
-3. Consulting the `PYTHON_STYLE_GUIDE.md <https://github.com/Xilinx/finn/blob/dev/PYTHON_STYLE_GUIDE.md>`_ and `HDL_STYLE_GUIDE.md <https://github.com/Xilinx/finn/blob/dev/HDL_STYLE_GUIDE.md>`_ for coding standards
+3. Consulting the coding rules in `rules/ <https://github.com/Xilinx/finn/blob/dev/rules>`_ for coding standards
 
 .. toctree::
    :maxdepth: 2
