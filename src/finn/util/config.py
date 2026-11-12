@@ -20,14 +20,17 @@ from qonnx.custom_op.registry import getCustomOp, is_custom_op
 
 # update this code to handle export configs from subgraphs
 # where the subgraph is found in a node's attribute as a graph type
-def extract_model_config(model, subgraph_hier, attr_names_to_extract):
+def extract_model_config(model, subgraph_hier, attr_names_to_extract, apply_to_subgraphs=False):
     """Create a dictionary with layer name -> attribute mappings extracted from the
     model. The created dictionary can be later applied on a model with
-    qonnx.transform.general.ApplyConfig.
+    finn.transformation.general.ApplyConfig.
 
-    Nodes in subgraphs are prefixed with their parent hierarchy using '_' as separator.
-    For example, a node 'Conv_0' inside a subgraph of node 'IfNode_0' will be exported
-    as 'IfNode_0_Conv_0' in the config."""
+    When apply_to_subgraphs is True, nodes in subgraphs are also extracted and
+    prefixed with their parent hierarchy using '_' as separator. For example, a
+    node 'Conv_0' inside a subgraph of node 'IfNode_0' will be exported as
+    'IfNode_0_<attr>_Conv_0' in the config. This matches the hierarchical key
+    convention consumed by ApplyConfig(config, apply_to_subgraphs=True), so the
+    two form a symmetric export/import pair. Defaults to False (top-level only)."""
 
     cfg = dict()
     cfg["Defaults"] = dict()
@@ -46,18 +49,20 @@ def extract_model_config(model, subgraph_hier, attr_names_to_extract):
                     pass
 
         # Process node attributes - handle both subgraphs and extractable attributes
-        for attr in n.attribute:
-            if attr.type == onnx.AttributeProto.GRAPH:
-                # If the attribute is a graph, extract configs from the subgraph recursively
-                # Include the subgraph attribute name in the hierarchy
-                subgraph_hier_with_attr = new_hier + "_" + attr.name
-                cfg.update(
-                    extract_model_config(
-                        model.make_subgraph_modelwrapper(attr.g),
-                        subgraph_hier_with_attr,
-                        attr_names_to_extract,
+        if apply_to_subgraphs:
+            for attr in n.attribute:
+                if attr.type == onnx.AttributeProto.GRAPH:
+                    # If the attribute is a graph, extract configs from the subgraph
+                    # recursively. Include the subgraph attribute name in the hierarchy
+                    subgraph_hier_with_attr = new_hier + "_" + attr.name
+                    cfg.update(
+                        extract_model_config(
+                            model.make_subgraph_modelwrapper(attr.g),
+                            subgraph_hier_with_attr,
+                            attr_names_to_extract,
+                            apply_to_subgraphs=apply_to_subgraphs,
+                        )
                     )
-                )
 
         # Add the node's config if we extracted any attributes
         if is_custom and len(layer_dict) > 0:
@@ -66,24 +71,33 @@ def extract_model_config(model, subgraph_hier, attr_names_to_extract):
     return cfg
 
 
-def extract_model_config_to_json(model, json_filename, attr_names_to_extract):
+def extract_model_config_to_json(
+    model, json_filename, attr_names_to_extract, apply_to_subgraphs=False
+):
     """Create a json file with layer name -> attribute mappings extracted from the
     model. The created json file can be later applied on a model with
-    qonnx.transform.general.ApplyConfig."""
+    finn.transformation.general.ApplyConfig."""
 
     with open(json_filename, "w") as f:
         json.dump(
             extract_model_config(
-                model, subgraph_hier=None, attr_names_to_extract=attr_names_to_extract
+                model,
+                subgraph_hier=None,
+                attr_names_to_extract=attr_names_to_extract,
+                apply_to_subgraphs=apply_to_subgraphs,
             ),
             f,
             indent=2,
         )
 
 
-def extract_model_config_consolidate_shuffles(model, output_file, hw_attrs):
+def extract_model_config_consolidate_shuffles(
+    model, output_file, hw_attrs, apply_to_subgraphs=False
+):
     """Export flow that takes into consideration how Shuffle operations have been decomposed"""
-    extract_model_config_to_json(model, output_file, hw_attrs)
+    extract_model_config_to_json(
+        model, output_file, hw_attrs, apply_to_subgraphs=apply_to_subgraphs
+    )
 
     with open(output_file, "r") as f:
         config = json.load(f)
