@@ -225,3 +225,59 @@ def test_apply_config_warns_for_non_custom_op_config():
     assert any("Configs can only be applied to custom ops" in msg for msg in warning_messages)
     assert any("{} ({})".format(if_node.name, if_node.op_type) in msg for msg in warning_messages)
     assert not any("Unused HW configurations" in msg for msg in warning_messages)
+
+
+IM2COL_ATTRS = ["kernel_size", "stride", "pad_amount", "input_shape"]
+
+
+@pytest.mark.util
+def test_apply_config_defaults_to_top_level_only():
+    """Without apply_to_subgraphs, ApplyConfig and extract_model_config stay on the
+    top-level graph: subgraph nodes are neither configured nor exported."""
+    model, expected_config = make_im2col_test_model()
+    top_key = model.graph.node[0].name
+
+    extracted = extract_model_config(model, None, IM2COL_ATTRS)
+    assert extracted == {"Defaults": {}, top_key: expected_config[top_key]}
+
+    # a config addressing every Im2Col, flat and hierarchical
+    config = {key: {"kernel_size": [9, 9]} for key in expected_config if key != "Defaults"}
+    model = model.transform(ApplyConfig(config))
+
+    after = extract_model_config(model, None, IM2COL_ATTRS, apply_to_subgraphs=True)
+    for key in expected_config:
+        if key == "Defaults":
+            continue
+        want = [9, 9] if key == top_key else expected_config[key]["kernel_size"]
+        assert after[key]["kernel_size"] == want, key
+
+
+@pytest.mark.util
+def test_apply_config_hierarchical_keys_win_over_flat_and_defaults():
+    """All Im2Col nodes share one name. A flat key configures only the top-level
+    node, a hierarchical key configures exactly its subgraph node and overrides the
+    Defaults, and nodes without a key of their own keep the Defaults. Applying the
+    flat key inside the subgraphs as well (the former double traversal through
+    ApplyConfig's own descent plus the generic apply_to_subgraphs) fails this."""
+    model, expected_config = make_im2col_test_model()
+    name = model.graph.node[0].name
+    then_key = "n1_then_branch_" + name
+    config = {
+        "Defaults": {"stride": [[1, 1], ["Im2Col"]]},
+        name: {"kernel_size": [9, 9]},
+        then_key: {"kernel_size": [4, 4], "stride": [2, 2]},
+    }
+    model = model.transform(ApplyConfig(config, apply_to_subgraphs=True))
+
+    after = extract_model_config(model, None, IM2COL_ATTRS, apply_to_subgraphs=True)
+    for key in expected_config:
+        if key == "Defaults":
+            continue
+        if key == name:
+            want_kernel, want_stride = [9, 9], [1, 1]
+        elif key == then_key:
+            want_kernel, want_stride = [4, 4], [2, 2]
+        else:
+            want_kernel, want_stride = expected_config[key]["kernel_size"], [1, 1]
+        assert after[key]["kernel_size"] == want_kernel, key
+        assert after[key]["stride"] == want_stride, key
