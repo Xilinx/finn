@@ -248,6 +248,20 @@ fifo #(
     .odat(m_idx_tdata), .ovld(slot_idx_ovld), .ordy(slot_idx_ordy)
 );
 
+// The DMA credit bounds the frames held in slots to N_OUTSTANDING_DMAS and only
+// frees a slot at rd_done, after its index was popped at rd_start. So the index
+// queue can neither overflow nor be empty when a frame is read.
+always_ff @(posedge aclk) begin
+    if(aresetn) begin
+        assert(!slot_idx_ivld || slot_idx_irdy) else begin
+            $error("%m: Overrunning the slot index queue.");
+        end
+        assert(!m_idx_tvalid || slot_idx_ovld) else begin
+            $error("%m: No index queued for the frame being read.");
+        end
+    end
+end
+
 // FSM
 typedef enum logic[0:0] {ST_WR_IDLE, ST_WR_SEND} state_wr_t;
 state_wr_t state_wr_C = ST_WR_IDLE, state_wr_N;
