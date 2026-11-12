@@ -80,7 +80,7 @@ def test_move_maxpool_past_multithreshold():
             domain="qonnx.custom_op.general",
             out_dtype="BIPOLAR",
             out_bias=-1.0,
-            out_scale=1.0,
+            out_scale=2.0,
         )
     ]
     nodes += [helper.make_node("MaxPool", ["t2"], ["t3"], **maxpool_config)]
