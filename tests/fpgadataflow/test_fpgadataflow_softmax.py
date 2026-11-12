@@ -13,11 +13,12 @@ import numpy as np
 import torch
 import torch.nn as nn
 from brevitas.export import export_qonnx
+from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
@@ -33,9 +34,13 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import make_build_dir, robust_rmtree
+from finn.util.test import tree_model_test
 
 test_fpga_part: str = "xcvc1902-vsva2197-2MP-e-S"
 target_clk_ns = 5
+
+tree_model_fpga_part = "xczu7ev-ffvc1156-2-e"
+tree_model_clk_ns = 5.0
 
 
 class SoftMaxSimple(nn.Module):
@@ -173,3 +178,78 @@ def _test_fpgadataflow_hwsoftmax(simd, idt, impl_style, sim_style, ifm_dim, buil
         assert np.allclose(
             y_ref, y_hw, atol=tolerance
         ), "Model output does not match expected output"
+
+
+def make_softmax_modelwrapper(ishape, simd, idt):
+    """A graph holding one HWSoftmax node."""
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, list(ishape))
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, list(ishape))
+    node = helper.make_node(
+        "HWSoftmax",
+        ["inp"],
+        ["outp"],
+        domain="finn.custom_op.fpgadataflow",
+        backend="fpgadataflow",
+        ifm_dim=list(ishape),
+        SIMD=simd,
+        input_data_type=idt.name,
+        NumChannels=ishape[-1],
+        preferred_impl_style="hls",
+    )
+    graph = helper.make_graph(nodes=[node], name="softmax_graph", inputs=[inp], outputs=[outp])
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="softmax-model"))
+    model.set_tensor_datatype("inp", idt)
+    model.set_tensor_datatype("outp", DataType["FLOAT32"])
+    return model
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        ((1, 16, 64), 1),
+        ((1, 16, 64), 2),
+        ((1, 16, 64), 4),
+        ((1, 16, 64), 8),
+        ((1, 32, 96), 1),
+        ((1, 8, 32), 1),
+    ],
+)
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_softmax(config):
+    ishape, simd = config
+
+    model = make_softmax_modelwrapper(ishape, simd, DataType["INT8"])
+    model = model.transform(SpecializeLayers(tree_model_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+    assert model.graph.node[0].op_type == "HWSoftmax_hls"
+
+    node_details = ("HWSoftmax", config)
+
+    # The rate is exact, so the two curves stay on top of each other and the
+    # volume budget is a floor: what is left is where in the vector the stored
+    # window happens to start, which can never be worth more than one stall.
+    #
+    # The length budget is the pipeline fill, which the period leaves out on
+    # purpose -- folding it in would slow the rate below the design's and the
+    # curves would drift apart, which is the error that matters. The fill is two
+    # vectors of inter-stage FIFO plus the floating-point latency, so it is a
+    # tenth of the recorded period at the shortest frames here and a fortieth at
+    # the longest, and it is a fraction rather than a floor for that reason.
+    max_allowed_volume_frac = 0.0
+    volume_const = 5
+    max_allowed_length_frac = 0.10
+    length_const = 0
+
+    assert tree_model_test(
+        model,
+        node_details,
+        tree_model_fpga_part,
+        tree_model_clk_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    ), "characterized TAV does not match RTLsim'd one!"

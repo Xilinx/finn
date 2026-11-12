@@ -43,15 +43,12 @@ VALID_BOARD_SETUP_SCRIPTS = ("alveo", "pynq")
 # parametrises against. Reordering the keys reorders the test matrix.
 BOARDS = {
     # AUP-ZU3 replaces the retired Pynq-Z1 as the supported academic Zynq
-    # board. The on-board HW half (agentLabel/credentialsId/restartPrep) is a
-    # placeholder pending the physical AUP-ZU3 agent setup: it reuses the
-    # finn-pynq node label and carries no credentials, so the HW test stage
-    # stays dormant while the build-side matrix (bnnMarker) is exercised. When
-    # the board is provisioned, set restartPrep=True and a real credentialsId.
+    # board. It runs the PYNQ image's xilinx account, the same as the ZCU104,
+    # so it shares that board's credential.
     "AUP-ZU3_8GB": {
-        "agentLabel": "finn-pynq",
-        "credentialsId": None,
-        "restartPrep": False,
+        "agentLabel": "finn-aup-zu3",
+        "credentialsId": "pynq-z1-credentials",
+        "restartPrep": True,
         "setupScript": "pynq",
         "marker": "AUP_ZU3",
         "bnnMarker": "bnn_aup_zu3",
@@ -91,8 +88,10 @@ TEST_BOARDS = tuple(BOARDS)
 # stage names. Add a row when introducing a new STAGES.zipArtifacts.hwTestType.
 # validate_config() rejects an hwTestType without a label.
 HW_TEST_TYPE_LABELS = {
-    "bnn_build_sanity": "Sanity",
-    "bnn_build_full": "end2end",
+    "bnn_build_sanity": "BNN Sanity",
+    "bnn_build_full": "BNN end2end",
+    "mlo_build": "MLO",
+    "ext_weights_build": "Ext weights",
 }
 
 # The HW pipeline keys its resolved-zip map on "<hwTestType>::<board>", so neither
@@ -134,19 +133,25 @@ STAGES = [
         "coverage": True,
     },
     {
+        # zipArtifacts carries the MLO DDR bitfiles test_fpgadataflow_finnloop.py
+        # builds for the AUP-ZU3
         "param": "fpgadataflow",
         "stage": "fpgadataflow",
         "marker": "fpgadataflow",
-        "shards": 2,
+        "shards": 3,
         "workers": 8,
         "coverage": True,
+        "zipArtifacts": {"hwTestType": "mlo_build", "boards": ["AUP-ZU3_8GB"]},
     },
     {
+        # zipArtifacts carries the external-weights bitfiles test_ext_weights.py
+        # builds for the AUP-ZU3
         "param": "end2end",
         "stage": "End2end",
         "marker": "end2end",
         "shards": 3,
         "workers": 6,
+        "zipArtifacts": {"hwTestType": "ext_weights_build", "boards": ["AUP-ZU3_8GB"]},
     },
     {
         "param": "end2end",
@@ -179,6 +184,18 @@ STAGES = [
         "shards": 2,
         "workers": 2,
         "zipArtifacts": {"hwTestType": "bnn_build_full", "boards": ["KV260_SOM"]},
+    },
+    {
+        # finn-examples benchmark suite. Full-synthesis builds, so it is kept out
+        # of the nightly "full" matrix (see FULL_EXCLUDED_PARAMS) and run on its
+        # own "benchmark" choice. Build-only (no zipArtifacts/HW handoff yet);
+        # workers=1 because concurrent Vivado on one agent OOMs, parallelism comes
+        # from shards across build agents.
+        "param": "benchmark",
+        "stage": "FINN Examples Benchmark",
+        "marker": "finn_examples",
+        "shards": 3,
+        "workers": 1,
     },
 ]
 
@@ -345,16 +362,23 @@ def ci_param_names(stages=None):
     return seen
 
 
+# Params that "full" must NOT sweep in, even though they are selectable on their
+# own choice. The benchmark suite is full-synthesis finn-examples builds: far too
+# heavy for the nightly "full" matrix, so it is opt-in via its own choice only.
+FULL_EXCLUDED_PARAMS = ("benchmark",)
+
+
 def enabled_params_for_choice(choice, stages=None):
     """Map the Jenkins STAGES choice to the set of CI params it enables.
 
-    "full" enables every distinct param. A bare param name enables just
-    that one. Unknown choices fail loudly.
+    "full" enables every distinct param except those in FULL_EXCLUDED_PARAMS.
+    A bare param name enables just that one (including an excluded one, so it
+    stays independently selectable). Unknown choices fail loudly.
     """
     stages = stages if stages is not None else STAGES
     all_params = ci_param_names(stages)
     if choice == "full":
-        return list(all_params)
+        return [p for p in all_params if p not in FULL_EXCLUDED_PARAMS]
     if choice in all_params:
         return [choice]
     raise ValueError(

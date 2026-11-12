@@ -124,10 +124,18 @@ class Thresholding(HWCustomOp):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
-    def minimize_weight_bit_width(self, model):
+    def minimize_weight_bit_width(self, model, datatype_only=False):
         """Minimize threshold datatype bitwidth based on actual threshold values.
         This function should not round or clip the threshold values,
-        that is done in RoundAndClipThresholds."""
+        that is done in RoundAndClipThresholds.
+
+        Parameters
+        ----------
+        datatype_only : bool
+            If True, skip value-based minimization.
+        """
+        if datatype_only:
+            return DataType[self.get_nodeattr("weightDataType")]
 
         thresholds = model.get_initializer(self.onnx_node.input[1])
         if self.get_nodeattr("runtime_writeable_weights") or self.get_nodeattr("mlo_max_iter"):
@@ -285,6 +293,7 @@ class Thresholding(HWCustomOp):
         return num_channels // pe
 
     def get_verilog_top_module_intf_names(self):
+        """Return dict of names of input and output interfaces for MLO support."""
         intf_names = {}
         intf_names["clk"] = ["ap_clk"]
         intf_names["rst"] = ["ap_rst_n"]

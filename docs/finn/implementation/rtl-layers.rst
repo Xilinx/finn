@@ -102,5 +102,5 @@ See Also
 - :doc:`customop-pattern` - CustomOp class hierarchy
 - :doc:`hls-layers` - Implementing HLS variants
 - :doc:`specialization-rules` - HLS vs RTL selection
-- `HDL_STYLE_GUIDE.md <https://github.com/Xilinx/finn/blob/dev/HDL_STYLE_GUIDE.md>`_ - SystemVerilog coding conventions
+- `style_sv.md <https://github.com/Xilinx/finn/blob/dev/rules/style_sv.md>`_ - SystemVerilog coding conventions
 - `finn-rtllib <https://github.com/Xilinx/finn-rtllib>`_ - RTL module library

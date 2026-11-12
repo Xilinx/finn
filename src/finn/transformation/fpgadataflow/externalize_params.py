@@ -53,6 +53,11 @@ class ExternalizeParams(Transformation):
         for dma_extw in dma_extw_nodes:
             extw_tensor_name = dma_extw.input[0]
             extw_tensor_name_out = dma_extw.output[0]
+            # if InsertIODMA placed a DWC between the DMA and the layer, the
+            # output-side weight initializer sits on the DWC output instead
+            dwc = model.find_consumer(extw_tensor_name_out)
+            if dwc is not None and dwc.op_type.startswith("StreamingDataWidthConverter"):
+                extw_tensor_name_out = dwc.output[0]
             if extw_tensor_name in [x.name for x in model.graph.input]:
                 continue
             else:

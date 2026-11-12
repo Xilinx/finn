@@ -51,6 +51,7 @@ from finn.custom_op.fpgadataflow.rtl.streamingdatawidthconverter_rtl import (
 )
 from finn.custom_op.fpgadataflow.rtl.streamingfifo_rtl import StreamingFIFO_rtl
 from finn.custom_op.fpgadataflow.rtl.thresholding_rtl import Thresholding_rtl
+from finn.custom_op.fpgadataflow.rtl.tlastmarker_rtl import TLastMarker_rtl
 from finn.custom_op.fpgadataflow.rtl.vectorvectoractivation_rtl import VVAU_rtl
 
 custom_op = dict()
@@ -76,5 +77,6 @@ custom_op["InnerShuffle_rtl"] = InnerShuffle_rtl
 custom_op["Requant_rtl"] = Requant_rtl
 custom_op["HWWhere_rtl"] = HWWhere_rtl
 custom_op["SelectToken_rtl"] = SelectToken_rtl
+custom_op["TLastMarker_rtl"] = TLastMarker_rtl
 
 custom_op["FINNLoop"] = FINNLoop

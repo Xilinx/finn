@@ -33,16 +33,17 @@ In general, the approach for using the FINN framework is as follows:
 4. Adjust your QNN topology, quantization settings and ``build_dataflow`` configuration to get the desired results.
 
 Please note that the framework is still under development, and how well this works will depend on how similar your custom network is to the examples we provide.
-If there are substantial differences, you will most likely have to write your own
-Python scripts that call the appropriate FINN compiler
-functions that process your design correctly, or adding new functions (including
-Vitis HLS layers)
-as required.
-The `advanced FINN tutorials <https://github.com/Xilinx/finn/tree/main/notebooks/advanced>`_ can be useful here.
-For custom networks, we recommend making a copy of the `BNN-PYNQ end-to-end
-Jupyter notebook tutorials <https://github.com/Xilinx/finn/tree/main/notebooks/end2end_example/bnn-pynq>`_ as a starting point, visualizing the model at intermediate
-steps and adding calls to new transformations as needed.
-Once you have a working flow, you can implement a command line entry for this
+If there are substantial differences, the default build flow may need additional transformations for your network,
+or new functions (including Vitis HLS layers) may be required.
+In that case, keep using the builder and add the transformations your network needs as custom build steps,
+which you can insert at any point of the default flow with ``inject_steps_before`` and ``inject_steps_after``,
+as shown in the `advanced builder settings tutorial <https://github.com/Xilinx/finn/blob/main/notebooks/advanced/4_advanced_builder_settings.ipynb>`_.
+To find out where the flow needs to change, inspect the intermediate models that the builder saves after every step
+and enable its verification steps.
+The `BNN-PYNQ notebooks <https://github.com/Xilinx/finn/tree/main/notebooks/end2end_example/bnn-pynq>`_ explain what each builder step does
+and how to simulate the intermediate models, and the other `advanced FINN tutorials <https://github.com/Xilinx/finn/tree/main/notebooks/advanced>`_
+show how to write your own transformations and custom operations.
+Once you have a working flow, you can run it from the command line
 by using the "advanced mode" described in the :ref:`command_line` section.
 
 Running FINN in Docker

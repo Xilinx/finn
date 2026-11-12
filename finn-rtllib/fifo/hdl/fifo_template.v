@@ -57,19 +57,25 @@ output  $OUT_RANGE$ out0_V_TDATA
 );
 
 `ifdef FINN_SIMULATION
-	fifo_gauge #(.WIDTH($WIDTH$), .DATA_LOGFILE("$DATA_LOGFILE$")) fifo (
+	fifo_gauge #(.WIDTH($WIDTH$), .DATA_LOGFILE("$DATA_LOGFILE$"), .LOG_VERBOSE($LOG_VERBOSE$), .LOG_FLUSH_CYCLES($LOG_FLUSH_CYCLES$)) fifo (
 		.clk(ap_clk), .rst(!ap_rst_n),
 		.idat(in0_V_TDATA), .ivld(in0_V_TVALID), .irdy(in0_V_TREADY),
 		.odat(out0_V_TDATA), .ovld(out0_V_TVALID), .ordy(out0_V_TREADY),
 		.count(count), .maxcount(maxcount)
 	);
 `else
-	fifo #(.DEPTH($DEPTH$), .DATA_WIDTH($WIDTH$), .RAM_STYLE("$RAM_STYLE$")) fifo (
+	// Store only the $REAL_WIDTH$ payload bits and zero the AXI byte padding on the
+	// output. Leaving the constant padding to Vivado's trimming breaks URAM-backed
+	// FIFOs in Vivado 2025.1/2025.2: the URAM read pipeline absorption is planned
+	// for the untrimmed width, and the trimmed netlist delivers data ahead of valid.
+	wire [$REAL_WIDTH$-1:0]  fifo_odat;
+	fifo #(.DEPTH($DEPTH$), .DATA_WIDTH($REAL_WIDTH$), .RAM_STYLE("$RAM_STYLE$")) fifo (
 		.clk(ap_clk), .rst(!ap_rst_n),
-		.idat(in0_V_TDATA), .ivld(in0_V_TVALID), .irdy(in0_V_TREADY),
-		.odat(out0_V_TDATA), .ovld(out0_V_TVALID), .ordy(out0_V_TREADY),
+		.idat(in0_V_TDATA[$REAL_WIDTH$-1:0]), .ivld(in0_V_TVALID), .irdy(in0_V_TREADY),
+		.odat(fifo_odat), .ovld(out0_V_TVALID), .ordy(out0_V_TREADY),
 		.count(count), .maxcount(maxcount)
 	);
+	assign	out0_V_TDATA = fifo_odat;	// zero-extends into the padding
 `endif
 
 endmodule

@@ -29,7 +29,6 @@
 import math
 import numpy as np
 import os
-import shutil
 from qonnx.custom_op.general import im2col
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
 from qonnx.custom_op.registry import getCustomOp
@@ -154,12 +153,20 @@ class ConvolutionInputGenerator_rtl(ConvolutionInputGenerator, RTLBackend):
                 ) = self.get_1d_conv_attrs_normalized()
 
                 if depthwise:
-                    exp_cycles = (
-                        +ofm_dim_w * k_w * channel_factor
-                        + channel_factor * (k_w - 1) * (stride_w - 1)
-                        - (k_w - 1)
-                        + 2
+                    # Depthwise windows are emitted channel-fold-major, i.e. the buffered
+                    # window is replayed once per channel fold. Frames therefore cannot
+                    # overlap in the buffer: the last window's remaining
+                    # (channel_factor - 1) replays run after its last input row arrived
+                    # and the next frame is only read once they are done. The output
+                    # side bounds the throughput when windows overlap (k_w > stride_w),
+                    # the input side (plus the per-window refill stall of non-overlapping
+                    # windows) when they do not. Calibrated against XSI for k_w == ifm_w
+                    # (global pooling), k_w > stride_w and k_w == stride_w within 1%.
+                    cycles_out = ofm_dim_w * k_w * channel_factor + (channel_factor - 1) * k_w
+                    cycles_in = ifm_dim_w * channel_factor + channel_factor * (k_w - 1) * (
+                        stride_w - 1
                     )
+                    exp_cycles = max(cycles_out, cycles_in) + 2
                 else:
                     exp_cycles = ofm_dim_w * k_w * channel_factor + 2
             else:
@@ -887,10 +894,6 @@ class ConvolutionInputGenerator_rtl(ConvolutionInputGenerator, RTLBackend):
             ) as f:
                 f.write(template_axilite)
 
-        # Copy static source file for common core components
-        shutil.copy2(os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_common.sv", code_gen_dir)
-        shutil.copy2(os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_pkg.sv", code_gen_dir)
-
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
         self.set_nodeattr("ipgen_path", code_gen_dir)
@@ -916,27 +919,13 @@ class ConvolutionInputGenerator_rtl(ConvolutionInputGenerator, RTLBackend):
 
     def code_generation_ipi(self):
         """Constructs and returns the TCL for node instantiation in Vivado IPI."""
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-
-        sourcefiles = [
-            "swg_pkg.sv",
-            self.get_nodeattr("gen_top_module") + "_wrapper.v",
-            self.get_nodeattr("gen_top_module") + "_impl.sv",
-            "swg_common.sv",
-        ]
-
-        if self.get_nodeattr("dynamic_mode"):
-            sourcefiles += [self.get_nodeattr("gen_top_module") + "_axilite.v"]
-
-        sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
-
         cmd = []
-        for f in sourcefiles:
-            cmd += ["add_files -norecurse %s" % (f)]
-        cmd += [
+        for f in self.get_rtl_file_list(abspath=True):
+            cmd.append("add_files -norecurse %s" % f)
+        cmd.append(
             "create_bd_cell -type module -reference %s %s"
             % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)
-        ]
+        )
         return cmd
 
     def get_verilog_top_module_intf_names(self):

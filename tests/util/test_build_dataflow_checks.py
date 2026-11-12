@@ -11,10 +11,13 @@ from onnx import TensorProto, helper
 from unittest.mock import patch
 
 from finn.builder.build_dataflow import build_dataflow_cfg
+from finn.builder.build_dataflow_checks import run_all_config_checks
 from finn.builder.build_dataflow_config import (
+    AutoFIFOSizingMethod,
     DataflowBuildConfig,
     DataflowOutputType,
     ShellFlowType,
+    VerificationStepType,
 )
 from finn.util.basic import make_build_dir
 
@@ -36,15 +39,15 @@ def cfg(output_dir, **kw):
     """Create config that stops immediately after first phase."""
     return DataflowBuildConfig(
         output_dir=output_dir,
+        enable_build_pdb_debug=False,
         synth_clk_period_ns=5.0,
-        stop_step="phase_prepare_model",
+        stop_step=kw.pop("stop_step", "phase_prepare_model"),
         generate_outputs=kw.pop("generate_outputs", [DataflowOutputType.ESTIMATE_REPORTS]),
         **kw
     )
 
 
 @pytest.mark.util
-@pytest.mark.vivado
 class TestConfigCheckIntegration:
     def test_report_files_created(self):
         """Config check report should be saved to output_dir."""
@@ -166,6 +169,7 @@ class TestConfigCheckIntegration:
                             board=board,
                             shell_flow_type=flow,
                             generate_outputs=[DataflowOutputType.BITFILE],
+                            target_fps=1000,
                         ),
                     )
             else:
@@ -176,6 +180,7 @@ class TestConfigCheckIntegration:
                         board=board,
                         shell_flow_type=flow,
                         generate_outputs=[DataflowOutputType.BITFILE],
+                        target_fps=1000,
                     ),
                 )
                 assert os.path.exists(os.path.join(output_dir, "config_check_report.txt"))
@@ -232,3 +237,215 @@ class TestConfigCheckIntegration:
             c["name"] for c in report["checks"] if not c["passed"] and c["severity"] == "ERROR"
         ]
         assert "zynq7000_retired" in error_names
+
+    def test_verify_step_prereq_missing_phase(self):
+        """A verify_steps entry whose phase is excluded by stop_step should warn, since
+        that verification would otherwise silently never run.
+
+        This is a warning rather than an error: a custom step/flow can legitimately
+        handle verification itself, so this shouldn't block the build."""
+        build_dir = make_build_dir("test_config_check_")
+        model_path = make_test_model(build_dir)
+        output_dir = os.path.join(build_dir, "output")
+
+        with patch.dict("os.environ", {"XILINX_VIVADO": "/tools/Vivado/2024.2"}):
+            try:
+                build_dataflow_cfg(
+                    model_path,
+                    cfg(
+                        output_dir,
+                        stop_step="phase_build_hardware",
+                        verify_steps=[VerificationStepType.STITCHED_IP_RTLSIM],
+                        mute_config_assertions=True,
+                    ),
+                )
+            except Exception:
+                pass
+
+        with open(os.path.join(output_dir, "config_check_report.json")) as f:
+            report = json.load(f)
+        warning_names = [
+            c["name"] for c in report["checks"] if not c["passed"] and c["severity"] == "WARNING"
+        ]
+        assert "verify_step_prereq" in warning_names
+
+    def test_verify_step_prereq_present_phase_ok(self):
+        """A verify_steps entry whose phase is included should not error."""
+        build_dir = make_build_dir("test_config_check_")
+        model_path = make_test_model(build_dir)
+        output_dir = os.path.join(build_dir, "output")
+
+        with patch.dict("os.environ", {"XILINX_VIVADO": "/tools/Vivado/2024.2"}):
+            try:
+                build_dataflow_cfg(
+                    model_path,
+                    cfg(
+                        output_dir,
+                        stop_step="phase_optimize_model",
+                        verify_steps=[VerificationStepType.TIDY_UP_PYTHON],
+                        mute_config_assertions=True,
+                    ),
+                )
+            except Exception:
+                pass
+
+        with open(os.path.join(output_dir, "config_check_report.json")) as f:
+            report = json.load(f)
+        error_names = [
+            c["name"] for c in report["checks"] if not c["passed"] and c["severity"] == "ERROR"
+        ]
+        assert "verify_step_prereq" not in error_names
+
+    def test_verify_step_prereq_fine_grained_step_ok(self):
+        """A custom steps list naming the fine-grained step directly (instead of
+        its enclosing phase) should also satisfy the check."""
+        build_dir = make_build_dir("test_config_check_")
+        model_path = make_test_model(build_dir)
+        output_dir = os.path.join(build_dir, "output")
+
+        with patch.dict("os.environ", {"XILINX_VIVADO": "/tools/Vivado/2024.2"}):
+            try:
+                build_dataflow_cfg(
+                    model_path,
+                    cfg(
+                        output_dir,
+                        steps=["phase_prepare_model", "step_streamline"],
+                        stop_step="step_streamline",
+                        verify_steps=[VerificationStepType.STREAMLINED_PYTHON],
+                        mute_config_assertions=True,
+                    ),
+                )
+            except Exception:
+                pass
+
+        with open(os.path.join(output_dir, "config_check_report.json")) as f:
+            report = json.load(f)
+        error_names = [
+            c["name"] for c in report["checks"] if not c["passed"] and c["severity"] == "ERROR"
+        ]
+        assert "verify_step_prereq" not in error_names
+
+    def test_folding_missing_errors(self):
+        """A non-estimate output with neither target_fps nor folding_config_file
+        should error, instead of silently building at PE=1/SIMD=1."""
+        build_dir = make_build_dir("test_config_check_")
+        model_path = make_test_model(build_dir)
+        output_dir = os.path.join(build_dir, "output")
+
+        with patch.dict("os.environ", {"XILINX_VIVADO": "/tools/Vivado/2024.2"}):
+            with pytest.raises(AssertionError, match="Configuration check failed"):
+                build_dataflow_cfg(
+                    model_path,
+                    cfg(
+                        output_dir,
+                        board="AUP-ZU3_8GB",
+                        shell_flow_type=ShellFlowType.VIVADO_ZYNQ,
+                        generate_outputs=[DataflowOutputType.BITFILE],
+                    ),
+                )
+
+    def test_folding_missing_estimate_only_ok(self):
+        """ESTIMATE_REPORTS alone doesn't require target_fps or folding_config_file."""
+        build_dir = make_build_dir("test_config_check_")
+        model_path = make_test_model(build_dir)
+        output_dir = os.path.join(build_dir, "output")
+
+        with patch.dict("os.environ", {"XILINX_VIVADO": "/tools/Vivado/2024.2"}):
+            build_dataflow_cfg(model_path, cfg(output_dir))
+
+        with open(os.path.join(output_dir, "config_check_report.json")) as f:
+            report = json.load(f)
+        error_names = [
+            c["name"] for c in report["checks"] if not c["passed"] and c["severity"] == "ERROR"
+        ]
+        assert "folding_missing" not in error_names
+
+    def test_folding_target_fps_satisfies_check(self):
+        """Setting target_fps clears the folding_missing check."""
+        build_dir = make_build_dir("test_config_check_")
+        model_path = make_test_model(build_dir)
+        output_dir = os.path.join(build_dir, "output")
+
+        with patch.dict("os.environ", {"XILINX_VIVADO": "/tools/Vivado/2024.2"}):
+            build_dataflow_cfg(
+                model_path,
+                cfg(
+                    output_dir,
+                    board="AUP-ZU3_8GB",
+                    shell_flow_type=ShellFlowType.VIVADO_ZYNQ,
+                    generate_outputs=[DataflowOutputType.BITFILE],
+                    target_fps=1000,
+                ),
+            )
+
+        with open(os.path.join(output_dir, "config_check_report.json")) as f:
+            report = json.load(f)
+        error_names = [
+            c["name"] for c in report["checks"] if not c["passed"] and c["severity"] == "ERROR"
+        ]
+        assert "folding_missing" not in error_names
+
+    @pytest.mark.parametrize(
+        "strategy,error,warning",
+        [
+            ("heuristic_analytical", False, False),
+            (AutoFIFOSizingMethod.LARGEFIFO_RTLSIM, False, False),
+            ("characterize", False, True),
+            ("characterise", True, False),
+        ],
+    )
+    def test_auto_fifo_strategy(self, strategy, error, warning):
+        """An unknown auto_fifo_strategy fails the config check instead of skipping
+        FIFO sizing; the deprecated "characterize" only warns."""
+        build_dir = make_build_dir("test_config_check_")
+        model_path = make_test_model(build_dir)
+        output_dir = os.path.join(build_dir, "output")
+        build_cfg = cfg(output_dir, auto_fifo_strategy=strategy)
+
+        with patch.dict("os.environ", {"XILINX_VIVADO": "/tools/Vivado/2024.2"}):
+            if error:
+                with pytest.raises(AssertionError, match="Configuration check failed"):
+                    build_dataflow_cfg(model_path, build_cfg)
+            else:
+                build_dataflow_cfg(model_path, build_cfg)
+
+        with open(os.path.join(output_dir, "config_check_report.json")) as f:
+            report = json.load(f)
+        failed = {c["name"]: c["severity"] for c in report["checks"] if not c["passed"]}
+        assert (failed.get("auto_fifo_strategy") == "ERROR") == error
+        assert (failed.get("auto_fifo_strategy_deprecated") == "WARNING") == warning
+
+
+@pytest.mark.util
+def test_auto_fifo_strategy_characterize_alias():
+    """The deprecated "characterize" resolves to heuristic_rtlsim, from Python
+    and from a JSON config."""
+    build_cfg = cfg("unused", auto_fifo_strategy="characterize")
+    with pytest.warns(DeprecationWarning, match="characterize"):
+        assert build_cfg._resolve_auto_fifo_strategy() == AutoFIFOSizingMethod.HEURISTIC_RTLSIM
+    with pytest.warns(DeprecationWarning, match="characterize"):
+        loaded = DataflowBuildConfig.from_json(build_cfg.to_json())
+    assert loaded.auto_fifo_strategy == AutoFIFOSizingMethod.HEURISTIC_RTLSIM
+    with pytest.raises(ValueError):
+        cfg("unused", auto_fifo_strategy="characterise")._resolve_auto_fifo_strategy()
+
+
+@pytest.mark.util
+@pytest.mark.parametrize(
+    "check_name,kw",
+    [
+        ("v80_vivado", {"board": "V80"}),
+        ("slash_vivado", {"shell_flow_type": ShellFlowType.SLASH_ALVEO}),
+        ("mlo_vivado", {"mlo": True}),
+        ("aupzu3_vivado", {"board": "AUP-ZU3_8GB"}),
+    ],
+)
+def test_vivado_version_checks_without_vivado(check_name, kw):
+    """Without Vivado (XILINX_VIVADO unset) a version check fails with a message
+    instead of crashing while formatting the version it did not find."""
+    output_dir = make_build_dir("test_config_check_no_vivado_")
+    with patch.dict("os.environ", {"XILINX_VIVADO": ""}):
+        report = run_all_config_checks(cfg(output_dir, **kw))
+    check = next(c for c in report.checks if c.name == check_name)
+    assert not check.passed
+    assert "found unknown" in check.message

@@ -139,5 +139,5 @@ See Also
 - :doc:`customop-pattern` - CustomOp class hierarchy
 - :doc:`rtl-layers` - Implementing RTL variants
 - :doc:`specialization-rules` - HLS vs RTL selection
-- `HDL_STYLE_GUIDE.md <https://github.com/Xilinx/finn/blob/dev/HDL_STYLE_GUIDE.md>`_ - HLS coding conventions
+- `style_cpp.md <https://github.com/Xilinx/finn/blob/dev/rules/style_cpp.md>`_ and `style_hls.md <https://github.com/Xilinx/finn/blob/dev/rules/style_hls.md>`_ - HLS coding conventions
 - `finn-hlslib <https://github.com/Xilinx/finn-hlslib>`_ - HLS template library

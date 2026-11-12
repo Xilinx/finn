@@ -3,7 +3,6 @@
 
 import numpy as np
 import os
-import shutil
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.pwpolyf import PWPolyF
@@ -128,9 +127,6 @@ class PWPolyF_rtl(PWPolyF, RTLBackend):
         with open(os.path.join(code_gen_dir, topname + ".v"), "w") as f:
             f.write(template)
 
-        # copy RTL source files
-        shutil.copy(rtllib_dir + "pwpolyf.sv", code_gen_dir)
-
         # generate package with coefficients matching the node's K and degree
         pkg_data = self._generate_coeffs_pkg()
         with open(os.path.join(code_gen_dir, "pwpolyf_pkg.sv"), "w") as f:
@@ -162,21 +158,12 @@ class PWPolyF_rtl(PWPolyF, RTLBackend):
             RTLBackend.execute_node(self, context, graph)
 
     def code_generation_ipi(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-
-        sourcefiles = [
-            "pwpolyf_pkg.sv",
-            "pwpolyf.sv",
-        ]
-        sourcefiles.append(self.get_nodeattr("gen_top_module") + ".v")
-        sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
-        sourcefiles += fifo_rtl_files(abspath=True)
-
+        """Constructs and returns the TCL for node instantiation in Vivado IPI."""
         cmd = []
-        for f in sourcefiles:
-            cmd += ["add_files -norecurse %s" % (f)]
-        cmd += [
+        for f in self.get_rtl_file_list(abspath=True):
+            cmd.append("add_files -norecurse %s" % f)
+        cmd.append(
             "create_bd_cell -type module -reference %s %s"
             % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)
-        ]
+        )
         return cmd

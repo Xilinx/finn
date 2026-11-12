@@ -134,18 +134,18 @@ module $TOP_MODULE_NAME$_impl #(
     );
 
     // counters/address registers
-    logic signed [$clog2(LAST_READ_ELEM+1)+1-1:0]  Newest_buffered_elem = -1;
-    logic        [$clog2(LAST_READ_ELEM+1)+1-1:0]  Current_elem = FIRST_WRITE_ELEM;
+    logic signed [$clog2(LAST_READ_ELEM+1):0]  Newest_buffered_elem = -1;          // -1, 0, 1, ..., LAST_READ_ELEM
+    logic signed [$clog2(LAST_READ_ELEM+1):0]  Current_elem = FIRST_WRITE_ELEM;  // FIRST_WRITE_ELEM, ..., LAST_WRITE_ELEM
 
     // control registers/signals
     logic  Writing_done  = 0;
     logic  Write_done    = 0;
-    uwire  write_cmd     = !($signed(Current_elem) > Newest_buffered_elem) && !Writing_done;;
+    uwire  write_cmd     = !(Current_elem > Newest_buffered_elem) && !Writing_done;;
     uwire  write_ok      = write_cmd && (out_V_V_TREADY || Write_done);
     uwire  write_blocked = write_cmd && !out_V_V_TREADY && !Write_done;
 
     uwire  reading_done = Newest_buffered_elem == LAST_READ_ELEM;
-    uwire  read_cmd     = !reading_done && (Writing_done || Newest_buffered_elem <= $signed(Current_elem));
+    uwire  read_cmd     = !reading_done && (Writing_done || Newest_buffered_elem <= Current_elem);
     uwire  read_ok      = read_cmd && in0_V_V_TVALID && !write_blocked;
 
     //            includes waiting on W    if W-only cycle: wait only on W     no R/W to wait for
@@ -208,7 +208,7 @@ module $TOP_MODULE_NAME$_impl #(
                     end
                 end
                 else
-                    Current_elem <= $signed(Current_elem) + addr_incr;
+                    Current_elem <= Current_elem + addr_incr;
             end
         end
     end

@@ -53,6 +53,7 @@ def test_large_fifo_is_not_split(board, ram_style):
         json.dump(folding_cfg, f, indent=2)
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
+        enable_build_pdb_debug=False,
         auto_fifo_depths=False,
         folding_config_file=tmp_output_dir + "/folding_config.json",
         target_fps=10000,

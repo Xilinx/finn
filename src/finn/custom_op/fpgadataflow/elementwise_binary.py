@@ -35,6 +35,7 @@ from qonnx.core.modelwrapper import ModelWrapper
 
 from finn.custom_op.fpgadataflow import register_custom_op
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.data_packing import hls_datatype_str
 
 
 # Generic implementation for elementwise binary operations
@@ -306,7 +307,8 @@ class ElementwiseBinaryOperation(HWCustomOp):
 
     # Minimizes the width of the accumulator data type, 'accumulator width' here
     # due to convention, it is actually the output data type
-    def minimize_accumulator_width(self, model: ModelWrapper):
+    def minimize_accumulator_width(self, model: ModelWrapper, datatype_only=False):
+        """Minimize the output data type width."""
         # If any of the inputs is not an integer, the bit-width cannot be
         # minimized
         if not all([self.lhs_dtype.is_integer(), self.rhs_dtype.is_integer()]):
@@ -338,7 +340,11 @@ class ElementwiseBinaryOperation(HWCustomOp):
 
     # Minimizes the width of the weight data type, 'weight' here due to
     # convention, it actually applies to any constant initializer input
-    def minimize_weight_bit_width(self, model: ModelWrapper):
+    def minimize_weight_bit_width(self, model: ModelWrapper, datatype_only=False):
+        """Minimize the constant input data type width."""
+        if datatype_only:
+            return
+
         # Check for an initializer providing the left hand side input
         lhs = model.get_initializer(self.onnx_node.input[0])
         # If the left hand side input is provided as initializer, minimize the
@@ -362,6 +368,10 @@ class ElementwiseBinaryOperation(HWCustomOp):
                     _mag = _max if _min > 0 else _min if (abs(_min) > _max) else (-_max - 1)
                     # Smallest data type large enough to represent this range of values
                     lhs_dtype = DataType.get_smallest_possible(_mag)
+                    # BIPOLAR uses {-1,+1} encoding which is incompatible
+                    # with elementwise binary constant handling; use BINARY
+                    if lhs_dtype == DataType["BIPOLAR"]:
+                        lhs_dtype = DataType["BINARY"]
                 elif lhs_dtype.is_fixed_point():
                     # Convert the fixed-point array to corresponding integers and get
                     # smallest integer representation
@@ -402,6 +412,8 @@ class ElementwiseBinaryOperation(HWCustomOp):
                     _mag = _max if _min > 0 else _min if (abs(_min) > _max) else (-_max - 1)
                     # Smallest data type large enough to represent this range of values
                     rhs_dtype = DataType.get_smallest_possible(_mag)
+                    if rhs_dtype == DataType["BIPOLAR"]:
+                        rhs_dtype = DataType["BINARY"]
                 elif rhs_dtype.is_fixed_point():
                     # Convert the fixed-point array to corresponding integers and get
                     # smallest integer representation
@@ -914,7 +926,7 @@ class ElementwiseMax(ElementwiseBinaryOperation):
     # C++ operation template available as property
     @property
     def cpp_op(self) -> str:
-        odt_hls_name = self.out_dtype.get_hls_datatype_str()
+        odt_hls_name = hls_datatype_str(self.out_dtype)
         return "({0} >= {1} ? (%s){0} : (%s){1})" % (odt_hls_name, odt_hls_name)
 
     # RTL operation template available as property
@@ -923,7 +935,11 @@ class ElementwiseMax(ElementwiseBinaryOperation):
         return None
 
     # Override minimize_weight_bit_width to prevent type incompatibility
-    def minimize_weight_bit_width(self, model: ModelWrapper):
+    def minimize_weight_bit_width(self, model: ModelWrapper, datatype_only=False):
+        """Minimize the constant input data type width."""
+        if datatype_only:
+            return
+
         # For comparison operations like max/min, both operands must have
         # compatible types. Don't minimize if one side is float and the
         # minimized constant would become integer.

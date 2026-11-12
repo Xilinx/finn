@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import os
-import shutil
 
 from finn.custom_op.fpgadataflow.hwwhere import HWWhere
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
@@ -10,6 +9,10 @@ from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 
 def _rtlsrc_dir():
     return os.environ["FINN_ROOT"] + "/finn-rtllib/where/hdl"
+
+
+def _input_gen_dir():
+    return os.environ["FINN_ROOT"] + "/finn-rtllib/input_gen/hdl"
 
 
 class HWWhere_rtl(HWWhere, RTLBackend):
@@ -90,8 +93,6 @@ class HWWhere_rtl(HWWhere, RTLBackend):
             f.write(template)
         with open(os.path.join(code_gen_dir, topname + "_core.sv"), "w") as f:
             f.write(core_template)
-        for sv_file in ["input_gen.sv", "where.sv"]:
-            shutil.copy(rtlsrc + "/" + sv_file, code_gen_dir)
 
         self.set_nodeattr("ipgen_path", code_gen_dir)
         self.set_nodeattr("ip_path", code_gen_dir)
@@ -100,29 +101,27 @@ class HWWhere_rtl(HWWhere, RTLBackend):
         if abspath:
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen") + "/"
             rtllib_dir = _rtlsrc_dir() + "/"
+            input_gen_dir = _input_gen_dir() + "/"
         else:
             code_gen_dir = ""
             rtllib_dir = ""
+            input_gen_dir = ""
 
         return [
-            rtllib_dir + "input_gen.sv",
+            input_gen_dir + "input_gen.sv",
             rtllib_dir + "where.sv",
             code_gen_dir + self.get_nodeattr("gen_top_module") + "_core.sv",
             code_gen_dir + self.get_nodeattr("gen_top_module") + ".v",
         ]
 
     def code_generation_ipi(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        sourcefiles = self.get_rtl_file_list()
-        sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
-
         cmd = []
-        for f in sourcefiles:
-            cmd += ["add_files -norecurse %s" % f]
-        cmd += [
+        for f in self.get_rtl_file_list(abspath=True):
+            cmd.append("add_files -norecurse %s" % f)
+        cmd.append(
             "create_bd_cell -type module -reference %s %s"
             % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)
-        ]
+        )
         return cmd
 
     def execute_node(self, context, graph):

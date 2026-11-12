@@ -18,6 +18,8 @@
 
 #include <stdexcept>
 #include <exception>
+#include <type_traits>
+#include <utility>
 
 #if defined(_WIN32)
 #	include <windows.h>
@@ -29,6 +31,16 @@
 
 
 namespace xsi {
+
+//===========================================================================
+// XSI Feature Detection
+
+// s_xsi_setup_info::xsimDir (runtime xsim.dir remapping) exists in XSI >= 2023.1.
+template<typename T, typename = void>
+struct has_xsim_dir_field : std::false_type {};
+template<typename T>
+struct has_xsim_dir_field<T, std::void_t<decltype(std::declval<T&>().xsimDir)>> : std::true_type {};
+inline constexpr bool  has_xsim_dir = has_xsim_dir_field<s_xsi_setup_info>::value;
 
 //===========================================================================
 // Shared Library Representation
@@ -226,12 +238,9 @@ public:
 	) : _kernel(kernel) { kernel.open(design_lib, setup_info); }
 	Design(
 		Kernel &kernel, std::string const &design_lib,
-		char const *const  log_file = nullptr,
-		char const *const  wdb_file = nullptr
-	) : Design(kernel, design_lib, s_xsi_setup_info {
-		.logFileName = const_cast<char*>(log_file),
-		.wdbFileName = const_cast<char*>(wdb_file)
-	}) {}
+		char const *const  wdb_file = nullptr,
+		char const *const  xsim_dir = nullptr
+	) : Design(kernel, design_lib, make_setup_info(wdb_file, xsim_dir)) {}
 	~Design() { close(); }
 
 	// Explicitly finalize the design: _kernel.close() calls xsi_close, which
@@ -249,6 +258,18 @@ public:
 	}
 
 private:
+	template<typename Info = s_xsi_setup_info>
+	static Info make_setup_info(
+		char const *const  wdb_file,
+		char const *const  xsim_dir
+	) {
+		Info  info {};	// logFileName = nullptr: no simulation log
+		info.wdbFileName = const_cast<char*>(wdb_file);
+		if constexpr(has_xsim_dir_field<Info>::value)  info.xsimDir = const_cast<char*>(xsim_dir);
+		else if(xsim_dir)  throw std::invalid_argument("xsimDir is not supported by this XSI version (requires >= 2023.1).");
+		return  info;
+	}
+
 	Design(Design const&) = delete;
 	Design& operator*(Design const&) = delete;
 
@@ -332,6 +353,7 @@ public:
 	unsigned as_unsigned() const { return  buf()->aVal; }
 	std::string as_binstr() const;
 	std::string as_hexstr() const;
+	std::string as_hexstr_2state() const;
 
 	// Manipulation
 	Port& clear();

@@ -43,7 +43,9 @@ module cdma_u #(
     parameter integer                   LEN_BITS = 32,
     parameter integer                   ID_BITS = 2,
 
-    parameter integer                   DCPL_DEPTH = 4
+    parameter integer                   DCPL_DEPTH = 2,
+    parameter bit                       PACED = 1,
+    parameter integer                   N_OUTSTANDING = 2
 ) (
     input  wire                         aclk,
     input  wire                         aresetn,
@@ -183,7 +185,9 @@ axi_dma_rd_u #(
     .AXIS_KEEP_WIDTH(DATA_BITS/8),
     .AXIS_LAST_ENABLE(1'b1),
     .LEN_WIDTH(LEN_BITS),
-    .AXI_ID_BITS(ID_BITS)
+    .AXI_ID_BITS(ID_BITS),
+    .PACED(PACED),
+    .N_OUTSTANDING(N_OUTSTANDING)
 )
 axi_dma_rd_inst (
     .aclk(aclk),

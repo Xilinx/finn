@@ -31,6 +31,9 @@ namespace {
 
 PYBIND11_MODULE(xsi, m) {
 
+	// Whether Design accepts xsim_dir (XSI >= 2023.1).
+	m.attr("has_xsim_dir") = py::bool_(has_xsim_dir);
+
 	py::class_<Kernel, std::shared_ptr<Kernel>>(m, "Kernel")
 		.def(py::init<std::string const&>())
 		.def("hex_in_lower", &Kernel::hex_in_lower)
@@ -40,14 +43,15 @@ PYBIND11_MODULE(xsi, m) {
 		.def(py::init([](
 			std::shared_ptr<Kernel> const &kernel,
 			std::string const &design_lib,
-			char const *const  log_file,
-			char const *const  wdb_file
+			char const *const  wdb_file,
+			char const *const  xsim_dir
 		) {
-			std::unique_ptr<Design, DesignDeleter>  d { new Design(*kernel, design_lib, log_file, wdb_file) };
+			std::unique_ptr<Design, DesignDeleter>  d { new Design(*kernel, design_lib, wdb_file, xsim_dir) };
 			std::lock_guard<std::mutex>  lock(use_mutex);
 			use_map.emplace(d.get(), kernel);
 			return  d;
-		}))
+		}), py::arg("kernel"), py::arg("design_lib"), py::arg("wdb_file") = nullptr,
+		    py::arg("xsim_dir") = nullptr)
 		.def("trace_all", &Design::trace_all)
 		.def("close",     &Design::close)
 		.def("run",       &Design::run)
@@ -75,7 +79,8 @@ PYBIND11_MODULE(xsi, m) {
 		.def("as_bool",     &Port::as_bool)
 		.def("as_unsigned", &Port::as_unsigned)
 		.def("as_binstr",   &Port::as_binstr)
-		.def("as_hexstr",   &Port::as_hexstr)
+		.def("as_hexstr",          &Port::as_hexstr)
+		.def("as_hexstr_2state",   &Port::as_hexstr_2state)
 		.def("clear",       &Port::clear)
 		.def("set",         &Port::set)
 		.def("set_binstr",  &Port::set_binstr)

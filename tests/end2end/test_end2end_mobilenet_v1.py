@@ -270,6 +270,11 @@ def test_end2end_mobilenet_convert_to_hw_layers():
 @pytest.mark.end2end
 def test_end2end_mobilenet_specialize_layers():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_hw_layers.onnx")
+    # First pass: datatype-only bit width minimization before specialization
+    # Gives specialization realistic bit widths for RTL/HLS decisions
+    model = model.transform(MinimizeWeightBitWidth(datatype_only=True))
+    model = model.transform(MinimizeAccumulatorWidth(datatype_only=True))
+    model = model.transform(InferDataTypes())
     model = model.transform(SpecializeLayers(fpga_part))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
@@ -363,13 +368,13 @@ def test_end2end_mobilenet_folding():
     for thresholding, pe in zip(thresholding_layers, folding):
         thresholding_inst = getCustomOp(thresholding)
         thresholding_inst.set_nodeattr("PE", pe)
-    # adjust final pooling layer + its inpgen
+    # final pooling layer (fused: input generation lives inside Pool): match the
+    # producer's PE, so stream widths agree without a DWC. Even at PE=1 the Pool
+    # (~50k cycles/frame) stays well below the slowest MVAU (~200k).
     pool_node = model.get_nodes_by_op_type("Pool_hls")[0]
     pool_inst = getCustomOp(pool_node)
-    pool_inst.set_nodeattr("PE", 4 // extra_fold)
-    pool_inpgen = model.find_direct_predecessors(pool_node)[0]
-    pool_inpgen_inst = getCustomOp(pool_inpgen)
-    pool_inpgen_inst.set_nodeattr("SIMD", 4 // extra_fold)
+    producer = model.find_producer(pool_node.input[0])
+    pool_inst.set_nodeattr("PE", getCustomOp(producer).get_nodeattr("PE"))
     model = model.transform(InferDataLayouts())
     model.save(build_dir + "/end2end_mobilenet_folded.onnx")
 
@@ -378,8 +383,11 @@ def test_end2end_mobilenet_folding():
 @pytest.mark.end2end
 def test_end2end_mobilenet_minimize_bit_width():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_folded.onnx")
-    model = model.transform(MinimizeAccumulatorWidth())
+    # same order as step_minimize_bit_width: accumulator widths depend on the
+    # minimized weight (and bias) widths
     model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(MinimizeAccumulatorWidth())
+    model = model.transform(InferDataTypes())
     model = model.transform(RoundAndClipThresholds())
     model.save(build_dir + "/end2end_mobilenet_minimize_bitwidth.onnx")
 
@@ -530,6 +538,7 @@ def test_end2end_mobilenet_build_v80():
 
     cfg = build.DataflowBuildConfig(
         output_dir=output_dir,
+        enable_build_pdb_debug=False,
         synth_clk_period_ns=target_clk_ns,
         fpga_part=fpga_part,
         shell_flow_type=build_cfg.ShellFlowType.SLASH_ALVEO,
@@ -538,6 +547,10 @@ def test_end2end_mobilenet_build_v80():
             build_cfg.DataflowOutputType.CPP_DRIVER,
             build_cfg.DataflowOutputType.DEPLOYMENT_PACKAGE,
         ],
+        # Folding is already baked into the resumed checkpoint and the folding step is
+        # skipped via start_step, so this only satisfies the folding_missing check; it
+        # does not re-fold the model.
+        target_fps=1000,
         # Start from the set_fifo_depths checkpoint, skip earlier steps
         start_step="step_create_stitched_ip",
     )

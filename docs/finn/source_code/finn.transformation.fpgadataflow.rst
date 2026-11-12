@@ -70,6 +70,30 @@ finn.transformation.fpgadataflow.derive\_characteristic
    :undoc-members:
    :show-inheritance:
 
+finn.transformation.fpgadataflow.fifo\_sizing.derive\_fifo\_sizes
+-----------------------------------------------------------------
+
+.. automodule:: finn.transformation.fpgadataflow.fifo_sizing.derive_fifo_sizes
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+finn.transformation.fpgadataflow.fifo\_sizing.tav
+------------------------------------------------------------
+
+.. automodule:: finn.transformation.fpgadataflow.fifo_sizing.tav
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+finn.transformation.fpgadataflow.fifo\_sizing.tree\_models.base
+---------------------------------------------------------------
+
+.. automodule:: finn.transformation.fpgadataflow.fifo_sizing.tree_models.base
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.transformation.fpgadataflow.externalize\_params
 ------------------------------------------------------------
 
@@ -163,10 +187,10 @@ finn.transformation.fpgadataflow.make\_pynq\_driver
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.fpgadataflow.make\_zynq\_proj
+finn.transformation.fpgadataflow.make\_pynq\_proj
 ----------------------------------------------------------
 
-.. automodule:: finn.transformation.fpgadataflow.make_zynq_proj
+.. automodule:: finn.transformation.fpgadataflow.make_pynq_proj
   :members:
   :undoc-members:
   :show-inheritance:

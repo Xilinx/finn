@@ -169,6 +169,22 @@ def fold_lfc(model):
     return model
 
 
+def fold_cnv_swgs_and_pools(model):
+    """Derive SWG SIMD and Pool PE from the adjacent MVAUs (by graph, not index)."""
+    for swg in model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl"):
+        swg_inst = getCustomOp(swg)
+        consumer = model.find_consumer(swg.output[0])
+        if consumer is not None and consumer.op_type.startswith("MVAU"):
+            swg_inst.set_nodeattr("SIMD", getCustomOp(consumer).get_nodeattr("SIMD"))
+        swg_inst.set_nodeattr("ram_style", "distributed")
+    # InferPool leaves Pool fully parallel (PE=Channels). Match the producing
+    # MVAU's PE instead: equal stream widths (no DWC) at ample throughput.
+    for pool in model.get_nodes_by_op_type("Pool_hls"):
+        producer = model.find_producer(pool.input[0])
+        if producer is not None and producer.op_type.startswith("MVAU"):
+            getCustomOp(pool).set_nodeattr("PE", getCustomOp(producer).get_nodeattr("PE"))
+
+
 def fold_cnv_large(model):
     fc_layers = model.get_nodes_by_op_type("MVAU_hls")
     # each tuple is (PE, SIMD) for a layer
@@ -190,13 +206,7 @@ def fold_cnv_large(model):
         fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
         fcl_inst.set_nodeattr("resType", "lut")
 
-    swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")
-    for i in range(len(swg_layers)):
-        swg_inst = getCustomOp(swg_layers[i])
-        if not swg_inst.get_nodeattr("depthwise"):
-            simd = folding[i][1]
-            swg_inst.set_nodeattr("SIMD", simd)
-        swg_inst.set_nodeattr("ram_style", "distributed")
+    fold_cnv_swgs_and_pools(model)
     return model
 
 
@@ -222,13 +232,7 @@ def fold_cnv_small(model):
         fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
         fcl_inst.set_nodeattr("resType", "lut")
 
-    swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")
-    for i in range(len(swg_layers)):
-        swg_inst = getCustomOp(swg_layers[i])
-        if not swg_inst.get_nodeattr("depthwise"):
-            simd = folding[i][1]
-            swg_inst.set_nodeattr("SIMD", simd)
-        swg_inst.set_nodeattr("ram_style", "distributed")
+    fold_cnv_swgs_and_pools(model)
     inp_qnt_node = model.get_nodes_by_op_type("Thresholding_rtl")[0]
     inp_qnt = getCustomOp(inp_qnt_node)
     inp_qnt.set_nodeattr("depth_trigger_uram", 32000)
@@ -560,7 +564,7 @@ class TestEnd2End:
             "cnv": [
                 ("Transpose", 1),
                 ("Thresholding", 1),
-                ("ConvolutionInputGenerator", 8),
+                ("ConvolutionInputGenerator", 6),
                 ("MVAU", 9),
                 ("Pool", 2),
                 ("LabelSelect", 1),
@@ -578,6 +582,11 @@ class TestEnd2End:
         build_data = get_build_env(board, target_clk_ns)
         prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "convert_to_hw_layers")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
+        # First pass: datatype-only bit width minimization before specialization
+        # Gives specialization realistic bit widths for RTL/HLS decisions
+        model = model.transform(MinimizeWeightBitWidth(datatype_only=True))
+        model = model.transform(MinimizeAccumulatorWidth(datatype_only=True))
+        model = model.transform(InferDataTypes())
         model = model.transform(SpecializeLayers(build_data["part"]))
         model = model.transform(GiveUniqueNodeNames())
         model.save(get_checkpoint_name(board, topology, wbits, abits, "specialize_layers"))
@@ -603,7 +612,7 @@ class TestEnd2End:
             "cnv": [
                 ("Transpose", 1),
                 ("Thresholding_rtl", 1),
-                ("ConvolutionInputGenerator_rtl", 8),
+                ("ConvolutionInputGenerator_rtl", 6),
                 ("MVAU_hls", 9),
                 ("Pool_hls", 2),
                 ("LabelSelect_hls", 1),
@@ -801,7 +810,7 @@ class TestEnd2End:
             else:
                 model = model.transform(MakePYNQDriver("vitis-xrt"))
         elif build_data["toolchain"] == "pynq":
-            model = model.transform(MakePYNQDriver("zynq-iodma"))
+            model = model.transform(MakePYNQDriver("pynq-iodma"))
         else:
             raise Exception("Unsupported toolchain/topology combination for driver generation")
         model.save(get_checkpoint_name(board, topology, wbits, abits, "driver"))

@@ -73,12 +73,16 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
         code_gen_dict["$IN_RANGE$"] = "[{}:0]".format(in_width - 1)
         code_gen_dict["$OUT_RANGE$"] = "[{}:0]".format(in_width - 1)
         code_gen_dict["$WIDTH$"] = str(in_width)
+        # only the unpadded payload is stored, see fifo_template.v
+        code_gen_dict["$REAL_WIDTH$"] = str(self.get_instream_width())
         code_gen_dict["$DEPTH$"] = str(depth)
         ram_style = self.get_nodeattr("ram_style")
         # fifo.sv's RAM_STYLE_EFF ladder still uses the legacy "shift" token for the SRL
         # backing; map the FINN-facing "srl" onto it at the RTL boundary
         code_gen_dict["$RAM_STYLE$"] = "shift" if ram_style == "srl" else ram_style
         code_gen_dict["$DATA_LOGFILE$"] = self.get_nodeattr("debug_log_path")
+        code_gen_dict["$LOG_VERBOSE$"] = str(int(self.get_nodeattr("fifo_log_verbose")))
+        code_gen_dict["$LOG_FLUSH_CYCLES$"] = str(int(self.get_nodeattr("fifo_log_flush_cycles")))
         # apply code generation to templates
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         with open(template_path, "r") as f:

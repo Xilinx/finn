@@ -32,10 +32,8 @@ docompute_template = """
 #define AP_INT_MAX_W $AP_INT_MAX_W$
 #define HLS_NO_XIL_FPO_LIB
 #include "cnpy.h"
-#include "npy2apintstream.hpp"
-#include "npy2vectorstream.hpp"
+#include "npy2tensorstream.hpp"
 #include <vector>
-#include "bnn-library.h"
 
 // includes for network parameters
 $GLOBALS$
@@ -64,10 +62,8 @@ $SAVEASCNPY$
 docompute_template_timeout = """
 #define AP_INT_MAX_W $AP_INT_MAX_W$
 #include "cnpy.h"
-#include "npy2apintstream.hpp"
-#include "npy2vectorstream.hpp"
+#include "npy2tensorstream.hpp"
 #include <vector>
-#include "bnn-library.h"
 
 // includes for network parameters
 $GLOBALS$
@@ -110,8 +106,7 @@ $SAVEASCNPY$
 # cpp file
 ipgen_template = """
 #define AP_INT_MAX_W $AP_INT_MAX_W$
-
-#include "bnn-library.h"
+#include "tensor.hpp"
 
 $GLOBALS$
 
@@ -337,7 +332,6 @@ add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/cdma/cdma_a/axi_dma_rd_a.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/cdma/cdma_a/axi_dma_wr_a.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/cdma/cdma_u/cdma_u.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/cdma/cdma_u/cdma_u_wr.sv"
-add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/cdma/cdma_u/cdma_u_rd.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/cdma/cdma_u/axi_dma_rd_u.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/cdma/cdma_u/axi_dma_wr_u.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/cdma/cdma_x/cdma_x.sv"

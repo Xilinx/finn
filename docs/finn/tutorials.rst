@@ -25,9 +25,17 @@ End-to-End Flow
 
 There are two groups of notebooks currently available under `the end2end_example directory <https://github.com/Xilinx/finn/tree/main/notebooks/end2end_example>`_ :
 
-* ``cybersecurity`` shows how to train a quantized MLP with Brevitas and deploy it with FINN using the :ref:`command_line` build system.
+* ``cybersecurity`` shows how to train a quantized MLP with Brevitas and deploy it with FINN using the :ref:`command_line` build system. This is the recommended starting point for building your own accelerator.
 
-* ``bnn-pynq`` shows the internal compiler steps that take pretrained Brevitas QNNs on MNIST and CIFAR-10 and generate the FPGA accelerator.
+* ``bnn-pynq`` explains how the FINN compiler works internally, using pretrained Brevitas QNNs on MNIST and CIFAR-10. These notebooks are a reference for understanding and debugging the builder, not a template for your own build flow.
+
+  * tfc_end2end_example
+
+    * Goes through the intermediate models of a builder run and explains what each builder step does, including how convolutions are lowered and converted to HW layers.
+
+  * tfc_end2end_verification
+
+    * Shows what the builder's verification steps do by simulating the intermediate models in Python, C++ (cppsim) and RTL (rtlsim), and how to debug a failing verification step.
 
 
 Advanced

@@ -10,14 +10,63 @@
 #############################################################################
 
 import numpy as np
+import re
 import xsi
+
+
+class SimulationError(RuntimeError):
+    "The simulated design reported an $error or $fatal."
+
+
+# Message frames: @"<text>"\n from the design ($display, $error, ...), "<text>"\n
+# from the simulator kernel (e.g. "WARNING: File ... cannot be opened"). The
+# closing "\n must be followed by the end or the next frame. As kernel messages
+# never start with a newline, a following "\n is not taken as a frame start:
+# this keeps text ending in a quote, e.g. $display("say \"hi\""), in one piece.
+_FRAME = re.compile(r'@?"(.*?)"\n(?=@"|"(?!\n)|\Z)', re.DOTALL)
+
+
+def split_messages(info):
+    """Split the output of xsi_get_error_info() into individual messages.
+
+    The frames are not escaped, so splitting is best effort: a message that
+    itself contains a frame boundary is split in two. Anything from the first
+    incomplete frame on is kept verbatim.
+    """
+    msgs, pos = [], 0
+    while info and pos < len(info):
+        m = _FRAME.match(info, pos)
+        if m is None:
+            msgs.append(info[pos:])
+            break
+        msgs.append(m.group(1))
+        pos = m.end()
+    return msgs
+
+
+# Design $error/$fatal (incl. failed assertions) and simulator kernel errors
+_ERROR_PREFIXES = ("Error:", "Fatal:", "ERROR:", "FATAL_ERROR:")
+
+
+def is_error_message(msg):
+    "Whether a message reports an error."
+    return msg.startswith(_ERROR_PREFIXES)
 
 
 class SimEngine:
     # ------------------------------------------------------------------------
     # Life Cycle
-    def __init__(self, kernel, design, log=None, wdb=None):
-        top = xsi.Design(xsi.Kernel(kernel), design, log, wdb)
+    def __init__(self, kernel, design, wdb=None, xsim_dir=None, transcript=None):
+        # xsim_dir: absolute path of the snapshot's xsim.dir (XSI >= 2023.1). Lets
+        # the kernel resolve lazily opened snapshot files (e.g. xsim.svtype, read on
+        # the first $readmemh) independently of the process CWD.
+        # transcript: file collecting all simulator messages ($display, $warning,
+        # $error, ...) as fetched by drain_messages(); truncated here.
+        top = xsi.Design(xsi.Kernel(kernel), design, wdb, xsim_dir)
+        self.transcript = transcript
+        self.raise_on_error = True
+        if transcript is not None:
+            open(transcript, "w").close()
         clk = top.getPort("ap_clk")
         clk2x = top.getPort("ap_clk2x")
         for p in top.ports():
@@ -117,6 +166,7 @@ class SimEngine:
             if self.ticks % 10000 == 0:
                 status = "  ".join(f"{w.name}: {w.ticks}/{w.timeout}" for w in self.watchdogs)
                 print(f"Cycle {self.ticks}  {status}" if status else f"Cycle {self.ticks}")
+                self.drain_messages()
             strong = False
             for task in self.tasks:
                 # Tasks read signals and derive updates to schedule for after the clock cycle
@@ -137,7 +187,33 @@ class SimEngine:
         # Return List of Woken Watchdogs
         if timeout is not None:
             self.remove_watchdog(timeout)
+        # Surface design-reported errors before the caller interprets the outcome,
+        # e.g. as a watchdog timeout.
+        self.drain_messages()
         return woken
+
+    def drain_messages(self):
+        """Fetch the simulator messages emitted since the last call.
+
+        Appends them to the transcript (if any) and raises SimulationError if
+        one of them reports an $error/$fatal and raise_on_error is set. The
+        simulator itself neither stops nor changes its status on these.
+        """
+        msgs = split_messages(self.top.get_error_info())
+        if len(msgs) == 0:
+            return
+        if self.transcript is not None:
+            with open(self.transcript, "a") as f:
+                f.write("".join(msgs))
+        errors = [m for m in msgs if is_error_message(m)]
+        if self.raise_on_error and len(errors) > 0:
+            shown = 5
+            report = "\n".join(m.rstrip("\n") for m in errors[:shown])
+            if len(errors) > shown:
+                report += f"\n... and {len(errors) - shown} more"
+            if self.transcript is not None:
+                report += f"\nSee {self.transcript} for the full simulator output."
+            raise SimulationError(f"Simulated design reported {len(errors)} error(s):\n{report}")
 
     # ------------------------------------------------------------------------
     # Standard Tasks
@@ -622,7 +698,7 @@ class SimEngine:
 
                 # Queue received Write Data
                 if self.wvalid.read().as_bool():
-                    self.wd_queue.append(self.wdata.read().as_hexstr())
+                    self.wd_queue.append(self.wdata.read().as_hexstr_2state())
 
                 # Queue new Read Requests
                 if self.arvalid.read().as_bool():
