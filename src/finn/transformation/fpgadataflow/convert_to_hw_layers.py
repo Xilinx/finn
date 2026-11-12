@@ -240,18 +240,21 @@ class InferThresholdingLayer(Transformation):
 
                 odt = model.get_tensor_datatype(thl_output)
                 scale = getCustomOp(node).get_nodeattr("out_scale")
-                assert scale == 1.0, (
+                actval = getCustomOp(node).get_nodeattr("out_bias")
+                # binary->bipolar is achieved by reinterpretation in HW, so the
+                # scale/bias of a bipolar MultiThreshold map to ActVal=0
+                bipolar_ok = odt == DataType["BIPOLAR"] and scale == 2.0 and actval == -1
+                assert scale == 1.0 or bipolar_ok, (
                     f"{node.name}: MultiThreshold out_scale must be 1 for HW conversion. "
                     f"Hint: Consider running ExtractMultiThresholdScaleBias() transformation "
                     f"as a custom step to extract scale/bias into separate Add/Mul nodes."
                 )
-                actval = getCustomOp(node).get_nodeattr("out_bias")
                 assert int(actval) == actval, (
                     f"{node.name}: MultiThreshold out_bias must be integer for HW conversion. "
                     f"Hint: Consider running ExtractMultiThresholdScaleBias() transformation "
                     f"as a custom step to extract scale/bias into separate Add/Mul nodes."
                 )
-                actval = int(actval)
+                actval = 0 if bipolar_ok else int(actval)
 
                 # a signed activation should always have a negative bias,
                 # but BIPOLAR uses the -1 as 0 encoding so the assert does not apply
@@ -1223,9 +1226,10 @@ class InferGlobalAccPoolLayer(Transformation):
 
 
 class InferPool(Transformation):
-    """If kernel_shape > strides, replace Pool layer with  with of Im2col
-    + pool(with kernel_shape == strides), plus Transpose layers to keep the original
-    data layout."""
+    """Replace MaxPool / QuantAvgPool2d / MaxPoolNHWC ONNX nodes with a
+    consolidated Pool HW custom op that internally fuses pad<> + input_gen<>
+    + pool<F>().  Transpose nodes are inserted around the Pool node
+    when the original data layout is NCHW."""
 
     def apply(self, model):
         graph = model.graph
@@ -1253,8 +1257,6 @@ class InferPool(Transformation):
                     dlayout = "NCHW"
                 elif node.op_type == "QuantAvgPool2d":
                     inst = getCustomOp(node)
-                    # QuantAvgPool2d has a single scalar attribute
-                    # for kernel size and stride (implicit square)
                     kh = kw = inst.get_nodeattr("kernel")
                     sh = sw = inst.get_nodeattr("stride")
                     dlayout = inst.get_nodeattr("data_layout")
@@ -1273,7 +1275,8 @@ class InferPool(Transformation):
                     continue
 
                 if (kh < sh) or (kw < sw):
-                    # TODO check/implement swg support
+                    # kernel < stride skips input no window reads, which input_gen
+                    # would have to buffer regardless; not supported (yet)
                     continue
 
                 odt = model.get_tensor_datatype(node_output)
@@ -1287,27 +1290,39 @@ class InferPool(Transformation):
                 else:
                     raise Exception("Unknown dlayout: " + str(dlayout))
 
-                # ceil_mode=1 may require a trailing pooling window whose footprint
-                # extends past the input's trailing edge. The sliding-window generator
-                # only produces a floor-count grid, so absorb the ceil extension into
-                # extra trailing padding (bottom/right) such that the Im2Col floor
-                # formula reproduces the declared output size. For MaxPool this is
-                # exact: the pad value is the datatype min (matching the off-edge
-                # elements onnxruntime ignores in the max), and the drop rule
-                # guarantees every kept window still contains a real element.
-                # pad = [H_begin, W_begin, H_end, W_end]
+                # ceil_mode=1: absorb ceil extension into extra trailing padding
                 if ceil_mode and node.op_type in ["MaxPool", "MaxPoolNHWC"]:
                     pad[2] += max(0, (ofm_h - 1) * sh + kh - ifm_h - (pad[0] + pad[2]))
                     pad[3] += max(0, (ofm_w - 1) * sw + kw - ifm_w - (pad[1] + pad[3]))
 
-                # if data layout NCHW, we need transpose nodes surrounding
-                # the hw layer
+                # Determine pool function and parameters
+                accum_bits = 0
+                pool_size_param = 0
+                pad_value = 0
+                if node.op_type in ["MaxPool", "MaxPoolNHWC"]:
+                    pool_fxn = "MaxPool"
+                    odt = idt
+                    pad_value = idt.min()
+                elif node.op_type == "QuantAvgPool2d":
+                    assert (
+                        odt.is_integer()
+                    ), "Output data type for QuantAvgPool2d needs to be integer"
+                    assert all(x == 0 for x in pad), "Padding is not supported for QuantAvgPool2d"
+                    inst = getCustomOp(node)
+                    pool_fxn = "QuantAvgPool"
+                    pool_size_param = inst.get_shifts()
+                    accum_bits = inst.get_accum_size()
+                else:
+                    raise Exception(
+                        "pad_value and pool_fxn not configured for {}".format(node.op_type)
+                    )
+
+                # Create intermediate tensors and transpose nodes for NCHW layout
                 if dlayout == "NCHW":
-                    # create new intermediate values
                     inp_trans_out = helper.make_tensor_value_info(
                         model.make_new_valueinfo_name(),
                         TensorProto.FLOAT,
-                        (1, ifm_h, ifm_w, ifm_ch),  # NHWC
+                        (1, ifm_h, ifm_w, ifm_ch),
                     )
                     graph.value_info.append(inp_trans_out)
                     inp_trans_out = inp_trans_out.name
@@ -1321,69 +1336,18 @@ class InferPool(Transformation):
                     graph.value_info.append(pool_output)
                     pool_output = pool_output.name
 
-                im2col_out = helper.make_tensor_value_info(
-                    model.make_new_valueinfo_name(),
-                    TensorProto.FLOAT,
-                    (1, ofm_h, ofm_w, ifm_ch * kh * kw),
-                )
-                graph.value_info.append(im2col_out)
-                im2col_out = im2col_out.name
-                model.set_tensor_datatype(im2col_out, idt)
-
-                # create new nodes
-                if dlayout == "NCHW":
-                    # NCHW -> NHWC
                     inp_trans_node = helper.make_node(
                         "Transpose", [node_input], [inp_trans_out], perm=[0, 2, 3, 1]
                     )
-                    im2col_in = inp_trans_out
+                    pool_input = inp_trans_out
                 else:
-                    im2col_in = node_input
+                    pool_input = node_input
                     pool_output = node_output
 
-                accum_bits = 0
-                pool_size_param = 0  # will be overridden if neededs
-                pad_value = 0
-                if node.op_type in ["MaxPool", "MaxPoolNHWC"]:
-                    pool_fxn = "MaxPool"
-                    odt = idt
-                    pad_value = idt.min()
-                elif node.op_type == "QuantAvgPool2d":
-                    assert odt.is_integer(), """Output data type for QuantAvgPool2d
-                    needs to be integer"""
-                    assert all(x == 0 for x in pad), "Padding is not supported for QuantAvgPool2d"
-                    inst = getCustomOp(node)
-                    pool_fxn = "QuantAvgPool"
-                    pool_size_param = inst.get_shifts()
-                    accum_bits = inst.get_accum_size()
-
-                else:
-                    raise Exception(
-                        "pad_value and pool_fxn not configured for {}".format(node.op_type)
-                    )
-
-                # format input tensor
-                im2col_node = helper.make_node(
-                    "Im2Col",
-                    [im2col_in],
-                    [im2col_out],
-                    domain="qonnx.custom_op.general",
-                    stride=[sh, sw],
-                    kernel_size=[kh, kw],
-                    pad_amount=pad,
-                    pad_value=pad_value,
-                    depthwise=1,
-                    input_shape="(1,{},{},{})".format(ifm_h, ifm_w, ifm_ch),
-                    name="Im2Col_" + node.name,
-                )
-
-                # Warning PE has to be equal to ifm_ch until Im2Col is replaced by
-                # ConvolutionInputGenerator with depthwise=1.
-                # For other settings the output will be incorrect due to incorrect input
-                # data layout
+                # Consolidated Pool node — input is the raw (unpadded) feature map
                 pool_node = helper.make_node(
                     "Pool",
-                    [im2col_out],
+                    [pool_input],
                     [pool_output],
                     domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
@@ -1392,8 +1356,12 @@ class InferPool(Transformation):
                     Channels=ifm_ch,
                     PE=ifm_ch,
                     KernelSize=[kh, kw],
+                    Stride=[sh, sw],
+                    IFMDim=[ifm_h, ifm_w],
                     Function=pool_fxn,
                     OutImgDims=[ofm_h, ofm_w],
+                    Padding=pad,
+                    PadValue=pad_value,
                     AccumBits=accum_bits,
                     Size=pool_size_param,
                     BatchSize=1,
@@ -1402,20 +1370,14 @@ class InferPool(Transformation):
                 )
 
                 if dlayout == "NCHW":
-                    # NHWC -> NCHW
                     out_trans_node = helper.make_node(
                         "Transpose", [pool_output], [node_output], perm=[0, 3, 1, 2]
                     )
-
-                # insert nodes where the conv is to preserve topological ordering
-                if dlayout == "NCHW":
                     graph.node.insert(node_ind, inp_trans_node)
-                    graph.node.insert(node_ind + 1, im2col_node)
-                    graph.node.insert(node_ind + 2, pool_node)
-                    graph.node.insert(node_ind + 3, out_trans_node)
-                else:
-                    graph.node.insert(node_ind, im2col_node)
                     graph.node.insert(node_ind + 1, pool_node)
+                    graph.node.insert(node_ind + 2, out_trans_node)
+                else:
+                    graph.node.insert(node_ind, pool_node)
                 # remove old node
                 graph.node.remove(node)
                 graph_modified = True
@@ -1897,7 +1859,11 @@ class InferStreamingEltwise(Transformation):
 class InferBinaryMatrixVectorActivation(Transformation):
     """Convert XnorPopcountMatMul layers to
     MatrixVectorActivation layers. Any immediately following MultiThreshold
-    layers will also be absorbed into the MVTU."""
+    layers will also be absorbed into the MVTU.
+
+    XnorPopcountMatMul (from qonnx) uses BINARY {0,1} encoding. We convert
+    back to BIPOLAR {-1,+1} so that the native Bipolar type in finn-hlslib
+    handles the XNOR-popcount MAC correctly."""
 
     def __init__(self):
         super().__init__()
@@ -1917,17 +1883,44 @@ class InferBinaryMatrixVectorActivation(Transformation):
                 assert model.get_tensor_datatype(mm_input) == DataType["BINARY"], (
                     n.name
                     + """: First
-                input for xnorpopcount is not Wset to FINN DataType BINARY."""
+                input for xnorpopcount is not set to FINN DataType BINARY."""
                 )
                 assert model.get_tensor_datatype(mm_weight) == DataType["BINARY"], (
                     n.name
                     + """: Second
                 input (weights) for xnorpopcount is not set to FINN DataType BINARY."""
                 )
-                idt = DataType["BINARY"]
-                wdt = DataType["BINARY"]
+                # convert from BINARY {0,1} back to BIPOLAR {-1,+1}
+                idt = DataType["BIPOLAR"]
+                wdt = DataType["BIPOLAR"]
                 mm_output = n.output[0]
                 W = model.get_initializer(mm_weight)
+                # convert binary weights {0,1} to bipolar {-1,+1}
+                model.set_initializer(mm_weight, 2 * W - 1)
+                model.set_tensor_datatype(mm_weight, wdt)
+                model.set_tensor_datatype(mm_input, idt)
+                # Switch the layer producing the activations back to BIPOLAR as
+                # well, so that InferDataTypes() preserves the BIPOLAR annotation.
+                # This is either a MultiThreshold, or a previous binary layer that
+                # already absorbed its MultiThreshold (MVAU) or was converted to
+                # Thresholding. Only the direct producer is switched: layout ops
+                # such as MaxPool in between have to stay BINARY, since the
+                # finn-hlslib Bipolar type has no ordering.
+                act_producers = ["MultiThreshold", "MVAU", "Thresholding"]
+                producer = model.find_producer(mm_input)
+                if (
+                    producer is not None
+                    and producer.op_type in act_producers
+                    and model.get_tensor_datatype(producer.output[0]).bitwidth() == 1
+                ):
+                    if producer.op_type == "MultiThreshold":
+                        # exact inverse of ConvertBipolarMatMulToXnorPopcount
+                        mt_inst = getCustomOp(producer)
+                        mt_inst.set_nodeattr("out_dtype", "BIPOLAR")
+                        mt_inst.set_nodeattr("out_scale", 2.0)
+                        mt_inst.set_nodeattr("out_bias", -1.0)
+                    else:
+                        getCustomOp(producer).set_nodeattr("outputDataType", "BIPOLAR")
                 # extract weight shape, note that ONNX and finn-hlslib
                 # make different assumptions about dim order here
                 # ONNX assumes W has (in, out) shape
@@ -1980,7 +1973,6 @@ class InferBinaryMatrixVectorActivation(Transformation):
                         weightDataType=wdt.name,
                         outputDataType=odt.name,
                         ActVal=actval,
-                        binaryXnorMode=1,
                         noActivation=0,
                         numInputVectors=list(mm_in_shape[:-1]),
                         name=n.name,
@@ -2010,7 +2002,6 @@ class InferBinaryMatrixVectorActivation(Transformation):
                         weightDataType=wdt.name,
                         outputDataType=odt.name,
                         ActVal=0,
-                        binaryXnorMode=1,
                         noActivation=1,
                         numInputVectors=list(mm_in_shape[:-1]),
                         name=n.name,
@@ -2097,7 +2088,7 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             consumer.name + ": out_scale=1 or bipolar output needed for conversion."
                         )
                         assert (not odt.signed()) or (actval < 0), (
-                            consumer.name + ": Signed output requres actval < 0"
+                            consumer.name + ": Signed output requires actval < 0"
                         )
                         model.set_tensor_shape(mm_input, mm_in_shape)
                         model.set_tensor_shape(mt_output, mt_out_shape)
@@ -2120,7 +2111,6 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             weightDataType=wdt.name,
                             outputDataType=odt.name,
                             ActVal=actval,
-                            binaryXnorMode=0,
                             noActivation=0,
                             numInputVectors=list(mm_in_shape[:-1]),
                             name="MVAU_" + n.name,
@@ -2152,7 +2142,6 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             weightDataType=wdt.name,
                             outputDataType=odt.name,
                             ActVal=0,
-                            binaryXnorMode=0,
                             noActivation=1,
                             numInputVectors=list(mm_in_shape[:-1]),
                             name="MVAU_" + n.name,
@@ -2252,7 +2241,7 @@ class InferVectorVectorActivation(Transformation):
                         )
                         actval = int(actval)
                         assert (not odt.signed()) or (actval < 0), (
-                            consumer.name + ": Signed output requres actval < 0"
+                            consumer.name + ": Signed output requires actval < 0"
                         )
                         model.set_tensor_shape(mm_input, mm_in_shape)
                         model.set_tensor_shape(mt_output, mt_out_shape)
@@ -2581,6 +2570,10 @@ class InferElementwiseBinaryOperation(Transformation):
                         _min, _max = lhs_init.min(), lhs_init.max()
                         _mag = _max if _min >= 0 else _min if (abs(_min) > _max) else (-_max - 1)
                         idt0 = DataType.get_smallest_possible(_mag)
+                        # BIPOLAR uses {-1,+1} encoding which is incompatible
+                        # with elementwise binary constant handling; use BINARY
+                        if idt0 == DataType["BIPOLAR"]:
+                            idt0 = DataType["BINARY"]
                         model.set_tensor_datatype(in0, idt0)
 
                 if rhs_style == "const":
@@ -2593,6 +2586,8 @@ class InferElementwiseBinaryOperation(Transformation):
                         _min, _max = rhs_init.min(), rhs_init.max()
                         _mag = _max if _min >= 0 else _min if (abs(_min) > _max) else (-_max - 1)
                         idt1 = DataType.get_smallest_possible(_mag)
+                        if idt1 == DataType["BIPOLAR"]:
+                            idt1 = DataType["BINARY"]
                         model.set_tensor_datatype(in1, idt1)
 
                 # If both inputs are integers, set output to INT32 as default.

@@ -24,4 +24,5 @@ For a more detailed overview about the different flow sections, please have a lo
    brevitas_export
    nw_prep
    hw_build
+   fifo_sizing_heuristics
    verification

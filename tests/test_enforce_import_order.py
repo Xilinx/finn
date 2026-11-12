@@ -35,9 +35,12 @@
 # this is to workaround the onnx 1.6.0/pytorch bug
 # https://github.com/onnx/onnx/issues/2394#issuecomment-581638840
 
+import pytest
+
 import onnx  # noqa
 import torch  # noqa
 
 
+@pytest.mark.util
 def test_enforce_import_order():
     assert True

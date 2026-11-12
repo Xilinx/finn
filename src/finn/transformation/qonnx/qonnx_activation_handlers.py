@@ -189,14 +189,21 @@ class QuantActBaseHandler(ABC):
 
         # Derive the MultiThreshold data layout from the channel axis implied by
         # the Quant scale shape. For a per-tensor scale there is no channel axis,
-        # so fall back to any existing layout annotation on the input tensor.
+        # so fall back to any existing layout annotation on the input tensor. The
+        # annotation is only used if its rank matches the tensor: InferDataLayouts
+        # propagates layouts through rank-changing ops such as Reshape unchanged
+        # (e.g. a 4D NWHC annotation on a 3D tensor), which MultiThreshold cannot
+        # execute; without a layout it falls back to the rank-based default.
         channel_axis = self._get_channel_axis(n.input[0])
+        ndim = len(model.get_tensor_shape(n.input[0]))
         if channel_axis is not None:
-            ndim = len(model.get_tensor_shape(n.input[0]))
             data_layout = self._channel_axis_to_data_layout(channel_axis, ndim)
         else:
             annotated = model.get_tensor_layout(n.input[0])
-            data_layout = "".join(annotated) if annotated is not None else None
+            if annotated is not None and len(annotated) == ndim:
+                data_layout = "".join(annotated)
+            else:
+                data_layout = None
 
         # Insert MultiThreshold node
         outp_trans_node = helper.make_node(

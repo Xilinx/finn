@@ -285,8 +285,10 @@ assign odat = odat_C;
 
 for(genvar i = 0; i < 2; i++) begin : genBank
     for(genvar k = 0; k < SIMD; k++) begin : genSimd
+        // Flat entries: Vivado cannot infer a RAM with structured (packed
+        // [PE][WEIGHT_WIDTH]) elements and would build it from registers.
         (* RAM_STYLE = RAM_STYLE *)
-        logic [PE-1:0][WEIGHT_WIDTH-1:0]  Ram[2**WGT_ADDR_BITS];
+        logic [PE*WEIGHT_WIDTH-1:0]  Ram[2**WGT_ADDR_BITS];
         logic [PE-1:0][WEIGHT_WIDTH-1:0]  RdReg;
 
         always_ff @(posedge ap_clk) begin

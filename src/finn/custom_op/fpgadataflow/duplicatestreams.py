@@ -147,13 +147,3 @@ class DuplicateStreams(HWCustomOp):
         output = np.asarray([output], dtype=np.float32).reshape(*exp_shape)
         for outp in node.output:
             context[outp] = output
-
-    def derive_characteristic_fxns(self, period):
-        n_inps = np.prod(self.get_folded_input_shape()[:-1])
-        io_dict = {
-            "inputs": {
-                "in0": [0 for i in range(n_inps)],
-            },
-            "outputs": {"out0": [], "out1": []},
-        }
-        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)

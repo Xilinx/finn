@@ -21,6 +21,7 @@ import torch
 from brevitas.core.scaling import ScalingImplType
 from brevitas.export import export_qonnx
 from brevitas.nn import QuantIdentity, QuantReLU
+from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -33,7 +34,7 @@ from qonnx.transformation.general import (
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
@@ -62,10 +63,14 @@ from finn.transformation.qonnx.quant_act_to_multithreshold import (
 )
 from finn.transformation.streamline.absorb import AbsorbScalarBiasIntoMultiThreshold
 from finn.util.basic import make_build_dir, pynq_part_map
+from finn.util.test import tree_model_test
 
 test_pynq_board = "ZCU104"
 test_fpga_part = pynq_part_map[test_pynq_board]
 target_clk_ns = 10
+
+tree_model_fpga_part = "xczu7ev-ffvc1156-2-e"
+tree_model_clk_ns = 5.0
 
 
 def create_requant_model(abits, max_val, ishape, per_channel):
@@ -165,13 +170,17 @@ def create_signed_requant_model(abits, max_val, ishape, per_channel):
 @pytest.mark.parametrize("sim_style", ["cppsim", "node_by_node", "stitched_ip"])
 @pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
 @pytest.mark.parametrize("signed_out", [False, True])
+@pytest.mark.parametrize("input_dtype", ["INT8", "UINT8"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_requant_rtl(abits, ishape, per_channel, part, pe, sim_style, mem_mode, signed_out):
+def test_requant_rtl(
+    abits, ishape, per_channel, part, pe, sim_style, mem_mode, signed_out, input_dtype
+):
     """Test Requant RTL backend with different devices (DSP variants).
 
-    Tests integer input which uses the RTL backend.
+    Tests signed and unsigned integer input which use the RTL backend (unsigned
+    inputs are zero-extended by one bit for the signed core).
     Different FPGA parts test different DSP versions:
     - Versal (xcvc1902): DSP58
     - Ultrascale+ (xczu7ev): DSP48E2
@@ -179,7 +188,6 @@ def test_requant_rtl(abits, ishape, per_channel, part, pe, sim_style, mem_mode, 
     """
     num_channels = ishape[1]
     max_val = 1.0
-    input_dtype = "INT8"  # RTL backend is for integer inputs
 
     # Skip if PE doesn't divide evenly into num_channels
     if num_channels % pe != 0:
@@ -191,7 +199,7 @@ def test_requant_rtl(abits, ishape, per_channel, part, pe, sim_style, mem_mode, 
     else:
         model = create_requant_model(abits, max_val, ishape, per_channel)
 
-    # Set input datatype to INT8 for RTL backend
+    # Set integer input datatype for RTL backend
     model.set_tensor_datatype(model.graph.input[0].name, DataType[input_dtype])
     model = model.transform(InferDataTypes())
 
@@ -224,7 +232,7 @@ def test_requant_rtl(abits, ishape, per_channel, part, pe, sim_style, mem_mode, 
 
     # Verify RTL backend was selected
     requant_rtl_nodes = model.get_nodes_by_op_type("Requant_rtl")
-    assert len(requant_rtl_nodes) == 1, "Expected Requant_rtl for INT8 input"
+    assert len(requant_rtl_nodes) == 1, f"Expected Requant_rtl for {input_dtype} input"
     getCustomOp(requant_rtl_nodes[0]).set_nodeattr("PE", pe)
     getCustomOp(requant_rtl_nodes[0]).set_nodeattr("mem_mode", mem_mode)
 
@@ -721,3 +729,82 @@ def test_infer_requant_from_quant(channelwise, pe, need_extraction_scale, need_e
     model = model.transform(PrepareRTLSim())
     y_rtlsim = oxe.execute_onnx(model, {model.graph.input[0].name: inp})[model.graph.output[0].name]
     assert np.allclose(y_golden, y_rtlsim)
+
+
+# =============================================================================
+# Tree Model Test - the analytical token access vector against rtlsim
+# =============================================================================
+
+
+def make_requant_modelwrapper(ishape, num_channels, pe, idt, odt, impl_style):
+    """A graph holding one Requant node, with scale and bias as initializers."""
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, list(ishape))
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, list(ishape))
+    node = helper.make_node(
+        "Requant",
+        ["inp", "scale", "bias"],
+        ["outp"],
+        domain="finn.custom_op.fpgadataflow",
+        backend="fpgadataflow",
+        NumChannels=num_channels,
+        PE=pe,
+        inputDataType=idt.name,
+        outputDataType=odt.name,
+        numInputVectors=list(ishape[:-1]),
+        preferred_impl_style=impl_style,
+    )
+    graph = helper.make_graph(nodes=[node], name="requant_graph", inputs=[inp], outputs=[outp])
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="requant-model"))
+    model.set_tensor_datatype("inp", idt)
+    model.set_tensor_datatype("outp", odt)
+    model.set_initializer("scale", np.full((num_channels,), 0.5, dtype=np.float32))
+    model.set_initializer("bias", np.zeros((num_channels,), dtype=np.float32))
+    return model
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        ((1, 16, 64), 64, 1, "hls"),
+        ((1, 16, 64), 64, 8, "hls"),
+        ((1, 16, 64), 64, 16, "hls"),
+        ((1, 16, 64), 64, 1, "rtl"),
+        ((1, 16, 64), 64, 4, "rtl"),
+    ],
+)
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_requant(config):
+    ishape, num_channels, pe, impl_style = config
+
+    model = make_requant_modelwrapper(
+        ishape, num_channels, pe, DataType["INT8"], DataType["UINT8"], impl_style
+    )
+    model = model.transform(SpecializeLayers(tree_model_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+    assert model.graph.node[0].op_type == "Requant_" + impl_style
+
+    node_details = ("Requant", config)
+
+    # Both rows are one solid run at one token per cycle, so nothing can drift
+    # and the volume budget is a floor, not a fraction. The length budget covers
+    # the pipeline fill, which the period deliberately leaves out: it is a fixed
+    # cost the reference's period carries a share of, and folding it into the
+    # period would put a hole in a row that has none.
+    max_allowed_volume_frac = 0.0
+    volume_const = 2
+    max_allowed_length_frac = 0.04
+    length_const = 20
+
+    assert tree_model_test(
+        model,
+        node_details,
+        tree_model_fpga_part,
+        tree_model_clk_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    ), "characterized TAV does not match RTLsim'd one!"

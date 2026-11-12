@@ -38,15 +38,15 @@ cd %s
 """
 
 custom_zynq_shell_template = """
-set FREQ_MHZ %s
-set NUM_AXILITE %d
+set FREQ_MHZ @FREQ_MHZ@
+set NUM_AXILITE @NUM_AXILITE@
 if {$NUM_AXILITE > 9} {
     error "Maximum 10 AXI-Lite interfaces supported"
 }
-set NUM_AXIMM %d
-set BOARD %s
-set FPGA_PART %s
-create_project finn_zynq_link ./ -part $FPGA_PART
+set NUM_AXIMM @NUM_AXIMM@
+set BOARD @BOARD@
+set FPGA_PART @FPGA_PART@
+create_project finn_link ./finn_link -part $FPGA_PART
 
 # set board part repo paths to find PYNQ-Z1/Z2
 set paths_prop [get_property BOARD_PART_REPO_PATHS [current_project]]
@@ -90,7 +90,7 @@ if {$BOARD == "ZCU104"} {
     puts "Unrecognized board"
 }
 
-create_bd_design "top"
+create_bd_design "finn_link"
 if {$ZYNQ_TYPE == "zynq_us+"} {
     set zynq_ps_vlnv [get_property VLNV [get_ipdefs "xilinx.com:ip:zynq_ultra_ps_e:*"]]
     create_bd_cell -type ip -vlnv $zynq_ps_vlnv zynq_ps
@@ -160,7 +160,7 @@ proc assign_axi_addr_proc {axi_intf_path} {
 }
 
 #custom IP instantiations/connections start here
-%s
+@CONFIG@
 
 #MLO (Multi-Layer Offload) weight streaming
 if {$ZYNQ_TYPE == "zynq_us+"} {
@@ -173,7 +173,7 @@ if {$ZYNQ_TYPE == "zynq_us+"} {
         connect_bd_intf_net [get_bd_intf_pins smartconnect_mlo/M00_AXI] [get_bd_intf_pins zynq_ps/S_AXI_HP1_FPD]
         set mlo_si_idx 0
         foreach mlo_mm_pin $mlo_mm_pins {
-            set mlo_si_name [format "S%%02d_AXI" $mlo_si_idx]
+            set mlo_si_name [format "S%02d_AXI" $mlo_si_idx]
             connect_bd_intf_net $mlo_mm_pin [get_bd_intf_pins smartconnect_mlo/$mlo_si_name]
             incr mlo_si_idx
         }
@@ -184,7 +184,7 @@ if {$ZYNQ_TYPE == "zynq_us+"} {
 }
 
 # set up debug
-if {%d == 1} {
+if {@ENABLE_DEBUG@ == 1} {
     set_property HDL_ATTRIBUTE.DEBUG true [get_bd_intf_nets {idma0_m_axis_0}]
     set_property HDL_ATTRIBUTE.DEBUG true [get_bd_intf_nets {StreamingDataflowPartition_1_m_axis_0}]
     set_property HDL_ATTRIBUTE.DEBUG true [get_bd_intf_nets {smartconnect_0_M00_AXI}]
@@ -206,8 +206,8 @@ save_bd_design
 assign_bd_address
 validate_bd_design
 
-set_property SYNTH_CHECKPOINT_MODE "Hierarchical" [ get_files top.bd ]
-make_wrapper -files [get_files top.bd] -import -fileset sources_1 -top
+set_property SYNTH_CHECKPOINT_MODE "Hierarchical" [ get_files finn_link.bd ]
+make_wrapper -files [get_files finn_link.bd] -import -fileset sources_1 -top
 
 set_property strategy Flow_PerfOptimized_high [get_runs synth_1]
 set_property STEPS.SYNTH_DESIGN.ARGS.DIRECTIVE AlternateRoutability [get_runs synth_1]
@@ -220,12 +220,167 @@ set_property STEPS.POST_ROUTE_PHYS_OPT_DESIGN.IS_ENABLED true [get_runs impl_1]
 
 # out-of-context synth can't be used for bitstream generation
 # set_property -name {STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS} -value {-mode out_of_context} -objects [get_runs synth_1]
-launch_runs -to_step write_bitstream impl_1 -jobs %d
+launch_runs -to_step write_bitstream impl_1 -jobs @NUM_WORKERS@
 wait_on_run [get_runs impl_1]
 
 # generate synthesis report
 open_run impl_1
 report_utilization -hierarchical -hierarchical_depth 4 -file synth_report.xml -format xml
+report_timing_summary -file timing_summary_routed.rpt
+close_project
+"""
+
+# Versal (embedded, e.g. VCK190) overlay shell template.
+custom_versal_shell_template = """
+set FREQ_MHZ @FREQ_MHZ@
+set NUM_AXILITE @NUM_AXILITE@
+if {$NUM_AXILITE > 16} {
+    error "Maximum 16 AXI-Lite interfaces supported"
+}
+set NUM_AXIMM @NUM_AXIMM@
+set BOARD @BOARD@
+set FPGA_PART @FPGA_PART@
+set GOLDEN_DIR @GOLDEN_DIR@
+set OVERLAY_NAME finn_link
+
+# The golden reference script builds into an already open project and empty block
+# design, so they keep the FINN names. The board part must match the golden one.
+create_project $OVERLAY_NAME ./$OVERLAY_NAME -part $FPGA_PART
+set_property board_part xilinx.com:vck190:part0:3.4 [current_project]
+create_bd_design $OVERLAY_NAME
+
+# Source the golden reference design.
+source [file join $GOLDEN_DIR golden_ref.tcl]
+if {[get_bd_cells -quiet versal_cips_0] eq ""} {
+    error "Failed to create the golden reference design from $GOLDEN_DIR/golden_ref.tcl"
+}
+
+# The whole overlay runs on pl0_ref_clk at the kernel frequency.
+set_property CONFIG.PS_PMC_CONFIG [list PMC_CRP_PL0_REF_CTRL_FREQMHZ $FREQ_MHZ] \
+    [get_bd_cells versal_cips_0]
+
+# The NoC is configured at boot from the golden design, so noc_pl must keep the
+# golden data width once the tie-offs are gone.
+foreach noc_port [get_bd_intf_pins noc_pl/S0*_AXI] {
+    set_property CONFIG.DATA_WIDTH [get_property CONFIG.DATA_WIDTH $noc_port] $noc_port
+}
+
+# Replace the golden tie-offs on the interfaces FINN drives with real logic.
+delete_bd_objs [get_bd_cells tieoff_fpd]
+delete_bd_objs [get_bd_cells tieoff_pl0]
+
+# Control path: M_AXI_FPD -> control SmartConnect -> kernel AXI-Lite ports
+set smartconnect_vlnv [get_property VLNV [get_ipdefs "xilinx.com:ip:smartconnect:*"]]
+create_bd_cell -type ip -vlnv $smartconnect_vlnv axi_interconnect_0
+set_property -dict [list CONFIG.NUM_SI {1} CONFIG.NUM_MI $NUM_AXILITE] [get_bd_cells axi_interconnect_0]
+connect_bd_intf_net [get_bd_intf_pins versal_cips_0/M_AXI_FPD] [get_bd_intf_pins axi_interconnect_0/S00_AXI]
+
+# DDR path: FINN I/O DMA masters -> SmartConnect -> noc_pl/S00_AXI
+create_bd_cell -type ip -vlnv $smartconnect_vlnv smartconnect_0
+set_property -dict [list CONFIG.NUM_SI $NUM_AXIMM CONFIG.NUM_MI {1}] [get_bd_cells smartconnect_0]
+connect_bd_intf_net [get_bd_intf_pins smartconnect_0/M00_AXI] [get_bd_intf_pins noc_pl/S00_AXI]
+
+# Procedure to assign AXI-Lite register apertures in the M_AXI_FPD space.
+# PL peripherals live in the 0xA4000000 window in the golden address map.
+set axi_peripheral_base 0xA4000000
+proc assign_axi_addr_proc {axi_intf_path} {
+    global axi_peripheral_base
+    set range [expr 2**[get_property CONFIG.ADDR_WIDTH [get_bd_intf_pins $axi_intf_path]]]
+    set range [expr $range < 4096 ? 4096 : $range]
+    set offset [expr ($axi_peripheral_base + ($range-1)) & ~($range-1)]
+    assign_bd_address [get_bd_addr_segs $axi_intf_path/Reg*] \
+        -target_address_space [get_bd_addr_spaces versal_cips_0/M_AXI_FPD] \
+        -offset $offset -range $range -force
+    set axi_peripheral_base [expr $offset + $range]
+}
+
+# custom IP instantiations/connections start here
+@CONFIG@
+
+# MLO (Multi-Layer Offload) weight streaming -> noc_pl/S01_AXI
+set mlo_mm_pins [get_bd_intf_pins -quiet -of_objects [get_bd_cells] \
+    -filter {MODE == Master && (NAME == m_axi_intermediate_frame || NAME =~ m_axi_MVAU_*)}]
+if {[llength $mlo_mm_pins] > 0} {
+    delete_bd_objs [get_bd_cells tieoff_pl1]
+    create_bd_cell -type ip -vlnv $smartconnect_vlnv smartconnect_mlo
+    set_property -dict [list CONFIG.NUM_SI [llength $mlo_mm_pins] CONFIG.NUM_MI {1}] [get_bd_cells smartconnect_mlo]
+    connect_bd_intf_net [get_bd_intf_pins smartconnect_mlo/M00_AXI] [get_bd_intf_pins noc_pl/S01_AXI]
+    set mlo_si_idx 0
+    foreach mlo_mm_pin $mlo_mm_pins {
+        set mlo_si_name [format "S%02d_AXI" $mlo_si_idx]
+        connect_bd_intf_net $mlo_mm_pin [get_bd_intf_pins smartconnect_mlo/$mlo_si_name]
+        incr mlo_si_idx
+    }
+    connect_bd_net [get_bd_pins versal_cips_0/pl0_ref_clk] [get_bd_pins smartconnect_mlo/aclk]
+    connect_bd_net [get_bd_pins rst_pl0/peripheral_aresetn] [get_bd_pins smartconnect_mlo/aresetn]
+}
+
+# clock/reset for the control + DDR SmartConnects
+connect_bd_net [get_bd_pins versal_cips_0/pl0_ref_clk] \
+    [get_bd_pins axi_interconnect_0/aclk] \
+    [get_bd_pins smartconnect_0/aclk]
+connect_bd_net [get_bd_pins rst_pl0/peripheral_aresetn] \
+    [get_bd_pins axi_interconnect_0/aresetn] \
+    [get_bd_pins smartconnect_0/aresetn]
+
+# Map the memory reachable through noc_pl into the FINN DMA and MLO masters.
+assign_bd_address
+
+# set up debug
+if {@ENABLE_DEBUG@ == 1} {
+    set_property HDL_ATTRIBUTE.DEBUG true [get_bd_intf_nets -quiet {idma0_m_axis_0}]
+}
+
+validate_bd_design
+save_bd_design
+
+# Build flow: wrapper, segmented configuration, lock golden NoC, implement,
+# verify against the golden routed checkpoint, export the PL PDI.
+make_wrapper -files [get_files $OVERLAY_NAME.bd] -import -fileset sources_1 -top
+set_property top ${OVERLAY_NAME}_wrapper [current_fileset]
+update_compile_order -fileset sources_1
+
+set_property platform.default_output_type "sd_card" [current_project]
+set_property platform.design_intent.embedded "true" [current_project]
+set_property platform.design_intent.server_managed "false" [current_project]
+set_property platform.design_intent.external_host "false" [current_project]
+set_property platform.design_intent.datacenter "false" [current_project]
+set_property segmented_configuration true [current_project]
+
+set golden_ncr [file join $GOLDEN_DIR golden_noc.ncr]
+if {[file exists $golden_ncr]} {
+    set_property NOC_SOLUTION_FILE [file normalize $golden_ncr] [get_runs impl_1]
+} else {
+    error "golden_noc.ncr not found in $GOLDEN_DIR"
+}
+
+set_property strategy Flow_PerfOptimized_high [get_runs synth_1]
+set_property strategy Performance_ExtraTimingOpt [get_runs impl_1]
+
+launch_runs impl_1 -to_step write_device_image -jobs @NUM_WORKERS@
+wait_on_run [get_runs impl_1]
+
+set impl_status [get_property STATUS [get_runs impl_1]]
+if { [string match "*Complete*" $impl_status] == 0 } {
+    error "Implementation did not complete (status: $impl_status)"
+}
+
+# verify NoC/static compatibility with the golden routed checkpoint
+set golden_dcp [file join $GOLDEN_DIR golden_routed.dcp]
+set overlay_dcps [glob -nocomplain ./${OVERLAY_NAME}/${OVERLAY_NAME}.runs/impl_1/*_routed.dcp]
+if {[file exists $golden_dcp] && [llength $overlay_dcps] > 0} {
+    if {[catch {pr_verify [file normalize $golden_dcp] [lindex $overlay_dcps 0]} msg]} {
+        error "pr_verify FAILED -- overlay incompatible with golden reference: $msg"
+    }
+    puts "pr_verify PASSED -- overlay compatible with golden reference"
+} else {
+    error "golden_routed.dcp or overlay routed checkpoint missing, cannot pr_verify"
+}
+
+# synthesis utilization report
+open_run impl_1
+report_utilization -hierarchical -hierarchical_depth 4 -file synth_report.xml -format xml
+report_timing_summary -file timing_summary_routed.rpt
 close_project
 """
 

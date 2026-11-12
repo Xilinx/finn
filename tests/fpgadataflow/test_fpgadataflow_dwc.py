@@ -29,9 +29,11 @@
 
 import pytest
 
+import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
@@ -45,6 +47,7 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.test import tree_model_test
 
 
 def make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_style):
@@ -88,6 +91,10 @@ def prepare_inputs(input_tensor, dt):
         # Non-integer ratio (RTL uses vpc genGeneric path)
         pytest.param(([1, 24], 24, 16, DataType["INT4"]), id="non-integer-ratio-down"),
         pytest.param(([1, 24], 16, 24, DataType["INT4"]), id="non-integer-ratio-up"),
+        # Non-integer ratios from issue #1716 and a ratio with a larger normalized PI0
+        pytest.param(([1, 4, 48], 24, 32, DataType["INT8"]), id="non-integer-ratio-24to32"),
+        pytest.param(([1, 4, 96], 256, 192, DataType["INT8"]), id="non-integer-ratio-256to192"),
+        pytest.param(([1, 2, 84], 28, 12, DataType["INT4"]), id="non-integer-ratio-7to3"),
         # Integer ratio - deserialization (RTL uses vpc genDes path)
         pytest.param(([1, 4], 2, 4, DataType["BIPOLAR"]), id="deserialize-2to4"),
         pytest.param(([1, 8], 24, 48, DataType["INT6"]), id="deserialize-24to48"),
@@ -156,6 +163,8 @@ def test_fpgadataflow_dwc(config, exec_mode, impl_style):
         ([1, 4], 16, 8, DataType["UINT4"]),
         ([1, 2, 8], 16, 16, DataType["INT8"]),
         ([1, 2, 8], 4, 8, DataType["INT2"]),
+        ([1, 4, 48], 24, 32, DataType["INT8"]),
+        ([1, 4, 48], 32, 24, DataType["INT8"]),
     ],
 )
 @pytest.mark.parametrize("impl_style", ["hls", "rtl"])
@@ -187,3 +196,112 @@ def test_fpgadataflow_dwc_stitched_rtlsim(config, impl_style):
     ).all(), """The output values are not the same as the
         input values anymore."""
     assert y.shape == tuple(shape), """The output shape is incorrect."""
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        ([1, 24], 8, 4, DataType["INT2"]),
+        ([1, 4], 2, 4, DataType["BIPOLAR"]),
+        ([1, 4], 4, 2, DataType["INT2"]),
+        ([1, 2, 8], 4, 4, DataType["INT2"]),
+        ([1, 2, 8], 8, 16, DataType["INT2"]),
+    ],
+)
+@pytest.mark.parametrize("impl_style", ["hls", "rtl"])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_dwc(config, impl_style):
+    shape, inWidth, outWidth, finn_dtype = config
+
+    part = "xc7z020clg400-1"
+    model = make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_style)
+    model = model.transform(SpecializeLayers(part))
+
+    node_details = ("DWC", config, impl_style)
+
+    target_clk_ns = 4
+
+    # TAV tolerances are fractions -- of the tokens moved and of the frame
+    # length -- with a floor for the fixed part of the error (wind-up, adder
+    # tree depth, the cycle rtlsim's period rounds away). The floors are the
+    # flat budgets this test used before the split, so nothing that passed
+    # then fails now; the fractions are what govern once the frame is long
+    # enough to exceed them.
+    max_allowed_volume_frac = 0.02
+    volume_const = 5
+    max_allowed_length_frac = 0.05
+    length_const = 20
+
+    assert tree_model_test(
+        model,
+        node_details,
+        part,
+        target_clk_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    ), "characterized TAV does not match RTLsim'd one!"
+
+
+@pytest.mark.parametrize(
+    # config: (shape, inWidth, outWidth, dtype)
+    "config",
+    [
+        # Non-integer ratios (vpc genGeneric path), see issue #1716
+        pytest.param(([1, 64, 48], 24, 32, DataType["INT8"]), id="24to32"),
+        pytest.param(([1, 64, 48], 32, 24, DataType["INT8"]), id="32to24"),
+        pytest.param(([1, 64, 96], 256, 192, DataType["INT8"]), id="256to192"),
+        pytest.param(([1, 64, 96], 192, 256, DataType["INT8"]), id="192to256"),
+        pytest.param(([1, 64, 84], 28, 12, DataType["INT4"]), id="28to12"),
+        pytest.param(([1, 64, 84], 12, 28, DataType["INT4"]), id="12to28"),
+        pytest.param(([1, 64, 48], 24, 16, DataType["INT4"]), id="24to16"),
+        pytest.param(([1, 64, 48], 16, 24, DataType["INT4"]), id="16to24"),
+        # Integer ratios (vpc genSer / genDes / genWire paths)
+        pytest.param(([1, 64, 32], 64, 16, DataType["INT8"]), id="serialize-64to16"),
+        pytest.param(([1, 64, 32], 16, 64, DataType["INT8"]), id="deserialize-16to64"),
+        pytest.param(([1, 64, 32], 32, 32, DataType["INT8"]), id="wire-through"),
+    ],
+)
+@pytest.mark.parametrize("impl_style", ["hls", "rtl"])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_fpgadataflow_dwc_throughput(config, impl_style):
+    shape, inWidth, outWidth, finn_dtype = config
+
+    test_fpga_part = "xc7z020clg400-1"
+    # generate input data
+    x = gen_finn_dt_tensor(finn_dtype, shape)
+    input_dict = prepare_inputs(x, finn_dtype)
+
+    model = make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_style)
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareIP(test_fpga_part, 5))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareRTLSim())
+    y = oxe.execute_onnx(model, input_dict)["outp"]
+
+    assert (
+        y == x
+    ).all(), """The output values are not the same as the
+        input values anymore."""
+
+    node = model.graph.node[0]
+    assert node.op_type == "StreamingDataWidthConverter_" + impl_style
+    inst = getCustomOp(node)
+    n_in = int(np.prod(inst.get_folded_input_shape()[:-1]))
+    n_out = int(np.prod(inst.get_folded_output_shape()[:-1]))
+    # With a free-running source and sink, the interface with more beats
+    # must sustain one beat per cycle. Allow a few cycles of fill latency.
+    exp_cycles = max(n_in, n_out)
+    cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
+    assert cycles_rtlsim <= exp_cycles + 16, (
+        f"DWC {inWidth}->{outWidth} took {cycles_rtlsim} cycles for "
+        f"{n_in} input / {n_out} output beats, expected about {exp_cycles}"
+    )

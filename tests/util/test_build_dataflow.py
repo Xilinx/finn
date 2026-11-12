@@ -47,6 +47,13 @@ def test_end2end_build_dataflow_directory():
     target_dir = test_dir + "/build_dataflow"
     example_data_dir = os.environ["FINN_ROOT"] + "/src/finn/qnn-data/build_dataflow"
     copytree(example_data_dir, target_dir)
+    # disable pdb postmortem on the copy only, the shipped example keeps the default
+    cfg_file = target_dir + "/dataflow_build_config.json"
+    with open(cfg_file) as f:
+        cfg_json = json.load(f)
+    cfg_json["enable_build_pdb_debug"] = False
+    with open(cfg_file, "w") as f:
+        json.dump(cfg_json, f, indent=2)
     build_dataflow_directory(target_dir)
     # check the generated files
     output_dir = target_dir + "/output_tfc_w1a1_AUP-ZU3_8GB"
@@ -146,6 +153,11 @@ def test_end2end_build_dataflow_directory():
     assert os.path.isdir(fifo_sizing_dir), "FIFO sizing log directory not created"
     fifo_sizing_logs = [f for f in os.listdir(fifo_sizing_dir) if f.endswith(".log")]
     assert len(fifo_sizing_logs) > 0, "No FIFO debug logs created during fifo_sizing phase"
+
+    # Check that the pre-FIFO-sim model snapshot was created alongside the logs
+    assert os.path.isfile(
+        fifo_sizing_dir + "/intermediate_models/pre_fifosim.onnx"
+    ), "No pre-FIFO-sim model snapshot created during fifo_sizing phase"
 
     # Check that stitched_ip_rtlsim phase logs were created
     stitched_rtlsim_dir = fifo_log_base + "/stitched_ip_rtlsim/main"

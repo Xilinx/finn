@@ -15,7 +15,6 @@ import pytest
 import json
 import numpy as np
 import os
-import warnings
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -45,9 +44,12 @@ from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODep
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.streamline.extract_norm_scale_bias import ExtractNormScaleBias
 from finn.util.basic import make_build_dir
+from finn.util.test import tree_model_test
 
 test_fpga_part = "xcvc1902-vsva2197-2MP-e-S"
 target_clk_ns = 5
+
+tree_model_clk_ns = 5.0
 
 
 def create_layernorm_model(idt, ishape, has_scale, has_bias, epsilon):
@@ -465,6 +467,7 @@ def test_hls_rtl_dsp_conflict_detection():
 
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
+        enable_build_pdb_debug=False,
         steps=steps,
         target_fps=1000,
         synth_clk_period_ns=target_clk_ns,
@@ -479,19 +482,14 @@ def test_hls_rtl_dsp_conflict_detection():
         ],
     )
 
-    # Capture warnings during build
-    with warnings.catch_warnings(record=True) as caught_warnings:
-        warnings.simplefilter("always")
-        build.build_dataflow_cfg(tmp_output_dir + "/model.onnx", cfg)
+    build.build_dataflow_cfg(tmp_output_dir + "/model.onnx", cfg)
 
-    # Check that DSP conflict warning was issued
-    dsp_conflict_warnings = [
-        w for w in caught_warnings if "HLS+RTL DSP CONFLICT DETECTED" in str(w.message)
-    ]
-    assert len(dsp_conflict_warnings) > 0, (
-        "Expected DSP conflict warning to be issued. "
-        f"Found warnings: {[str(w.message)[:100] for w in caught_warnings]}"
-    )
+    # Check that DSP conflict warning was issued. The build routes Python
+    # warnings into its log (finn.util.build_log), so a warnings recorder
+    # around the build would never see them.
+    assert "HLS+RTL DSP CONFLICT DETECTED" in build_log_text(
+        tmp_output_dir
+    ), "Expected DSP conflict warning in build_dataflow.log"
 
     # Verify cppsim still passed (not affected by DSP conflict)
     verif_dir = tmp_output_dir + "/verification_output"
@@ -517,6 +515,12 @@ def test_hls_rtl_dsp_conflict_detection():
     assert not os.path.isfile(
         stitched_success
     ), "stitched_ip_rtlsim should have been skipped due to DSP conflict"
+
+
+def build_log_text(output_dir):
+    """The build's log, where build_dataflow_cfg routes Python warnings."""
+    with open(os.path.join(output_dir, "build_dataflow.log")) as f:
+        return f.read()
 
 
 def create_layernorm_threshold_mul_model(ishape):
@@ -674,6 +678,7 @@ def test_integer_hls_elementwise_no_dsp_conflict():
 
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
+        enable_build_pdb_debug=False,
         steps=steps,
         target_fps=1000,
         synth_clk_period_ns=target_clk_ns,
@@ -688,10 +693,7 @@ def test_integer_hls_elementwise_no_dsp_conflict():
         ],
     )
 
-    # Capture warnings during build
-    with warnings.catch_warnings(record=True) as caught_warnings:
-        warnings.simplefilter("always")
-        build.build_dataflow_cfg(tmp_output_dir + "/model.onnx", cfg)
+    build.build_dataflow_cfg(tmp_output_dir + "/model.onnx", cfg)
 
     # Check that layers were specialized as expected:
     intermediate_model_path = tmp_output_dir + "/intermediate_models/step_specialize_layers.onnx"
@@ -719,14 +721,10 @@ def test_integer_hls_elementwise_no_dsp_conflict():
         len(mul_hls_nodes) == 1
     ), f"Expected exactly 1 ElementwiseMul_hls, found {len(mul_hls_nodes)}. Op types: {op_types}"
 
-    # Check that NO DSP conflict warning was issued
-    dsp_conflict_warnings = [
-        w for w in caught_warnings if "HLS+RTL DSP CONFLICT DETECTED" in str(w.message)
-    ]
-    assert len(dsp_conflict_warnings) == 0, (
-        f"No DSP conflict warning should be issued for integer HLS Elementwise. "
-        f"Found warnings: {[str(w.message)[:100] for w in dsp_conflict_warnings]}"
-    )
+    # Check that NO DSP conflict warning was issued (see build_log_text)
+    assert "HLS+RTL DSP CONFLICT DETECTED" not in build_log_text(
+        tmp_output_dir
+    ), "No DSP conflict warning should be issued for integer HLS Elementwise."
 
     # Verify that stitched_ip_rtlsim ran successfully (was NOT skipped)
     verif_dir = tmp_output_dir + "/verification_output"
@@ -740,3 +738,76 @@ def test_integer_hls_elementwise_no_dsp_conflict():
     assert not os.path.isfile(
         stitched_conflict_file
     ), f"No DSP conflict log file should exist at {stitched_conflict_file}"
+
+
+def make_layernorm_modelwrapper(ishape, simd, idt, impl_style):
+    """A graph holding one LayerNorm node, scale and bias already extracted."""
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, list(ishape))
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, list(ishape))
+    node = helper.make_node(
+        "LayerNorm",
+        ["inp"],
+        ["outp"],
+        domain="finn.custom_op.fpgadataflow",
+        backend="fpgadataflow",
+        SIMD=simd,
+        ifm_dim=list(ishape),
+        epsilon=9.999999960041972e-13,
+        inputDataType=idt.name,
+        outputDataType="FLOAT32",
+        preferred_impl_style=impl_style,
+    )
+    graph = helper.make_graph(nodes=[node], name="layernorm_graph", inputs=[inp], outputs=[outp])
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="layernorm-model"))
+    model.set_tensor_datatype("inp", idt)
+    model.set_tensor_datatype("outp", DataType["FLOAT32"])
+    return model
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        # HLS, integer input, one vector at least as long as the rsqrt path
+        ([1, 16, 64], 1, "INT8", "hls", "xczu7ev-ffvc1156-2-e"),
+        ([1, 16, 96], 2, "INT8", "hls", "xczu7ev-ffvc1156-2-e"),
+        ([1, 16, 40], 1, "INT8", "hls", "xczu7ev-ffvc1156-2-e"),
+        # RTL, which is II=1 by construction at any folding
+        ([1, 16, 64], 1, "FLOAT32", "rtl", "xcvc1902-vsva2197-2MP-e-S"),
+        ([1, 16, 48], 2, "FLOAT32", "rtl", "xcvc1902-vsva2197-2MP-e-S"),
+        ([1, 16, 64], 8, "FLOAT32", "rtl", "xcvc1902-vsva2197-2MP-e-S"),
+    ],
+)
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_layernorm(config):
+    ishape, simd, idt, impl_style, part = config
+
+    model = make_layernorm_modelwrapper(ishape, simd, DataType[idt], impl_style)
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(GiveUniqueNodeNames())
+    assert model.graph.node[0].op_type == "LayerNorm_" + impl_style
+
+    node_details = ("LayerNorm", config)
+
+    # Both rows are one solid run at one beat per cycle, so nothing can drift and
+    # the volume budget is a floor rather than a fraction. The length budget
+    # covers the pipeline fill, which the period leaves out on purpose: it is a
+    # one-off cost the reference's period carries a share of, and folding it in
+    # would put a hole in a row that has none.
+    max_allowed_volume_frac = 0.0
+    volume_const = 2
+    max_allowed_length_frac = 0.04
+    length_const = 20
+
+    assert tree_model_test(
+        model,
+        node_details,
+        part,
+        tree_model_clk_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    ), "characterized TAV does not match RTLsim'd one!"

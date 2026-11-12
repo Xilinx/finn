@@ -135,7 +135,6 @@ def _make_mvau_model(
         accDataType=adt.name,
         ActVal=tdt.min() if tdt is not None else 0,
         noActivation=0 if tdt is not None else 1,
-        binaryXnorMode=0,
     )
 
     nodes = [main_node]
@@ -174,7 +173,6 @@ def _make_mvau_model(
             accDataType=adt.name,
             ActVal=0,
             noActivation=1,
-            binaryXnorMode=0,
         )
         nodes.append(successor_node)
         initializers.append(
@@ -242,7 +240,6 @@ def _make_vvau_mvau_model(wdt: DataType, idt: DataType, tdt: Optional[DataType] 
         weightDataType=wdt.name,
         ActVal=tdt.min() if tdt is not None else 0,
         noActivation=0 if tdt is not None else 1,
-        binaryXnorMode=0,
     )
     graph = helper.make_graph(
         nodes=[layer1, layer2], name="fclayer_graph", inputs=[inp], outputs=[outp]
@@ -365,10 +362,6 @@ def calculate_accumulator_bit_width(
         return np.log2(1 + pow(2, -x))
 
     weights = model.get_initializer(inst.onnx_node.input[1])
-    # since in the calculation the values of the weight matrix are used,
-    # for the bipolar case they need to be converted to bipolar
-    if inst.get_nodeattr("binaryXnorMode"):
-        weights = 2 * weights - 1
     # modify the weights based on if the node is a VVAU or MVAU
     if isinstance(inst, MVAU):
         K = inst.get_nodeattr("MW")  # matrix_width = num_inputs
@@ -862,9 +855,11 @@ def test_full_bit_width_optimization_pipeline():
 
 
 def make_pool_model(idt: DataType, k: int, function: str):
-    """Create a simple Pool node for testing."""
+    """Create a simple fused Pool node (raw NHWC feature map in, windows
+    generated internally) with non-overlapping k x k windows."""
     channels, odim = 4, 4
-    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, odim, odim, k * k * channels])
+    idim = odim * k
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, idim, idim, channels])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, odim, odim, channels])
 
     node = helper.make_node(
@@ -876,6 +871,9 @@ def make_pool_model(idt: DataType, k: int, function: str):
         Channels=channels,
         PE=1,
         KernelSize=[k, k],
+        Stride=[k, k],
+        IFMDim=[idim, idim],
+        Padding=[0, 0, 0, 0],
         Function=function,
         OutImgDims=[odim, odim],
         InputDataType=idt.name,
@@ -889,6 +887,10 @@ def make_pool_model(idt: DataType, k: int, function: str):
     model = ModelWrapper(model)
     model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("outp", idt)
+    # guard against the helper drifting from the node's shape contract again
+    inst = getCustomOp(node)
+    assert inst.get_normal_input_shape() == tuple(model.get_tensor_shape("inp"))
+    assert inst.get_normal_output_shape() == tuple(model.get_tensor_shape("outp"))
     return model
 
 

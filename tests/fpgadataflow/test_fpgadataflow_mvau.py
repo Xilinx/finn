@@ -28,6 +28,7 @@
 
 import pytest
 
+import functools
 import numpy as np
 import qonnx.custom_op.general.xnorpopcount as xp
 from onnx import TensorProto, helper
@@ -49,9 +50,11 @@ from finn import xsi
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.core.rtlsim_exec import rtlsim_exec
+from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
-from finn.transformation.fpgadataflow.derive_characteristic import DeriveCharacteristic
+from finn.transformation.fpgadataflow.fifo_sizing.tav import load_tav_npy
+from finn.transformation.fpgadataflow.fifo_sizing.tree_models.base import get_tree_model
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
@@ -68,7 +71,12 @@ from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.general import ApplyConfig
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import is_versal
-from finn.util.test import make_runtime_weight_stream
+from finn.util.test import (
+    get_hls_synth_interval,
+    make_runtime_weight_stream,
+    tree_model_test,
+    tree_model_test_up_to_rotation,
+)
 
 finnxsi = xsi if xsi.is_available() else None
 
@@ -78,21 +86,6 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
     mh = W.shape[1]
     assert mh % pe == 0
     assert mw % simd == 0
-
-    # there are two ways to implement bipolar weights and inputs for
-    # MatrixVectorActivation:
-    # - specify their datatypes as such
-    # - specify their datatypes as BINARY as use binaryXnorMode
-    if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
-        # we'll internally convert weights/inputs to binary and specify the
-        # datatypes as such, and also set the binaryXnorMode attribute to 1
-        export_wdt = DataType["BINARY"]
-        export_idt = DataType["BINARY"]
-        binary_xnor_mode = 1
-    else:
-        export_wdt = wdt
-        export_idt = idt
-        binary_xnor_mode = 0
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, mw])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, mh])
@@ -118,11 +111,10 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
         MH=mh,
         SIMD=simd,
         PE=pe,
-        inputDataType=export_idt.name,
-        weightDataType=export_wdt.name,
+        inputDataType=idt.name,
+        weightDataType=wdt.name,
         outputDataType=odt.name,
         ActVal=actval,
-        binaryXnorMode=binary_xnor_mode,
         noActivation=no_act,
     )
     graph = helper.make_graph(
@@ -135,11 +127,7 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
     model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("outp", odt)
     model.set_tensor_datatype("weights", wdt)
-    if binary_xnor_mode:
-        # convert bipolar to binary
-        model.set_initializer("weights", (W + 1) / 2)
-    else:
-        model.set_initializer("weights", W)
+    model.set_initializer("weights", W)
     if T is not None:
         model.set_tensor_datatype("thresh", tdt)
         model.set_initializer("thresh", T)
@@ -183,11 +171,7 @@ def make_dynamic_matmul_modelwrapper(ifm, wfm, ofm, idt, wdt):
 
 
 def prepare_inputs(input_tensor, idt, wdt, inp_name="inp"):
-    if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
-        # convert bipolar to binary
-        return {inp_name: (input_tensor + 1) / 2}
-    else:
-        return {inp_name: input_tensor}
+    return {inp_name: input_tensor}
 
 
 # activation: None or DataType
@@ -364,6 +348,55 @@ def test_fpgadataflow_mvau_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     assert (y_produced == y_expected).all(), "cppsim hls-op failed"
 
 
+# Embedded weights with tile widths PE*SIMD*W > 8191 bits (beyond the ap_int
+# limit). Foldings taken from benchmark models that rely on internal_embedded.
+# (wdt, idt, mw, mh, pe, simd)
+@pytest.mark.parametrize(
+    "cfg",
+    [
+        (DataType["BIPOLAR"], DataType["BIPOLAR"], 576, 64, 16, 576),  # cnv-w1a1: 9216b
+        (DataType["INT2"], DataType["INT2"], 784, 64, 16, 392),  # tfc-w2a2: 12544b
+    ],
+    ids=["cnv_w1a1", "tfc_w2a2"],
+)
+@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_fpgadataflow_mvau_wide_embedded(cfg, exec_mode):
+    wdt, idt, mw, mh, pe, simd = cfg
+    assert pe * simd * wdt.bitwidth() > 8191
+    W = gen_finn_dt_tensor(wdt, (mw, mh))
+    x = gen_finn_dt_tensor(idt, (1, mw))
+    if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
+        odt = DataType["UINT32"]
+        y = xp.xnorpopcountmatmul((x + 1) / 2, (W + 1) / 2)
+    else:
+        odt = DataType["INT32"]
+        y = np.matmul(x, W)
+    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt)
+    for node in model.graph.node:
+        inst = getCustomOp(node)
+        inst.set_nodeattr("mem_mode", "internal_embedded")
+        inst.set_nodeattr("preferred_impl_style", "hls")
+    y_expected = y.reshape(model.get_tensor_shape("outp"))
+
+    part = "xczu7ev-ffvc1156-2-e"
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(GiveUniqueNodeNames())
+    if exec_mode == "cppsim":
+        model = model.transform(SetExecMode("cppsim"))
+        model = model.transform(PrepareCppSim())
+        model = model.transform(CompileCppSim())
+    else:
+        model = model.transform(SetExecMode("rtlsim"))
+        model = model.transform(PrepareIP(part, 5))
+        model = model.transform(HLSSynthIP())
+        model = model.transform(PrepareRTLSim())
+    y_produced = oxe.execute_onnx(model, prepare_inputs(x, idt, wdt))["outp"]
+    assert (y_produced.reshape(y_expected.shape) == y_expected).all(), exec_mode + " failed"
+
+
 # mem_mode: internal_embedded or internal_decoupled
 @pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled", "external_mem"])
 # activation: None or DataType
@@ -470,6 +503,10 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, pumpe
     cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
     exp_cycles_dict = model.analysis(exp_cycles_per_layer)
     exp_cycles = exp_cycles_dict[node.name]
+    if mem_mode == "external_mem":
+        # node-by-node rtlsim feeds the weights straight into the MVU core,
+        # bypassing fetch_weights, so it only measures the compute cycles
+        exp_cycles = inst.get_exp_compute_cycles()
     assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
     assert exp_cycles != 0
 
@@ -680,96 +717,21 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
 
 
-# mem_mode: internal_embedded or internal_decoupled
-@pytest.mark.parametrize("mem_mode", ["internal_decoupled", "internal_embedded"])
-# activation: None or DataType
-@pytest.mark.parametrize("act", [None, DataType["INT4"]])
-# weight datatype
-@pytest.mark.parametrize("wdt", [DataType["INT4"]])
-# input datatype
-@pytest.mark.parametrize("idt", [DataType["INT4"]])
-# neuron folding, -1 is maximum possible
-@pytest.mark.parametrize("nf", [8])
-# synapse folding, -1 is maximum possible
-@pytest.mark.parametrize("sf", [8])
-# HLS matrix width (input features)
-@pytest.mark.parametrize("mw", [32])
-# HLS matrix height (output features)
-@pytest.mark.parametrize("mh", [32])
-# Backend
-@pytest.mark.parametrize("preferred_impl_style", ["hls", "rtl"])
-@pytest.mark.fpgadataflow
-@pytest.mark.vivado
-def test_mvau_fifocharacterize_rtlsim(
-    mem_mode, idt, wdt, act, nf, sf, mw, mh, preferred_impl_style
-):
-    if preferred_impl_style == "rtl" and (mem_mode == "internal_embedded" or act is not None):
-        pytest.skip("RTL-MVAU doesn't support const mem mode or embedded activations")
-    if nf == -1:
-        nf = mh
-    if sf == -1:
-        sf = mw
-    pe = mh // nf
-    simd = mw // sf
-    assert mh % pe == 0
-    assert mw % sf == 0
-    # generate weights
-    W = gen_finn_dt_tensor(wdt, (mw, mh))
-
-    # no activation, produce accumulators
-    T = None
-    tdt = None
-    if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
-        odt = DataType["UINT32"]
-    else:
-        odt = DataType["INT32"]
-
-    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
-    for node in model.graph.node:
-        # lookup op_type in registry of CustomOps
-        inst = getCustomOp(node)
-        inst.set_nodeattr("mem_mode", mem_mode)
-        inst.set_nodeattr("resType", "auto")
-        inst.set_nodeattr("preferred_impl_style", preferred_impl_style)
-    total_fold = nf * sf
-    exp_total_cycles = int(np.ceil(total_fold * 1.2))
-    model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
-    model = model.transform(MinimizeWeightBitWidth())
-    model = model.transform(MinimizeAccumulatorWidth())
-    model = model.transform(SetExecMode("rtlsim"))
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(PrepareIP("xczu7ev-ffvc1156-2-e", 5))
-    model = model.transform(HLSSynthIP())
-    model = model.transform(PrepareRTLSim())
-    model = model.transform(DeriveCharacteristic(exp_total_cycles))
-    node_inst = getCustomOp(model.graph.node[0])
-    period_attr = node_inst.get_nodeattr("io_chrc_period")
-    assert period_attr == exp_total_cycles
-    chrc_in = node_inst.get_io_chrc_in()
-    chrc_out = node_inst.get_io_chrc_out()
-    if mem_mode == "internal_decoupled":
-        assert chrc_in.shape == (2, 2 * exp_total_cycles)
-    else:
-        assert chrc_in.shape == (1, 2 * exp_total_cycles)
-    assert chrc_out.shape == (1, 2 * exp_total_cycles)
-    # total number of transactions == 2*SF
-    assert chrc_in[0, -1] == 2 * sf
-    # all outputs should be produced within the exp n of cycles
-    assert chrc_out[0, exp_total_cycles] == nf
-
-
 @pytest.mark.parametrize("mh", [18])
 @pytest.mark.parametrize("mw", [32])
-# (PE, SIMD, TH, mem_mode) as a jointly-valid tuple satisfying MH % PE == 0,
-# MW % SIMD == 0 and (PE * SIMD) % TH == 0. TH=1 selects the standard MVAU;
-# TH>1 selects the tiled MVAU (Versal DSP58 only, filtered below).
+# (PE, SIMD, TH, mem_mode) as a jointly-valid tuple satisfying MH % PE == 0
+# and MW % SIMD == 0. WSIMD is the smallest divisor of PE*SIMD >= ceil(PE*SIMD/TH).
+# TH=1 selects the standard MVAU; TH>1 selects the tiled MVAU, which is supported
+# on all DSP types (DSP48E1, DSP48E2, DSP58). TH need not divide PE*SIMD.
 #
 # TH must divide the number of input vectors (ofm_shape 3x3 -> 9), so the tiled
 # configs use TH in {3, 9}. The tiled set spreads across the integration-level
 # axes (the DSP-chain corner cases themselves are covered by the RTL testbench):
-#   - WSIMD = PE*SIMD/TH:   the =1 edge (1 weight/cycle) up to 192
-#   - CHAINLEN = (SIMD+2)/3: 1, 2, 3, 6, 11
+#   - WSIMD:                 the =1 edge (1 weight/cycle) up to 192
+#   - CHAINLEN = (SIMD+2)/3: 1, 2, 3, 6, 11 (DSP58)
 #   - TH:                    3 and 9 (high tiling)
+#   - NW < TH (slack):       non-dividing TH cases (NW=2 < TH=3, etc.),
+#                            including TH > PE*SIMD (WSIMD=1)
 #   - mem_mode:              external_mem and internal_decoupled (tiling is
 #                            decoupled from the weight memory mode)
 @pytest.mark.parametrize(
@@ -791,6 +753,13 @@ def test_mvau_fifocharacterize_rtlsim(
         (9, 8, 9, "external_mem"),  # TH=9 high tiling, CHAINLEN=3
         (9, 16, 3, "external_mem"),  # CHAINLEN=6
         (18, 32, 3, "internal_decoupled"),  # max fold, CHAINLEN=11, decoupled
+        # NW < TH (non-dividing): WSIMD chosen as smallest divisor of PE*SIMD >= ceil(PE*SIMD/TH)
+        (2, 4, 3, "internal_decoupled"),  # PE*SIMD=8, TH=3: WSIMD=4, NW=2, slack=1
+        (6, 16, 9, "external_mem"),  # PE*SIMD=96, TH=9: WSIMD=12, NW=8, slack=1
+        # external_mem with non-dividing TH: the weight fetch estimate must use WSIMD,
+        # (PE*SIMD)//TH would overestimate get_exp_cycles() beyond the rtlsim tolerance
+        (2, 4, 3, "external_mem"),  # PE*SIMD=8, TH=3: WSIMD=4, NW=2, slack=1
+        (2, 4, 9, "external_mem"),  # TH > PE*SIMD=8: WSIMD=1, NW=8, slack=1
         # external_mem + TH=1: standard MVAU fed by fetch_weights from external memory
         # (PE>1 catches PE-lane swaps, SIMD=1 covers the sub-word byte-packing edge).
         (9, 16, 1, "external_mem"),
@@ -830,13 +799,9 @@ def test_fpgadataflow_rtl_mvau(
     if mem_mode == "external_mem" and pumpedMemory:
         pytest.skip("External memory has no on-chip weight memory to clock-pump")
 
-    # Tiled MVAU (TH>1) requires DSP58 (Versal) and is not combined with clock pumping.
-    # The (PE * SIMD) % TH == 0 constraint is guaranteed by the parameter tuples above.
-    if th > 1:
-        if part != "xcvc1902-vsva2197-2MP-e-S":
-            pytest.skip("Tiled MVAU (TH>1) is only supported on Versal (DSP58)")
-        if pumpedMemory or pumpedCompute:
-            pytest.skip("Tiled MVAU (TH>1) is not exercised with clock pumping")
+    # Tiled MVAU (TH>1) is not combined with clock pumping.
+    if th > 1 and (pumpedMemory or pumpedCompute):
+        pytest.skip("Tiled MVAU (TH>1) is not exercised with clock pumping")
 
     idt, wdt = idt_wdt
     # Create test input vector (produced by SWG)
@@ -927,11 +892,30 @@ def test_fpgadataflow_rtl_mvau(
         output_matmul == output_mvau_rtl_stitch
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
 
+    # Check the cycle estimate against stitched-IP rtlsim, which unlike node-by-node
+    # rtlsim includes the weight path (fetch_weights for external_mem).
+    # get_exp_cycles() is the steady-state cycles per frame, so measure the extra
+    # cycles of 3 frames over 1 frame to cancel out the pipeline fill.
+    def stitched_rtlsim_cycles(n_frames):
+        ctx = {"global_in": np.concatenate([input_dict["global_in"]] * n_frames)}
+        rtlsim_exec(model, ctx)
+        return int(model.get_metadata_prop("cycles_rtlsim"))
+
+    cycles_per_frame = (stitched_rtlsim_cycles(3) - stitched_rtlsim_cycles(1)) / 2
+    exp_cycles = getCustomOp(model.get_nodes_by_op_type("MVAU_rtl")[0]).get_exp_cycles()
+    assert np.isclose(exp_cycles, cycles_per_frame, rtol=0.1, atol=20), (
+        f"MVAU cycle estimate {exp_cycles} not close to stitched-IP rtlsim "
+        f"{cycles_per_frame} cycles per frame"
+    )
+
 
 @pytest.mark.parametrize("mh", [32])
 @pytest.mark.parametrize("mw", [16])
 @pytest.mark.parametrize("n_vectors", [32])
-@pytest.mark.parametrize("pe", [1, 16, 32])
+# leading dims of both operands: [1, 1] gives 4D (batch, heads) inputs, [1] gives 3D
+# inputs as in per-head attention matmuls
+@pytest.mark.parametrize("lead_dims", [[1, 1], [1]])
+@pytest.mark.parametrize("pe", [1, 32])
 @pytest.mark.parametrize("simd", [1, 8, 16])
 @pytest.mark.parametrize(
     "idt_wdt", [[DataType["INT8"], DataType["INT8"]], [DataType["INT4"], DataType["INT4"]]]
@@ -944,7 +928,9 @@ def test_fpgadataflow_rtl_mvau(
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_rtl_dynamic_mvau(mh, mw, n_vectors, pe, simd, idt_wdt, part, impl_style):
+def test_fpgadataflow_rtl_dynamic_mvau(
+    mh, mw, n_vectors, lead_dims, pe, simd, idt_wdt, part, impl_style
+):
     # if 7 series and rtl selected, skip because narrow range can't be ensured for the second input
     if part == "xc7z020clg400-1" and impl_style == "rtl":
         pytest.skip("Skip test because narrow range can't be ensured for the second input")
@@ -953,9 +939,9 @@ def test_fpgadataflow_rtl_dynamic_mvau(mh, mw, n_vectors, pe, simd, idt_wdt, par
 
     idt, wdt = idt_wdt
     # Create test input vector (produced by SWG)
-    ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, 1, n_vectors, mw])
-    wfm = helper.make_tensor_value_info("wfm", TensorProto.FLOAT, [1, 1, mw, mh])
-    ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, (1, 1, n_vectors, mh))
+    ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, lead_dims + [n_vectors, mw])
+    wfm = helper.make_tensor_value_info("wfm", TensorProto.FLOAT, lead_dims + [mw, mh])
+    ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, lead_dims + [n_vectors, mh])
 
     model = make_dynamic_matmul_modelwrapper(ifm, wfm, ofm, idt, wdt)
     model = model.transform(GiveUniqueNodeNames())
@@ -1041,6 +1027,332 @@ def test_fpgadataflow_rtl_dynamic_mvau(mh, mw, n_vectors, pe, simd, idt_wdt, par
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
 
 
+# The two backends are different pipelines and get their own schedules, so both
+# are covered across the folding rather than crossed with everything else; the
+# memory mode changes when weights arrive, so it is covered on each backend.
+# The RTL MVAU is built from a different DSP primitive per device family, so it
+# runs on a DSP48E1 and a DSP48E2 part (the tiled test below covers DSP58).
+MVAU_TAV_CONFIGS = [
+    ("hls", "xc7z020clg400-1", "internal_decoupled", -1, -1),
+    ("hls", "xc7z020clg400-1", "internal_decoupled", 2, -1),
+    ("hls", "xc7z020clg400-1", "internal_decoupled", -1, 2),
+    ("hls", "xc7z020clg400-1", "internal_decoupled", 8, 4),
+    ("hls", "xc7z020clg400-1", "internal_embedded", -1, -1),
+    ("hls", "xc7z020clg400-1", "internal_embedded", 2, 4),
+] + [
+    ("rtl", part, "internal_decoupled", nf, sf)
+    for part in ["xc7z020clg400-1", "xczu7ev-ffvc1156-2-e"]
+    for nf, sf in [(-1, -1), (2, -1), (-1, 2), (8, 4)]
+]
+
+
+@pytest.mark.parametrize("preferred_impl_style,part,mem_mode,nf,sf", MVAU_TAV_CONFIGS)
+@pytest.mark.parametrize("act", [None])
+@pytest.mark.parametrize("wdt", [DataType["INT4"]])
+@pytest.mark.parametrize("idt", [DataType["INT4"]])
+@pytest.mark.parametrize("mw", [32])
+@pytest.mark.parametrize("mh", [32])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_mvau(
+    mem_mode, idt, wdt, act, nf, sf, mw, mh, preferred_impl_style, part
+):
+    if preferred_impl_style == "rtl" and (mem_mode == "internal_embedded" or act is not None):
+        pytest.skip("RTL-MVAU doesn't support const mem mode or embedded activations")
+    if nf == -1:
+        nf = mh
+    if sf == -1:
+        sf = mw
+    pe = mh // nf
+    simd = mw // sf
+
+    assert mh % pe == 0
+    assert mw % sf == 0
+    # generate weights
+    W = gen_finn_dt_tensor(wdt, (mw, mh))
+    if preferred_impl_style == "rtl" and wdt.signed():
+        # the RTL MVAU on DSP48E1 only takes narrow-range weights; the values do
+        # not change the schedule
+        W[W == wdt.min()] = wdt.min() + 1
+
+    # no activation, produce accumulators
+    T = None
+    tdt = None
+    if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
+        odt = DataType["UINT32"]
+    else:
+        odt = DataType["INT32"]
+
+    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
+    for node in model.graph.node:
+        # lookup op_type in registry of CustomOps
+        inst = getCustomOp(node)
+        inst.set_nodeattr("mem_mode", mem_mode)
+        inst.set_nodeattr("numInputVectors", [16])
+        inst.set_nodeattr("resType", "auto")
+        inst.set_nodeattr("preferred_impl_style", preferred_impl_style)
+    # SpecializeLayers silently falls back to HLS where the RTL MVAU is not
+    # possible, which would test the other backend's tree model
+    model = model.transform(SpecializeLayers(part))
+    assert model.graph.node[0].op_type == "MVAU_" + preferred_impl_style
+
+    node_details = ("MVAU", mem_mode, idt, wdt, act, nf, sf, mw, mh, preferred_impl_style, part)
+    target_clk_ns = 4
+    # TAV tolerances are fractions -- of the tokens moved and of the frame
+    # length -- with a floor for the fixed part of the error (wind-up, adder
+    # tree depth, the cycle rtlsim's period rounds away). The floors are the
+    # flat budgets this test used before the split, so nothing that passed
+    # then fails now; the fractions are what govern once the frame is long
+    # enough to exceed them.
+    max_allowed_volume_frac = 0.05
+    volume_const = 20
+    max_allowed_length_frac = 0.05
+    length_const = 26
+
+    assert tree_model_test(
+        model,
+        node_details,
+        part,
+        target_clk_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    ), "characterized TAV does not match RTLsim'd one!"
+
+
+# (MW, PE, SIMD, TH), jointly valid: MH % PE == 0, MW % SIMD == 0,
+# (PE*SIMD) % TH == 0 and -- the constraint the tiled MVU adds -- TH must divide
+# numInputVectors, which is 18 below. The set spreads the two attributes the
+# measured law actually depends on:
+#   SF = MW/SIMD:  2 .. 64, including the two SF that share a SIMD and the two
+#                  SIMD that share an SF, which is what separates the input
+#                  buffer's power-of-two rounding from the adder-tree depth
+#   TH:            2, 3, 6, 9 -- 9 is numInputVectors/2, the deepest tiling the
+#                  18-vector frame admits
+TILED_TAV_CONFIGS = [
+    (32, 9, 1, 3),  # SF=32 NF=2, the reference shape
+    (32, 9, 2, 9),  # same SF, deepest tiling
+    (32, 9, 4, 9),  # same again at CHAINLEN=2: isolates the adder-tree depth
+    (64, 9, 1, 3),  # widest SF, buffer rounds to 256 for a 192-word group
+    (64, 9, 1, 9),  # widest SF at deepest tiling; largest stall of the set
+    (16, 9, 1, 9),  # SF=16 with SIMD=1, pairing with (32,9,2,9)'s SF=16 sibling
+    (32, 9, 16, 9),  # SF=2: group fits the buffer with room, so stall is 0
+    (32, 6, 1, 6),  # NF=3, TH not a power of two and not co-prime with NF
+    (32, 6, 1, 2),  # shallowest tiling, and the only config with stall == 0
+    (32, 18, 1, 3),  # NF=1: a single output fold, so the schedule is all run
+]
+
+
+@pytest.mark.parametrize("mw_pe_simd_th", TILED_TAV_CONFIGS)
+@pytest.mark.parametrize("mem_mode", ["internal_decoupled"])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_mvau_tiled(mw_pe_simd_th, mem_mode, monkeypatch):
+    """The tiled MVAU_rtl (TH > 1) tree model against rtlsim.
+
+    Compared *up to one shared phase offset*: the tiled schedule's steady state
+    is modelled exactly but its wind-up is not, so the tree model places the
+    frame at its natural phase rather than at the one rtlsim's two-period window
+    happens to cut. See the tiled branch of ``MVAURtlModel.tiled_schedule``. Everything
+    that phase offset does not cover -- token counts per period, the period
+    itself, and the read-to-write relationship the sizer integrates -- is still
+    asserted exactly.
+    """
+    mw, pe, simd, th = mw_pe_simd_th
+    mh = 18
+    idt = wdt = DataType["INT4"]
+
+    # The tree model is the steady state. The activation input_gen's stall-free
+    # buffer can hold well over a group beyond what the replay needs, and the
+    # writer gains only the per-group pipeline drain on the core, so filling
+    # it takes up to ~27 groups (NF=1, (32, 18, 1, 3)). The default five
+    # frames of six groups never leave that wind-up; twelve do.
+    monkeypatch.setattr(
+        HWCustomOp,
+        "derive_token_access_vectors_using_rtlsim",
+        functools.partialmethod(
+            HWCustomOp.derive_token_access_vectors_using_rtlsim, periods_to_simulate=12
+        ),
+    )
+    odt = DataType["INT32"]
+
+    # tiling is DSP58-only, so this is a Versal-part test by construction
+    part = "xcvc1902-vsva2197-2MP-e-S"
+    target_clk_ns = 1.66
+
+    W = gen_finn_dt_tensor(wdt, (mw, mh))
+    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, None, None)
+    for node in model.graph.node:
+        inst = getCustomOp(node)
+        inst.set_nodeattr("mem_mode", mem_mode)
+        inst.set_nodeattr("numInputVectors", [18])
+        inst.set_nodeattr("resType", "dsp")
+        inst.set_nodeattr("preferred_impl_style", "rtl")
+        inst.set_nodeattr("TH", th)
+
+    node_details = ("MVAU_tiled", mem_mode, idt, wdt, None, mh // pe, mw // simd, mw, mh, th)
+    # The residual is a whole-node phase offset, a couple of tokens under a
+    # shared rotation, so this is a floor-dominated budget rather than a
+    # proportional one.
+    max_allowed_volume_frac = 0.01
+    volume_const = 4
+    # rtlsim's period carries a share of the wind-up the steady-state model does
+    # not reproduce, always in the direction of rtlsim being the longer one. The
+    # floor covers the shortest frames, where that share is a few cycles out of
+    # a few dozen and so a large fraction of very little.
+    max_allowed_length_frac = 0.05
+    length_const = 16
+
+    assert tree_model_test_up_to_rotation(
+        model,
+        node_details,
+        part,
+        target_clk_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    ), "tiled MVAU characterized TAV does not match RTLsim'd one!"
+
+
+@pytest.mark.parametrize("mem_mode,simd", [("external_mem", 1), ("dynamic", 32)])
+@pytest.mark.fpgadataflow
+def test_mvau_tree_model_declines_unmodelled_mem_modes(mem_mode, simd):
+    """``external_mem`` changes when weights arrive, and so does ``dynamic``
+    when its ``dynamic_load`` cannot refill a matrix while the other one is
+    replayed (``numInputVectors[-1] < SIMD``).
+
+    the tree model must decline them and let the node fall back to rtlsim
+    rather than hand out the internal_decoupled shape. No Vivado: this only asks
+    what the tree model returns.
+    """
+    mw, mh, pe = 32, 18, 9
+    idt = wdt = DataType["INT4"]
+    W = gen_finn_dt_tensor(wdt, (mw, mh))
+    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, DataType["INT32"], None, None)
+    inst = getCustomOp(model.graph.node[0])
+    inst.set_nodeattr("numInputVectors", [18])
+    inst.set_nodeattr("mem_mode", mem_mode)
+    assert get_tree_model(inst) is None
+
+
+def make_dynamic_mvau_model(heads, n_vec, mw, mh, pe, simd, impl_style):
+    """A ``[1, heads, n_vec, mw] x [1, heads, mw, mh]`` dynamic MVAU, the shape of
+    an attention matmul."""
+    ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, heads, n_vec, mw])
+    wfm = helper.make_tensor_value_info("wfm", TensorProto.FLOAT, [1, heads, mw, mh])
+    ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, [1, heads, n_vec, mh])
+    model = make_dynamic_matmul_modelwrapper(ifm, wfm, ofm, DataType["INT8"], DataType["INT8"])
+    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
+    model = model.transform(GiveUniqueNodeNames())
+    inst = getCustomOp(model.graph.node[0])
+    assert inst.get_nodeattr("mem_mode") == "dynamic"
+    inst.set_nodeattr("PE", pe)
+    inst.set_nodeattr("SIMD", simd)
+    inst.set_nodeattr("preferred_impl_style", impl_style)
+    return model
+
+
+@pytest.mark.fpgadataflow
+def test_mvau_dynamic_tav_streams():
+    """A dynamic MVAU's TAV has one row per streamed input, with exact counts.
+
+    in1 (the second operand, fed to ``dynamic_load``) moves one folded frame of
+    its own per period, which is not in0's count; a shared row would hand the
+    sizer the wrong number of tokens on that edge. No Vivado: tree model only.
+    """
+    heads, n_vec, mw, mh, pe, simd = 3, 16, 32, 16, 4, 8
+    model = make_dynamic_mvau_model(heads, n_vec, mw, mh, pe, simd, "rtl")
+    model = model.transform(SpecializeLayers("xcvc1902-vsva2197-2MP-e-S"))
+    node = model.graph.node[0]
+    inst = getCustomOp(node)
+    assert get_tree_model(inst) is not None
+    inst.derive_token_access_vectors("tree_model")
+    rows = np.atleast_2d(load_tav_npy(inst.get_nodeattr("io_chrc_in")))
+    period = inst.get_nodeattr("io_chrc_period")
+    assert rows.shape == (2, 2 * period)
+    for ind, row in enumerate(rows):
+        per_frame = int(np.prod(inst.get_folded_input_shape(ind)[:-1]))
+        assert row[period - 1] == per_frame and row[-1] == 2 * per_frame, ind
+    # in1 arrives as one back-to-back burst of a matrix per head
+    inc = np.diff(rows[1], prepend=0)[:period]
+    assert inc.max() == 1
+    assert np.count_nonzero((inc == 1) & (np.roll(inc, 1) == 0)) == heads
+
+
+@pytest.mark.parametrize("pe,simd", [(8, 8), (4, 16), (16, 4)])
+@pytest.mark.parametrize("impl_style", ["rtl", "hls"])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_mvau_dynamic(pe, simd, impl_style):
+    """The dynamic MVAU's in0/out0 schedule against rtlsim.
+
+    The node's rtlsim is the bare MVU, without its ``dynamic_load``, so this
+    checks the claim the tree model rests on: once a matrix is loaded the MVU
+    runs exactly as with internal weights. bert's attention matmuls are the
+    reference shapes, scaled down.
+    """
+    heads, n_vec, mw, mh = 2, 32, 32, 64
+    model = make_dynamic_mvau_model(heads, n_vec, mw, mh, pe, simd, impl_style)
+    node_details = ("MVAU_dynamic", heads, n_vec, mw, mh, pe, simd, impl_style)
+    assert tree_model_test(
+        model, node_details, "xcvc1902-vsva2197-2MP-e-S", 5, 0.05, 0.05, 20, 26
+    ), "characterized TAV does not match RTLsim'd one!"
+
+
+@pytest.mark.fpgadataflow
+def test_mvau_tiled_tree_model_token_counts():
+    """One period of the tiled schedule moves exactly one folded frame.
+
+    The check that costs the most when it fails and needs no reference at all:
+    a schedule one token short per period makes the sizer's steady-state
+    occupancy accumulate a deficit over every frame.
+    """
+    mh, n_vec = 18, 18
+
+    def tiled_tree(sf, nf, n_vec, simd, th):
+        """Tree model of a bare tiled MVAU_rtl node (PE 1, so NF = MH)."""
+        node = helper.make_node(
+            "MVAU_rtl",
+            ["inp", "weights"],
+            ["outp"],
+            domain="finn.custom_op.fpgadataflow.rtl",
+            backend="fpgadataflow",
+            MW=sf * simd,
+            MH=nf,
+            SIMD=simd,
+            PE=1,
+            TH=th,
+            inputDataType="INT4",
+            weightDataType="INT4",
+            outputDataType="INT16",
+            numInputVectors=[n_vec],
+            noActivation=1,
+        )
+        return get_tree_model(getCustomOp(node))
+
+    for mw, pe, simd, th in TILED_TAV_CONFIGS:
+        sf, nf = mw // simd, mh // pe
+        tree = tiled_tree(sf, nf, n_vec, simd, th)
+        assert tree is not None, (mw, pe, simd, th)
+        cum = tree.cumulative(periods=1)
+        cfg = (mw, pe, simd, th)
+        assert cum[-1, 0] == n_vec * sf, f"{cfg}: reads {cum[-1, 0]} != {n_vec * sf}"
+        assert cum[-1, 1] == n_vec * nf, f"{cfg}: writes {cum[-1, 1]} != {n_vec * nf}"
+
+    # TH must divide numInputVectors; the tiled MVU stalls otherwise, and the
+    # RTL backend raises on it, so the model must not invent a schedule
+    assert tiled_tree(32, 2, 18, 1, 4) is None
+    # SF=1, NF=18: a group's output run outlasts its span, so the next group's
+    # outputs queue up behind it, which the schedule does not model: left to rtlsim
+    assert tiled_tree(1, 18, 18, 9, 9) is None
+    assert tiled_tree(1, 18, 18, 6, 6) is None
+
+
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_mvau_hls_threshold_width_cppsim():
@@ -1124,3 +1436,52 @@ def test_fpgadataflow_mvau_hls_threshold_width_cppsim():
     assert np.allclose(
         y_min_produced, y_min_expected
     ), f"Min input test failed: expected {y_min_expected}, got {y_min_produced}"
+
+
+# (input/weight datatype, activation, fold): representative kernel datapaths rather
+# than a cross product. fold=1 is fully unrolled (the original regression), fold=4
+# gives NF=SF=4 and exercises the weight memory and input buffer
+@pytest.mark.parametrize(
+    "dt,act,fold",
+    [
+        pytest.param(DataType["INT4"], None, 1, id="int4-full"),
+        pytest.param(DataType["INT4"], None, 4, id="int4-folded"),
+        pytest.param(DataType["INT4"], DataType["UINT4"], 4, id="int4-thresh"),
+        pytest.param(DataType["BIPOLAR"], None, 4, id="bipolar"),
+    ],
+)
+# mem_mode: on-chip weights, embedded or streamed from the packaged weight streamer
+@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_fpgadataflow_mvau_hls_ii(dt, act, fold, mem_mode):
+    """The freerunning top of an HLS MVAU must achieve II=1 for any folding, i.e. it
+    calls the function-pipelined hlslib kernel once per cycle."""
+    mw, mh = 16, 16
+    pe, simd = mh // fold, mw // fold
+    idt = wdt = dt
+    W = gen_finn_dt_tensor(wdt, (mw, mh))
+    if act is None:
+        T = tdt = None
+        odt = DataType["UINT32"] if dt == DataType["BIPOLAR"] else DataType["INT32"]
+    else:
+        # threshold values only need to be valid, they don't affect the II
+        odt, tdt = act, DataType["INT32"]
+        (t_min, t_max) = calculate_signed_dot_prod_range(idt, wdt, mw)
+        n_steps = act.get_num_possible_values() - 1
+        T = np.sort(np.random.randint(t_min, t_max - 1, (mh, n_steps)), axis=1)
+        T = T.astype(np.float32)
+    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
+    inst = getCustomOp(model.graph.node[0])
+    inst.set_nodeattr("preferred_impl_style", "hls")
+    inst.set_nodeattr("mem_mode", mem_mode)
+    part = "xczu7ev-ffvc1156-2-e"
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(GiveUniqueNodeNames())
+    node = model.graph.node[0]
+    assert node.op_type == "MVAU_hls"
+
+    model = model.transform(PrepareIP(part, 10))
+    model = model.transform(HLSSynthIP())
+    assert get_hls_synth_interval(getCustomOp(model.graph.node[0])) == 1
