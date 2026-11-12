@@ -6,11 +6,39 @@
 #
 # @author       Shane T. Fleming <shane.fleming@amd.com>
 ############################################################################
+import math
 import numpy as np
 import warnings
 from qonnx.core.datatype import DataType
+from typing import Optional
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+
+
+def auto_size_simd(I_dim: int, SIMD: int) -> Optional[int]:
+    """
+    Return the smallest divisor d of I_dim such that d > SIMD.
+    if no such divisor exists, return None.
+    """
+    if I_dim <= 0:
+        raise ValueError("I_dim must be a positive integer")
+    if SIMD < 0:
+        raise ValueError("SIMD must be a non-negative integer")
+
+    candidates = []
+    limit = int(math.isqrt(I_dim))
+    for a in range(1, limit + 1):
+        if I_dim % a == 0:
+            b = I_dim // a
+            if a > SIMD:
+                candidates.append(a)
+            if b > SIMD:
+                candidates.append(b)
+
+    if not candidates:
+        return None
+
+    return min(candidates)
 
 
 class InnerShuffle(HWCustomOp):
@@ -18,6 +46,16 @@ class InnerShuffle(HWCustomOp):
 
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
+
+        # SIMD must divide I, the axis that becomes the output's innermost axis.
+        I_dim = self.get_nodeattr("transpose_in_shape")[-2]
+        SIMD = self.get_nodeattr("SIMD")
+        if I_dim % SIMD != 0:
+            new_simd = auto_size_simd(I_dim, SIMD)
+            if new_simd is not None:
+                self.set_nodeattr("SIMD", new_simd)
+            else:
+                raise RuntimeError("Unable to determine a new SIMD value for this transpose.")
 
     def get_nodeattr_types(self):
         my_attrs = {
