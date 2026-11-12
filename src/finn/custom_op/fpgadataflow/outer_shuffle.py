@@ -7,40 +7,13 @@
 # @author       Shane T. Fleming <shane.fleming@amd.com>
 ############################################################################
 
-import math
 import numpy as np
 import warnings
 from qonnx.core.datatype import DataType
-from typing import Optional
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.custom_op.fpgadataflow.shuffle import auto_size_simd
 from finn.util.input_gen import input_gen_buffer_depth
-
-
-def auto_size_simd(I_dim: int, SIMD: int) -> Optional[int]:
-    """
-    Return the smallest divisor d of I_dim such that d > SIMD.
-    if no such divisor exists, return None.
-    """
-    if I_dim <= 0:
-        raise ValueError("I_dim must be a positive integer")
-    if SIMD < 0:
-        raise ValueError("SIMD must be a non-negative integer")
-
-    candidates = []
-    limit = int(math.isqrt(I_dim))
-    for a in range(1, limit + 1):
-        if I_dim % a == 0:
-            b = I_dim // a
-            if a > SIMD:
-                candidates.append(a)
-            if b > SIMD:
-                candidates.append(b)
-
-    if not candidates:
-        return None
-
-    return min(candidates)
 
 
 class _NestSim:
