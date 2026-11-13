@@ -155,7 +155,9 @@ class GlobalAccPool(HWCustomOp):
     def execute_node(self, context, graph):
         # simulate behavior with Python functionality
         node = self.onnx_node
-        inp_values = context[node.input[0]]
+        # reshape to the layer's own input shape: the producer may provide the same
+        # stream with a different rank (see RemoveCNVtoFCFlatten)
+        inp_values = context[node.input[0]].reshape(self.get_normal_input_shape())
         oshape = context[node.output[0]].shape
         result = np.apply_over_axes(np.sum, inp_values, [1, 2])
         context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)
