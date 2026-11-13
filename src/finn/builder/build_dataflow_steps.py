@@ -683,6 +683,15 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
             "shuffle/transpose layers",
         )
 
+    # Shape operators left between hardware layers become wires. After
+    # InferShuffle, which absorbs the Reshapes around a Transpose.
+    model = apply_if_relevant(
+        model,
+        to_hw.InferStreamingReshape.SHAPE_OPS,
+        to_hw.InferStreamingReshape(),
+        "reshape layers",
+    )
+
     # Validate that conversion succeeded: all layers must be fpgadataflow layers
     # or form a contiguous dataflow block. This runs here (rather than later) so a
     # failed conversion is reported clearly, before step_create_dataflow_partition
