@@ -263,6 +263,7 @@ class MakeCPPDriver(Transformation):
                 "odmas": jsonOdmas,
             }
         )
+        return data
 
     def _build_slash_config(self, model: ModelWrapper):
         """

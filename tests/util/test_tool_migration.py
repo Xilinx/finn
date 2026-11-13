@@ -402,6 +402,53 @@ def test_xsi_setup_can_compile_before_the_extension_exists(tmp_path, tool_dir, m
 
 
 @pytest.mark.util
+def test_vitis_driver_config_returns_shapes_and_extracted_kernel_names(
+    tmp_path, tool_dir, monkeypatch
+):
+    layout = {
+        "ip_layout": {
+            "m_ip_data": [
+                {"m_type": "IP_KERNEL", "m_base_address": "0x0", "m_name": "wrong:idma10"},
+                {"m_type": "IP_KERNEL", "m_base_address": "0x0", "m_name": "wrong:odma10"},
+                {"m_type": "IP_KERNEL", "m_base_address": "0x0", "m_name": "input_kernel:idma1"},
+                {
+                    "m_type": "IP_KERNEL",
+                    "m_base_address": "0x1000",
+                    "m_name": "output_kernel:odma1",
+                },
+            ]
+        }
+    }
+    tool_dir(
+        "xclbinutil",
+        "from pathlib import Path\n"
+        + "Path('ip_layout.json').write_text("
+        + repr(json.dumps(layout))
+        + ")\n",
+    )
+    shapes = {
+        "idma_names": ["idma1"],
+        "odma_names": ["odma1"],
+        "ishape_normal": [[1, 4]],
+        "oshape_normal": [[1, 4]],
+        "ishape_folded": [[1, 1, 4]],
+        "oshape_folded": [[1, 1, 4]],
+        "ishape_packed": [[1, 1, 16]],
+        "oshape_packed": [[1, 1, 16]],
+    }
+    monkeypatch.setattr(make_driver, "get_driver_shapes", lambda model: shapes)
+    model = make_model()
+    bitfile = tmp_path / "bitfile with spaces.xclbin"
+    model.set_metadata_prop("bitfile", str(bitfile))
+    config = MakeCPPDriver("vitis-xrt", "latest")._build_vitis_config(model)
+    assert config[0]["xclbinPath"] == str(bitfile)
+    assert config[0]["idmas"][0]["kernelName"] == "input_kernel:{idma1}"
+    assert config[0]["odmas"][0]["kernelName"] == "output_kernel:{odma1}"
+    assert config[0]["idmas"][0]["packedShape"] == [1, 1, 16]
+    assert config[0]["odmas"][0]["normalShape"] == [1, 4]
+
+
+@pytest.mark.util
 def test_generated_cpp_driver_excludes_git_diagnostics(tmp_path, monkeypatch):
     if shutil.which("git") is None:
         pytest.skip("Git unavailable")
