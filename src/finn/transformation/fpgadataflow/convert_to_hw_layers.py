@@ -305,9 +305,46 @@ class InferPWPolyFLayer(Transformation):
 
     def _match_erf_gelu(self, model, erf_node):
         """Match Erf-based GELU: Div(x,sqrt(2))→Erf→Add(_,1)→Mul(0.5,_)→Mul(x,_).
-        Returns (pwp_input, pwp_output, nodes_to_remove) or None."""
+
+        Also the Streamline leaves:
+        Mul(x,1/sqrt(2))→Erf→Mul(_,0.5)→Add(_,0.5)→Mul(x,_).
+        Returns (pwp_input, pwp_output, nodes_to_remove) or None.
+        """
+        prod = model.find_producer(erf_node.input[0])
+        # ConvertDivToMul + MoveAddPastMul: Mul(x, 1/sqrt(2)) → Erf → Mul(_, 0.5) → Add(_, 0.5)
+        if prod is not None and prod.op_type == "Mul":
+            inv_sqrt2 = 1.0 / 1.4142135
+            if self._is_const_scalar(model, prod.input[1], inv_sqrt2):
+                gelu_input = prod.input[0]
+            elif self._is_const_scalar(model, prod.input[0], inv_sqrt2):
+                gelu_input = prod.input[1]
+            else:
+                return None
+            erf_consumers = model.find_consumers(erf_node.output[0])
+            if len(erf_consumers) != 1 or erf_consumers[0].op_type != "Mul":
+                return None
+            mul_half = erf_consumers[0]
+            other_mul_half = [i for i in mul_half.input if i != erf_node.output[0]]
+            if len(other_mul_half) != 1 or not self._is_const_scalar(model, other_mul_half[0], 0.5):
+                return None
+            half_consumers = model.find_consumers(mul_half.output[0])
+            if len(half_consumers) != 1 or half_consumers[0].op_type != "Add":
+                return None
+            add_node = half_consumers[0]
+            other_add = [i for i in add_node.input if i != mul_half.output[0]]
+            if len(other_add) != 1 or not self._is_const_scalar(model, other_add[0], 0.5):
+                return None
+            add_consumers = model.find_consumers(add_node.output[0])
+            if len(add_consumers) != 1 or add_consumers[0].op_type != "Mul":
+                return None
+            mul_x = add_consumers[0]
+            other_mul_x = [i for i in mul_x.input if i != add_node.output[0]]
+            if len(other_mul_x) != 1 or other_mul_x[0] != gelu_input:
+                return None
+            return (gelu_input, mul_x.output[0], [prod, erf_node, mul_half, add_node, mul_x])
+
         # backward: Erf input must come from Div(x, sqrt(2))
-        div_node = model.find_producer(erf_node.input[0])
+        div_node = prod
         if div_node is None or div_node.op_type != "Div":
             return None
         if self._is_const_scalar(model, div_node.input[1], 1.4142135):
@@ -466,8 +503,8 @@ class InferPWPolyFLayer(Transformation):
                     graph.node.remove(nd)
                 graph_modified = True
 
-            # Case 4: Erf-based GELU (dynamo=True / opset < 20)
-            # Div(x, sqrt(2)) → Erf → Add(_, 1) → Mul(0.5, _) → Mul(x, _)
+            # Case 4: Erf-based GELU (dynamo=True / opset < 20), in export form
+            # or the fixed point Streamline leaves behind.
             elif node.op_type == "Erf":
                 match = self._match_erf_gelu(model, node)
                 if match is None:

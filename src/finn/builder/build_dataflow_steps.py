@@ -558,6 +558,14 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
         model, ["MultiThreshold"], to_hw.InferThresholdingLayer(), "threshold layers"
     )
 
+    # Piecewise polynomial activations (GELU, SiLU, Sigmoid, Tanh)
+    model = apply_if_relevant(
+        model,
+        ["PWPolyF", "Gelu", "Sigmoid", "Tanh", "Erf"],
+        to_hw.InferPWPolyFLayer(),
+        "piecewise polynomial activations",
+    )
+
     # Elementwise binary ops (Add/Mul/...). Before InferPool: promoting a preceding
     # integer-valued Add/Mul to an integer ElementwiseAdd/Mul lets the pool's
     # integer-input gate pass (e.g. QuantAvgPool2d).
@@ -635,13 +643,6 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     # Activation functions
     model = apply_if_relevant(model, ["Softmax"], to_hw.InferHWSoftmax(), "softmax layers")
-    # Piecewise polynomial activations (GELU, SiLU, Sigmoid, Tanh)
-    model = apply_if_relevant(
-        model,
-        ["PWPolyF", "Gelu", "Sigmoid", "Tanh", "Erf"],
-        to_hw.InferPWPolyFLayer(),
-        "piecewise polynomial activations",
-    )
 
     # Normalization layers
     model = apply_if_relevant(
@@ -718,7 +719,10 @@ def step_create_dataflow_partition(model: ModelWrapper, cfg: DataflowBuildConfig
         "preferred_impl_style",
     ]
     extract_model_config_to_json(
-        model, cfg.output_dir + "/template_specialize_layers_config.json", attrs
+        model,
+        cfg.output_dir + "/template_specialize_layers_config.json",
+        attrs,
+        apply_to_subgraphs=True,
     )
 
     return model
@@ -733,7 +737,9 @@ def step_specialize_layers(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     if cfg.specialize_layers_config_file is not None:
         model = model.transform(GiveUniqueNodeNames())
-        model = model.transform(ApplyConfig(cfg.specialize_layers_config_file))
+        model = model.transform(
+            ApplyConfig(cfg.specialize_layers_config_file, apply_to_subgraphs=True)
+        )
     model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(InferShapes())
@@ -807,7 +813,12 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
             "depth_trigger_uram",
             "depth_trigger_bram",
         ]
-        extract_model_config_to_json(model, cfg.output_dir + "/auto_folding_config.json", hw_attrs)
+        extract_model_config_to_json(
+            model,
+            cfg.output_dir + "/auto_folding_config.json",
+            hw_attrs,
+            apply_to_subgraphs=True,
+        )
 
     else:
         log.info("No target_fps provided, skipping step_target_fps_parallelization.")
@@ -827,7 +838,7 @@ def step_apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
         loop_model = loop_model.transform(GiveUniqueNodeNames(prefix=node.name + "_"))
         node_inst.set_nodeattr("body", loop_model.graph)
     if cfg.folding_config_file is not None:
-        model = model.transform(ApplyConfig(cfg.folding_config_file), apply_to_subgraphs=True)
+        model = model.transform(ApplyConfig(cfg.folding_config_file, apply_to_subgraphs=True))
     else:
         log.info("No folding config json provided, skipping step_apply_folding_config.")
 
@@ -1201,7 +1212,9 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(GiveReadableTensorNames())
         if cfg.folding_config_file is not None:
-            model = model.transform(ApplyConfig(cfg.folding_config_file))
+            # the config may carry FIFO depths for FINNLoop bodies as well, as
+            # written to final_hw_config.json with apply_to_subgraphs=True
+            model = model.transform(ApplyConfig(cfg.folding_config_file, apply_to_subgraphs=True))
 
     # extract the final configuration and save it as json
     hw_attrs = [
@@ -1223,10 +1236,12 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         "OuterShuffle_hls"
     ):
         extract_model_config_consolidate_shuffles(
-            model, cfg.output_dir + "/final_hw_config.json", hw_attrs
+            model, cfg.output_dir + "/final_hw_config.json", hw_attrs, apply_to_subgraphs=True
         )
     else:
-        extract_model_config_to_json(model, cfg.output_dir + "/final_hw_config.json", hw_attrs)
+        extract_model_config_to_json(
+            model, cfg.output_dir + "/final_hw_config.json", hw_attrs, apply_to_subgraphs=True
+        )
 
     # perform shallow FIFO removal only after the final config json file has been
     # written. otherwise, since this transform removes FIFOs, we get name mismatch

@@ -30,6 +30,8 @@ def test_extract_multithreshold_scale_bias(extract_scale, extract_bias):
     # Set scale and bias values based on parameters
     out_scale = 2.5 if extract_scale else 1.0
     out_bias = 1.0 if extract_bias else 0.0
+    # the type of the final output, scale and bias applied to the counts 0..15
+    out_dtype = "FLOAT32" if extract_scale else "UINT5" if extract_bias else "UINT4"
 
     # Create simple MultiThreshold model
     inp = oh.make_tensor_value_info("inp", TensorProto.FLOAT, [1, 64])
@@ -41,7 +43,7 @@ def test_extract_multithreshold_scale_bias(extract_scale, extract_bias):
         ["inp", "thres"],
         ["outp"],
         domain="qonnx.custom_op.general",
-        out_dtype="UINT4",
+        out_dtype=out_dtype,
         out_scale=out_scale,
         out_bias=out_bias,
     )
@@ -85,6 +87,8 @@ def test_extract_multithreshold_scale_bias(extract_scale, extract_bias):
     mt_inst = getCustomOp(mt_node_transformed)
     assert mt_inst.get_nodeattr("out_scale") == 1.0
     assert mt_inst.get_nodeattr("out_bias") == 0.0
+    # and that it now yields the bare counts
+    assert mt_inst.get_nodeattr("out_dtype") == "UINT4"
 
     # Verify node types in correct order
     if extract_scale and extract_bias:

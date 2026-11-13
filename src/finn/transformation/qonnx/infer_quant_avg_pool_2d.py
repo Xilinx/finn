@@ -150,6 +150,16 @@ def _get_signed_from_upstream(model, trunc_node):
                 if out_dt is not None and out_dt != DataType["FLOAT32"]:
                     signed = out_dt.signed()
                     break
+            # A negative constant operand makes the output of an Add or Mul
+            # signed whatever the sign of its other input, e.g. the bias Add
+            # behind a MultiThreshold that yields unsigned step counts.
+            if next_node.op_type in ["Add", "Mul"] and any(
+                np.any(init < 0)
+                for init in map(model.get_initializer, next_node.input)
+                if init is not None
+            ):
+                signed = True
+                break
 
             # Check if we are allowed to move on to the next op
             sign_preserving_ops = ["Add", "Mul", "AveragePool", "Pad"]

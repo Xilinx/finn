@@ -28,6 +28,7 @@
 import numpy as np
 from abc import ABC, abstractmethod
 from onnx import TensorProto, helper
+from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 
@@ -266,6 +267,13 @@ class QuantActBaseHandler(ABC):
                 add_shape = adder_bias.shape
 
             if not zero_bias:
+                # The MultiThreshold now yields the bare step count in
+                # [0, num_steps]; out_dtype describes the biased output of the
+                # Add, so annotating the count with it would be wrong (e.g. INT2
+                # for counts 0..3).
+                mt_inst.set_nodeattr(
+                    "out_dtype", DataType.get_smallest_possible(thresholds.shape[-1]).name
+                )
                 # Insert Add node
                 add_tensor = helper.make_tensor_value_info(
                     model.make_new_valueinfo_name(),
