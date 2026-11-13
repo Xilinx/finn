@@ -244,6 +244,18 @@ def test_compiler_errors_come_before_critical_warnings():
 
 
 @pytest.mark.util
+def test_loader_notices_are_not_quoted():
+    # A host lacking an LD_PRELOAD library (e.g. an LSF farm host in CI) makes
+    # every process print this notice; the tool runs on regardless.
+    notice = (
+        "ERROR: ld.so: object '/lib/x86_64-linux-gnu/libcap.so.2' from LD_PRELOAD"
+        " cannot be preloaded (cannot open shared object file): ignored."
+    )
+    printed = f"{notice}\nERROR: [Common 17-69] Command failed: bad\n{notice}\n"
+    assert ToolFailed.of("vivado", printed).errors == ("ERROR: [Common 17-69] Command failed: bad",)
+
+
+@pytest.mark.util
 def test_tcl_errors_are_quoted():
     # Vivado 2025.2 prints a plain Tcl error on stdout, with no ERROR: line
     warning = "CRITICAL WARNING: [BD 41-1356] Slave segment is not assigned into address space"

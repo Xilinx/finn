@@ -42,6 +42,11 @@ _ERROR_LINE = re.compile(r"\berror:|^Error\b")
 _ECHOED_TCL = "# "
 # Tcl prints the message of an uncaught error, then this line, then the trace.
 _TCL_TRACE = "while executing"
+# The dynamic loader's notice that it skipped an LD_PRELOAD library, printed by
+# every process of a tool run on a host that lacks the library (e.g. a compute
+# farm host behind FINN_TOOL_DIR_OVERRIDE, inheriting the container's LD_PRELOAD).
+# The loader carries on, so it is not an error of the tool.
+_LOADER_NOTICE = re.compile(r"^ERROR: ld\.so: .* ignored\.$")
 
 
 def transcript_files(stem: StrPath) -> Tuple[Path, Path]:
@@ -376,7 +381,11 @@ class ToolFailed(RuntimeError):
         """
         if isinstance(printed, bytes):
             printed = printed.decode(errors="replace")
-        lines = [line.strip() for line in printed.splitlines() if line.strip()]
+        lines = [
+            line
+            for line in (raw.strip() for raw in printed.splitlines())
+            if line and not _LOADER_NOTICE.match(line)
+        ]
         read = vivado.messages(lines)
         structured = set(read.errors)
         critical = set(read.critical_warnings)
