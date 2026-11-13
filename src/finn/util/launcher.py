@@ -40,7 +40,7 @@ log = logging.getLogger(__name__)
 ERROR_LINES = 5
 # An error line of a tool that does not print Vivado's messages (a compiler, a script).
 _ERROR_LINE = re.compile(
-    r"\berror:|\bcannot find -l|"
+    r"\berror:|\berror while loading shared libraries:|\bcannot find -l|"
     r"\bundefined reference to\b|^Error\b"
 )
 # Vivado echoes each line of a sourced Tcl script with this prefix.

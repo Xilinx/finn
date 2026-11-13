@@ -258,6 +258,24 @@ def test_loader_notices_are_not_quoted():
 
 
 @pytest.mark.util
+def test_shared_library_failure_is_quoted_before_tool_summaries():
+    # v++ can finish FPGA implementation and then fail in its xclbinutil child.
+    # Retain the loader's cause instead of quoting only v++'s summary errors.
+    cause = (
+        "/tools/xrt/bin/xclbinutil: error while loading shared libraries: "
+        "libboost_filesystem.so.1.83.0: cannot open shared object file: No such file or directory"
+    )
+    failure = ToolFailed.of(
+        "v++",
+        cause + "\nERROR: [v++ 60-661] v++ link run 'run_link' failed\n"
+        "ERROR: [v++ 60-626] Kernel link failed to complete\n",
+        status=1,
+    )
+    assert failure.errors[0] == cause
+    assert "libboost_filesystem.so.1.83.0" in str(failure)
+
+
+@pytest.mark.util
 @pytest.mark.parametrize(
     "cause",
     [
