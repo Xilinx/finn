@@ -31,7 +31,8 @@ layernorm #(
 	.FORCE_BEHAVIORAL(1),
 `endif
 	.N($N$),
-	.SIMD($SIMD$)
+	.SIMD($SIMD$),
+	.NUM_RSQRT_REFINEMENTS($NUM_RSQRT_REFINEMENTS$)
 )
 impl
 (

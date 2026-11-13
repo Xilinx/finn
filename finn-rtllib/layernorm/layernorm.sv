@@ -33,6 +33,7 @@
 module layernorm #(
 	int unsigned  N,
 	int unsigned  SIMD,
+	int unsigned  NUM_RSQRT_REFINEMENTS = 1,
 	bit  FORCE_BEHAVIORAL = 0
 )(
 	// Global Control
@@ -54,6 +55,10 @@ module layernorm #(
 	initial begin
 		if(N%SIMD != 0) begin
 			$error("%m: SIMD(%0d) must divide N(%0d).", SIMD, N);
+			$finish;
+		end
+		if((NUM_RSQRT_REFINEMENTS < 1) || (NUM_RSQRT_REFINEMENTS > 2)) begin
+			$error("%m: NUM_RSQRT_REFINEMENTS must be one or two.");
 			$finish;
 		end
 	end
@@ -87,8 +92,8 @@ module layernorm #(
 		localparam int unsigned  STATISTICS_LATENCY =
 			// SIMD adder tree + accumulation + decouple
 			$clog2(SIMD) * 2   +     4        +    3 +
-			// Variance: *1/N + rsqrt
-			step   *    (  3  + 14  );
+			// Variance: *1/N + rsqrt + optional second Newton refinement
+			step   *    (  3  + 14 + 12*(NUM_RSQRT_REFINEMENTS-1)  );
 		localparam int unsigned  VALUE_QUEUE_LEN = NN + STATISTICS_LATENCY;
 		localparam int unsigned  STATS_QUEUE_LEN = 2 + (VALUE_QUEUE_LEN-1)/NN;
 
@@ -198,18 +203,50 @@ module layernorm #(
 			end
 			1: /* Var: inverse square root */ begin
 				uwire  vrdy;
+				uwire edge_t  estimate;
 				rsqrtf #(
 					.SUSTAINABLE_INTERVAL(NN),
 					.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
 				) vari_rsqurt (
 					.clk, .rst,
 					.x(total.dat), .xvld(total.vld), .xrdy(vrdy),
-					.r(norm .dat), .rvld(norm .vld)
+					.r(estimate.dat), .rvld(estimate.vld)
 				);
 				always_ff @(posedge clk) begin
 					assert(rst || !total.vld || vrdy) else begin
 						$error("%m Overrunning rsqrt computation.");
 						$stop;
+					end
+				end
+
+				if(NUM_RSQRT_REFINEMENTS == 1) begin : genSingleRefinement
+					assign	norm = estimate;
+				end
+				else begin : genSecondRefinement
+					uwire edge_t  variance;
+					uwire  variance_rdy;
+					queue #(.DATA_WIDTH(32), .ELASTICITY(16)) variance_queue (
+						.clk, .rst,
+						.idat(total.dat), .ivld(total.vld), .irdy(variance_rdy),
+						.odat(variance.dat), .ovld(variance.vld), .ordy(estimate.vld)
+					);
+
+					rsqrtf_refine #(.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) refine (
+						.clk, .rst,
+						.x(variance.dat), .y(estimate.dat),
+						.yvld(variance.vld && estimate.vld),
+						.r(norm.dat), .rvld(norm.vld)
+					);
+
+					always_ff @(posedge clk) begin
+						assert(rst || !total.vld || variance_rdy) else begin
+							$error("%m Overrunning variance queue.");
+							$stop;
+						end
+						assert(rst || !estimate.vld || variance.vld) else begin
+							$error("%m Missing variance for rsqrt refinement.");
+							$stop;
+						end
 					end
 				end
 			end
