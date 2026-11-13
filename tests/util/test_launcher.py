@@ -10,8 +10,10 @@ import signal
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 from finn.util import launcher, vivado
+from finn.util.basic import make_build_dir, robust_rmtree
 from finn.util.launcher import ToolFailed, run_process, run_tool, transcript_files
 
 
@@ -330,19 +332,23 @@ def test_a_signal_while_the_tool_starts_stops_it(tmp_path, monkeypatch, signum, 
 
 @pytest.mark.util
 @pytest.mark.vivado
-def test_a_failing_vivado_run_quotes_its_error(tmp_path):
+def test_a_failing_vivado_run_quotes_its_error():
+    # Under FINN_BUILD_DIR, as a site's tool dispatcher (FINN_TOOL_DIR_OVERRIDE, e.g.
+    # LSF in CI) may run Vivado on another host, which cannot see pytest's local /tmp.
+    work = Path(make_build_dir("test_launcher_vivado_"))
     # Vivado prints a failed command's ERROR message on stderr
-    (tmp_path / "bad.tcl").write_text("read_verilog missing.v\n")
+    (work / "bad.tcl").write_text("read_verilog missing.v\n")
     with pytest.raises(ToolFailed) as failed:
         run_tool(
             ["vivado", "-mode", "batch", "-source", "bad.tcl"],
-            cwd=tmp_path,
-            replay=tmp_path / "bad.sh",
+            cwd=work,
+            replay=work / "bad.sh",
         )
     assert failed.value.status != 0
     assert failed.value.errors[0].startswith("ERROR: [")
     assert "missing.v" in failed.value.errors[0]
-    assert failed.value.errors[0] in (tmp_path / "bad.stderr.log").read_text()
+    assert failed.value.errors[0] in (work / "bad.stderr.log").read_text()
+    robust_rmtree(work)
 
 
 @pytest.mark.util
