@@ -537,6 +537,7 @@ class TestEnd2End:
             model = model.transform(to_hw.InferPool())
             model = model.transform(to_hw.InferConvInpGen())
             model = model.transform(RemoveCNVtoFCFlatten())
+            model = model.transform(to_hw.InferStreamingReshape())
         # get rid of Tranpose -> Tranpose identity seq
         model = model.transform(absorb.AbsorbConsecutiveTransposes())
         model = model.transform(GiveUniqueNodeNames())

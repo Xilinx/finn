@@ -46,6 +46,7 @@ from qonnx.util.onnx import nchw_to_nhwc
 # Module containing specializations of elementwise binary operations
 import finn.custom_op.fpgadataflow.elementwise_binary as elementwise_binary
 from finn.util.basic import resolve_resize_param_input
+from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
 class InferConvInpGen(Transformation):
@@ -3033,6 +3034,83 @@ class InferCrop(Transformation):
                 graph.node.remove(n)
                 graph_modified = True
 
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferStreamingReshape(Transformation):
+    """Convert Reshape, Flatten, Squeeze and Unsqueeze between hardware layers
+    into StreamingReshape layers.
+
+    These operators keep the row-major order of a tensor's elements, which is
+    the order a FINN stream carries them in, so in hardware they are a wire. A
+    chain of consecutive shape operators becomes a single layer.
+
+    Only shape operators with static shapes are converted, and only if their
+    producer and all their consumers are hardware layers. Shape operators at the
+    edge of the dataflow region stay in software as before.
+    """
+
+    SHAPE_OPS = ("Reshape", "Flatten", "Squeeze", "Unsqueeze")
+
+    def _is_static_shape_op(self, model, node):
+        if node is None or node.op_type not in self.SHAPE_OPS or node.domain not in ("", "ai.onnx"):
+            return False
+        # the shape (Reshape) or axes (Squeeze/Unsqueeze from opset 13) input
+        if any(model.get_initializer(name) is None for name in node.input[1:] if name):
+            return False
+        ishape = model.get_tensor_shape(node.input[0])
+        oshape = model.get_tensor_shape(node.output[0])
+        if not ishape or not oshape:
+            return False
+        return np.prod(ishape) == np.prod(oshape)
+
+    def _single_consumer(self, model, tensor):
+        consumers = model.find_consumers(tensor)
+        return consumers[0] if consumers is not None and len(consumers) == 1 else None
+
+    def apply(self, model):
+        graph = model.graph
+        graph_outputs = {x.name for x in graph.output}
+        graph_modified = False
+        for node in list(graph.node):
+            if not self._is_static_shape_op(model, node):
+                continue
+            producer = model.find_producer(node.input[0])
+            # A later member of a chain is converted together with its head. Once
+            # converted, its input tensor has no producer any more.
+            if not is_fpgadataflow_node(producer):
+                continue
+            chain = [node]
+            while chain[-1].output[0] not in graph_outputs:
+                successor = self._single_consumer(model, chain[-1].output[0])
+                if not self._is_static_shape_op(model, successor):
+                    break
+                chain.append(successor)
+            out = chain[-1].output[0]
+            consumers = model.find_consumers(out)
+            if out in graph_outputs or not consumers:
+                continue
+            if not all(is_fpgadataflow_node(x) for x in consumers):
+                continue
+            inp = node.input[0]
+            new_node = helper.make_node(
+                "StreamingReshape",
+                [inp],
+                [out],
+                domain="finn.custom_op.fpgadataflow",
+                backend="fpgadataflow",
+                DataType=model.get_tensor_datatype(inp).name,
+                in_shape=[int(x) for x in model.get_tensor_shape(inp)],
+                out_shape=[int(x) for x in model.get_tensor_shape(out)],
+                name="StreamingReshape_" + node.name,
+            )
+            graph.node.insert(list(graph.node).index(node), new_node)
+            for x in chain:
+                graph.node.remove(x)
+            graph_modified = True
         if graph_modified:
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())

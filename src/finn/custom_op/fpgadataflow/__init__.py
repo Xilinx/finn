@@ -83,6 +83,7 @@ from finn.custom_op.fpgadataflow.streamingdatawidthconverter import (
     StreamingDataWidthConverter,
 )
 from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
+from finn.custom_op.fpgadataflow.streamingreshape import StreamingReshape
 from finn.custom_op.fpgadataflow.thresholding import Thresholding
 from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour
 from finn.custom_op.fpgadataflow.vectorvectoractivation import VVAU
@@ -91,6 +92,7 @@ from finn.custom_op.fpgadataflow.vectorvectoractivation import VVAU
 # registered and plug in correctly into the infrastructure
 custom_op["MVAU"] = MVAU
 custom_op["StreamingFIFO"] = StreamingFIFO
+custom_op["StreamingReshape"] = StreamingReshape
 custom_op["Thresholding"] = Thresholding
 custom_op["VVAU"] = VVAU
 custom_op["StreamingDataflowPartition"] = StreamingDataflowPartition

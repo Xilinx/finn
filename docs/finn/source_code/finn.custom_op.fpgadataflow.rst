@@ -186,6 +186,14 @@ finn.custom\_op.fpgadataflow.streamingfifo
    :undoc-members:
    :show-inheritance:
 
+finn.custom\_op.fpgadataflow.streamingreshape
+-----------------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.streamingreshape
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.custom\_op.fpgadataflow.templates
 ----------------------------------------
 
