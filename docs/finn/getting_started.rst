@@ -133,8 +133,8 @@ Note that Docker remains the primary supported method.
 Prerequisites
 *************
 
-* Ubuntu 22.04 (other distributions may work but are not officially tested)
-* Python 3.10
+* Ubuntu 24.04 (other distributions may work but are not officially tested)
+* Python 3.12 or later
 * System dependencies (see below)
 * Vivado/Vitis 2024.2 or later (for synthesis and simulation)
 
@@ -156,9 +156,9 @@ Quick Start
     cd finn
     ./setup-local.sh
 
-   If your system Python is not 3.10, set ``FINN_PYTHON`` to point to a Python 3.10 interpreter::
+   If your system Python is older than 3.12, set ``FINN_PYTHON`` to point to a Python 3.12 interpreter::
 
-    export FINN_PYTHON=/path/to/python3.10
+    export FINN_PYTHON=/path/to/python3.12
     ./setup-local.sh
 
 4. Activate the FINN environment::
