@@ -1192,7 +1192,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     and getCustomOp(n).get_nodeattr("io_chrc_in") == ""
                 ]
                 if unsized:
-                    print(
+                    log.warning(
                         "Estimate-only build: no tree model for %s, so their FIFOs are "
                         "sized without their token access vectors. A full build "
                         "characterizes them with rtlsim." % ", ".join(unsized)

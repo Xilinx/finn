@@ -6,6 +6,7 @@
 #
 # @author       Shane T. Fleming <shane.fleming@amd.com>
 ############################################################################
+import logging
 import numpy as np
 from collections import deque
 from onnx import helper
@@ -15,6 +16,8 @@ from qonnx.transformation.base import Transformation
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from typing import List, Optional, Tuple
+
+log = logging.getLogger(__name__)
 
 
 def shuffle_perfect_loopnest_coeffs(shape: tuple[int], perm: tuple[int]) -> tuple[int]:
@@ -321,10 +324,10 @@ class ShuffleDecomposition(Transformation):
             try:
                 P_list, operation_types = decompose_transpose_with_constraints(perm)
                 if len(P_list) == 0:
-                    print("\tNo swaps necessary (identity permutation).")
+                    log.info(f"{node.name}: no swaps necessary (identity permutation)")
                     continue
             except RuntimeError as e:
-                print(f"\tSkipping node {node.name}: {e}")
+                log.warning(f"Skipping {node.name}: {e}")
                 continue
             orig_input = list(node.input)
             orig_output = list(node.output)
@@ -333,7 +336,7 @@ class ShuffleDecomposition(Transformation):
                 # Transpose usually has one input and one output; if not,
                 # skip replacement
                 # TODO: Should this raise an exception? Probably need to be handled.
-                print(f"\tSkipping node {node.name}: unexpected number of inputs/outputs.")
+                log.warning(f"Skipping {node.name}: unexpected number of inputs/outputs")
                 continue
 
             prev_tensor = orig_input[0]

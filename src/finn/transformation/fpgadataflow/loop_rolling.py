@@ -11,6 +11,7 @@
 ###################################################################################
 
 import copy
+import logging
 import numpy as np
 import onnx
 import onnxscript
@@ -26,6 +27,8 @@ from typing import List, Tuple
 
 from finn.util import onnxscript_helpers as osh
 from finn.util.basic import make_build_dir
+
+log = logging.getLogger(__name__)
 
 
 def get_constant_from_value(value):
@@ -70,17 +73,10 @@ def build_loop_replace_pattern(graph, LoopBody):
             g_shape = nodes[0].inputs[i].shape
             for node in nodes:
                 if node.inputs[i].shape != g_shape:
-                    print(
-                        (
-                            f"LoopRolling: Index {i} expected shape {g_shape}, "
-                            f"got {node.inputs[i].shape}."
-                        )
-                    )
                     raise Exception(
-                        (
-                            "LoopRolling: all loop-body initializers of the same index "
-                            "must have the same shape."
-                        )
+                        "LoopRolling: all loop-body initializers of the same index "
+                        f"must have the same shape; index {i} expected {g_shape}, "
+                        f"got {node.inputs[i].shape}."
                     )
 
             # Build Concat Node
@@ -257,8 +253,9 @@ class LoopExtraction(Transformation):
             elif len(succs) > 0:
                 mnode = succs[0]
             else:
-                print("error: could not find metadata for node")
-                exit(1)
+                raise RuntimeError(
+                    f"LoopRolling: no neighbour to take metadata from for {node.name}"
+                )
 
             node.metadata_props["pkg.torch.onnx.name_scopes"] = mnode.metadata_props.get(
                 "pkg.torch.onnx.name_scopes", ""
@@ -571,7 +568,7 @@ class LoopRolling(Transformation):
         change_function_calls_to_loop = pattern.RewriteRule(LoopMatchPattern, loop_replace_pattern)
         rewrite_set = pattern.RewriteRuleSet([change_function_calls_to_loop])
         count = rewrite_set.apply_to_model(model_ir, verbose=None)
-        print(f"Rolled {count} function calls into a loop operator")
+        log.info(f"Rolled {count} function calls into a loop operator")
 
         for node in model_ir.graph._nodes:
             if node.op_type == "FINNLoop":

@@ -29,6 +29,7 @@
 
 import inspect
 import json
+import logging
 import numpy as np
 import os
 import qonnx
@@ -50,6 +51,8 @@ from finn.util.data_packing import to_external_tensor
 from finn.util.rtlsim import dat_file_to_numpy_array
 
 from . import template_driver
+
+log = logging.getLogger(__name__)
 
 
 def _extract_license_header(source_module):
@@ -160,10 +163,9 @@ class MakeCPPDriver(Transformation):
                 shlex.split(command), cwd=cwd, check=True, text=True, capture_output=True
             )
             if debug:
-                print(result.stdout)  # Print the output for debugging purposes
+                log.debug(result.stdout)
         except subprocess.CalledProcessError as e:
-            print(f"Error running command: {command}")
-            print(f"Output:{e.stdout}; Error:{e.stderr}")
+            log.error(f"Error running command: {command}\nOutput: {e.stdout}\nError: {e.stderr}")
             raise e
 
     def _build_vitis_config(self, model: ModelWrapper):
