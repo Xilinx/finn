@@ -162,8 +162,6 @@ def make_loop_modelwrapper(
                 "PE": helper_pe,
                 "inputDataType": dtype.name,
                 "outFIFODepths": [2, 2],
-                "cpp_interface": "hls_vector",
-                "hls_style": "freerunning",
             },
         ),
         create_node(
@@ -784,8 +782,6 @@ def test_finnloop_end2end_mlo(
                 "CropEast": 0,
                 "SIMD": 1,
                 "numInputVectors": [1],
-                "cpp_interface": "hls_vector",
-                "hls_style": "freerunning",
             },
         )
         for i, inp in enumerate(first_body_node.input):

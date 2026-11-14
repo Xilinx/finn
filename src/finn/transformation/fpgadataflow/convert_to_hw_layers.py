@@ -913,8 +913,6 @@ class InferUpsample(Transformation):
                     inputDataType=inputDataType,
                     batchSize=batchSize,
                     name="UpsampleNearestNeighbour_" + n.name,
-                    cpp_interface="hls_vector",
-                    hls_style="freerunning",
                 )
 
                 # Remove the old node
@@ -992,8 +990,6 @@ class InferDuplicateStreamsLayer(Transformation):
                 NumOutputStreams=n_outputs,
                 outFIFODepths=[2] * n_outputs,
                 name="DuplicateStreams_" + output_tensor,
-                cpp_interface="hls_vector",
-                hls_style="freerunning",
             )
 
             graph.node.insert(0, dup_node)
@@ -1061,8 +1057,6 @@ class InferDuplicateStreamsLayer(Transformation):
                         NumOutputStreams=n_outputs,
                         outFIFODepths=[2] * n_outputs,
                         name="DuplicateStreams_" + node.name,
-                        cpp_interface="hls_vector",
-                        hls_style="freerunning",
                     )
 
                     graph.node.insert(node_ind, dup_node)
@@ -1406,7 +1400,6 @@ class InferPool(Transformation):
                     AccumBits=accum_bits,
                     Size=pool_size_param,
                     BatchSize=1,
-                    cpp_interface="hls_vector",
                     name="Pool_" + node.name,
                 )
 
@@ -1534,8 +1527,6 @@ class InferConcatLayer(Transformation):
                     inputDataTypes=[model.get_tensor_datatype(x).name for x in node.input],
                     numInputVectors=inp_vec,
                     inFIFODepths=[2] * len(node.input),
-                    cpp_interface="hls_vector",
-                    hls_style="freerunning",
                 )
                 graph.node.insert(node_ind, new_node)
                 # remove old node
@@ -1599,8 +1590,6 @@ class InferSplitLayer(Transformation):
                     backend="fpgadataflow",
                     name="StreamingSplit_" + node.name,
                     SIMD=1,
-                    cpp_interface="hls_vector",
-                    hls_style="freerunning",
                     ChannelsPerStream=channels_per_stream,
                     inputDataType=model.get_tensor_datatype(node.input[0]).name,
                     numInputVectors=inp_vec,
@@ -3027,8 +3016,6 @@ class InferCrop(Transformation):
                     CropWest=crop_west,
                     CropSouth=crop_south,
                     numInputVectors=num_inp_vec,
-                    cpp_interface="hls_vector",
-                    hls_style="freerunning",
                 )
                 graph.node.insert(node_ind, new_node)
                 graph.node.remove(n)

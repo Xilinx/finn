@@ -486,8 +486,6 @@ class InferInnerOuterShuffles(Transformation):
                         loop_coeffs=shuffle_perfect_loopnest_coeffs(shape=in_reshaped, perm=perm),
                         SIMD=simd,
                         NumChannels=in_reshaped[-1],
-                        cpp_interface="hls_vector",
-                        hls_style="freerunning",
                     )
                 graph.node.insert(node_ind, new_node)
 

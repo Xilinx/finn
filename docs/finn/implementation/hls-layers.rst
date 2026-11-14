@@ -25,8 +25,9 @@ The HLS backend infrastructure uses a template-based system. Your HLS variant po
 **Templates**:
 
 - ``ipgen_template`` - Used for IP generation (synthesis)
-- ``docompute_template`` - Used for cppsim (C++ simulation)
-- ``docompute_template_timeout`` - Used for cppsim with freerunning HLS operations
+- ``docompute_template_timeout`` - Used for cppsim (C++ simulation). HLS layers are
+  free-running: the simulation calls the top function until the expected outputs have
+  arrived or ``$TIMEOUT_VALUE$`` cycles pass without a new one.
 
 Required Methods
 ================
@@ -61,38 +62,17 @@ Optional Methods
 
 **Reference implementation**: See ``src/finn/custom_op/fpgadataflow/hls/layernorm_hls.py`` for a complete example.
 
-HLS-Specific Node Attributes
-=============================
+Stream Interface
+================
 
-The ``HLSBackend`` base class defines node attributes that control code generation:
-
-cpp_interface
--------------
-
-**Purpose**: Determines how data is packed into HLS streams
-
-**Values**:
-- ``"packed"`` (default) - Data packed as ``ap_uint<width>`` bit vectors
-- ``"hls_vector"`` - Data as HLS vector types (``hls::vector``)
-
-**Effect**: Influences how ``$STREAMDECLARATIONS$`` and data reading/writing are generated
-
-**Recommendation**: Use ``"hls_vector"`` for new HLS components going forward.
-
-hls_style
----------
-
-**Purpose**: Determines execution style for HLS operations
-
-**Values**:
-- ``"ifm_aware"`` (default) - Kernel knows the input feature map size and when all outputs are computed
-- ``"freerunning"`` - Free-running execution with timeout-based control
-
-**Effect**:
-- Selects which cppsim template is used (``docompute_template`` vs ``docompute_template_timeout``)
-- Changes stream declarations and output handling
-
-**Note**: These attributes are set during hardware layer conversion (``convert_to_hw_layers`` transformations). When implementing a new HLS layer, you will need to set these attributes appropriately.
+``HLSBackend`` declares all streams as finn-hlslib tensor streams,
+``hls::stream<tensor<T, N>>``, one tensor of ``N`` elements (the folding factor) per
+transaction. In cppsim, ``npy2tensorstream`` and ``tensorstream2npy`` convert between
+these streams and the ``.npy`` files of the execution context. The defaults of
+``read_npy_data()``, ``strm_decl()``, ``dataoutstrm()`` and ``pragmas()`` cover layers
+with streamed inputs and one output; override them only if a layer differs, e.g. in
+the number of streams. The ``cpp_interface`` and ``hls_style`` attributes of earlier
+versions no longer exist.
 
 Generated Code Structure
 ========================
