@@ -7,12 +7,14 @@
 # @author       Shane T. Fleming <shane.fleming@amd.com>
 ############################################################################
 
+import math
 import numpy as np
 import warnings
 from onnx import helper
 from operator import itemgetter
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp
+from typing import Optional
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 from finn.transformation.fpgadataflow.transpose_decomposition import (
@@ -20,6 +22,31 @@ from finn.transformation.fpgadataflow.transpose_decomposition import (
     decompose_transpose_with_constraints,
     shuffle_perfect_loopnest_coeffs,
 )
+
+
+def auto_size_simd(I_dim: int, SIMD: int) -> Optional[int]:
+    """Return the smallest divisor of I_dim that is larger than SIMD, or None if
+    there is none. Shared by InnerShuffle and OuterShuffle, whose SIMD must divide
+    the innermost axis of their output and input respectively."""
+    if I_dim <= 0:
+        raise ValueError("I_dim must be a positive integer")
+    if SIMD < 0:
+        raise ValueError("SIMD must be a non-negative integer")
+
+    candidates = []
+    limit = int(math.isqrt(I_dim))
+    for a in range(1, limit + 1):
+        if I_dim % a == 0:
+            b = I_dim // a
+            if a > SIMD:
+                candidates.append(a)
+            if b > SIMD:
+                candidates.append(b)
+
+    if not candidates:
+        return None
+
+    return min(candidates)
 
 
 class Shuffle(HWCustomOp):
@@ -151,7 +178,7 @@ class Shuffle(HWCustomOp):
         simd = self.get_nodeattr("SIMD")
         data_type = self.get_nodeattr("data_type")
 
-        P_list, operation_types = decompose_transpose_with_constraints(perm, transpose_in_shape)
+        P_list, operation_types = decompose_transpose_with_constraints(perm)
 
         if len(P_list) == 0:
             return 0

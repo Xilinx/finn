@@ -83,7 +83,15 @@ def execute_onnx(model, input_dict, return_full_exec_context=False, start_node=N
         # fill in any inputs provided to this function
         for inp_name in input_dict.keys():
             if inp_name in execution_context:
-                if execution_context[inp_name].shape == input_dict[inp_name].shape:
+                expected_shape = execution_context[inp_name].shape
+                provided_shape = input_dict[inp_name].shape
+                same_shape = expected_shape == provided_shape
+                runtime_batch_shape = (
+                    len(expected_shape) > 0
+                    and len(expected_shape) == len(provided_shape)
+                    and expected_shape[1:] == provided_shape[1:]
+                )
+                if same_shape or runtime_batch_shape:
                     execution_context[inp_name] = input_dict[inp_name]
                 else:
                     raise Exception(
