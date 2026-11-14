@@ -1811,7 +1811,9 @@ class InferPad1DLayer(Transformation):
                 continue
 
             idt = model.get_tensor_datatype(stream_name)
-            if idt is None or not idt.is_integer():
+            if idt is None or (
+                not idt.is_integer() and idt not in [DataType["FLOAT16"], DataType["FLOAT32"]]
+            ):
                 continue
 
             const_dtypes_valid = True
