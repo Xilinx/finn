@@ -7,9 +7,13 @@ from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
 class RemoveCNVtoFCFlatten(Transformation):
-    """Removes a flatten node if it is between two fpgadataflow nodes.
-    For an NHWC-Conv to FC transition, the preceding transpose is absorbed.
-    The flatten operation can also be implemented by a reshape node."""
+    """Absorbs the transpose and flatten of an NHWC-Conv to FC transition into
+    the weights of the following MVAU. The flatten operation can also be
+    implemented by a reshape node.
+
+    A standalone flatten between two fpgadataflow nodes is left to
+    InferStreamingReshape, which turns it into a StreamingReshape layer: removing
+    it would leave the consumer with an input tensor of the producer's shape."""
 
     def apply(self, model):
         graph = model.graph
@@ -21,14 +25,7 @@ class RemoveCNVtoFCFlatten(Transformation):
                 oshape = model.get_tensor_shape(n.output[0])
                 if len(oshape) == 2 and ishape[0] == oshape[0]:
                     producer = model.find_producer(n.input[0])
-                    if is_fpgadataflow_node(producer):
-                        # standalone flatten, remove
-                        consumer = model.find_consumer(n.output[0])
-                        if is_fpgadataflow_node(consumer):
-                            graph_modified = True
-                            consumer.input[0] = n.input[0]
-                            graph.node.remove(n)
-                    elif producer is not None and producer.op_type == "Transpose":
+                    if producer is not None and producer.op_type == "Transpose":
                         # transpose + flatten, absorb into following node
                         transp_node = producer
                         # check if transpose converts NHWC to NCHW
