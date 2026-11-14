@@ -118,8 +118,6 @@ RUN pip install --break-system-packages torch==2.8.0 torchvision==0.23.0 torchau
 RUN pip install --break-system-packages pygments==2.17.2
 RUN pip install --break-system-packages ipykernel==6.29.0
 RUN pip install --break-system-packages jupyter==1.0.0
-# anyio >= 4.13.0 for jupyter incompatible with pytest 6.2.5 (missing _pytest.scope module, added in pytest 7.0.0)
-RUN pip install --break-system-packages 'anyio<4.13'
 RUN pip install --break-system-packages markupsafe==2.1.5
 RUN pip install --break-system-packages matplotlib==3.8.2
 RUN pip install --break-system-packages pytest-dependency==0.5.1
