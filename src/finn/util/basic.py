@@ -256,7 +256,9 @@ def make_build_dir(prefix=""):
 
 def robust_rmtree(path, retries=6, initial_delay=0.1, backoff=2.0):
     """Remove a directory tree with retries for transient NFS cleanup races.
-    Retries ``ENOTEMPTY``/``EBUSY``. Other errors propagate immediately.
+    Retries ``ENOTEMPTY``/``EBUSY``, and a ``FileNotFoundError`` for an entry
+    that vanished while the tree still exists (``shutil.rmtree`` re-raises it,
+    e.g. for a stale NFS directory listing). Other errors propagate immediately.
     """
     if not path or not os.path.exists(path):
         return
@@ -265,10 +267,10 @@ def robust_rmtree(path, retries=6, initial_delay=0.1, backoff=2.0):
         try:
             shutil.rmtree(path)
             return
-        except FileNotFoundError:
-            return
         except OSError as exc:
-            transient = exc.errno in (errno.ENOTEMPTY, errno.EBUSY)
+            if isinstance(exc, FileNotFoundError) and not os.path.exists(path):
+                return
+            transient = exc.errno in (errno.ENOTEMPTY, errno.EBUSY, errno.ENOENT)
             if not transient or attempt == retries - 1:
                 raise
             time.sleep(delay)
