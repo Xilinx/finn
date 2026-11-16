@@ -483,13 +483,14 @@ class InferInnerOuterShuffles(Transformation):
                 perm = f_inst.get_nodeattr("perm")
                 simd = f_inst.get_nodeattr("SIMD")
 
-                # Get original node name if it exists, otherwise use current node name
-                try:
-                    original_name = f_inst.get_nodeattr("original_node_name") or node.name
-                    original_simd = f_inst.get_nodeattr("original_simd") or simd
-                except (AttributeError, KeyError):
-                    original_name = node.name
-                    original_simd = simd
+                # The Shuffle this stage came from and its configured SIMD, for the config
+                # export. ShuffleDecomposition sets both; a Shuffle it left alone has
+                # neither (original_simd then holds its default, not a configured value).
+                original_name = f_inst.get_nodeattr("original_node_name")
+                if original_name:
+                    original_simd = f_inst.get_nodeattr("original_simd")
+                else:
+                    original_name, original_simd = node.name, simd
 
                 is_inner = _is_inner_shuffle(perm, in_reshaped)
                 stage_dim = shuffle_stage_simd_dim(perm, in_reshaped)
