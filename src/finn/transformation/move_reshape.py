@@ -9,12 +9,41 @@ from finn.util.fpgadataflow import is_fpgadataflow_node
 class RemoveCNVtoFCFlatten(Transformation):
     """Removes a flatten node if it is between two fpgadataflow nodes.
     For an NHWC-Conv to FC transition, the preceding transpose is absorbed.
-    The flatten operation can also be implemented by a reshape node."""
+    The flatten operation can also be implemented by a reshape node.
+
+    Also removes reshapes between fpgadataflow nodes that keep the last (channel)
+    dimension, e.g. inserting/removing unit dimensions or merging the spatial
+    dimensions of a channels-last tensor into a token dimension (vision
+    transformers). A reshape does not change the row-major element order, so the
+    stream between the HW layers is identical; the consumers read the producer's
+    tensor directly and reshape it to their own (folded) shapes. Not applied if a
+    consumer is an elementwise layer, as these check their exact input shapes."""
 
     def apply(self, model):
         graph = model.graph
         graph_modified = False
-        for n in graph.node:
+        for n in list(graph.node):
+            if n.op_type == "Reshape":
+                ishape = model.get_tensor_shape(n.input[0])
+                oshape = model.get_tensor_shape(n.output[0])
+                consumers = model.find_consumers(n.output[0])
+                if (
+                    len(oshape) > 2
+                    and ishape[-1] == oshape[-1]
+                    and is_fpgadataflow_node(model.find_producer(n.input[0]))
+                    and consumers
+                    and all(is_fpgadataflow_node(c) for c in consumers)
+                    # elementwise layers check their exact input shapes
+                    and not any(c.op_type.startswith("Elementwise") for c in consumers)
+                ):
+                    # channel-preserving reshape between HW layers, remove
+                    for consumer in consumers:
+                        for i, inp in enumerate(consumer.input):
+                            if inp == n.output[0]:
+                                consumer.input[i] = n.input[0]
+                    graph.node.remove(n)
+                    graph_modified = True
+                    continue
             # also support implicit flatten via reshape, e.g. reshape(1,-1)
             if n.op_type == "Flatten" or n.op_type == "Reshape":
                 ishape = model.get_tensor_shape(n.input[0])
