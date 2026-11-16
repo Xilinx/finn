@@ -46,6 +46,7 @@ from finn.transformation.fpgadataflow.transpose_decomposition import (
     InferInnerOuterShuffles,
     ShuffleDecomposition,
 )
+from finn.transformation.general import ApplyConfig
 from finn.util.basic import get_watchdog_timeout_cycles, make_build_dir, robust_rmtree
 from finn.util.config import extract_model_config_consolidate_shuffles
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
@@ -1266,6 +1267,44 @@ def test_shuffle_decomposition_simd_not_dividing():
     assert [s.get_nodeattr("SIMD") for s in stages] == [6, 6, 4]
     assert exp_cycles == max(s.get_exp_cycles() for s in stages)
     assert all(s.get_nodeattr("original_simd") == 4 for s in stages)
+
+
+@pytest.mark.fpgadataflow
+def test_shuffle_folding_config_simd_not_dividing():
+    """A non-dividing SIMD from a folding config: only InferInnerOuterShuffles rounds
+    the stages, with a warning, and the configured value reaches the config export.
+    Constructing a stage op does not change its SIMD either."""
+    model = construct_onnx_model(
+        input_shape=(1, 4, 6, 8),
+        transpose_perm=(0, 3, 2, 1),
+        reshape1_shape=None,
+        reshape2_shape=None,
+        dt=DataType["INT8"],
+    )
+    model = model.transform(InferShuffle(_filter=lambda *_: True))
+    model = model.transform(GiveUniqueNodeNames())
+    shuffle_name = model.get_nodes_by_op_type("Shuffle")[0].name
+    model = model.transform(ApplyConfig({"Defaults": {}, shuffle_name: {"SIMD": 4}}))
+
+    model = model.transform(ShuffleDecomposition())
+    with pytest.warns(UserWarning, match=r"SIMD=4 does not divide 6.*Using SIMD=6"):
+        model = model.transform(InferInnerOuterShuffles())
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+    assert [getCustomOp(n).get_nodeattr("SIMD") for n in model.graph.node] == [6, 6, 4]
+
+    test_dir = make_build_dir("test_shuffle_config_")
+    config_file = os.path.join(test_dir, "config.json")
+    extract_model_config_consolidate_shuffles(model, config_file, ["SIMD"])
+    with open(config_file, "r") as f:
+        assert json.load(f)[shuffle_name]["SIMD"] == 4
+    robust_rmtree(test_dir)
+
+    # the InnerShuffle stage folds the 6: a SIMD of 4 is invalid for it, but
+    # instantiating the op must leave the configured value alone
+    stage_name = model.graph.node[0].name
+    model = model.transform(ApplyConfig({"Defaults": {}, stage_name: {"SIMD": 4}}))
+    assert getCustomOp(model.graph.node[0]).get_nodeattr("SIMD") == 4
 
 
 @pytest.mark.fpgadataflow
