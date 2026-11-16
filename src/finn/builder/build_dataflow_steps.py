@@ -169,7 +169,7 @@ from finn.transformation.streamline.reorder import (
     MoveTransposePastJoinAdd,
 )
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import get_rtlsim_trace_depth
+from finn.util.basic import get_rtlsim_trace_depth, robust_rmtree
 from finn.util.config import (
     extract_model_config_consolidate_shuffles,
     extract_model_config_to_json,
@@ -243,7 +243,7 @@ def snapshot_fifo_logs(cfg, phase_name, loop_context=None):
     # Drop the previous snapshot of this phase/scope, so a rebuild into the same
     # output_dir with fewer FIFOs doesn't leave stale logs behind.
     if os.path.isdir(dest_dir):
-        shutil.rmtree(dest_dir)
+        robust_rmtree(dest_dir)
     os.makedirs(dest_dir, exist_ok=True)
     if os.path.isdir(live_onnx_dir):
         os.makedirs(dest_onnx_dir, exist_ok=True)
