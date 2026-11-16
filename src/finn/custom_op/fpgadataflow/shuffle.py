@@ -7,46 +7,22 @@
 # @author       Shane T. Fleming <shane.fleming@amd.com>
 ############################################################################
 
-import math
 import numpy as np
 import warnings
 from onnx import helper
 from operator import itemgetter
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp
-from typing import Optional
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 from finn.transformation.fpgadataflow.transpose_decomposition import (
     _is_inner_shuffle,
     decompose_transpose_with_constraints,
+    legalize_stage_simd,
     shuffle_perfect_loopnest_coeffs,
+    shuffle_simd_dims,
+    shuffle_stage_simd_dim,
 )
-
-
-def auto_size_simd(I_dim: int, SIMD: int) -> Optional[int]:
-    """Return the smallest divisor of I_dim that is larger than SIMD, or None if
-    there is none. Shared by InnerShuffle and OuterShuffle, whose SIMD must divide
-    the innermost axis of their output and input respectively."""
-    if I_dim <= 0:
-        raise ValueError("I_dim must be a positive integer")
-    if SIMD < 0:
-        raise ValueError("SIMD must be a non-negative integer")
-
-    candidates = []
-    limit = int(math.isqrt(I_dim))
-    for a in range(1, limit + 1):
-        if I_dim % a == 0:
-            b = I_dim // a
-            if a > SIMD:
-                candidates.append(a)
-            if b > SIMD:
-                candidates.append(b)
-
-    if not candidates:
-        return None
-
-    return min(candidates)
 
 
 class Shuffle(HWCustomOp):
@@ -165,6 +141,17 @@ class Shuffle(HWCustomOp):
         folded_ishape = normal_ishape[:-1] + [fold, simd]
         return tuple(folded_ishape)
 
+    def get_simd_dims(self):
+        """Dimensions that SIMD has to divide so that the node itself and every stage
+        of its decomposition into Inner/OuterShuffle can use it unchanged. SetFolding
+        only picks SIMD values from the common divisors of these."""
+        in_dim = int(self.get_normal_input_shape()[-1])
+        out_dim = int(self.get_normal_output_shape()[-1])
+        stage_dims = shuffle_simd_dims(
+            self.get_nodeattr("perm"), self.get_nodeattr("transpose_in_shape")
+        )
+        return [in_dim, out_dim] + stage_dims
+
     def get_exp_cycles(self):
         """Estimate cycles by decomposing into Inner/OuterShuffle stages.
 
@@ -172,10 +159,13 @@ class Shuffle(HWCustomOp):
         operations (inner_shuffle / outer_shuffle), creates temporary nodes
         for each stage, and returns the MAX of their cycle estimates
         (stages are pipelined, so throughput is limited by the slowest).
+
+        A configured SIMD that does not divide a stage's dimension is estimated
+        with the SIMD InferInnerOuterShuffles will give that stage (the next larger
+        divisor). The node's own SIMD is not changed.
         """
         transpose_in_shape = list(self.get_nodeattr("transpose_in_shape"))
         perm = list(self.get_nodeattr("perm"))
-        simd = self.get_nodeattr("SIMD")
         data_type = self.get_nodeattr("data_type")
 
         P_list, operation_types = decompose_transpose_with_constraints(perm)
@@ -188,6 +178,11 @@ class Shuffle(HWCustomOp):
 
         for step_idx, (P, op_type) in enumerate(zip(P_list, operation_types)):
             out_shape = list(itemgetter(*P)(current_shape))
+            simd = legalize_stage_simd(
+                self.get_nodeattr("SIMD"),
+                shuffle_stage_simd_dim(P, current_shape),
+                self.onnx_node.name,
+            )
 
             if _is_inner_shuffle(P, current_shape):
                 # InnerShuffle: no reshape fused here, so physical in_shape and

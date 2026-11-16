@@ -46,6 +46,7 @@ from finn.transformation.fpgadataflow.transpose_decomposition import (
     InferInnerOuterShuffles,
     ShuffleDecomposition,
 )
+from finn.transformation.general import ApplyConfig
 from finn.util.basic import get_watchdog_timeout_cycles, make_build_dir, robust_rmtree
 from finn.util.config import extract_model_config_consolidate_shuffles
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
@@ -1229,24 +1230,108 @@ def test_outer_shuffle_tree_model_declines_small_buffer(declining_param):
 
 
 @pytest.mark.fpgadataflow
-def test_shuffle_decomposition_simd():
+def test_shuffle_decomposition_simd_not_dividing():
+    """How a hand configured SIMD reaches the InnerShuffle / OuterShuffle stages.
+
+    A SIMD that does not divide the dimension a stage folds is rounded up to the next
+    divisor by InferInnerOuterShuffles, with a warning, and nowhere else: the stage
+    constructors keep any SIMD. The configured value survives in original_simd.
+    """
+    # decomposes into InnerShuffle (folds the 6), OuterShuffle (folds the 6) and
+    # InnerShuffle (folds the 4), the innermost input and output axes are 8 and 4
     model = construct_onnx_model(
-        input_shape=(1, 12, 196, 196),
-        transpose_perm=(0, 2, 3, 1),
+        input_shape=(1, 4, 6, 8),
+        transpose_perm=(0, 3, 2, 1),
         reshape1_shape=None,
         reshape2_shape=None,
         dt=DataType["INT8"],
     )
     model = model.transform(InferShuffle(_filter=lambda *_: True))
-    model = model.transform(SetShuffleSIMD(3))
+    model = model.transform(SetShuffleSIMD(4))
+    shuffle_node = model.get_nodes_by_op_type("Shuffle")[0]
+    exp_cycles = getCustomOp(shuffle_node).get_exp_cycles()
     model = model.transform(ShuffleDecomposition())
-    model = model.transform(InferInnerOuterShuffles())
+    with pytest.warns(UserWarning, match=r"SIMD=4 does not divide 6.*Using SIMD=6") as record:
+        model = model.transform(InferInnerOuterShuffles())
+    assert sum("does not divide" in str(w.message) for w in record) == 2
     model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(InferShapes())
     model = model.transform(InferDataTypes())
-    outer = model.get_nodes_by_op_type("OuterShuffle_hls")
-    inner = model.get_nodes_by_op_type("InnerShuffle_rtl")
-    assert len(outer) == 1
-    assert len(inner) == 1
-    assert getCustomOp(outer[0]).get_nodeattr("SIMD") == 4
-    assert getCustomOp(inner[0]).get_nodeattr("SIMD") == 3
+    model = model.transform(GiveUniqueNodeNames())
+    stages = [getCustomOp(n) for n in model.graph.node]
+    assert [s.onnx_node.op_type for s in stages] == [
+        "InnerShuffle_rtl",
+        "OuterShuffle_hls",
+        "InnerShuffle_rtl",
+    ]
+    assert [s.get_nodeattr("SIMD") for s in stages] == [6, 6, 4]
+    assert exp_cycles == max(s.get_exp_cycles() for s in stages)
+    assert all(s.get_nodeattr("original_simd") == 4 for s in stages)
+
+
+@pytest.mark.fpgadataflow
+def test_shuffle_folding_config_simd_not_dividing():
+    """A non-dividing SIMD from a folding config: only InferInnerOuterShuffles rounds
+    the stages, with a warning, and the configured value reaches the config export.
+    Constructing a stage op does not change its SIMD either."""
+    model = construct_onnx_model(
+        input_shape=(1, 4, 6, 8),
+        transpose_perm=(0, 3, 2, 1),
+        reshape1_shape=None,
+        reshape2_shape=None,
+        dt=DataType["INT8"],
+    )
+    model = model.transform(InferShuffle(_filter=lambda *_: True))
+    model = model.transform(GiveUniqueNodeNames())
+    shuffle_name = model.get_nodes_by_op_type("Shuffle")[0].name
+    model = model.transform(ApplyConfig({"Defaults": {}, shuffle_name: {"SIMD": 4}}))
+
+    model = model.transform(ShuffleDecomposition())
+    with pytest.warns(UserWarning, match=r"SIMD=4 does not divide 6.*Using SIMD=6"):
+        model = model.transform(InferInnerOuterShuffles())
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+    assert [getCustomOp(n).get_nodeattr("SIMD") for n in model.graph.node] == [6, 6, 4]
+
+    test_dir = make_build_dir("test_shuffle_config_")
+    config_file = os.path.join(test_dir, "config.json")
+    extract_model_config_consolidate_shuffles(model, config_file, ["SIMD"])
+    with open(config_file, "r") as f:
+        assert json.load(f)[shuffle_name]["SIMD"] == 4
+    robust_rmtree(test_dir)
+
+    # the InnerShuffle stage folds the 6: a SIMD of 4 is invalid for it, but
+    # instantiating the op must leave the configured value alone
+    stage_name = model.graph.node[0].name
+    model = model.transform(ApplyConfig({"Defaults": {}, stage_name: {"SIMD": 4}}))
+    assert getCustomOp(model.graph.node[0]).get_nodeattr("SIMD") == 4
+
+
+@pytest.mark.fpgadataflow
+def test_shuffle_set_folding_simd():
+    """SetFolding only picks a SIMD that every stage of the decomposition can use as is,
+    so the stages need no rounding and no warning is raised."""
+    model = construct_onnx_model(
+        input_shape=(1, 4, 6, 8),
+        transpose_perm=(0, 3, 2, 1),
+        reshape1_shape=None,
+        reshape2_shape=None,
+        dt=DataType["INT8"],
+    )
+    model = model.transform(InferShuffle(_filter=lambda *_: True))
+    model = model.transform(SetFolding(target_cycles_per_frame=1, two_pass_relaxation=False))
+    shuffle_node = model.get_nodes_by_op_type("Shuffle")[0]
+    assert getCustomOp(shuffle_node).get_nodeattr("SIMD") == 2
+    exp_cycles = getCustomOp(shuffle_node).get_exp_cycles()
+
+    model = model.transform(ShuffleDecomposition())
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        model = model.transform(InferInnerOuterShuffles())
+    assert not [w for w in record if "does not divide" in str(w.message)]
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+    stages = [getCustomOp(n) for n in model.graph.node]
+    assert [s.get_nodeattr("SIMD") for s in stages] == [2, 2, 2]
+    assert exp_cycles == max(s.get_exp_cycles() for s in stages)
