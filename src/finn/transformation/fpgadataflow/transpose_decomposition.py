@@ -424,7 +424,7 @@ def shuffle_simd_dims(perm, transpose_in_shape):
     Empty for the identity permutation."""
     perm = list(perm)
     current_shape = list(transpose_in_shape)
-    stage_perms, _ = decompose_transpose_with_constraints(perm, current_shape)
+    stage_perms, _ = decompose_transpose_with_constraints(perm)
     dims = []
     for stage_perm in stage_perms:
         dims.append(shuffle_stage_simd_dim(stage_perm, current_shape))
