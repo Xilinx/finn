@@ -309,6 +309,27 @@ def test_fpgadataflow_pwpolyf_infer_streamlined_erf_gelu():
     assert np.allclose(y_produced, y_expected, atol=1e-6)
 
 
+# Erf-GELU in export form, and in the form Streamline leaves behind
+@pytest.mark.parametrize("streamlined", [False, True])
+@pytest.mark.fpgadataflow
+def test_fpgadataflow_pwpolyf_infer_erf_gelu_keeps_shared_producer(streamlined):
+    """The match removes the node that feeds the Erf (Div or Mul by sqrt(2)). If its
+    output has another consumer, InferPWPolyFLayer must leave the pattern alone."""
+    model = make_erf_gelu_modelwrapper(16, [1])
+    if streamlined:
+        model = model.transform(Streamline())
+    erf_node = model.get_nodes_by_op_type("Erf")[0]
+    shared = erf_node.input[0]
+    model.graph.node.append(helper.make_node("Identity", [shared], ["extra"]))
+    model.graph.output.append(helper.make_tensor_value_info("extra", TensorProto.FLOAT, [1, 16]))
+    op_types = sorted(node.op_type for node in model.graph.node)
+
+    model = model.transform(InferPWPolyFLayer())
+
+    assert model.get_nodes_by_op_type("PWPolyF") == []
+    assert sorted(node.op_type for node in model.graph.node) == op_types
+
+
 @pytest.mark.fpgadataflow
 def test_fpgadataflow_pwpolyf_specialize_rejects_non_versal():
     """PWPolyF requires Versal DSPFP32 primitive."""

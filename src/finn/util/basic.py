@@ -42,6 +42,7 @@ from typing import Dict, Optional, Tuple
 
 from finn.util.build_log import FILE_ONLY, in_run
 from finn.util.data_packing import finnpy_to_packed_bytearray
+from finn.util.launcher import TOOL_DIR_ENV, ToolUnavailable, xilinx_tool
 
 log = logging.getLogger(__name__)
 
@@ -185,6 +186,22 @@ def get_vivado_version() -> Optional[Tuple[int, int]]:
     path = os.environ.get("XILINX_VIVADO", "")
     match = re.search(r"\b(20\d{2})\.(1|2)\b", path)
     return (int(match.group(1)), int(match.group(2))) if match else None
+
+
+def require_vivado_version() -> Tuple[int, int]:
+    """Return get_vivado_version(), or raise ToolUnavailable if it is unknown."""
+    version = get_vivado_version()
+    if version is None:
+        path = os.environ.get("XILINX_VIVADO")
+        if not path:
+            raise ToolUnavailable("vivado", "XILINX_VIVADO is not set")
+        raise ToolUnavailable(
+            "vivado",
+            f"XILINX_VIVADO={path} does not name the Vivado release; set it to the "
+            "installation directory (<root>/<release>/Vivado), as the installation's "
+            "settings64.sh does",
+        )
+    return version
 
 
 def get_liveness_threshold_cycles():
@@ -366,7 +383,7 @@ def which(program):
     return None
 
 
-_XILINX_TOOL_DIR_ENV = "FINN_TOOL_DIR_OVERRIDE"
+_XILINX_TOOL_DIR_ENV = TOOL_DIR_ENV
 
 
 def resolve_xilinx_tool(tool_name):
@@ -387,16 +404,15 @@ def resolve_xilinx_tool(tool_name):
     bsub dispatcher) needs: point it at a shim dir whose filenames match the
     bare tool names. Raises FileNotFoundError when the resolved command is
     not found, so all the default names must have a corresponding shim filename.
+
+    ``finn.util.launcher.run_tool`` resolves these names itself; this function is
+    for commands written into scripts.
     """
-    dir_override = os.environ.get(_XILINX_TOOL_DIR_ENV)
-    tool = os.path.join(dir_override, tool_name) if dir_override else tool_name
-    if which(tool) is None:
-        if dir_override:
-            raise FileNotFoundError(
-                "%s not found (%s=%r)" % (tool, _XILINX_TOOL_DIR_ENV, dir_override)
-            )
-        raise FileNotFoundError("%s not found in PATH" % tool)
-    return tool
+    try:
+        path = xilinx_tool(tool_name)
+    except ToolUnavailable as exc:
+        raise FileNotFoundError(str(exc)) from exc
+    return path if os.environ.get(_XILINX_TOOL_DIR_ENV) else tool_name
 
 
 mem_primitives_versal = {

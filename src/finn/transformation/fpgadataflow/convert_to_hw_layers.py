@@ -311,6 +311,9 @@ class InferPWPolyFLayer(Transformation):
         Returns (pwp_input, pwp_output, nodes_to_remove) or None.
         """
         prod = model.find_producer(erf_node.input[0])
+        # the match removes the producer of the Erf input, so the Erf must be its only consumer
+        if prod is not None and len(model.find_consumers(prod.output[0])) != 1:
+            return None
         # ConvertDivToMul + MoveAddPastMul: Mul(x, 1/sqrt(2)) → Erf → Mul(_, 0.5) → Add(_, 0.5)
         if prod is not None and prod.op_type == "Mul":
             inv_sqrt2 = 1.0 / 1.4142135

@@ -60,9 +60,6 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
 
         code_gen_dict = {}
         code_gen_dict["$TOP_MODULE_NAME$"] = topname
-        # make instream width a multiple of 8 for axi interface
-        in_width = self.get_instream_width_padded()
-
         depth = int(self.get_nodeattr("depth"))
         # fifo.sv will not elaborate below DEPTH 2; catch it here rather than in a
         # Vivado elaboration log
@@ -70,11 +67,8 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
             "%s: depth %d cannot be built, fifo.sv requires 2 or above. A FIFO this "
             "shallow should have been removed by RemoveShallowFIFOs." % (self.onnx_node.name, depth)
         )
-        code_gen_dict["$IN_RANGE$"] = "[{}:0]".format(in_width - 1)
-        code_gen_dict["$OUT_RANGE$"] = "[{}:0]".format(in_width - 1)
-        code_gen_dict["$WIDTH$"] = str(in_width)
-        # only the unpadded payload is stored, see fifo_template.v
-        code_gen_dict["$REAL_WIDTH$"] = str(self.get_instream_width())
+        # the payload width; the template pads its AXI-Stream ports to whole bytes
+        code_gen_dict["$WIDTH$"] = str(self.get_instream_width())
         code_gen_dict["$DEPTH$"] = str(depth)
         ram_style = self.get_nodeattr("ram_style")
         # fifo.sv's RAM_STYLE_EFF ladder still uses the legacy "shift" token for the SRL
