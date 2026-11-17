@@ -92,9 +92,8 @@ def measure_body_ii(finnloop_node, cfg, n_frames=BODY_II_FRAMES):
     The weight AXI-MM interfaces are served by ideal memories.
     """
     op = getCustomOp(finnloop_node)
-    op.set_nodeattr("parallel_sim_ipgen", 1)
     op.set_nodeattr("rtlsim_trace", "")
-    wrapper = op.ipgen_singlenode_code(cfg._resolve_fpga_part())
+    wrapper = op.ipgen_parallel_sim_code(cfg._resolve_fpga_part())
     sim_base, sim_rel = prepare_parallel_rtlsim(op, wrapper, behav=False)
 
     iterations = op.get_nodeattr("iteration")

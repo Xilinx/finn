@@ -499,11 +499,8 @@ def _simulate_finnloop_iterations(finnloop_node, cfg, golden_frames, trace_base)
         "inside the loop body of %s)" % finnloop_node.name
     )
 
-    # Build the parallel "stream tap + body" IP by reusing FINNLoop's own IP
-    # generation, toggled into the lightweight verification build via the
-    # parallel_sim_ipgen nodeattr.
-    op.set_nodeattr("parallel_sim_ipgen", 1)
-    parallel_ipgen_path = op.ipgen_singlenode_code(cfg._resolve_fpga_part())
+    # the parallel "stream tap + body" IP, from FINNLoop's own block-design code
+    parallel_ipgen_path = op.ipgen_parallel_sim_code(cfg._resolve_fpga_part())
 
     op.set_nodeattr("rtlsim_trace", trace_base if trace_enabled else "")
     sim_base, sim_rel = prepare_parallel_rtlsim(

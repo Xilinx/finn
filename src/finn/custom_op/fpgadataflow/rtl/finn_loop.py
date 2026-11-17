@@ -95,8 +95,6 @@ class FINNLoop(HWCustomOp, RTLBackend):
             # "DDR" enables DDR address offset assignment, any other value skips it.
             # Empty means it is resolved from the target board at build
             "mem_type": ("s", False, ""),
-            # Set by run_parallel_mlo_rtlsim (util/rtlsim.py) for the "stream tap + body" build
-            "parallel_sim_ipgen": ("i", False, 0),
         }
         my_attrs.update(HWCustomOp.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
@@ -729,7 +727,24 @@ class FINNLoop(HWCustomOp, RTLBackend):
                         f.write(template_wrapper)
 
     def ipgen_singlenode_code(self, fpgapart=None):
-        parallel = self.get_nodeattr("parallel_sim_ipgen") == 1
+        """Build the FINNLoop IP: loop shell, stream taps and the stitched body."""
+        self._ipgen_loop_bd(fpgapart, parallel=False)
+
+    def ipgen_parallel_sim_code(self, fpgapart=None):
+        """Build the standalone "stream tap + body" IP of the parallel MLO rtlsim
+        (finn.util.rtlsim.run_parallel_mlo_rtlsim): no loop shell and no
+        intermediate frames; the body is driven directly through in0_V/out0_V,
+        the iteration index through idx_V (replayed by the taps) and fw_idx_V.
+        Leaves the node attributes untouched.
+
+        Returns:
+            Path of the generated Verilog wrapper
+        """
+        return self._ipgen_loop_bd(fpgapart, parallel=True)
+
+    def _ipgen_loop_bd(self, fpgapart, parallel):
+        """Block-design generation shared by the loop IP and the parallel
+        simulation IP (see ipgen_singlenode_code, ipgen_parallel_sim_code)."""
         prjname = "MakeParallelIP" if parallel else "MakeLoopIP"
         block_name = self.onnx_node.name + ("_parallel" if parallel else "")
         vivado_stitch_proj_dir = self.get_nodeattr("code_gen_dir_ipgen")
@@ -1397,7 +1412,6 @@ class FINNLoop(HWCustomOp, RTLBackend):
         )
         assert os.path.isfile(wrapper_filename), "IPGen failed: %s not found" % (wrapper_filename)
         if parallel:
-            # run_parallel_mlo_rtlsim simulates this wrapper directly
             return wrapper_filename
         self.set_nodeattr("ipgen_path", wrapper_filename)
         self.set_nodeattr("ip_path", vivado_stitch_proj_dir + "/ip")
