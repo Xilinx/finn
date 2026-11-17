@@ -35,6 +35,7 @@ if {$NUM_AXILITE > 9} {
     error "Maximum 10 AXI-Lite interfaces supported"
 }
 set NUM_AXIMM @NUM_AXIMM@
+set USE_CLK2X @USE_CLK2X@
 set BOARD @BOARD@
 set FPGA_PART @FPGA_PART@
 create_project finn_link ./finn_link -part $FPGA_PART
@@ -107,6 +108,34 @@ if {$ZYNQ_TYPE == "zynq_us+"} {
     puts "Unrecognized Zynq type"
 }
 
+#PL clock: the PS clock, or, for double-pumped kernels, the 1x output of a clock
+#wizard fed by it. ap_clk2x must be phase-aligned with ap_clk, so both come from
+#the same MMCM and everything else in the PL runs on the 1x output.
+if {$ZYNQ_TYPE == "zynq_us+"} {
+    set ps_clk /zynq_ps/pl_clk0
+} else {
+    set ps_clk /zynq_ps/FCLK_CLK0
+}
+if {$USE_CLK2X == 1} {
+    set clk_wiz_vlnv [get_property VLNV [get_ipdefs "xilinx.com:ip:clk_wiz:*"]]
+    create_bd_cell -type ip -vlnv $clk_wiz_vlnv clk_wiz_finn
+    set_property -dict [list \
+        CONFIG.PRIM_SOURCE {No_buffer} \
+        CONFIG.USE_RESET {false} \
+        CONFIG.USE_LOCKED {true} \
+        CONFIG.NUM_OUT_CLKS {2} \
+        CONFIG.CLKOUT2_USED {true} \
+        CONFIG.CLKOUT1_REQUESTED_OUT_FREQ $FREQ_MHZ \
+        CONFIG.CLKOUT2_REQUESTED_OUT_FREQ [expr 2*$FREQ_MHZ] \
+        CONFIG.CLKOUT1_REQUESTED_PHASE {0} \
+        CONFIG.CLKOUT2_REQUESTED_PHASE {0} \
+    ] [get_bd_cells clk_wiz_finn]
+    connect_bd_net [get_bd_pins $ps_clk] [get_bd_pins clk_wiz_finn/clk_in1]
+    set pl_clk /clk_wiz_finn/clk_out1
+} else {
+    set pl_clk $ps_clk
+}
+
 #instantiate axi interconnect, axi smartconnect
 set interconnect_vlnv [get_property VLNV [get_ipdefs -all "xilinx.com:ip:axi_interconnect:*" -filter design_tool_contexts=~*IPI*]]
 set smartconnect_vlnv [get_property VLNV [get_ipdefs "xilinx.com:ip:smartconnect:*"]]
@@ -122,16 +151,16 @@ if {$ZYNQ_TYPE == "zynq_us+"} {
     connect_bd_intf_net [get_bd_intf_pins smartconnect_0/M00_AXI] [get_bd_intf_pins zynq_ps/S_AXI_HP0_FPD]
     connect_bd_intf_net [get_bd_intf_pins zynq_ps/M_AXI_HPM0_FPD] -boundary_type upper [get_bd_intf_pins axi_interconnect_0/S00_AXI]
     #connect interconnect clocks and resets
-    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/pl_clk0} Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}}  [get_bd_pins axi_interconnect_0/ACLK]
-    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/pl_clk0} Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}}  [get_bd_pins axi_interconnect_0/S00_ACLK]
-    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/pl_clk0} Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}}  [get_bd_pins zynq_ps/saxihp0_fpd_aclk]
+    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config [list Clk $pl_clk Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}]  [get_bd_pins axi_interconnect_0/ACLK]
+    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config [list Clk $pl_clk Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}]  [get_bd_pins axi_interconnect_0/S00_ACLK]
+    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config [list Clk $pl_clk Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}]  [get_bd_pins zynq_ps/saxihp0_fpd_aclk]
 } elseif {$ZYNQ_TYPE == "zynq_7000"} {
     set axi_peripheral_base 0x40000000
     connect_bd_intf_net -boundary_type upper [get_bd_intf_pins zynq_ps/M_AXI_GP0] [get_bd_intf_pins axi_interconnect_0/S00_AXI]
     connect_bd_intf_net [get_bd_intf_pins smartconnect_0/M00_AXI] [get_bd_intf_pins zynq_ps/S_AXI_HP0]
-    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/FCLK_CLK0} Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}}  [get_bd_pins axi_interconnect_0/ACLK]
-    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/FCLK_CLK0} Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}}  [get_bd_pins axi_interconnect_0/S00_ACLK]
-    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/FCLK_CLK0} Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}}  [get_bd_pins zynq_ps/S_AXI_HP0_ACLK]
+    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config [list Clk $pl_clk Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}]  [get_bd_pins axi_interconnect_0/ACLK]
+    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config [list Clk $pl_clk Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}]  [get_bd_pins axi_interconnect_0/S00_ACLK]
+    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config [list Clk $pl_clk Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}]  [get_bd_pins zynq_ps/S_AXI_HP0_ACLK]
 }
 connect_bd_net [get_bd_pins axi_interconnect_0/ARESETN] [get_bd_pins smartconnect_0/aresetn]
 
@@ -168,8 +197,8 @@ if {$ZYNQ_TYPE == "zynq_us+"} {
             connect_bd_intf_net $mlo_mm_pin [get_bd_intf_pins smartconnect_mlo/$mlo_si_name]
             incr mlo_si_idx
         }
-        connect_bd_net [get_bd_pins smartconnect_mlo/aclk] [get_bd_pins zynq_ps/pl_clk0]
-        connect_bd_net [get_bd_pins zynq_ps/saxihp1_fpd_aclk] [get_bd_pins zynq_ps/pl_clk0]
+        connect_bd_net [get_bd_pins smartconnect_mlo/aclk] [get_bd_pins $pl_clk]
+        connect_bd_net [get_bd_pins zynq_ps/saxihp1_fpd_aclk] [get_bd_pins $pl_clk]
         connect_bd_net [get_bd_pins smartconnect_mlo/aresetn] [get_bd_pins axi_interconnect_0/ARESETN]
     }
 }
@@ -187,11 +216,7 @@ if {@ENABLE_DEBUG@ == 1} {
 }
 
 #finalize clock and reset connections for interconnects
-if {$ZYNQ_TYPE == "zynq_us+"} {
-    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/pl_clk0} }  [get_bd_pins axi_interconnect_0/M*_ACLK]
-} elseif {$ZYNQ_TYPE == "zynq_7000"} {
-    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/FCLK_CLK0} }  [get_bd_pins axi_interconnect_0/M*_ACLK]
-}
+apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config [list Clk $pl_clk]  [get_bd_pins axi_interconnect_0/M*_ACLK]
 
 save_bd_design
 assign_bd_address

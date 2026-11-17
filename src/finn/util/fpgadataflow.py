@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import onnx
 import os
 import warnings
 from qonnx.core.datatype import DataType
@@ -82,6 +83,31 @@ def is_rtl_node(node):
                     is_node = True
 
     return is_node
+
+
+def find_clk2x_nodes(model: ModelWrapper) -> list[str]:
+    """Names of the hardware nodes that need the double-speed clock ap_clk2x.
+
+    A node needs it if its IP interface lists a "clk2x" entry (e.g. an MVAU with
+    pumpedCompute or pumpedMemory). Composite nodes are searched rather than
+    asked: subgraph attributes (FINNLoop bodies, also before they are stitched)
+    and StreamingDataflowPartition models. Nested nodes are reported with their
+    enclosing node names as path prefix ("FINNLoop_0/MVAU_rtl_0").
+    """
+    names = []
+    for node in model.graph.node:
+        subgraphs = [a.g for a in node.attribute if a.type == onnx.AttributeProto.GRAPH]
+        if subgraphs:
+            for g in subgraphs:
+                sub = ModelWrapper(onnx.helper.make_model(g))
+                names += [f"{node.name}/{n}" for n in find_clk2x_nodes(sub)]
+        elif node.op_type == "StreamingDataflowPartition":
+            sub = ModelWrapper(getCustomOp(node).get_nodeattr("model"))
+            names += [f"{node.name}/{n}" for n in find_clk2x_nodes(sub)]
+        elif is_fpgadataflow_node(node):
+            if getCustomOp(node).get_verilog_top_module_intf_names().get("clk2x"):
+                names.append(node.name)
+    return names
 
 
 def detect_hls_rtl_dsp_conflict(model, check_subgraphs=True):
