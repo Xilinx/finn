@@ -17,6 +17,7 @@ authors:
   - family-names: Fleming
     given-names: Shane
     affiliation: "Advanced Micro Devices, Inc."
+    orcid: "https://orcid.org/0000-0002-3224-278X"
   - name: "The FINN contributors"
     website: "https://github.com/Xilinx/finn/blob/main/AUTHORS.rst"
 url: "https://github.com/Xilinx/finn"
