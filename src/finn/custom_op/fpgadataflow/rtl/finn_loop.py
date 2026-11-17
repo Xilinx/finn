@@ -95,7 +95,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
             # "DDR" enables DDR address offset assignment, any other value skips it.
             # Empty means it is resolved from the target board at build
             "mem_type": ("s", False, ""),
-            # Toggled by mlo_sim to trigger the lightweight "stream tap + body build"
+            # Set by run_parallel_mlo_rtlsim (util/rtlsim.py) for the "stream tap + body" build
             "parallel_sim_ipgen": ("i", False, 0),
         }
         my_attrs.update(HWCustomOp.get_nodeattr_types(self))
@@ -496,7 +496,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 # Concatenate the per-iteration weights, padding each layer up to the
                 # AXI-bus offset (LAYER_OFFS in fetch_weights.sv) so that the DDR
                 # image built from this .dat reads layer i from i*LAYER_OFFS. The
-                # rtlsim memory model (mlo_sim.py) and the driver's DDR upload
+                # rtlsim memory model (util/rtlsim.py) and the driver's DDR upload
                 # (make_driver.py) consume this file as-is. Written one hex byte per
                 # line.
                 param_file = "{}/memblock_{}_id_{}.dat".format(path, param_node.op_type, i + 1)
@@ -1397,7 +1397,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         )
         assert os.path.isfile(wrapper_filename), "IPGen failed: %s not found" % (wrapper_filename)
         if parallel:
-            # mlo_sim consumes the wrapper path directly for rtlsim.
+            # run_parallel_mlo_rtlsim simulates this wrapper directly
             return wrapper_filename
         self.set_nodeattr("ipgen_path", wrapper_filename)
         self.set_nodeattr("ip_path", vivado_stitch_proj_dir + "/ip")

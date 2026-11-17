@@ -762,8 +762,7 @@ def _build_submodel(model, nodes, tag):
 
 def rtlsim_boundary_submodel(submodel, cfg, tag, golden_ctx, trace_dir=None):
     """Stitch a boundary subgraph into a single IP and rtl-simulate it end-to-end."""
-    # imported lazily to prevent circular imports
-    # TODO change with merge from dev
+    # imported lazily: both modules import (via the custom ops) finn.util.rtlsim
     from finn.core.rtlsim_exec import rtlsim_exec  # noqa: PLC0415
     from finn.transformation.fpgadataflow.specialize_layers import (  # noqa: PLC0415
         SpecializeLayers,
