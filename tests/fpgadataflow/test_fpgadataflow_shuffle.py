@@ -17,6 +17,7 @@ import torch
 import torch.onnx
 import warnings
 from brevitas.export import export_qonnx
+from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -24,7 +25,7 @@ from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 from torch import nn
 
@@ -830,8 +831,10 @@ def test_stitched_ip_shuffle_layer(shuffle_sip_param, datatype, simd, monkeypatc
 
 # SIMD set manually or by SetFolding (the Shuffle is still a generic layer there)
 @pytest.mark.parametrize("fold_with", ["manual", "set_folding"])
+# decomposed Shuffle in the top-level graph, or inside a subgraph like a FINNLoop body
+@pytest.mark.parametrize("nesting", ["top", "subgraph"])
 @pytest.mark.fpgadataflow
-def test_shuffle_config_consolidation(fold_with):
+def test_shuffle_config_consolidation(fold_with, nesting):
     dt = DataType["INT8"]
     model = construct_onnx_model(
         input_shape=(32, 16, 8, 12),
@@ -880,17 +883,38 @@ def test_shuffle_config_consolidation(fold_with):
 
     assert len(decomposed_nodes) > 0
 
+    prefix = ""
+    if nesting == "subgraph":
+        # Wrap the decomposed graph as a graph attribute, as a FINNLoop holds its
+        # body. Config keys inside are prefixed <node>_<attr>_ (ApplyConfig's
+        # hierarchical convention).
+        cond = helper.make_tensor_value_info("cond", TensorProto.BOOL, [])
+        out = model.graph.output[0]
+        wrapper = helper.make_node(
+            "If",
+            ["cond"],
+            [out.name],
+            name="Wrapper_0",
+            then_branch=model.graph,
+            else_branch=model.graph,
+        )
+        graph = helper.make_graph([wrapper], "wrapper", [cond], [out])
+        model = ModelWrapper(qonnx_make_model(graph))
+        prefix = "Wrapper_0_then_branch_"
+
     test_dir = make_build_dir("test_shuffle_config_")
     consolidated_file = os.path.join(test_dir, "consolidated.json")
-    extract_model_config_consolidate_shuffles(model, consolidated_file, ["SIMD"])
+    extract_model_config_consolidate_shuffles(
+        model, consolidated_file, ["SIMD"], apply_to_subgraphs=True
+    )
 
     with open(consolidated_file, "r") as f:
         consolidated_config = json.load(f)
 
-    assert original_shuffle_name in consolidated_config
-    assert consolidated_config[original_shuffle_name]["SIMD"] == expected_simd
+    assert prefix + original_shuffle_name in consolidated_config
+    assert consolidated_config[prefix + original_shuffle_name]["SIMD"] == expected_simd
     for decomposed_name in decomposed_nodes:
-        assert decomposed_name not in consolidated_config
+        assert prefix + decomposed_name not in consolidated_config
     robust_rmtree(test_dir)
 
 

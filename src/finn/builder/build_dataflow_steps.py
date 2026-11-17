@@ -1288,16 +1288,11 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         "depth_trigger_bram",
     ]
 
-    if model.get_nodes_by_op_type("InnerShuffle_rtl") or model.get_nodes_by_op_type(
-        "OuterShuffle_hls"
-    ):
-        extract_model_config_consolidate_shuffles(
-            model, cfg.output_dir + "/final_hw_config.json", hw_attrs, apply_to_subgraphs=True
-        )
-    else:
-        extract_model_config_to_json(
-            model, cfg.output_dir + "/final_hw_config.json", hw_attrs, apply_to_subgraphs=True
-        )
+    # also folds decomposed Shuffles inside FINNLoop bodies back into their
+    # original node; without any Shuffle it is a plain extraction
+    extract_model_config_consolidate_shuffles(
+        model, cfg.output_dir + "/final_hw_config.json", hw_attrs, apply_to_subgraphs=True
+    )
 
     # perform shallow FIFO removal only after the final config json file has been
     # written. otherwise, since this transform removes FIFOs, we get name mismatch

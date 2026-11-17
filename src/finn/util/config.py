@@ -91,6 +91,26 @@ def extract_model_config_to_json(
         )
 
 
+def _hier_name(subgraph_hier, name):
+    """Config key of a node, as built by extract_model_config."""
+    return name if subgraph_hier is None else str(subgraph_hier) + "_" + name
+
+
+def _nodes_with_hier(model, subgraph_hier, apply_to_subgraphs):
+    """Yield (node, subgraph_hier) for all nodes, descending into graph
+    attributes like extract_model_config when apply_to_subgraphs is set."""
+    for n in model.graph.node:
+        yield n, subgraph_hier
+        if apply_to_subgraphs:
+            for attr in n.attribute:
+                if attr.type == onnx.AttributeProto.GRAPH:
+                    yield from _nodes_with_hier(
+                        model.make_subgraph_modelwrapper(attr.g),
+                        _hier_name(subgraph_hier, n.name) + "_" + attr.name,
+                        apply_to_subgraphs,
+                    )
+
+
 def extract_model_config_consolidate_shuffles(
     model, output_file, hw_attrs, apply_to_subgraphs=False
 ):
@@ -105,19 +125,24 @@ def extract_model_config_consolidate_shuffles(
     shuffle_configs = {}
     nodes_to_remove = []
 
-    for node in model.graph.node:
+    for node, hier in _nodes_with_hier(model, None, apply_to_subgraphs):
         if node.op_type in ["InnerShuffle_rtl", "OuterShuffle_hls"]:
             inst = getCustomOp(node)
             original_name = inst.get_nodeattr("original_node_name")
             original_simd = inst.get_nodeattr("original_simd")
+            # keys inside subgraphs (e.g. FINNLoop bodies) carry the hierarchy
+            # prefix of extract_model_config; the original Shuffle sat in the
+            # same graph, so it shares the prefix
+            key = _hier_name(hier, node.name)
+            original_key = _hier_name(hier, original_name)
 
-            if original_name and node.name in config:
-                if original_name not in shuffle_configs:
-                    consolidated_config = config[node.name].copy()
+            if original_name and key in config:
+                if original_key not in shuffle_configs:
+                    consolidated_config = config[key].copy()
                     if original_simd is not None:
                         consolidated_config["SIMD"] = original_simd
-                    shuffle_configs[original_name] = consolidated_config
-                nodes_to_remove.append(node.name)
+                    shuffle_configs[original_key] = consolidated_config
+                nodes_to_remove.append(key)
 
     for node_name in nodes_to_remove:
         del config[node_name]
