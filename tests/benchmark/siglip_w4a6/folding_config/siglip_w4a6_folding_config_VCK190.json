@@ -1,0 +1,333 @@
+{
+  "Defaults": {
+    "depth": [
+      64,
+      [
+        "StreamingFIFO_rtl"
+      ]
+    ]
+  },
+  "Thresholding_rtl_0": {
+    "PE": 3,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 0
+  },
+  "ConvolutionInputGenerator_rtl_0": {
+    "SIMD": 1,
+    "parallel_window": 0,
+    "ram_style": "distributed"
+  },
+  "MVAU_rtl_0": {
+    "PE": 24,
+    "SIMD": 8,
+    "ram_style": "auto",
+    "resType": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "ElementwiseMul_rtl_0": {
+    "PE": 14,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "ElementwiseAdd_rtl_0": {
+    "PE": 14,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "ElementwiseAdd_rtl_1": {
+    "PE": 4,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_DuplicateStreams_hls_0": {
+    "PE": 4
+  },
+  "FINNLoop_0_body_FINNLoop_0_LayerNorm_rtl_0": {
+    "SIMD": 4
+  },
+  "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_0": {
+    "PE": 4,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_DuplicateStreams_hls_1": {
+    "PE": 4
+  },
+  "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_0": {
+    "PE": 96,
+    "SIMD": 3,
+    "TH": 4,
+    "ram_style": "auto",
+    "resType": "dsp",
+    "mem_mode": "external_mem",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_1": {
+    "PE": 96,
+    "SIMD": 3,
+    "TH": 4,
+    "ram_style": "auto",
+    "resType": "dsp",
+    "mem_mode": "external_mem",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_2": {
+    "PE": 96,
+    "SIMD": 3,
+    "TH": 4,
+    "ram_style": "auto",
+    "resType": "dsp",
+    "mem_mode": "external_mem",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_0": {
+    "PE": 4,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_1": {
+    "PE": 4,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_2": {
+    "PE": 4,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_0": {
+    "PE": 4,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_1": {
+    "PE": 4,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_2": {
+    "PE": 4,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_1": {
+    "PE": 4,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_2": {
+    "PE": 4,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_3": {
+    "PE": 4,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_3": {
+    "PE": 14,
+    "SIMD": 8,
+    "ram_style": "auto",
+    "resType": "dsp",
+    "mem_mode": "dynamic",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_4": {
+    "PE": 14,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_3": {
+    "PE": 4,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_HWSoftmax_rtl_0": {
+    "SIMD": 14
+  },
+  "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_5": {
+    "PE": 14,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_4": {
+    "PE": 1,
+    "SIMD": 98,
+    "ram_style": "auto",
+    "resType": "dsp",
+    "mem_mode": "dynamic",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_6": {
+    "PE": 4,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_7": {
+    "PE": 4,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_5": {
+    "PE": 96,
+    "SIMD": 3,
+    "TH": 4,
+    "ram_style": "auto",
+    "resType": "dsp",
+    "mem_mode": "external_mem",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_4": {
+    "PE": 14,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_3": {
+    "PE": 4,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_4": {
+    "PE": 4,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_DuplicateStreams_hls_2": {
+    "PE": 4
+  },
+  "FINNLoop_0_body_FINNLoop_0_LayerNorm_rtl_1": {
+    "SIMD": 4
+  },
+  "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_8": {
+    "PE": 4,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_6": {
+    "PE": 384,
+    "SIMD": 3,
+    "TH": 4,
+    "ram_style": "auto",
+    "resType": "dsp",
+    "mem_mode": "external_mem",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_5": {
+    "PE": 4,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_5": {
+    "PE": 4,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_PWPolyF_rtl_0": {
+    "PE": 8
+  },
+  "FINNLoop_0_body_FINNLoop_0_Thresholding_rtl_9": {
+    "PE": 8,
+    "runtime_writeable_weights": 0,
+    "depth_trigger_uram": 0,
+    "depth_trigger_bram": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_MVAU_rtl_7": {
+    "PE": 384,
+    "SIMD": 3,
+    "TH": 4,
+    "ram_style": "auto",
+    "resType": "dsp",
+    "mem_mode": "external_mem",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_6": {
+    "PE": 4,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_6": {
+    "PE": 4,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_8": {
+    "PE": 4
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_8": {
+    "PE": 4
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_9": {
+    "PE": 4
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseAdd_rtl_7": {
+    "PE": 8,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "FINNLoop_0_body_FINNLoop_0_ElementwiseMul_rtl_7": {
+    "PE": 8
+  },
+  "LayerNorm_rtl_0": {
+    "SIMD": 4
+  },
+  "ElementwiseMul_rtl_1": {
+    "PE": 4,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "ElementwiseAdd_rtl_2": {
+    "PE": 4,
+    "ram_style": "auto",
+    "mem_mode": "internal_decoupled",
+    "runtime_writeable_weights": 0
+  },
+  "Shuffle_0": {
+    "SIMD": 2
+  },
+  "Shuffle_1": {
+    "SIMD": 2
+  },
+  "FINNLoop_0_body_FINNLoop_0_Shuffle_0": {
+    "SIMD": 64
+  },
+  "FINNLoop_0_body_FINNLoop_0_Shuffle_1": {
+    "SIMD": 64
+  },
+  "FINNLoop_0_body_FINNLoop_0_Shuffle_2": {
+    "SIMD": 4
+  },
+  "FINNLoop_0_body_FINNLoop_0_Shuffle_3": {
+    "SIMD": 64
+  }
+}
