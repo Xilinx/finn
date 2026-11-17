@@ -30,6 +30,7 @@
 # This module contains helpers for RTL simulation, including MLO prehook setup
 # and performance metrics annotation.
 
+import logging
 import multiprocessing as mp
 import numpy as np
 import os
@@ -54,6 +55,8 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.util.basic import get_liveness_threshold_cycles, make_build_dir
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+
+log = logging.getLogger(__name__)
 
 SimEngine = xsi.SimEngine if xsi.is_available() else None
 finnxsi = xsi if xsi.is_available() else None
@@ -568,12 +571,12 @@ def _simulate_finnloop_iterations(finnloop_node, cfg, golden_frames, trace_base)
             verify_out_dir + "/verify_parallel%s_%d_%s.npy" % (loop_tag, index, status),
             out_folded_tensor,
         )
-        print(
+        log.info(
             "Parallel MLO sim (%s iteration %d) %s (output shape %s)."
             % (finnloop_node.name, index, status, out_folded_tensor.shape)
         )
         if trace_enabled:
-            print(
+            log.info(
                 "  waveform written to %s"
                 % os.path.abspath(
                     os.path.join(trace_dir, "verify_parallel%s_iter%d.wdb" % (loop_tag, index))
