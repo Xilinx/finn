@@ -226,49 +226,6 @@ def check_fifo_log_consistency(log: Dict[str, Any]) -> None:
         fail("a transaction is logged after the last cycle")
 
 
-def summarize_frame_completions(completion_cycles, cycles, batch_size):
-    """Turn per-stream output frame completion cycles of a Python XSI run into
-    the statistics of the C++ XSI driver (finn_xsi/rtlsim_xsi.cpp), so that
-    annotate_rtlsim_performance applies to both.
-
-    A frame is complete when every output stream has completed it, so latency,
-    interval and steady-state span are taken from the slowest stream. As in the
-    C++ driver, the interval is the gap between the last two completions.
-
-    Args:
-        completion_cycles: Dict mapping each output stream to the list of cycles
-            at which it completed a frame
-        cycles: Total cycles of the run
-        batch_size: Number of frames fed into the design
-
-    Returns:
-        Dictionary of raw statistics for annotate_rtlsim_performance
-    """
-    assert completion_cycles, "At least one output stream is required"
-    completed = min(len(c) for c in completion_cycles.values())
-    latency = max(c[0] for c in completion_cycles.values()) if completed > 0 else 0
-    interval = 0
-    steady_state_cycles = 0
-    if completed > 1:
-        interval = max(c[completed - 1] - c[completed - 2] for c in completion_cycles.values())
-        steady_state_cycles = max(c[completed - 1] - c[0] for c in completion_cycles.values())
-    return {
-        "cycles": int(cycles),
-        "N": int(batch_size),
-        "latency_cycles": int(latency),
-        "interval_cycles": int(interval),
-        "interval_valid": int(completed >= 2 and interval > 0),
-        "completed_output_frames": int(completed),
-        "steady_state_frames": int(max(0, completed - 1)),
-        "steady_state_cycles": int(steady_state_cycles),
-        # the Python run asserts on watchdog timeouts, so a returned run is complete
-        "TIMEOUT": 0,
-        "UNFINISHED_INS": 0,
-        "UNFINISHED_OUTS": int(batch_size - completed),
-        "output_frame_completion_cycles": completion_cycles,
-    }
-
-
 def annotate_rtlsim_performance(rtlsim_stats, batch_size, clock_period_ns):
     """Add latency and throughput metrics to raw XSI simulation statistics.
 
@@ -760,18 +717,16 @@ def _build_submodel(model, nodes, tag):
     return sub
 
 
-def rtlsim_boundary_submodel(submodel, cfg, tag, golden_ctx, trace_dir=None):
-    """Stitch a boundary subgraph into a single IP and rtl-simulate it end-to-end."""
+def stitch_boundary_submodel(submodel, cfg, tag):
+    """Stitch a boundary subgraph (see extract_boundary_submodels) into a single
+    IP of its own, ready for rtlsim."""
     # imported lazily: both modules import (via the custom ops) finn.util.rtlsim
-    from finn.core.rtlsim_exec import rtlsim_exec  # noqa: PLC0415
     from finn.transformation.fpgadataflow.specialize_layers import (  # noqa: PLC0415
         SpecializeLayers,
     )
 
     part = cfg._resolve_fpga_part()
     hls_clk = cfg._resolve_hls_clk_period()
-    out_names = [vi.name for vi in submodel.graph.output]
-
     prefix = "bnd_%s_" % tag
     submodel = submodel.transform(GiveUniqueNodeNames(prefix=prefix))
     submodel = submodel.transform(InsertDWC())
@@ -781,6 +736,16 @@ def rtlsim_boundary_submodel(submodel, cfg, tag, golden_ctx, trace_dir=None):
     submodel = submodel.transform(PrepareIP(part, hls_clk))
     submodel = submodel.transform(HLSSynthIP(part))
     submodel = submodel.transform(CreateStitchedIP(part, cfg.synth_clk_period_ns))
+    return submodel
+
+
+def rtlsim_boundary_submodel(submodel, cfg, tag, golden_ctx, trace_dir=None):
+    """Stitch a boundary subgraph into a single IP and rtl-simulate it end-to-end."""
+    # imported lazily: both modules import (via the custom ops) finn.util.rtlsim
+    from finn.core.rtlsim_exec import rtlsim_exec  # noqa: PLC0415
+
+    out_names = [vi.name for vi in submodel.graph.output]
+    submodel = stitch_boundary_submodel(submodel, cfg, tag)
 
     submodel.set_metadata_prop("exec_mode", "rtlsim")
     if trace_dir is not None:

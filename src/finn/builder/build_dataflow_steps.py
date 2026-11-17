@@ -66,7 +66,6 @@ from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
-from qonnx.util.basic import gen_finn_dt_tensor
 from qonnx.util.cleanup import cleanup_model
 from shutil import copy
 
@@ -97,7 +96,6 @@ from finn.builder.build_dataflow_config import (
     VerificationStepType,
 )
 from finn.core.onnx_exec import execute_onnx
-from finn.core.rtlsim_exec import rtlsim_exec
 from finn.transformation.fpgadataflow.absorb_into_requant import (
     AbsorbElementwiseOpsIntoRequant,
 )
@@ -184,6 +182,7 @@ from finn.util.fpgadataflow import (
     is_mlo,
     warn_hls_rtl_dsp_conflict,
 )
+from finn.util.mlo_performance import measure_mlo_rtlsim_performance
 from finn.util.rtlsim import annotate_rtlsim_performance, run_parallel_mlo_rtlsim
 from finn.util.test import execute_parent
 from finn.util.vivado import parse_ooc_synth_results
@@ -1453,36 +1452,12 @@ def step_export_portable_rtl(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
-def _measure_mlo_rtlsim_performance(model, rtlsim_bs, liveness_estimate):
-    """Measure an MLO stitched IP with the Python XSI driver.
-
-    The C++ driver behind xsi_fifosim only serves AXI-Stream interfaces. An MLO
-    design also needs its AXI-MM interfaces served (intermediate frames, MVAU
-    weights), which rtlsim_exec does through ideal memory models: addresses
-    are accepted without backpressure and data returns at up to one beat per
-    cycle. The result is therefore an upper bound for a real memory system.
-    """
-    rtlsim_model = deepcopy(model)
-    rtlsim_model.set_metadata_prop("rtlsim_liveness_estimate", str(int(liveness_estimate)))
-    ctx = {}
-    for i_vi in rtlsim_model.graph.input:
-        ishape = list(rtlsim_model.get_tensor_shape(i_vi.name))
-        ishape[0] = rtlsim_bs
-        idt = rtlsim_model.get_tensor_datatype(i_vi.name)
-        ctx[i_vi.name] = gen_finn_dt_tensor(idt, ishape)
-    rtlsim_perf_dict = rtlsim_exec(rtlsim_model, ctx, collect_performance=True)
-    rtlsim_perf_dict["measurement_scope"] = "stitched_mlo"
-    rtlsim_perf_dict["external_memory_model"] = "ideal_axi_mm"
-    rtlsim_perf_dict["performance_interpretation"] = "ideal_memory_upper_bound"
-    return rtlsim_perf_dict
-
-
 def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Measure performance + latency of stitched-IP model in rtlsim (xsi).
     Depends on the DataflowOutputType.STITCHED_IP output product.
 
-    MLO models are simulated with ideal AXI-MM memories, so their figures are an
-    upper bound (see _measure_mlo_rtlsim_performance).
+    MLO models are measured in parts, the loop bodies and the regions outside the
+    loops, and composed into an upper bound (see finn.util.mlo_performance).
     """
 
     if DataflowOutputType.RTLSIM_PERFORMANCE not in cfg.generate_outputs:
@@ -1511,7 +1486,7 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
     latency = perf["critical_path_cycles"]
     max_iters = latency * 1.1 + 50
     if is_mlo(model):
-        rtlsim_perf_dict = _measure_mlo_rtlsim_performance(model, rtlsim_bs, max_iters)
+        rtlsim_perf_dict = measure_mlo_rtlsim_performance(model, cfg, rtlsim_bs)
     else:
         # Use behav=False for performance measurement to use real RTL components
         # instead of behavioral models (FINN_SIMULATION affects FIFOs, MVU, LayerNorm,
@@ -1521,9 +1496,9 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
         for key, val in rtlsim_perf_dict.items():
             if "max_count" in key:
                 del rtlsim_perf_dict[key]
-    rtlsim_perf_dict = annotate_rtlsim_performance(
-        rtlsim_perf_dict, rtlsim_bs, cfg.synth_clk_period_ns
-    )
+        rtlsim_perf_dict = annotate_rtlsim_performance(
+            rtlsim_perf_dict, rtlsim_bs, cfg.synth_clk_period_ns
+        )
 
     with open(report_dir + "/rtlsim_performance.json", "w") as f:
         json.dump(rtlsim_perf_dict, f, indent=2)

@@ -41,11 +41,7 @@ from finn.util.basic import (
     make_build_dir,
 )
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
-from finn.util.rtlsim import (
-    dat_file_to_numpy_array,
-    mlo_prehook_func_factory,
-    summarize_frame_completions,
-)
+from finn.util.rtlsim import dat_file_to_numpy_array, mlo_prehook_func_factory
 
 finnxsi = xsi if xsi.is_available() else None
 
@@ -361,33 +357,10 @@ def rtlsim_exec_cppxsi(
     return ret_dict
 
 
-def _output_frame_sizes(num_out_values, batchsize):
-    """Return the number of transactions per output frame."""
-
-    if isinstance(num_out_values, dict):
-        frame_sizes = {}
-        for name, count in num_out_values.items():
-            assert count % batchsize == 0, f"Output {name} does not contain whole frames"
-            frame_sizes[name] = count // batchsize
-        return frame_sizes
-
-    assert num_out_values % batchsize == 0, "Output does not contain whole frames"
-    return num_out_values // batchsize
-
-
-def rtlsim_exec_finnxsi(
-    model,
-    execution_context,
-    pre_hook=None,
-    post_hook=None,
-    collect_performance=False,
-):
+def rtlsim_exec_finnxsi(model, execution_context, pre_hook=None, post_hook=None):
     """Use finnxsi to execute given model with stitched IP. The execution
     context contains the input values. Hook functions can be optionally
-    specified to observe/alter the state of the circuit. When
-    ``collect_performance`` is enabled, return output-frame completion timing
-    in addition to storing the total cycle count in model metadata.
-
+    specified to observe/alter the state of the circuit
     - pre_hook : hook function to be called before sim start (after reset)
     - post_hook : hook function to be called after sim end
     """
@@ -464,24 +437,14 @@ def rtlsim_exec_finnxsi(
     liveness_threshold = get_watchdog_timeout_cycles(liveness_estimate) * batchsize
     if liveness_estimate is not None:
         liveness_estimate *= batchsize
-    output_frame_sizes = (
-        _output_frame_sizes(num_out_values, batchsize) if collect_performance else None
-    )
-    rtlsim_result = finnxsi.rtlsim_multi_io(
+    n_cycles = finnxsi.rtlsim_multi_io(
         sim,
         io_dict,
         num_out_values,
         sname="",
         liveness_threshold=liveness_threshold,
         liveness_estimate=liveness_estimate,
-        output_frame_sizes=output_frame_sizes,
     )
-    perf_stats = None
-    if collect_performance:
-        n_cycles, completion_cycles = rtlsim_result
-        perf_stats = summarize_frame_completions(completion_cycles, n_cycles, batchsize)
-    else:
-        n_cycles = rtlsim_result
     if post_hook is not None:
         post_hook(sim)
     # important to call close_rtlsim for finnxsi to flush traces and stop
@@ -499,29 +462,14 @@ def rtlsim_exec_finnxsi(
         execution_context[o_name] = o_folded_tensor.reshape(o_shape)
 
     model.set_metadata_prop("cycles_rtlsim", str(n_cycles))
-    return perf_stats
 
 
-def rtlsim_exec(
-    model,
-    execution_context,
-    pre_hook=None,
-    post_hook=None,
-    collect_performance=False,
-):
+def rtlsim_exec(model, execution_context, pre_hook=None, post_hook=None):
     """Use XSI to execute given model with stitched IP. The execution
     context contains the input values. Hook functions can be optionally
     specified to observe/alter the state of the circuit, receiving the
-    sim object as their first argument. When ``collect_performance`` is
-    enabled, return output-frame completion timing.
-
+    sim object as their first argument:
     - pre_hook : hook function to be called before sim start (after reset)
     - post_hook : hook function to be called after sim end
     """
-    return rtlsim_exec_finnxsi(
-        model,
-        execution_context,
-        pre_hook,
-        post_hook,
-        collect_performance=collect_performance,
-    )
+    rtlsim_exec_finnxsi(model, execution_context, pre_hook, post_hook)

@@ -547,15 +547,19 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
         )
 
     if cfg.mlo and cfg.generate_outputs:
-        if DataflowOutputType.ESTIMATE_REPORTS in cfg.generate_outputs:
+        if (
+            DataflowOutputType.ESTIMATE_REPORTS in cfg.generate_outputs
+            or DataflowOutputType.RTLSIM_PERFORMANCE in cfg.generate_outputs
+        ):
             checks.append(
                 _check(
-                    "mlo_estimates",
-                    Severity.WARNING,
+                    "mlo_performance",
+                    Severity.INFO,
                     False,
-                    "MLO enabled with ESTIMATE_REPORTS: Network performance cannot be "
-                    "estimated for MLO models. Individual layer estimates will still be "
-                    "generated",
+                    "MLO throughput (estimate and RTLSIM_PERFORMANCE) assumes that the loop "
+                    "controller keeps the loop body fully busy, with ideal external memory; "
+                    "it is an upper bound. The RTLSIM_PERFORMANCE latency is not available "
+                    "for MLO models",
                 )
             )
     if cfg.mlo and cfg.verify_save_full_context:

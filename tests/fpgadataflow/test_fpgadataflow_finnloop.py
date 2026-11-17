@@ -871,9 +871,9 @@ def test_finnloop_end2end_mlo(
     # rtlsim cycles are the loop's alone and not inflated by head/tail nodes.
     run_cycle_check = canonical_cfg and not non_mlo_nodes
 
-    # Multi-frame stitched-MLO performance measurement, once, on the plain
-    # FINNLoop. It uses the ideal AXI-MM models for loop storage and MVAU weights.
-    run_rtlsim_performance = run_cycle_check
+    # Composed MLO performance measurement (loop body + outer regions), once with
+    # and once without outer regions.
+    run_rtlsim_performance = canonical_cfg
     generate_outputs = [
         build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
         build_cfg.DataflowOutputType.STITCHED_IP,
@@ -941,15 +941,19 @@ def test_finnloop_end2end_mlo(
     if run_rtlsim_performance:
         with open(report_dir + "/rtlsim_performance.json") as f:
             rtlsim_perf = json.load(f)
-        assert rtlsim_perf["measurement_scope"] == "stitched_mlo"
-        assert rtlsim_perf["external_memory_model"] == "ideal_axi_mm"
-        assert rtlsim_perf["performance_interpretation"] == "ideal_memory_upper_bound"
-        assert rtlsim_perf["N"] == 2  # default rtlsim_batch_size
-        assert rtlsim_perf["completed_output_frames"] == 2
-        assert rtlsim_perf["interval_valid"] == 1
-        assert rtlsim_perf["steady_state_frames"] == 1
-        assert rtlsim_perf["steady_state_cycles"] > 0
-        assert rtlsim_perf["stable_throughput_valid"] is True
+        assert rtlsim_perf["measurement_scope"] == "mlo_composed"
+        assert rtlsim_perf["performance_interpretation"] == "upper_bound_body_fully_busy"
+        assert rtlsim_perf["latency_cycles"] is None
+        loop = rtlsim_perf["loops"]["FINNLoop_0"]
+        assert loop["iterations"] == iteration
+        # the measured body interval matches the analytical body cycles
+        assert loop["body_ii_cycles"] == pytest.approx(est_loop["body_max_cycles"], rel=0.15)
+        assert loop["fps"] == pytest.approx(1.0e9 / (10.0 * iteration * loop["body_ii_cycles"]))
+        if non_mlo_nodes:
+            # the head and the tail node, each in a region of its own
+            assert len(rtlsim_perf["outer_regions"]) >= 2
+        part_fps = [loop["fps"]] + [r["fps"] for r in rtlsim_perf["outer_regions"].values()]
+        assert rtlsim_perf["stable_throughput[images/s]"] == pytest.approx(min(part_fps))
 
     verif_dir = tmp_output_dir + "/verification_output"
     # With verify_save_full_context=True, all verification steps save the full

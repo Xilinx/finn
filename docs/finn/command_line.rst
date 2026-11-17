@@ -170,9 +170,11 @@ build configuration), and are detailed below.
 * :py:mod:`finn.builder.build_dataflow_config.DataflowOutputType.RTLSIM_PERFORMANCE`: measure latency and performance for the stitched IP in RTL simulation, using XSI
 
   * ``report/rtlsim_performance.json`` -- accelerator throughput and latency from RTL simulation.
-    For MLO designs, the AXI-MM interfaces (intermediate frames, weights) are served by ideal
-    memories without backpressure or latency, so the figures are an upper bound
-    (``"performance_interpretation": "ideal_memory_upper_bound"``).
+    MLO designs are measured in parts: each loop body's initiation interval II_body on the
+    standalone body IP, giving f_clk / (L * II_body) for L iterations, and each region outside
+    the loops on its own; the throughput is the minimum. It assumes that the loop controller
+    keeps the body fully busy, with ideal external memory, so it is an upper bound
+    (``"performance_interpretation": "upper_bound_body_fully_busy"``), and it has no latency.
 
 * :py:mod:`finn.builder.build_dataflow_config.DataflowOutputType.OOC_SYNTH` runs out-of-context synthesis for the stitched IP. This is useful for getting post-synthesis resource counts and achievable clock frequency without having to produce a full bitfile with DMA engines:
 
