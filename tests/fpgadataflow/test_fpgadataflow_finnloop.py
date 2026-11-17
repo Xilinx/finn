@@ -1,6 +1,7 @@
 import pytest
 
 import glob
+import json
 import numpy as np
 import os
 import re
@@ -870,13 +871,22 @@ def test_finnloop_end2end_mlo(
     # rtlsim cycles are the loop's alone and not inflated by head/tail nodes.
     run_cycle_check = canonical_cfg and not non_mlo_nodes
 
+    # Multi-frame stitched-MLO performance measurement, once, on the plain
+    # FINNLoop. It uses the ideal AXI-MM models for loop storage and MVAU weights.
+    run_rtlsim_performance = run_cycle_check
+    generate_outputs = [
+        build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
+        build_cfg.DataflowOutputType.STITCHED_IP,
+    ]
+    if run_rtlsim_performance:
+        generate_outputs.append(build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE)
+
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
         enable_build_pdb_debug=False,
         steps=steps,
         synth_clk_period_ns=10.0,
         board="V80",
-        rtlsim_batch_size=100,
         standalone_thresholds=True,
         mlo=True,
         loop_body_hierarchy=[["", "layers.0"]],
@@ -894,10 +904,7 @@ def test_finnloop_end2end_mlo(
         # folding_missing check (which assumes creation-time PE=1/SIMD=1) is a false
         # positive here; target_fps would instead override the deliberate folding.
         mute_config_assertions=True,
-        generate_outputs=[
-            build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
-            build_cfg.DataflowOutputType.STITCHED_IP,
-        ],
+        generate_outputs=generate_outputs,
     )
     build.build_dataflow_cfg(tmp_output_dir + "/mlo_model.onnx", cfg)
 
@@ -923,6 +930,18 @@ def test_finnloop_end2end_mlo(
     assert os.path.isfile(report_dir + "/op_and_param_counts_FINNLoop_0.json")
     assert os.path.isfile(report_dir + "/op_and_param_counts.json")
     assert os.path.isfile(tmp_output_dir + "/stitched_ip/ip/component.xml")
+    if run_rtlsim_performance:
+        with open(report_dir + "/rtlsim_performance.json") as f:
+            rtlsim_perf = json.load(f)
+        assert rtlsim_perf["measurement_scope"] == "stitched_mlo"
+        assert rtlsim_perf["external_memory_model"] == "ideal_axi_mm"
+        assert rtlsim_perf["performance_interpretation"] == "ideal_memory_upper_bound"
+        assert rtlsim_perf["N"] == 2  # default rtlsim_batch_size
+        assert rtlsim_perf["completed_output_frames"] == 2
+        assert rtlsim_perf["interval_valid"] == 1
+        assert rtlsim_perf["steady_state_frames"] == 1
+        assert rtlsim_perf["steady_state_cycles"] > 0
+        assert rtlsim_perf["stable_throughput_valid"] is True
 
     verif_dir = tmp_output_dir + "/verification_output"
     # With verify_save_full_context=True, all verification steps save the full
