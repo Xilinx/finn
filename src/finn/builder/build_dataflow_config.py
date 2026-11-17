@@ -394,7 +394,7 @@ class DataflowBuildConfig:
     enable_build_pdb_debug: Optional[bool] = True
 
     #: When True, the console also shows FINN's INFO records, the output of tools
-    #: launched through launch_process_helper and each Python warning. Otherwise
+    #: run with run_tool(..., log_output=True) and each Python warning. Otherwise
     #: these only appear in build_dataflow.log, while the console shows the step
     #: timeline, FINN's warnings and errors and a count of Python warnings.
     verbose: Optional[bool] = False
