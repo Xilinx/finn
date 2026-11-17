@@ -930,6 +930,14 @@ def test_finnloop_end2end_mlo(
     assert os.path.isfile(report_dir + "/op_and_param_counts_FINNLoop_0.json")
     assert os.path.isfile(report_dir + "/op_and_param_counts.json")
     assert os.path.isfile(tmp_output_dir + "/stitched_ip/ip/component.xml")
+    # analytical estimate: the loop takes L * body max_cycles per frame
+    with open(report_dir + "/estimate_network_performance.json") as f:
+        est_perf = json.load(f)
+    est_loop = est_perf["loops"]["FINNLoop_0"]
+    assert est_loop["iterations"] == iteration
+    assert est_loop["loop_cycles"] == iteration * est_loop["body_max_cycles"]
+    assert est_perf["max_cycles"] >= est_loop["loop_cycles"]
+    assert est_perf["estimated_throughput_fps"] > 0
     if run_rtlsim_performance:
         with open(report_dir + "/rtlsim_performance.json") as f:
             rtlsim_perf = json.load(f)

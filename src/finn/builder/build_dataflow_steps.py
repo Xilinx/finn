@@ -72,7 +72,10 @@ from shutil import copy
 
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
-from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
+from finn.analysis.fpgadataflow.dataflow_performance import (
+    dataflow_performance,
+    mlo_dataflow_performance,
+)
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.analysis.fpgadataflow.op_and_param_counts import (
@@ -944,24 +947,28 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
             ) as f:
                 json.dump(estimate_layer_resources_complete, f, indent=2)
 
-        if not is_mlo(model):
-            # need to call AnnotateCycles before dataflow_performance
-            model = model.transform(AnnotateCycles())
-            estimate_network_performance = model.analysis(dataflow_performance)
-            # add some more metrics to estimated performance
-            n_clock_cycles_per_sec = (10**9) / cfg.synth_clk_period_ns
-            est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
-            estimate_network_performance["estimated_throughput_fps"] = est_fps
-            est_latency_ns = (
-                estimate_network_performance["critical_path_cycles"] * cfg.synth_clk_period_ns
-            )
-            estimate_network_performance["estimated_latency_ns"] = est_latency_ns
-            with open(report_dir + "/estimate_network_performance.json", "w") as f:
-                json.dump(estimate_network_performance, f, indent=2)
+        # need to call AnnotateCycles before dataflow_performance
+        model = model.transform(AnnotateCycles())
+        if is_mlo(model):
+            # throughput: each loop takes L * body max_cycles per frame, assuming the
+            # loop controller keeps the body fully busy (an upper bound); latency:
+            # each FINNLoop's serial-iteration cycles_estimate
+            estimate_network_performance = model.analysis(mlo_dataflow_performance)
+            estimate_network_performance[
+                "performance_interpretation"
+            ] = "upper_bound_body_fully_busy"
         else:
-            log.info(
-                "Model contains MLO, currently network performance can't be estimated for this."
-            )
+            estimate_network_performance = model.analysis(dataflow_performance)
+        # add some more metrics to estimated performance
+        n_clock_cycles_per_sec = (10**9) / cfg.synth_clk_period_ns
+        est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
+        estimate_network_performance["estimated_throughput_fps"] = est_fps
+        est_latency_ns = (
+            estimate_network_performance["critical_path_cycles"] * cfg.synth_clk_period_ns
+        )
+        estimate_network_performance["estimated_latency_ns"] = est_latency_ns
+        with open(report_dir + "/estimate_network_performance.json", "w") as f:
+            json.dump(estimate_network_performance, f, indent=2)
     else:
         log.info(
             """DataflowOutputType.ESTIMATE_REPORTS not in requested outputs,
