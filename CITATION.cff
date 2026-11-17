@@ -1,65 +1,101 @@
 cff-version: 1.2.0
-message: "If you use FINN, please cite this software and the foundational papers (see references)."
+message: "If you use FINN, please cite the FINN-R paper (preferred citation), the FINN paper (see references) and this software."
 title: "FINN: Fast, Scalable Quantized Neural Network Inference on FPGAs"
 authors:
-  - family-names: Petri-Koenig
-    given-names: Jakoba
   - family-names: Umuroglu
     given-names: Yaman
+    affiliation: "Advanced Micro Devices, Inc."
+    orcid: "https://orcid.org/0000-0002-3700-5935"
+  - family-names: Petri-Koenig
+    given-names: Jakoba
+    affiliation: "Advanced Micro Devices, Inc."
+    orcid: "https://orcid.org/0009-0002-2457-7819"
   - family-names: Preußer
     given-names: Thomas
+    affiliation: "Advanced Micro Devices, Inc."
+    orcid: "https://orcid.org/0000-0003-3998-7896"
   - family-names: Fleming
     given-names: Shane
+    affiliation: "Advanced Micro Devices, Inc."
+  - name: "The FINN contributors"
+    website: "https://github.com/Xilinx/finn/blob/main/AUTHORS.rst"
 url: "https://github.com/Xilinx/finn"
 license: BSD-3-Clause
 repository-code: "https://github.com/Xilinx/finn"
 
+preferred-citation:
+  type: article
+  title: "FINN-R: An End-to-End Deep-Learning Framework for Fast Exploration of Quantized Neural Networks"
+  authors:
+    - family-names: Blott
+      given-names: Michaela
+      affiliation: "Xilinx Research Labs, Dublin, Ireland"
+      orcid: "https://orcid.org/0000-0002-7833-4057"
+    - family-names: Preußer
+      given-names: Thomas B.
+      affiliation: "Xilinx Research Labs, Dublin, Ireland"
+      orcid: "https://orcid.org/0000-0003-3998-7896"
+    - family-names: Fraser
+      given-names: Nicholas J.
+      affiliation: "Xilinx Research Labs, Dublin, Ireland"
+    - family-names: Gambardella
+      given-names: Giulio
+      affiliation: "Xilinx Research Labs, Dublin, Ireland"
+    - family-names: O'Brien
+      given-names: Kenneth
+      affiliation: "Xilinx Research Labs, Ireland"
+    - family-names: Umuroglu
+      given-names: Yaman
+      affiliation: "Xilinx Research Labs, Ireland"
+      orcid: "https://orcid.org/0000-0002-3700-5935"
+    - family-names: Leeser
+      given-names: Miriam
+      affiliation: "Northeastern University, USA"
+      orcid: "https://orcid.org/0000-0002-5624-056X"
+    - family-names: Vissers
+      given-names: Kees
+      affiliation: "Xilinx Research, USA"
+      orcid: "https://orcid.org/0000-0002-6249-315X"
+  journal: "ACM Transactions on Reconfigurable Technology and Systems (TRETS)"
+  volume: 11
+  issue: 3
+  start: 1
+  end: 23
+  year: 2018
+  doi: "10.1145/3242897"
+  publisher:
+    name: "ACM"
+
 references:
-  - type: article
-    title: "FINN-R: An End-to-End Deep-Learning Framework for Fast Exploration of Quantized Neural Networks"
-    authors:
-      - family-names: Blott
-        given-names: Michaela
-      - family-names: Preußer
-        given-names: Thomas B.
-      - family-names: Fraser
-        given-names: Nicholas J.
-      - family-names: Gambardella
-        given-names: Giulio
-      - family-names: O'Brien
-        given-names: Kenneth
-      - family-names: Umuroglu
-        given-names: Yaman
-      - family-names: Leeser
-        given-names: Miriam
-      - family-names: Vissers
-        given-names: Kees
-    journal: "ACM Transactions on Reconfigurable Technology and Systems (TRETS)"
-    volume: 11
-    issue: 3
-    start: 1
-    end: 23
-    year: 2018
-    doi: "10.1145/3242897"
-    publisher:
-      name: "ACM"
   - type: conference-paper
     title: "FINN: A Framework for Fast, Scalable Binarized Neural Network Inference"
     authors:
       - family-names: Umuroglu
         given-names: Yaman
+        affiliation: "Norwegian University of Science and Technology & Xilinx Research Labs, Trondheim, Norway"
+        orcid: "https://orcid.org/0000-0002-3700-5935"
       - family-names: Fraser
         given-names: Nicholas J.
+        affiliation: "Xilinx Research Labs & University of Sydney, Dublin, Ireland"
       - family-names: Gambardella
         given-names: Giulio
+        affiliation: "Xilinx Research Labs, Dublin, Ireland"
       - family-names: Blott
         given-names: Michaela
+        affiliation: "Xilinx Research Labs, Dublin, Ireland"
+        orcid: "https://orcid.org/0000-0002-7833-4057"
       - family-names: Leong
         given-names: Philip
+        affiliation: "University of Sydney, Sydney, Australia"
+        orcid: "https://orcid.org/0000-0002-3923-3499"
       - family-names: Jahre
         given-names: Magnus
+        affiliation: "Norwegian University of Science and Technology, Trondheim, Norway"
+        orcid: "https://orcid.org/0000-0001-9147-5228"
       - family-names: Vissers
         given-names: Kees
+        affiliation: "Xilinx Research Labs, San Jose, CA, USA"
+        orcid: "https://orcid.org/0000-0002-6249-315X"
     collection-title: "Proceedings of the 2017 ACM/SIGDA International Symposium on Field-Programmable Gate Arrays"
     conference:
       name: "FPGA '17"
