@@ -140,3 +140,26 @@ class LayerNorm_rtl(LayerNorm, RTLBackend):
         exp_cycles = val_queue_len_0 + val_queue_len_1 + np.prod(idim) // simd + 5
 
         return int(exp_cycles)
+
+    def dsp_estimation(self, fpgapart):
+        """DSPFP32 slices of the RTL LayerNorm.
+
+        Every SIMD lane takes five: the subtraction of the mean, the square, the
+        scaling by the inverse standard deviation and one node in each of the
+        two adder trees -- which have SIMD-1 nodes each and are completed to SIMD
+        by the two accumulators. The reciprocal square root adds the DSPs of the
+        rsqrtf structure selected by the interval N/SIMD: one where its 3 passes
+        per Newton-Raphson iteration fit into the interval, a chain of rings of
+        ceil(passes / interval) DSPs where they do not, and the two paired DSPs
+        of a single iteration at an interval of 2.
+        """
+        simd = self.get_nodeattr("SIMD")
+        nn = self.get_normal_input_shape()[-1] // simd
+        passes = 3 * self.get_nodeattr("numRsqrtRefinements")
+        if nn >= passes:
+            rsqrt_dsps = 1
+        elif passes == 3 and nn == 2:
+            rsqrt_dsps = 2
+        else:
+            rsqrt_dsps = math.ceil(passes / nn)
+        return 5 * simd + rsqrt_dsps

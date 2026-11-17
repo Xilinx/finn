@@ -893,3 +893,36 @@ def test_fpgadataflow_rtl_layernorm_rsqrt_refinements(rsqrt_refinements, nn, sim
     cycles_rtlsim = getCustomOp(node).get_nodeattr("cycles_rtlsim")
     exp_cycles = model.analysis(exp_cycles_per_layer)[node.name]
     assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
+
+
+# configuration (N/SIMD selecting the rsqrtf structure, SIMD, rsqrt refinements) with
+# the DSPFP32 count of its out-of-context synthesis for xcvc1902-vsva2197-2MP-e-S,
+# one table rather than an axis per parameter as every row pins a measured count
+@pytest.mark.parametrize(
+    "nn,simd,rsqrt_refinements,dsps",
+    [
+        (1, 4, 1, 23),
+        (1, 4, 2, 26),
+        (2, 5, 1, 27),
+        (2, 5, 2, 28),
+        (3, 6, 1, 31),
+        (3, 6, 2, 32),
+        (5, 8, 2, 42),
+        (6, 7, 1, 36),
+        (6, 7, 2, 36),
+        (21, 4, 2, 21),
+        (24, 4, 1, 21),
+        (24, 4, 2, 21),
+        (48, 1, 2, 6),
+        (32, 2, 2, 11),
+    ],
+)
+@pytest.mark.fpgadataflow
+def test_fpgadataflow_rtl_layernorm_dsp_estimation(nn, simd, rsqrt_refinements, dsps):
+    """The DSP estimate of LayerNorm_rtl matches synthesis."""
+    ishape = [1, 4, nn * simd]
+    model = make_layernorm_modelwrapper(
+        ishape, simd, DataType["FLOAT32"], "rtl", rsqrt_refinements=rsqrt_refinements
+    )
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    assert getCustomOp(model.graph.node[0]).dsp_estimation(test_fpga_part) == dsps
