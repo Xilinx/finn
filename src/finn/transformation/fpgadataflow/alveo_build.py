@@ -53,6 +53,7 @@ from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import make_build_dir, resolve_xilinx_tool
+from finn.util.fpgadataflow import find_clk2x_nodes
 
 from . import templates
 
@@ -63,6 +64,23 @@ def _check_vitis_envvars():
     assert (
         "XILINX_XRT" in os.environ
     ), "XILINX_XRT must be set for Vitis, ensure the XRT env is sourced"
+
+
+def check_no_clk2x(model: ModelWrapper, flow: str):
+    """Reject double-pumped designs for the Vitis and SLASH link flows.
+
+    A kernel's ap_clk2x must be phase-aligned with its ap_clk. The platforms
+    only offer kernel clocks that are not guaranteed to be (the second Vitis
+    kernel clock ap_clk_2 is independent), and FINN has no in-kernel clock
+    generation, so ap_clk2x would be left undriven.
+    """
+    clk2x_nodes = find_clk2x_nodes(model)
+    if clk2x_nodes:
+        raise Exception(
+            "The %s flow provides no phase-aligned 2x kernel clock, but these "
+            "nodes need ap_clk2x (pumpedCompute/pumpedMemory): %s. Disable clock "
+            "pumping for this flow." % (flow, ", ".join(clk2x_nodes))
+        )
 
 
 _SLASH_ALLOWED_AXILITE_STEMS = {"s_axi_control"}
@@ -228,6 +246,7 @@ class PrepareForLinking(Transformation):
     def apply(self, model):
         if self.platform not in ["vitis-xrt", "slash-vrt"]:
             raise Exception(f"Unknown platform {self.platform}")
+        check_no_clk2x(model, self.platform)
 
         # prepare at global level, then break up into kernels
         prep_transforms = [InsertIODMA(512), InsertDWC(), SpecializeLayers(self.fpga_part)]
@@ -295,6 +314,7 @@ class VitisLink(Transformation):
 
     def apply(self, model):
         _check_vitis_envvars()
+        check_no_clk2x(model, "vitis-xrt")
         # create a config file and empty list of xo files
         config = ["[connectivity]"]
         object_files = []
@@ -508,6 +528,7 @@ class SlashLink(Transformation):
         self.build_hardware = build_hardware
 
     def apply(self, model):
+        check_no_clk2x(model, "slash-vrt")
         # create a temporary folder for the project and check out SLASH
         link_dir = Path(make_build_dir(prefix="slash_link_proj_"))
         model.set_metadata_prop("slash_link_proj", str(link_dir))

@@ -103,6 +103,7 @@ from finn.transformation.fpgadataflow.alveo_build import (
     PrepareForLinking,
     SlashLink,
     VitisLink,
+    check_no_clk2x,
 )
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.assign_ddr_weight_offsets import (
@@ -128,7 +129,10 @@ from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.loop_rolling import LoopExtraction, LoopRolling
 from finn.transformation.fpgadataflow.make_driver import MakeCPPDriver, MakePYNQDriver
-from finn.transformation.fpgadataflow.make_pynq_proj import PYNQBuild
+from finn.transformation.fpgadataflow.make_pynq_proj import (
+    PYNQBuild,
+    check_versal_shell_clk2x,
+)
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
 )
@@ -874,6 +878,22 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
     return model
 
 
+def check_shell_clk2x_support(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Fail early if a bitfile is requested from a shell flow that cannot drive
+    the phase-aligned ap_clk2x of double-pumped nodes (Vitis, SLASH and the
+    Versal golden-reference shell; the Zynq shell derives it from a clock
+    wizard). Runs before any hardware generation."""
+    if DataflowOutputType.BITFILE not in cfg.generate_outputs:
+        return
+    shell_flow_type = cfg._resolve_shell_flow_type()
+    if shell_flow_type == ShellFlowType.VIVADO_VERSAL:
+        check_versal_shell_clk2x(model, cfg.board)
+    elif shell_flow_type == ShellFlowType.VITIS_ALVEO:
+        check_no_clk2x(model, "vitis-xrt")
+    elif shell_flow_type == ShellFlowType.SLASH_ALVEO:
+        check_no_clk2x(model, "slash-vrt")
+
+
 def step_apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Apply the folding configuration file onto the model to set folding (parallelization)
     and other attributes, if config file is specified."""
@@ -889,6 +909,8 @@ def step_apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(ApplyConfig(cfg.folding_config_file, apply_to_subgraphs=True))
     else:
         log.info("No folding config json provided, skipping step_apply_folding_config.")
+    # the folding config is where clock pumping is usually switched on
+    check_shell_clk2x_support(model, cfg)
 
     return model
 
@@ -1036,6 +1058,7 @@ def step_minimize_bit_width(model: ModelWrapper, cfg: DataflowBuildConfig):
 def step_hw_codegen(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Generate Vitis HLS code to prepare HLSBackend nodes for IP generation.
     And fills RTL templates for RTLBackend nodes."""
+    check_shell_clk2x_support(model, cfg)
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(
         PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()),

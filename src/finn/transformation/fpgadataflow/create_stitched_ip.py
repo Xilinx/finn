@@ -124,13 +124,13 @@ class CreateStitchedIP(Transformation):
         }
 
     def is_double_pumped(self, node):
-        if node.op_type.startswith("MVAU"):
-            inst = getCustomOp(node)
-            try:
-                pumped_compute = inst.get_nodeattr("pumpedCompute")
-            except AttributeError:
-                pumped_compute = 0
-            return pumped_compute or inst.get_nodeattr("pumpedMemory")
+        """Whether the node's IP has a double-speed clock input ap_clk2x to drive.
+
+        The criterion is the node's interface, not its op type: any IP that lists a
+        "clk2x" entry gets the stitched IP's ap_clk2x port. This covers pumped
+        MVAUs as well as composite IPs (FINNLoop) whose inner stitched IP exposes
+        a 2x clock."""
+        return bool(getCustomOp(node).get_verilog_top_module_intf_names().get("clk2x"))
 
     def connect_clk_rst(self, node):
         inst_name = node.name
@@ -172,11 +172,10 @@ class CreateStitchedIP(Transformation):
                 self.intf_names["clk2x"] = ["ap_clk2x"]
             # otherwise connect clk2x
             else:
-                if self.is_double_pumped(node):
-                    self.connect_cmds.append(
-                        "connect_bd_net [get_bd_ports ap_clk2x] [get_bd_pins %s/%s]"
-                        % (inst_name, clock2x_intf_name)
-                    )
+                self.connect_cmds.append(
+                    "connect_bd_net [get_bd_ports ap_clk2x] [get_bd_pins %s/%s]"
+                    % (inst_name, clock2x_intf_name)
+                )
 
     def connect_axi(self, node, model):
         inst_name = node.name
@@ -553,6 +552,10 @@ class CreateStitchedIP(Transformation):
             tcl.append("")
             tcl.append("# --- Place and Route for OOC Metrics ---")
             tcl.append("create_clock -period %f [get_ports ap_clk]" % self.clk_ns)
+            if self.clock2x_is_external:
+                # a phase-aligned 2x clock: both clocks rise at t=0, so Vivado times
+                # the ap_clk <-> ap_clk2x crossings as synchronous paths
+                tcl.append("create_clock -period %f [get_ports ap_clk2x]" % (self.clk_ns / 2))
             tcl.append("opt_design")
             tcl.append("place_design")
             tcl.append("route_design")

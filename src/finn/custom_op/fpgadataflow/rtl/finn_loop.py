@@ -771,11 +771,15 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # create and instantiate FINNLoop node overarching block design
         cmd.append("create_bd_design %s_bd_design" % block_name)
         cmd.append("create_bd_cell -type hier %s" % block_name)
-        clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
-        rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
+        node_intf = self.get_verilog_top_module_intf_names()
+        clk_name = node_intf["clk"][0]
+        rst_name = node_intf["rst"][0]
+        clk2x_name = node_intf.get("clk2x", [None])[0]
         # clock and reset
         cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (block_name, clk_name))
         cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (block_name, rst_name))
+        if clk2x_name is not None:
+            cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (block_name, clk2x_name))
         # interfaces
         if parallel:
             # standalone stream-tap + body IP: a single activation in/out, an
@@ -801,7 +805,6 @@ class FINNLoop(HWCustomOp, RTLBackend):
                     "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s" % (block_name, intf[0])
                 )
         else:
-            node_intf = self.get_verilog_top_module_intf_names()
             m_axis_intfs = node_intf["m_axis"]
             s_axis_intfs = node_intf["s_axis"]
             mm_intfs = node_intf["aximm"]
@@ -1210,6 +1213,12 @@ class FINNLoop(HWCustomOp, RTLBackend):
             "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
             % (block_name, clk_name, finn_ip_name, clk_name)
         )
+        if clk2x_name is not None:
+            loop_body_clk2x_name = loop_body_intf_names["clk2x"][0]
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
+                % (block_name, clk2x_name, finn_ip_name, loop_body_clk2x_name)
+            )
         # Expose the loop body's sim_finish control to the top of the FINNLoop IP.
         # The body's stitched IP carries a sim_ctrl (inserted by CreateStitchedIP)
         # whose sim_finish input triggers $finish. Asserting it during rtlsim runs
@@ -1316,6 +1325,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
         cmd.append("set_property name in0_V [get_bd_intf_ports in0_V_0]")
         cmd.append("set_property name ap_clk [get_bd_ports ap_clk_0]")
         cmd.append("set_property name ap_rst_n [get_bd_ports ap_rst_n_0]")
+        if clk2x_name is not None:
+            cmd.append("set_property name %s [get_bd_ports %s_0]" % (clk2x_name, clk2x_name))
         cmd.append("set_property name out0_V [get_bd_intf_ports out0_V_0]")
         cmd.append("set_property name sim_finish [get_bd_ports sim_finish_0]")
         if parallel:
@@ -1446,6 +1457,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
 
         loop_body = self.get_nodeattr("body")
         loop_body_intf = eval(loop_body.get_metadata_prop("vivado_stitch_ifnames"))
+        if loop_body_intf.get("clk2x"):
+            intf_names["clk2x"] = loop_body_intf["clk2x"]
         for intf in loop_body_intf["aximm"]:
             intf_names["aximm"].append(intf)
 
