@@ -15,6 +15,8 @@ import pytest
 import json
 import numpy as np
 import os
+import torch
+import torch.nn.functional as F
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -740,7 +742,9 @@ def test_integer_hls_elementwise_no_dsp_conflict():
     ), f"No DSP conflict log file should exist at {stitched_conflict_file}"
 
 
-def make_layernorm_modelwrapper(ishape, simd, idt, impl_style):
+def make_layernorm_modelwrapper(
+    ishape, simd, idt, impl_style, epsilon=9.999999960041972e-13, rsqrt_refinements=1
+):
     """A graph holding one LayerNorm node, scale and bias already extracted."""
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, list(ishape))
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, list(ishape))
@@ -752,7 +756,8 @@ def make_layernorm_modelwrapper(ishape, simd, idt, impl_style):
         backend="fpgadataflow",
         SIMD=simd,
         ifm_dim=list(ishape),
-        epsilon=9.999999960041972e-13,
+        epsilon=epsilon,
+        numRsqrtRefinements=rsqrt_refinements,
         inputDataType=idt.name,
         outputDataType="FLOAT32",
         preferred_impl_style=impl_style,
@@ -768,13 +773,16 @@ def make_layernorm_modelwrapper(ishape, simd, idt, impl_style):
     "config",
     [
         # HLS, integer input, one vector at least as long as the rsqrt path
-        ([1, 16, 64], 1, "INT8", "hls", "xczu7ev-ffvc1156-2-e"),
-        ([1, 16, 96], 2, "INT8", "hls", "xczu7ev-ffvc1156-2-e"),
-        ([1, 16, 40], 1, "INT8", "hls", "xczu7ev-ffvc1156-2-e"),
-        # RTL, which is II=1 by construction at any folding
-        ([1, 16, 64], 1, "FLOAT32", "rtl", "xcvc1902-vsva2197-2MP-e-S"),
-        ([1, 16, 48], 2, "FLOAT32", "rtl", "xcvc1902-vsva2197-2MP-e-S"),
-        ([1, 16, 64], 8, "FLOAT32", "rtl", "xcvc1902-vsva2197-2MP-e-S"),
+        ([1, 16, 64], 1, "INT8", "hls", "xczu7ev-ffvc1156-2-e", 1),
+        ([1, 16, 96], 2, "INT8", "hls", "xczu7ev-ffvc1156-2-e", 1),
+        ([1, 16, 40], 1, "INT8", "hls", "xczu7ev-ffvc1156-2-e", 1),
+        # RTL, which is II=1 by construction at any folding and rsqrt refinement
+        ([1, 16, 64], 1, "FLOAT32", "rtl", "xcvc1902-vsva2197-2MP-e-S", 1),
+        ([1, 16, 48], 2, "FLOAT32", "rtl", "xcvc1902-vsva2197-2MP-e-S", 1),
+        ([1, 16, 64], 8, "FLOAT32", "rtl", "xcvc1902-vsva2197-2MP-e-S", 1),
+        ([1, 16, 64], 1, "FLOAT32", "rtl", "xcvc1902-vsva2197-2MP-e-S", 2),
+        ([1, 16, 48], 2, "FLOAT32", "rtl", "xcvc1902-vsva2197-2MP-e-S", 2),
+        ([1, 16, 64], 8, "FLOAT32", "rtl", "xcvc1902-vsva2197-2MP-e-S", 2),
     ],
 )
 @pytest.mark.fpgadataflow
@@ -782,9 +790,11 @@ def make_layernorm_modelwrapper(ishape, simd, idt, impl_style):
 @pytest.mark.vivado
 @pytest.mark.node_tree_modeling
 def test_fpgadataflow_analytical_characterization_layernorm(config):
-    ishape, simd, idt, impl_style, part = config
+    ishape, simd, idt, impl_style, part, rsqrt_refinements = config
 
-    model = make_layernorm_modelwrapper(ishape, simd, DataType[idt], impl_style)
+    model = make_layernorm_modelwrapper(
+        ishape, simd, DataType[idt], impl_style, rsqrt_refinements=rsqrt_refinements
+    )
     model = model.transform(SpecializeLayers(part))
     model = model.transform(GiveUniqueNodeNames())
     assert model.graph.node[0].op_type == "LayerNorm_" + impl_style
@@ -795,11 +805,12 @@ def test_fpgadataflow_analytical_characterization_layernorm(config):
     # the volume budget is a floor rather than a fraction. The length budget
     # covers the pipeline fill, which the period leaves out on purpose: it is a
     # one-off cost the reference's period carries a share of, and folding it in
-    # would put a hole in a row that has none.
+    # would put a hole in a row that has none. A second rsqrt refinement lengthens
+    # that fill by the 12 cycles of its DSP passes.
     max_allowed_volume_frac = 0.0
     volume_const = 2
     max_allowed_length_frac = 0.04
-    length_const = 20
+    length_const = 20 + 12 * (rsqrt_refinements - 1)
 
     assert tree_model_test(
         model,
@@ -811,3 +822,74 @@ def test_fpgadataflow_analytical_characterization_layernorm(config):
         volume_const,
         length_const,
     ), "characterized TAV does not match RTLsim'd one!"
+
+
+def gen_layernorm_rows(ishape, offset):
+    """FLOAT32 rows of normal samples, each scaled by its own power of ten from
+    1e-15 to 1e15 and shifted by up to ``offset`` standard deviations: a wide
+    dynamic range of variances, down to 1e-30."""
+    rng = np.random.default_rng(42)
+    rows = int(np.prod(ishape[:-1]))
+    scale = 10.0 ** rng.uniform(-15, 15, size=(rows, 1))
+    shift = offset * rng.uniform(-1, 1, size=(rows, 1))
+    x = (rng.standard_normal((rows, ishape[-1])) + shift) * scale
+    return x.astype(np.float32).reshape(ishape)
+
+
+# rsqrt refinements
+@pytest.mark.parametrize("rsqrt_refinements", [1, 2])
+# N/SIMD, the interval of the rsqrt computation selecting its structure
+@pytest.mark.parametrize("nn", [1, 2, 3, 5, 6, 8, 9, 12, 20, 21, 24])
+# SIMD
+@pytest.mark.parametrize("simd", [2, 4])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_fpgadataflow_rtl_layernorm_rsqrt_refinements(rsqrt_refinements, nn, simd):
+    """Accuracy and cycles of the RTL LayerNorm by rsqrt refinements.
+
+    N/SIMD covers every rsqrtf structure of both settings: the unrolled DSP chain
+    (1), chained rings (2; 3-5 with two refinements), the single ring (3-8; 6-20),
+    the overlapped (9-11; 21-23) and the exclusive single DSP (12; 24).
+
+    The error is measured against the exact LayerNorm and relative to
+    ``max(|y|, 1)``: relative where the output is at least the unit standard
+    deviation of the normalized row, absolute below. A plain relative error is not
+    bounded by the rsqrt for outputs close to zero as an fp32 ``x - mean`` is off
+    by up to an ulp of ``x``. With rows shifted by at most 3 standard deviations,
+    the other fp32 operations contribute less than 1e-6 to this error (float32
+    emulation of the datapath). The rsqrt alone has a maximum relative error of
+    1.75e-3 with one and of 4.7e-6 with two refinements. The RTL LayerNorm does
+    not add epsilon, which is thus 0 in the reference for rows of low variance.
+    """
+    ishape = [1, 64, nn * simd]
+    model = make_layernorm_modelwrapper(
+        ishape, simd, DataType["FLOAT32"], "rtl", epsilon=0.0, rsqrt_refinements=rsqrt_refinements
+    )
+    x = gen_layernorm_rows(ishape, offset=3.0)
+    input_dict = {"inp": x}
+    # The RTL LayerNorm deliberately omits epsilon: its approximate rsqrt has no
+    # division by zero to guard against. The reference therefore uses eps=0.
+    y_expected = F.layer_norm(torch.from_numpy(x.astype(np.float64)), [ishape[-1]], eps=0.0)
+    y_expected = y_expected.numpy()
+
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+    assert model.graph.node[0].op_type == "LayerNorm_rtl"
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+
+    err = np.abs(y_produced - y_expected) / np.maximum(np.abs(y_expected), 1.0)
+    bound = {1: 2e-3, 2: 1e-5}[rsqrt_refinements]
+    big = np.abs(y_expected) >= 1.0
+    gain = np.mean(y_produced[big] / y_expected[big] - 1.0)
+    print(f"max error {err.max():.3e}, mean gain error {gain:.3e}")
+    assert err.max() <= bound, f"max error {err.max():.3e} exceeds {bound:.0e}"
+
+    node = model.graph.node[0]
+    cycles_rtlsim = getCustomOp(node).get_nodeattr("cycles_rtlsim")
+    exp_cycles = model.analysis(exp_cycles_per_layer)[node.name]
+    assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
