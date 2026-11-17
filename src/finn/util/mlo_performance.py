@@ -13,7 +13,7 @@ flight. Instead, the loop and the regions outside it are measured separately:
   standalone "stream tap + body" IP of the parallel MLO rtlsim. The folding is
   the same in every iteration, so one interval holds for all of them.
 - outer regions: the maximal connected subgraphs outside the loops, each
-  stitched on its own and measured like a non-MLO design.
+  stitched from the shipped design's IP and measured like a non-MLO design.
 
 The overall throughput is the minimum. It assumes that the loop controller
 keeps the body fully busy and that external memory is ideal; the interleaving
@@ -132,10 +132,11 @@ def measure_body_ii(finnloop_node, cfg, n_frames=BODY_II_FRAMES):
     return body_initiation_interval(completions["out0_V"]), completions["out0_V"]
 
 
-def measure_region_performance(region, cfg, tag, batch_size):
-    """Stitch an outer region on its own and measure it like a non-MLO design
-    (xsi_fifosim, annotate_rtlsim_performance)."""
-    region = stitch_boundary_submodel(region, cfg, tag)
+def measure_region_performance(region, cfg, batch_size):
+    """Stitch an outer region from the shipped design's IP (see
+    stitch_boundary_submodel) and measure it like a non-MLO design (xsi_fifosim,
+    annotate_rtlsim_performance)."""
+    region = stitch_boundary_submodel(region, cfg)
     region = region.transform(AnnotateCycles())
     max_iters = region.analysis(dataflow_performance)["critical_path_cycles"] * 1.1 + 50
     stats = xsi_fifosim(region, batch_size, max_iters=max_iters, behav=False)
@@ -172,7 +173,7 @@ def measure_mlo_rtlsim_performance(model, cfg, batch_size):
         }
     regions = {}
     for tag, region in extract_boundary_submodels(model):
-        stats = measure_region_performance(region, cfg, tag, batch_size)
+        stats = measure_region_performance(region, cfg, batch_size)
         stats["nodes"] = [n.name for n in region.graph.node]
         stats["fps"] = region_fps(stats)
         regions[tag] = stats

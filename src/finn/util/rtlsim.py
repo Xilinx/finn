@@ -40,18 +40,13 @@ from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.core.onnx_exec import execute_onnx
 from qonnx.custom_op.registry import getCustomOp
-from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.util.basic import get_num_default_workers, roundup_to_integer_multiple
 from typing import Any, Callable, Dict, Tuple
 
 from finn import xsi
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
-from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
-from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.util.basic import get_liveness_threshold_cycles, make_build_dir
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
@@ -717,26 +712,18 @@ def _build_submodel(model, nodes, tag):
     return sub
 
 
-def stitch_boundary_submodel(submodel, cfg, tag):
-    """Stitch a boundary subgraph (see extract_boundary_submodels) into a single
-    IP of its own, ready for rtlsim."""
-    # imported lazily: both modules import (via the custom ops) finn.util.rtlsim
-    from finn.transformation.fpgadataflow.specialize_layers import (  # noqa: PLC0415
-        SpecializeLayers,
-    )
+def stitch_boundary_submodel(submodel, cfg):
+    """Stitch a boundary subgraph (see extract_boundary_submodels) into an IP of
+    its own, ready for rtlsim.
 
-    part = cfg._resolve_fpga_part()
-    hls_clk = cfg._resolve_hls_clk_period()
-    prefix = "bnd_%s_" % tag
-    submodel = submodel.transform(GiveUniqueNodeNames(prefix=prefix))
-    submodel = submodel.transform(InsertDWC())
-    submodel = submodel.transform(InsertFIFO(create_shallow_fifos=True))
-    submodel = submodel.transform(SpecializeLayers(part))
-    submodel = submodel.transform(GiveUniqueNodeNames(prefix=prefix))
-    submodel = submodel.transform(PrepareIP(part, hls_clk))
-    submodel = submodel.transform(HLSSynthIP(part))
-    submodel = submodel.transform(CreateStitchedIP(part, cfg.synth_clk_period_ns))
-    return submodel
+    The region is cut from the built dataflow model, so its nodes, FIFOs and
+    DWCs are those of the shipped design, with their FIFO depths, and carry
+    their generated IP already. They are stitched as they are: no nodes are
+    inserted and no code generation or HLS synthesis runs again, so the
+    simulated instance equals the shipped one. CreateStitchedIP asserts that
+    every node has its IP.
+    """
+    return submodel.transform(CreateStitchedIP(cfg._resolve_fpga_part(), cfg.synth_clk_period_ns))
 
 
 def rtlsim_boundary_submodel(submodel, cfg, tag, golden_ctx, trace_dir=None):
@@ -745,7 +732,7 @@ def rtlsim_boundary_submodel(submodel, cfg, tag, golden_ctx, trace_dir=None):
     from finn.core.rtlsim_exec import rtlsim_exec  # noqa: PLC0415
 
     out_names = [vi.name for vi in submodel.graph.output]
-    submodel = stitch_boundary_submodel(submodel, cfg, tag)
+    submodel = stitch_boundary_submodel(submodel, cfg)
 
     submodel.set_metadata_prop("exec_mode", "rtlsim")
     if trace_dir is not None:
