@@ -29,7 +29,6 @@
 
 import numpy as np
 import os
-import warnings
 from dataclasses import dataclass, field
 from dataclasses_json import dataclass_json
 from enum import Enum
@@ -70,13 +69,9 @@ class AutoFIFOSizingMethod(str, Enum):
 
     @classmethod
     def _missing_(cls, value):
+        # the deprecation is reported once, by the auto_fifo_strategy_deprecated
+        # config check
         if value == "characterize":
-            warnings.warn(
-                "auto_fifo_strategy 'characterize' has been replaced by 'heuristic_rtlsim' "
-                "and will be removed in a future release; use 'heuristic_rtlsim' "
-                "(or 'heuristic_analytical') instead.",
-                DeprecationWarning,
-            )
             return cls.HEURISTIC_RTLSIM
         return None
 

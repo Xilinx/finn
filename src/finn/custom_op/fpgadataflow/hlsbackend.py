@@ -223,11 +223,7 @@ class HLSBackend(ABC):
         self.docompute()
         self.dataoutstrm()
         self.save_as_npy()
-
-        self.timeout_value()
-        self.timeout_condition()
-        self.timeout_read_stream()
-        template = templates.docompute_template_timeout
+        template = self.get_cppsim_template()
 
         for key in self.code_gen_dict:
             # transform list into long string separated by '\n'
@@ -238,6 +234,17 @@ class HLSBackend(ABC):
         f.write(template)
         f.close()
         self.code_gen_dict.clear()
+
+    def get_cppsim_template(self):
+        """The C++ template of the cppsim executable. The default runs the
+        free-running layer function until its output stays empty for a timeout,
+        and fills the timeout entries of code_gen_dict it needs. Ops whose layer
+        function terminates by itself can return the blocking
+        templates.docompute_template instead."""
+        self.timeout_value()
+        self.timeout_condition()
+        self.timeout_read_stream()
+        return templates.docompute_template_timeout
 
     def code_generation_ipi(self):
         """Constructs and returns the TCL for node instantiation in Vivado IPI."""

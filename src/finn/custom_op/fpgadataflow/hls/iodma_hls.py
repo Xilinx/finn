@@ -28,7 +28,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
-import os
 import warnings
 from qonnx.core.datatype import DataType
 
@@ -294,34 +293,10 @@ class IODMA_hls(HWCustomOp, HLSBackend):
             raise ValueError("Invalid IODMA direction, please set to in or out")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS DATAFLOW disable_start_propagation")
 
-    def code_generation_cppsim(self, model):
-        """Generates c++ code for simulation (cppsim).
-        IODMA uses bounded Mem2Stream/Stream2Mem loops, so use the blocking
-        docompute_template directly instead of docompute_template_timeout."""
-        node = self.onnx_node
-        path = self.get_nodeattr("code_gen_dir_cppsim")
-        self.code_gen_dict["$AP_INT_MAX_W$"] = [str(self.get_ap_int_max_w())]
-        self.generate_params(model, path)
-        self.global_includes()
-        self.defines("cppsim")
-        self.read_npy_data()
-        self.strm_decl()
-        self.pragmas()
-        self.docompute()
-        self.dataoutstrm()
-        self.save_as_npy()
-
-        template = templates.docompute_template
-
-        for key in self.code_gen_dict:
-            # transform list into long string separated by '\n'
-            code_gen_line = "\n".join(self.code_gen_dict[key])
-            template = template.replace(key, code_gen_line)
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        f = open(os.path.join(code_gen_dir, "execute_{}.cpp".format(node.op_type)), "w")
-        f.write(template)
-        f.close()
-        self.code_gen_dict.clear()
+    def get_cppsim_template(self):
+        """IODMA uses bounded Mem2Stream/Stream2Mem loops, so it uses the blocking
+        docompute_template instead of docompute_template_timeout."""
+        return templates.docompute_template
 
     def execute_node(self, context, graph):
         pass

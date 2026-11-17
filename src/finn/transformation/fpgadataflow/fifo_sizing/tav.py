@@ -8,6 +8,7 @@ import gzip
 import numpy as np
 import os
 import re
+from qonnx.util.basic import get_by_name
 
 from finn.util.basic import make_build_dir
 
@@ -162,6 +163,40 @@ def save_tav_npy(inst, attr_name, arr):
     path = os.path.join(tav_dir, "tav_%s_%s.npy.gz" % (safe_name, attr_name))
     save_gaps_npy(arr, path)
     return path
+
+
+def cleanup_characterization(model):
+    """Drop the characterization attributes once FIFO sizing is done.
+
+    The token access vectors are offloaded to sidecar .npy.gz files whose paths are
+    kept in the io_chrc_* attributes; unlink those files (and a ``tav_*`` build
+    dir they leave empty) before dropping the attributes, otherwise they are left
+    behind in the build directory with nothing referencing them."""
+
+    #: Node attributes holding token access vectors. Their values are paths to
+    #: sidecar .npy.gz files (see save_tav_npy), which are only needed while FIFO
+    #: sizing runs.
+    tav_attrs = [
+        "io_chrc_in",
+        "io_chrc_out",
+    ]
+
+    for node in model.graph.node:
+        for attr_name in tav_attrs:
+            attr = get_by_name(node.attribute, attr_name)
+            if attr is None:
+                continue
+            fname = attr.s.decode("utf-8")
+            if fname.endswith((".npy", ".npy.gz")) and os.path.isfile(fname):
+                os.remove(fname)
+                # the tav_* build dir of a node without a code generation dir
+                tav_dir = os.path.dirname(fname)
+                if os.path.basename(tav_dir).startswith("tav_") and not os.listdir(tav_dir):
+                    os.rmdir(tav_dir)
+            node.attribute.remove(attr)
+        attr = get_by_name(node.attribute, "io_chrc_period")
+        if attr is not None:
+            node.attribute.remove(attr)
 
 
 def flat_characteristic_leaf(rd, wr, label):

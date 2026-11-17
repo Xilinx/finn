@@ -7,6 +7,7 @@ import pytest
 
 import json
 import os
+import warnings
 from onnx import TensorProto, helper
 from unittest.mock import patch
 
@@ -419,11 +420,12 @@ class TestConfigCheckIntegration:
 @pytest.mark.util
 def test_auto_fifo_strategy_characterize_alias():
     """The deprecated "characterize" resolves to heuristic_rtlsim, from Python
-    and from a JSON config."""
+    and from a JSON config, without a warning of its own: the config check
+    reports the deprecation (see test_auto_fifo_strategy)."""
     build_cfg = cfg("unused", auto_fifo_strategy="characterize")
-    with pytest.warns(DeprecationWarning, match="characterize"):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
         assert build_cfg._resolve_auto_fifo_strategy() == AutoFIFOSizingMethod.HEURISTIC_RTLSIM
-    with pytest.warns(DeprecationWarning, match="characterize"):
         loaded = DataflowBuildConfig.from_json(build_cfg.to_json())
     assert loaded.auto_fifo_strategy == AutoFIFOSizingMethod.HEURISTIC_RTLSIM
     with pytest.raises(ValueError):

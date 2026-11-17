@@ -122,6 +122,7 @@ from finn.transformation.fpgadataflow.export_portable_rtl import ExportPortableR
 from finn.transformation.fpgadataflow.fifo_sizing.derive_fifo_sizes import (
     DeriveFIFOSizes,
 )
+from finn.transformation.fpgadataflow.fifo_sizing.tav import cleanup_characterization
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
@@ -146,6 +147,7 @@ from finn.transformation.fpgadataflow.set_fifo_depths import (
     InsertAndSetFIFODepths,
     RemoveShallowFIFOs,
     reset_implementation,
+    set_fifo_debug_log,
     xsi_fifosim,
 )
 from finn.transformation.fpgadataflow.set_folding import SetFolding
@@ -177,11 +179,7 @@ from finn.util.config import (
     extract_model_config_consolidate_shuffles,
     extract_model_config_to_json,
 )
-from finn.util.fpgadataflow import (
-    cleanup_characterization,
-    is_mlo,
-    warn_hls_rtl_dsp_conflict,
-)
+from finn.util.fpgadataflow import is_mlo, warn_hls_rtl_dsp_conflict
 from finn.util.mlo_performance import measure_mlo_rtlsim_performance
 from finn.util.rtlsim import annotate_rtlsim_performance, run_parallel_mlo_rtlsim
 from finn.util.test import execute_parent
@@ -214,11 +212,9 @@ def _attach_fifo_debug_logs(model, cfg, prefix=""):
         log_path = os.path.join(live_dir, prefix + node.name + ".log")
         if node_inst.get_nodeattr("debug_log_path") == log_path:
             continue
-        node_inst.set_nodeattr("debug_log_path", log_path)
-        node_inst.set_nodeattr("fifo_log_verbose", int(cfg.fifo_log_verbose))
-        node_inst.set_nodeattr("fifo_log_flush_cycles", int(cfg.fifo_log_flush_cycles))
-        # DATA_LOGFILE is baked into the generated RTL, so any already-generated
-        # IP for this node has to be regenerated with the new path
+        set_fifo_debug_log(node_inst, log_path, cfg.fifo_log_verbose, cfg.fifo_log_flush_cycles)
+        # any already-generated IP for this node has to be regenerated with the
+        # new path
         reset_implementation(node_inst)
     return model
 
