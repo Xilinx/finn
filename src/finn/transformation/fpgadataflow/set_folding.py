@@ -248,9 +248,9 @@ class SetFolding(Transformation):
                     swu_node_inst = getCustomOp(swu_node)
                     swu_node_inst.set_nodeattr("SIMD", pe)
                     # The depthwise SWU replays its buffered window once per channel
-                    # fold, so it can be slower than the VVAU/Pool it feeds (e.g. a
-                    # global pooling window over the whole feature map). Keep raising
-                    # the shared parallelism until the SWU meets the target as well.
+                    # fold, so it can be slower than the VVAU it feeds (e.g. for a
+                    # kernel spanning most of the feature map). Keep raising the
+                    # shared parallelism until the SWU meets the target as well.
                     if swu_node_inst.get_exp_cycles() >= self.target_cycles_per_frame:
                         for val in divisors(max_pe):
                             if val <= pe:
