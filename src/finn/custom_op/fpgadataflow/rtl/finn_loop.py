@@ -35,7 +35,7 @@ from pathlib import Path
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp, is_custom_op
-from qonnx.util.basic import get_by_name, qonnx_make_model, roundup_to_integer_multiple
+from qonnx.util.basic import get_by_name, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn import xsi
@@ -48,6 +48,7 @@ from finn.util.basic import make_build_dir
 from finn.util.create import adjacency_list
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 from finn.util.launcher import run_tool
+from finn.util.mlo import DMA_DATA_BITS, N_OUTSTANDING_DMAS, mlo_set_select_bits
 from finn.util.rtlsim import dat_file_to_numpy_array, mlo_prehook_func_factory
 
 finnxsi = xsi if xsi.is_available() else None
@@ -306,7 +307,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
 
         A streaming layer is driven with five frames and the middle two are
         stored. The loop buffers its intermediate feature maps in DDR
-        (``intermediate_frames.sv``, 128 outstanding frames), so when simulated
+        (``intermediate_frames.sv``, N_OUTSTANDING_DMAS outstanding frames), so when simulated
         in isolation against a testbench that offers input as fast as it is
         taken, it accepts every queued frame up front, computes, and then
         drains. That trace has no periodic steady state to sample: the middle
@@ -399,6 +400,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
         code_gen_dict["$ELEM_BITS$"] = [str(self.get_input_datatype(0).bitwidth())]
         code_gen_dict["$ILEN_BITS$"] = [str(self.get_instream_width(0))]
         code_gen_dict["$OLEN_BITS$"] = [str(self.get_outstream_width(0))]
+        code_gen_dict["$DATA_BITS$"] = [str(DMA_DATA_BITS)]
+        code_gen_dict["$N_OUTSTANDING_DMAS$"] = [str(N_OUTSTANDING_DMAS)]
         # Intermediate frame address offset
         code_gen_dict["$ADDRESS_OFFSET$"] = [str(self.get_nodeattr("address_offset"))]
 
@@ -672,10 +675,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         iteration = self.get_nodeattr("iteration")
         loop_body = self.get_nodeattr("body")
         graph_inputs = [x.name for x in loop_body.graph.input]
-        # TODO check if this needs to be padded
-        data_width = DataType.get_smallest_possible(iteration).bitwidth()
-        # pad to nearest multiple of 8
-        data_width = roundup_to_integer_multiple(data_width, 8)
+        data_width = mlo_set_select_bits(iteration)
         for node in loop_body.graph.node:
             node_inst = getCustomOp(node)
             if node_inst.get_nodeattr("mlo_max_iter"):
@@ -1474,12 +1474,11 @@ class FINNLoop(HWCustomOp, RTLBackend):
         pass
 
     def intermediate_frame_bytes(self):
-        N_OUTSTANDING_DMAS = 128  # Currently hard-coded in intermediate_frames.sv
-        DATA_BITS = 256  # DMA bus width, hard-coded in loop_control_wrapper.v
+        """External memory in bytes for all intermediate-frame slots of this loop."""
         input_elements = int(np.prod(self.get_normal_input_shape(0)))
         elem_bits = self.get_input_datatype(0).bitwidth()
-        dma_pe = DATA_BITS // elem_bits
+        dma_pe = DMA_DATA_BITS // elem_bits
         dma_beats = (input_elements + dma_pe - 1) // dma_pe
-        dma_beat_bytes = DATA_BITS // 8
+        dma_beat_bytes = DMA_DATA_BITS // 8
         slot_bytes = dma_beats * dma_beat_bytes
         return N_OUTSTANDING_DMAS * slot_bytes

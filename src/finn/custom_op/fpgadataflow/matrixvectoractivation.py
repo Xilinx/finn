@@ -48,6 +48,7 @@ from finn.util.data_packing import (
     numpy_to_hls_code,
     pack_innermost_dim_as_hex_string,
 )
+from finn.util.mlo import DMA_DATA_BITS
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation:
 # input 0 is the input tensor, shape (.., i_size) = (..., MW)
@@ -556,7 +557,7 @@ class MVAU(HWCustomOp):
         mh = self.get_nodeattr("MH")
         mw = self.get_nodeattr("MW")
         wbits = self.get_input_datatype(1).bitwidth()
-        data_bits = 256  # DATA_BITS in fetch_weights.sv (AXI bus width)
+        data_bits = DMA_DATA_BITS
         iwsimd = self.get_fetch_weights_simd()
         fetches_per_frame = n_vec // th if th > 1 else 1
         bus_words = math.ceil(mh * mw / (data_bits // wbits))
@@ -861,7 +862,7 @@ class MVAU(HWCustomOp):
                 # reverses the IWSIMD elements, so reverse each group here to build the
                 # flat element stream the VPC sees, then pack DMA_PE elements/bus word.
                 th = self.get_nodeattr("TH")
-                data_bits = 256  # DATA_BITS in fetch_weights.sv (AXI bus width)
+                data_bits = DMA_DATA_BITS
                 iwsimd = self.get_fetch_weights_simd()
                 dma_pe = data_bits // export_wdt.bitwidth()  # whole elements per bus word
                 if th > 1:
@@ -1414,7 +1415,7 @@ class MVAU(HWCustomOp):
         DMA_PE = DATA_BITS // WEIGHT_WIDTH whole elements (top bits zero-padded),
         so the per-layer size is ceil(MH*MW / DMA_PE) bus words. That is already
         bus-aligned, so offs == size == LAYER_OFFS in fetch_weights.sv."""
-        data_bits = 256  # DATA_BITS in fetch_weights.sv
+        data_bits = DMA_DATA_BITS
         weight_width = self.get_input_datatype(1).bitwidth()
         dma_pe = data_bits // weight_width  # whole elements per bus word
         n_elems = self.get_nodeattr("MH") * self.get_nodeattr("MW")

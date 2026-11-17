@@ -36,7 +36,8 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
     parameter N_LAYERS       = $N_LAYERS$,
 
     parameter ADDR_BITS      = 64,
-    parameter DATA_BITS      = 256,
+    parameter DATA_BITS      = $DATA_BITS$,
+    parameter N_OUTSTANDING_DMAS = $N_OUTSTANDING_DMAS$,
     parameter LEN_BITS       = 32,
     parameter IDX_BITS       = 16,
     parameter ELEM_BITS      = $ELEM_BITS$,
@@ -130,6 +131,7 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
         .FM_ELEMS(INPUT_ELEMS),
         .ADDR_BITS(ADDR_BITS),
         .DATA_BITS(DATA_BITS),
+        .N_OUTSTANDING_DMAS(N_OUTSTANDING_DMAS),
         .LEN_BITS(LEN_BITS),
         .IDX_BITS(IDX_BITS),
         .ELEM_BITS(ELEM_BITS),

@@ -3,7 +3,6 @@
 
 import numpy as np
 import os
-from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.requant import Requant, float32_literal
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
@@ -14,6 +13,7 @@ from finn.util.basic import (
     roundup_to_integer_multiple,
 )
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from finn.util.mlo import mlo_set_select_bits
 
 
 def _twos(value, width):
@@ -82,9 +82,7 @@ class Requant_rtl(Requant, RTLBackend):
         (``FINNLoop.generate_hdl_stream_tap``) so that the tap's ``m_axis`` connects cleanly to
         the ``in1_V`` set-select slave pin.
         """
-        iteration = self.get_nodeattr("mlo_max_iter")
-        data_width = DataType.get_smallest_possible(iteration).bitwidth()
-        return roundup_to_integer_multiple(data_width, 8)
+        return mlo_set_select_bits(self.get_nodeattr("mlo_max_iter"))
 
     def get_verilog_top_module_intf_names(self):
         """Interface names for the Requant top module.

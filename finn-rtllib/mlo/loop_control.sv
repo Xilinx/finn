@@ -46,6 +46,8 @@ module loop_control #(
     int unsigned ADDR_BITS,
     int unsigned DATA_BITS,
     int unsigned LEN_BITS,
+    // COMPILER SET, number of intermediate frame slots in external memory
+    int unsigned N_OUTSTANDING_DMAS,
 
     bit [ADDR_BITS-1:0] ADDRESS_OFFSET = 0
 ) (
@@ -121,6 +123,7 @@ module loop_control #(
     // Base Address
     input  [ADDR_BITS-1:0]      base_address
 );
+`default_nettype none
 
 logic idx_if_in_tvalid, idx_if_in_tready;
 logic [IDX_BITS-1:0] idx_if_in_tdata;
@@ -218,6 +221,7 @@ intermediate_frames #(
     .DATA_BITS(DATA_BITS),
     .LEN_BITS(LEN_BITS),
     .IDX_BITS(IDX_BITS),
+    .N_OUTSTANDING_DMAS(N_OUTSTANDING_DMAS),
     .ADDRESS_OFFSET(ADDRESS_OFFSET)
 ) inst_intermediate_frames (
     .aclk(aclk),
@@ -280,4 +284,5 @@ intermediate_frames #(
     .base_address(base_address)
 );
 
+`default_nettype wire
 endmodule

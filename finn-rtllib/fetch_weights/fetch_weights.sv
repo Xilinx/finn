@@ -60,7 +60,7 @@ module fetch_weights #(
 	int unsigned  WEIGHT_WIDTH = 8,
 
 	int unsigned  ADDR_BITS = 64,
-	int unsigned  DATA_BITS = 256,
+	int unsigned  DATA_BITS,
 	int unsigned  LEN_BITS = 32,
 	int unsigned  IDX_BITS = 16,
 
@@ -151,6 +151,7 @@ module fetch_weights #(
 	// Base Address
 	input logic [ADDR_BITS-1:0]      base_address
 );
+`default_nettype none
 
 	//=== Parameter Assertions ==============================================
 	initial begin
@@ -401,4 +402,5 @@ module fetch_weights #(
 		assign	m_axis_tdata   = axis_lwb_tdata;
 	end : genOregPassthru
 
+`default_nettype wire
 endmodule : fetch_weights
