@@ -357,6 +357,13 @@ class MVAU_rtl(MVAU, RTLBackend):
 
         # Validate the tiled-MVU (TH>1) constraints
         theight = self.get_nodeattr("TH")
+        # the tiled MVU rejects PUMPED_COMPUTE at elaboration, and the pumped
+        # weight memstream is not verified with the tiled (WSIMD) weight stream
+        if theight > 1 and (pumped_compute or self.get_nodeattr("pumpedMemory")):
+            raise Exception(
+                "%s: pumpedCompute/pumpedMemory are not supported by the tiled MVU "
+                "(TH=%d). Use TH=1 or disable clock pumping." % (self.onnx_node.name, theight)
+            )
         if theight > 1:
             # The tile size must divide the number of input vectors evenly; otherwise the
             # final partial tile can cause output to be dropped and eventually stall.
