@@ -31,7 +31,6 @@ import pytest
 import json
 import numpy as np
 import os
-import re
 import torch
 import torch.nn as nn
 from brevitas.core.quant import QuantType
@@ -152,13 +151,6 @@ def test_end2end_cybsec_mlp_export():
 @pytest.mark.vivado
 @pytest.mark.end2end
 def test_end2end_cybsec_mlp_build(build_board):
-    # AUP-ZU3 board requires at least Vivado 2024.1
-    # otherwise this test will be skipped
-    vivado_path = os.environ.get("XILINX_VIVADO")
-    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
-    year, minor = int(match.group(1)), int(match.group(2))
-    if (year, minor) < (2024, 1) and build_board == "AUP-ZU3_8GB":
-        pytest.skip("AUP-ZU3 board requires at least vivado 2024.1")
     model_file = get_checkpoint_name("export")
     load_test_checkpoint_or_skip(model_file)
     output_dir = make_build_dir("test_end2end_cybsec_mlp_build")
