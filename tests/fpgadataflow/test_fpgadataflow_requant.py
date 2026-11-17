@@ -847,3 +847,29 @@ def test_requant_small_scales_are_exact(impl_style, part):
     y_rtlsim = oxe.execute_onnx(model, {"inp": inp})["outp"]
     # a fused multiply-add may round a product sitting on a .5 boundary differently
     assert np.abs(y_rtlsim - y_expected).max() <= 1
+
+
+# float input on a non-Versal part specializes to HLS, an integer input to RTL
+@pytest.mark.parametrize(
+    "idt,impl_style", [("FLOAT32", "hls"), ("INT8", "rtl")], ids=["hls", "rtl"]
+)
+@pytest.mark.fpgadataflow
+def test_requant_adapt_for_loop_body(idt, impl_style):
+    """Per-iteration Requant parameters in an MLO loop body: the RTL backend
+    streams them, any other backend must refuse instead of keeping constants."""
+    model = make_requant_modelwrapper((1, 4, 8), 8, 2, DataType[idt], DataType["INT8"], impl_style)
+    model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
+    node = model.graph.node[0]
+    assert node.op_type == "Requant_" + impl_style
+    inst = getCustomOp(node)
+
+    # parameters constant across iterations: nothing to adapt
+    inst.adapt_for_loop_body([])
+    # LoopRolling flags per-iteration parameters by setting mlo_max_iter
+    inst.set_nodeattr("mlo_max_iter", 3)
+    if impl_style == "rtl":
+        inst.adapt_for_loop_body([])
+        assert inst.get_nodeattr("mem_mode") == "internal_decoupled"
+    else:
+        with pytest.raises(Exception, match="RTL Requant"):
+            inst.adapt_for_loop_body([])

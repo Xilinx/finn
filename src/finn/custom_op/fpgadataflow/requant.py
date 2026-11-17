@@ -59,6 +59,24 @@ class Requant(HWCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
+    def adapt_for_loop_body(self, input_types):
+        """Reject per-iteration scale/bias outside the RTL backend.
+
+        LoopRolling flags a node whose parameters vary per loop iteration by
+        setting ``mlo_max_iter``. Only Requant_rtl (which overrides this method)
+        can stream them; FINNLoop builds the parameter taps for Requant_rtl
+        alone. Requant falls back to HLS for narrow-range quantization and for
+        float inputs on non-Versal parts, and such a node would silently keep
+        embedded constants. LoopRolling swallows KeyError/AttributeError from
+        this hook, hence a plain Exception.
+        """
+        if self.get_nodeattr("mlo_max_iter") > 0:
+            raise Exception(
+                "%s: per-iteration Requant parameters in an MLO loop body need the "
+                "RTL Requant (narrow=0, and a FLOAT32 input only on Versal); this "
+                "node was specialized to %s." % (self.onnx_node.name, self.onnx_node.op_type)
+            )
+
     def get_scale(self, model):
         """Get scale tensor from model initializer (input[1])."""
         if len(self.onnx_node.input) > 1:
