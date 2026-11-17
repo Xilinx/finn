@@ -11,6 +11,15 @@ from qonnx.custom_op.general.quant import max_int, min_int
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
 
+def float32_literal(value):
+    """The shortest decimal literal that converts back to exactly ``value`` as a
+    float32, in scientific notation with at least one digit after the point, so
+    that it is valid in C++ and as a SystemVerilog real literal alike."""
+    value = np.float32(value)
+    assert np.isfinite(value), "Requant parameters must be finite, got %s" % value
+    return np.format_float_scientific(value, unique=True, trim="0")
+
+
 class Requant(HWCustomOp):
     """Abstraction layer for HW implementation of Requantization.
 

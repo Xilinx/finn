@@ -37,7 +37,7 @@ from finn.util.data_packing import hls_datatype_str
 
 
 class CheckSum_hls(HWCustomOp, HLSBackend):
-    """Class that corresponds to custom_hls checksum function."""
+    """Checksum over the stream it forwards, on the finn-hlslib checksum kernel."""
 
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)

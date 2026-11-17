@@ -32,7 +32,6 @@ import json
 import numpy as np
 import os
 import re
-import shutil
 import torch
 import torch.nn as nn
 from brevitas.core.quant import QuantType
@@ -206,5 +205,5 @@ def test_end2end_cybsec_mlp_build(build_board):
         # compute layers.
         assert est_res_dict["total"]["LUT"] == 8215.0
         assert est_res_dict["total"]["BRAM_18K"] == 36.0
-    shutil.copytree(output_dir + "/deploy", get_checkpoint_name("build"))
-    shutil.rmtree(get_checkpoint_name("build"))
+    assert os.path.isfile(output_dir + "/deploy/bitfile/finn-accel.bit")
+    assert os.path.isfile(output_dir + "/deploy/driver/driver.py")

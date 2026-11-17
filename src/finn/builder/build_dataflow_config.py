@@ -393,8 +393,10 @@ class DataflowBuildConfig:
     #: Whether pdb postmortem debuggig will be launched when the build fails
     enable_build_pdb_debug: Optional[bool] = True
 
-    #: When True, all warnings and compiler output will be printed in stdout.
-    #: Otherwise, these will be suppressed and only appear in the build log.
+    #: When True, the console also shows FINN's INFO records, the output of tools
+    #: launched through launch_process_helper and each Python warning. Otherwise
+    #: these only appear in build_dataflow.log, while the console shows the step
+    #: timeline, FINN's warnings and errors and a count of Python warnings.
     verbose: Optional[bool] = False
 
     #: If given, only run the steps in the list. If not, run default steps.

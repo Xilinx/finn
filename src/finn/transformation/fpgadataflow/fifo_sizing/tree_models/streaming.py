@@ -637,6 +637,22 @@ class Pad1DRtlModel(TreeModel):
         return CharacteristicNode("pad a sequence", phases, False)
 
 
+@register("StreamingReshape")
+class StreamingReshapeModel(TreeModel):
+    def schedule(self, op):
+        """A word in and the same word out on every cycle, for the whole frame.
+
+        The layer only re-interprets the shape of its stream. ``StreamingReshape_rtl``
+        is a wire (``finn-rtllib/passthru``), so it moves a word whenever its
+        neighbours do and adds no latency; on its own it is the solid run of
+        ``get_exp_cycles`` words.
+        """
+        dim = int(np.prod(op.get_folded_output_shape()[:-1]))
+        if dim < 1:
+            return None
+        return passthrough_characteristic(dim, "pass a word through")
+
+
 @register("StreamingDataWidthConverter")
 class DataWidthConverterModel(TreeModel):
     def schedule(self, op):

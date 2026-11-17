@@ -5,7 +5,7 @@ import numpy as np
 import os
 from qonnx.core.datatype import DataType
 
-from finn.custom_op.fpgadataflow.requant import Requant
+from finn.custom_op.fpgadataflow.requant import Requant, float32_literal
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.util.basic import (
     fifo_rtl_files,
@@ -19,6 +19,13 @@ from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 def _twos(value, width):
     """Return the ``width``-bit two's-complement representation of ``value``."""
     return int(value) & ((1 << width) - 1)
+
+
+def _sv_shortreal_array(arr):
+    """A [PE][CF] array as a SystemVerilog shortreal array literal, every element
+    exact in float32."""
+    rows = ["'{" + ", ".join(float32_literal(v) for v in row) + "}" for row in arr]
+    return "'{" + ", ".join(rows) + "}"
 
 
 def _clog2(n):
@@ -367,18 +374,8 @@ class Requant_rtl(Requant, RTLBackend):
         scale_reshaped = scale.reshape(cf, pe).T  # [PE][CF]
         bias_reshaped = bias.reshape(cf, pe).T  # [PE][CF]
 
-        # Format as SystemVerilog array literals
-        def format_sv_array(arr):
-            """Format 2D numpy array as SystemVerilog array literal."""
-            lines = []
-            for pe_idx in range(arr.shape[0]):
-                # Use fixed-point notation with 6 decimal places (shortreal is 32-bit float)
-                row = ", ".join(f"{float(v):.6f}" for v in arr[pe_idx])
-                lines.append("'{" + row + "}")
-            return "'{" + ", ".join(lines) + "}"
-
-        scales_sv = format_sv_array(scale_reshaped)
-        biases_sv = format_sv_array(bias_reshaped)
+        scales_sv = _sv_shortreal_array(scale_reshaped)
+        biases_sv = _sv_shortreal_array(bias_reshaped)
 
         # Calculate stream widths (byte-aligned)
         in_stream_width = ((pe * k + 7) // 8) * 8
@@ -455,18 +452,8 @@ class Requant_rtl(Requant, RTLBackend):
         scale_reshaped = scale.reshape(cf, pe).T  # [PE][CF]
         bias_reshaped = bias.reshape(cf, pe).T  # [PE][CF]
 
-        # Format as SystemVerilog array literals
-        def format_sv_array(arr):
-            """Format 2D numpy array as SystemVerilog array literal."""
-            lines = []
-            for pe_idx in range(arr.shape[0]):
-                # shortreal is a 32-bit float; fixed-point notation, 6 decimals
-                row = ", ".join(f"{float(v):.6f}" for v in arr[pe_idx])
-                lines.append("'{" + row + "}")
-            return "'{" + ", ".join(lines) + "}"
-
-        scales_sv = format_sv_array(scale_reshaped)
-        biases_sv = format_sv_array(bias_reshaped)
+        scales_sv = _sv_shortreal_array(scale_reshaped)
+        biases_sv = _sv_shortreal_array(bias_reshaped)
 
         # Calculate stream widths (byte-aligned); FP32 input -> PE*32
         in_stream_width = ((pe * 32 + 7) // 8) * 8

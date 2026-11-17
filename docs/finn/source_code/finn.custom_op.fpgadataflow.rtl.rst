@@ -77,6 +77,14 @@ finn.custom\_op.fpgadataflow.streamingfifo\_rtl
    :undoc-members:
    :show-inheritance:
 
+finn.custom\_op.fpgadataflow.streamingreshape\_rtl
+----------------------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.rtl.streamingreshape_rtl
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.custom\_op.fpgadataflow.pwpolyf\_rtl
 --------------------------------------------
 

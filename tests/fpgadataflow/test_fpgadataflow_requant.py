@@ -808,3 +808,42 @@ def test_fpgadataflow_analytical_characterization_requant(config):
         volume_const,
         length_const,
     ), "characterized TAV does not match RTLsim'd one!"
+
+
+# backend, part: the embedded RTL core for FLOAT32 input needs DSPFP32 (Versal)
+@pytest.mark.parametrize(
+    "impl_style,part",
+    [("rtl", "xcvc1902-vsva2197-2MP-e-S"), ("hls", "xczu7ev-ffvc1156-2-e")],
+)
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_requant_small_scales_are_exact(impl_style, part):
+    """Scales and biases reach the generated code exactly as float32.
+
+    Scales around 1e-7 have no more than one significant digit left in a
+    fixed-point literal with six decimals, which the embedded RTL core used to
+    receive. Inputs of up to 3e8 turn such a rounding into errors of several
+    output steps.
+    """
+    ishape, num_channels, pe = (1, 4, 8), 8, 2
+    idt, odt = DataType["FLOAT32"], DataType["INT8"]
+    model = make_requant_modelwrapper(ishape, num_channels, pe, idt, odt, impl_style)
+    rng = np.random.default_rng(0)
+    model.set_initializer("scale", rng.uniform(1e-7, 4e-7, num_channels).astype(np.float32))
+    model.set_initializer("bias", rng.uniform(-0.5, 0.5, num_channels).astype(np.float32))
+    inp = rng.uniform(-3e8, 3e8, ishape).astype(np.float32)
+    y_expected = oxe.execute_onnx(model, {"inp": inp})["outp"]
+
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(GiveUniqueNodeNames())
+    assert model.graph.node[0].op_type == "Requant_" + impl_style
+    if impl_style == "rtl":
+        getCustomOp(model.graph.node[0]).set_nodeattr("mem_mode", "internal_embedded")
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareIP(part, 5))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+    y_rtlsim = oxe.execute_onnx(model, {"inp": inp})["outp"]
+    # a fused multiply-add may round a product sitting on a .5 boundary differently
+    assert np.abs(y_rtlsim - y_expected).max() <= 1

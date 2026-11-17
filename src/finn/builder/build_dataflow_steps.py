@@ -169,7 +169,7 @@ from finn.transformation.streamline.reorder import (
     MoveTransposePastJoinAdd,
 )
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import get_rtlsim_trace_depth
+from finn.util.basic import get_rtlsim_trace_depth, robust_rmtree
 from finn.util.config import (
     extract_model_config_consolidate_shuffles,
     extract_model_config_to_json,
@@ -243,7 +243,7 @@ def snapshot_fifo_logs(cfg, phase_name, loop_context=None):
     # Drop the previous snapshot of this phase/scope, so a rebuild into the same
     # output_dir with fewer FIFOs doesn't leave stale logs behind.
     if os.path.isdir(dest_dir):
-        shutil.rmtree(dest_dir)
+        robust_rmtree(dest_dir)
     os.makedirs(dest_dir, exist_ok=True)
     if os.path.isdir(live_onnx_dir):
         os.makedirs(dest_onnx_dir, exist_ok=True)
@@ -722,6 +722,15 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
             "shuffle/transpose layers",
         )
 
+    # Shape operators left between hardware layers become wires. After
+    # InferShuffle, which absorbs the Reshapes around a Transpose.
+    model = apply_if_relevant(
+        model,
+        to_hw.InferStreamingReshape.SHAPE_OPS,
+        to_hw.InferStreamingReshape(),
+        "reshape layers",
+    )
+
     # Validate that conversion succeeded: all layers must be fpgadataflow layers
     # or form a contiguous dataflow block. This runs here (rather than later) so a
     # failed conversion is reported clearly, before step_create_dataflow_partition
@@ -1183,7 +1192,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     and getCustomOp(n).get_nodeattr("io_chrc_in") == ""
                 ]
                 if unsized:
-                    print(
+                    log.warning(
                         "Estimate-only build: no tree model for %s, so their FIFOs are "
                         "sized without their token access vectors. A full build "
                         "characterizes them with rtlsim." % ", ".join(unsized)
