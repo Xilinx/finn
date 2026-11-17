@@ -168,6 +168,15 @@ def fifo_rtl_files(abspath=True, gauge=False):
     return [os.path.join(rtlsrc, n) for n in names]
 
 
+def arith_rtl_files(names, abspath=True):
+    """Return the shared arithmetic RTL sources (finn-rtllib/arith) named in
+    names, referenced in place like the FIFO sources."""
+    if not abspath:
+        return list(names)
+    rtlsrc = os.path.join(get_finn_root(), "finn-rtllib", "arith")
+    return [os.path.join(rtlsrc, n) for n in names]
+
+
 def get_vivado_root():
     "Return the root directory that Vivado is installed into."
 

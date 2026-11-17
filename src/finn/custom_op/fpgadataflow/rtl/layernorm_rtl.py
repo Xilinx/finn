@@ -16,7 +16,7 @@ import os
 
 from finn.custom_op.fpgadataflow.layernorm import LayerNorm
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.util.basic import fifo_rtl_files
+from finn.util.basic import arith_rtl_files, fifo_rtl_files
 
 
 class LayerNorm_rtl(LayerNorm, RTLBackend):
@@ -79,13 +79,16 @@ class LayerNorm_rtl(LayerNorm, RTLBackend):
             code_gen_dir = ""
             rtllib_dir = ""
 
-        return [
-            rtllib_dir + "layernorm.sv",
-            rtllib_dir + "accuf.sv",
-            rtllib_dir + "binopf.sv",
-            rtllib_dir + "rsqrtf.sv",
-            code_gen_dir + self.get_nodeattr("gen_top_module") + ".v",
-        ] + fifo_rtl_files(abspath)
+        return (
+            [
+                rtllib_dir + "layernorm.sv",
+                rtllib_dir + "accuf.sv",
+                rtllib_dir + "rsqrtf.sv",
+                code_gen_dir + self.get_nodeattr("gen_top_module") + ".v",
+            ]
+            + arith_rtl_files(["binopf.sv"], abspath)
+            + fifo_rtl_files(abspath)
+        )
 
     def code_generation_ipi(self):
         cmd = []
