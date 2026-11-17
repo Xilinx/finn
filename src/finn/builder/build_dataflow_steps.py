@@ -1698,7 +1698,7 @@ def step_loop_body_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig
     loop_context = model.get_metadata_prop("loop_context")
     # Prepare and synthesize IP for FIFO characterization
     model = model.transform(PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()))
-    model = model.transform(HLSSynthIP(cfg._resolve_hls_clk_period()))
+    model = model.transform(HLSSynthIP(cfg._resolve_fpga_part()))
     model = model.transform(ReplaceVerilogRelPaths())
 
     # Set waveform trace if configured
@@ -1715,6 +1715,7 @@ def step_loop_body_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig
             cfg._resolve_hls_clk_period(),
             swg_exception=cfg.default_swg_exception,
             fifosim_input_throttle=cfg.fifosim_input_throttle,
+            cfg_n_inferences=cfg.fifosim_n_inferences,
             debug_log_dir=(_fifo_debug_live_dir(cfg) if cfg.debug_fifo else None),
             debug_log_prefix=(loop_context + "_") if loop_context else "",
             fifo_log_verbose=cfg.fifo_log_verbose,
@@ -1754,7 +1755,7 @@ def step_loop_body_ipgen_and_stitch(model: ModelWrapper, cfg: DataflowBuildConfi
         Loop body ModelWrapper with synthesized IP and stitched IP created
     """
     # HLS synthesis for this loop body
-    model = model.transform(HLSSynthIP(cfg._resolve_hls_clk_period()))
+    model = model.transform(HLSSynthIP(cfg._resolve_fpga_part()))
 
     # Create stitched IP for this loop body
     model = model.transform(
