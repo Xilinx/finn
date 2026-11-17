@@ -490,3 +490,20 @@ def test_mlo_parallel_rtlsim_checks(kw, check_name, severity):
             assert failed[name] == severity
         else:
             assert name not in failed
+
+
+@pytest.mark.util
+# shell flow given explicitly, or inferred from the board
+@pytest.mark.parametrize("explicit_shell", [True, False])
+def test_shell_checks_use_inferred_shell_flow(explicit_shell):
+    """Checks keyed on the shell flow apply whether it is set or inferred from the
+    board, e.g. the Vitis environment check for board="U250" alone."""
+    output_dir = make_build_dir("test_config_check_inferred_shell_")
+    kw = {"board": "U250", "generate_outputs": [DataflowOutputType.BITFILE]}
+    if explicit_shell:
+        kw["shell_flow_type"] = ShellFlowType.VITIS_ALVEO
+    env = {k: v for k, v in os.environ.items() if k not in ("VITIS_PATH", "XILINX_XRT")}
+    with patch.dict("os.environ", env, clear=True):
+        report = run_all_config_checks(cfg(output_dir, **kw))
+    check = next(c for c in report.checks if c.name == "vitis_envvars")
+    assert not check.passed

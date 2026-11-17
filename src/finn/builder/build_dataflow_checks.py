@@ -83,6 +83,19 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
     alveo_boards = set(vitis_part_map.keys())
     pynq_boards = set(pynq_part_map.keys())
 
+    # Resolve the shell the build will actually use for the checks below: an unset
+    # shell_flow_type is inferred from the board. A board with no shell is only an
+    # error when a bitfile is requested, so leave resolved_shell as None here and let
+    # the has_bitfile-gated checks below report it.
+    try:
+        resolved_shell = (
+            cfg._resolve_shell_flow_type()
+            if (cfg.shell_flow_type is not None or cfg.board is not None)
+            else None
+        )
+    except Exception:
+        resolved_shell = None
+
     # === Vivado Version Checks ===
     if cfg.board == "V80":
         checks.append(
@@ -95,7 +108,7 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
             )
         )
 
-    if cfg.shell_flow_type == ShellFlowType.SLASH_ALVEO:
+    if resolved_shell == ShellFlowType.SLASH_ALVEO:
         checks.append(
             _check(
                 "slash_vivado",
@@ -180,19 +193,6 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                 "matching Platform class in util/platforms.py).",
             )
         )
-
-    # Resolve the shell the build will actually use for the bitfile-consistency
-    # checks below: an unset shell_flow_type is inferred from the board. A board
-    # with no shell is only an error when a bitfile is requested, so leave resolved_shell
-    # as None here and let the has_bitfile-gated checks below report it.
-    try:
-        resolved_shell = (
-            cfg._resolve_shell_flow_type()
-            if (cfg.shell_flow_type is not None or cfg.board is not None)
-            else None
-        )
-    except Exception:
-        resolved_shell = None
 
     if has_bitfile:
         is_v80 = cfg.board == "V80" or (cfg.fpga_part and cfg.fpga_part.startswith("xcv80"))
@@ -332,7 +332,7 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
         )
 
     # === Environment Variables ===
-    if has_bitfile and cfg.shell_flow_type == ShellFlowType.VITIS_ALVEO:
+    if has_bitfile and resolved_shell == ShellFlowType.VITIS_ALVEO:
         missing = [
             v for v in ["VITIS_PATH", "PLATFORM_REPO_PATHS", "XILINX_XRT"] if v not in os.environ
         ]
@@ -647,7 +647,7 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
             )
         )
 
-    if cfg.shell_flow_type == ShellFlowType.SLASH_ALVEO:
+    if resolved_shell == ShellFlowType.SLASH_ALVEO:
         checks.append(
             _check(
                 "slash_external",
