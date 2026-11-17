@@ -1148,6 +1148,8 @@ def test_finnloop_end2end_mlo_parallel(
         standalone_thresholds=True,
         mlo=True,
         mlo_parallel_rtlsim=True,
+        # folding is pinned on the nodes at creation time (see test_finnloop_end2end_mlo)
+        mute_config_assertions=True,
         loop_body_hierarchy=[["", "layers.0"]],
         # body nodes occupy indices 1..nodes_per_body (index 0 is the pre-loop
         # boundary Add_pre node prepended above).
