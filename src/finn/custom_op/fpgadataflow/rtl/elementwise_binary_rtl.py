@@ -13,7 +13,6 @@ from qonnx.core.datatype import DataType
 from finn.custom_op.fpgadataflow import elementwise_binary
 from finn.custom_op.fpgadataflow.elementwise_binary import ElementwiseBinaryOperation
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.transformation.fpgadataflow.loop_rolling import LoopBodyInputType
 from finn.util.basic import arith_rtl_files, fifo_rtl_files, roundup_to_integer_multiple
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
@@ -48,26 +47,6 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             }
         )
         return my_attrs
-
-    def adapt_for_loop_body(self, input_types):
-        """
-        Adapt elementwise binary operator for loop body execution.
-
-        When an elementwise operator is placed inside a loop, parameters that
-        are indexed per iteration (PARAMETER type) need to be received as
-        streaming inputs rather than embedded constants. This method changes
-        the lhs_style/rhs_style attributes from "const" to "input" as needed.
-        """
-        # If rhs (input[1]) is a PARAMETER (streamed per iteration),
-        # change its style to "input"
-        if len(input_types) > 1 and input_types[1] == LoopBodyInputType.PARAMETER:
-            if self.rhs_style == "const":
-                self.set_nodeattr("rhs_style", "input")
-
-        # Similarly for lhs if needed
-        if len(input_types) > 0 and input_types[0] == LoopBodyInputType.PARAMETER:
-            if self.lhs_style == "const":
-                self.set_nodeattr("lhs_style", "input")
 
     def generate_hdl(self, model, fpgapart, clk):
         lhs_style = self.get_nodeattr("lhs_style")
