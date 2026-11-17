@@ -493,6 +493,20 @@ def test_mlo_parallel_rtlsim_checks(kw, check_name, severity):
 
 
 @pytest.mark.util
+@pytest.mark.parametrize(
+    "strategy, error",
+    [("largefifo_rtlsim", True), ("heuristic_rtlsim", False), ("heuristic_analytical", False)],
+)
+def test_mlo_auto_fifo_strategy(strategy, error):
+    """MLO is rejected at config-check time with largefifo_rtlsim, which cannot
+    size the FIFOs around a FINNLoop."""
+    output_dir = make_build_dir("test_config_check_mlo_fifo_")
+    report = run_all_config_checks(cfg(output_dir, mlo=True, auto_fifo_strategy=strategy))
+    failed = {c.name: c.severity.value for c in report.checks if not c.passed}
+    assert (failed.get("auto_fifo_strategy_mlo") == "ERROR") == error
+
+
+@pytest.mark.util
 # shell flow given explicitly, or inferred from the board
 @pytest.mark.parametrize("explicit_shell", [True, False])
 def test_shell_checks_use_inferred_shell_flow(explicit_shell):

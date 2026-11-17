@@ -1125,44 +1125,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         # vectors come from
         tav_strategy = "tree_model" if strategy == "heuristic_analytical" else "rtlsim"
 
-        if is_mlo(model):
-            model = model.transform(InsertDWC())
-            model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
-            model = model.transform(GiveUniqueNodeNames())
-            model = model.transform(
-                PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
-            )
-            model = model.transform(HLSSynthIP(cfg._resolve_fpga_part()))
-            if cfg.fifosim_save_waveform:
-                report_dir = cfg.output_dir + "/report"
-                os.makedirs(report_dir, exist_ok=True)
-                for node in model.graph.node:
-                    node_inst = getCustomOp(node)
-                    node_inst.set_nodeattr(
-                        "rtlsim_trace",
-                        os.path.abspath(report_dir) + f"/{node.name}_fifosim_trace.wdb",
-                    )
-            model = model.transform(PrepareRTLSim(behav=True))
-            model = model.transform(AnnotateCycles())
-            model = model.transform(DeriveTokenAccessVectors(tav_strategy))
-            if cfg.fifosim_save_waveform:
-                for node in model.graph.node:
-                    getCustomOp(node).set_nodeattr("rtlsim_trace", "")
-            period = int(
-                model.analysis(partial(dataflow_performance, use_characterized=True))["max_cycles"]
-            )
-            model = model.transform(DeriveFIFOSizes(period=period))
-            model = model.transform(
-                InsertFIFO(
-                    create_shallow_fifos=True,
-                )
-            )
-            cleanup_characterization(model)
-            model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
-            model = model.transform(GiveUniqueNodeNames())
-            model = model.transform(GiveReadableTensorNames())
-
-        elif strategy in ("heuristic_analytical", "heuristic_rtlsim"):
+        if strategy in ("heuristic_analytical", "heuristic_rtlsim"):
             # Heuristic FIFO sizing from per-node token access vectors. The two
             # strategies share everything below and differ only in tav_strategy,
             # i.e. whether a node's schedule comes from its tree model or rtlsim.
@@ -1181,6 +1144,25 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
             )
             rtlsim_fallback = not (only_estimates and tav_strategy == "tree_model")
 
+            # the characterization simulations write their waveforms only if
+            # the trace is set before JustInTimeSynthesize compiles them
+            traced = []
+            if cfg.fifosim_save_waveform and rtlsim_fallback:
+                report_dir = os.path.abspath(cfg.output_dir + "/report")
+                os.makedirs(report_dir, exist_ok=True)
+                traced = [
+                    n
+                    for n in model.graph.node
+                    if needs_rtlsim_characterization(n, only_jit_nodes_without_tree)
+                ]
+                for node in traced:
+                    getCustomOp(node).set_nodeattr(
+                        "rtlsim_trace", f"{report_dir}/{node.name}_fifosim_trace.wdb"
+                    )
+
+            # a FINNLoop has no tree model, so it is always among the nodes
+            # characterized with rtlsim here (with the MLO prehook, see
+            # FINNLoop.derive_token_access_vectors)
             if rtlsim_fallback:
                 model = model.transform(
                     JustInTimeSynthesize(
@@ -1192,6 +1174,9 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
             model = model.transform(
                 DeriveTokenAccessVectors(tav_strategy, rtlsim_fallback=rtlsim_fallback)
             )
+            # later simulations must not overwrite the characterization waveforms
+            for node in traced:
+                getCustomOp(node).set_nodeattr("rtlsim_trace", "")
             if not rtlsim_fallback:
                 unsized = [
                     n.name
@@ -1225,6 +1210,14 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                 model = model.transform(CapConvolutionFIFODepths())
 
         elif strategy == "largefifo_rtlsim":
+            # InsertAndSetFIFODepths cannot simulate a FINNLoop in its stitched
+            # design and would return the graph untouched; the config check
+            # reports this before the build starts
+            if is_mlo(model):
+                raise ValueError(
+                    "auto_fifo_strategy 'largefifo_rtlsim' cannot size the FIFOs around a "
+                    "FINNLoop; use 'heuristic_rtlsim' or 'heuristic_analytical' for MLO models"
+                )
             if cfg.fifosim_save_waveform:
                 report_dir = cfg.output_dir + "/report"
                 os.makedirs(report_dir, exist_ok=True)
@@ -1245,13 +1238,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
             )
             snapshot_fifo_logs(cfg, "fifo_sizing")
             model = model.transform(GiveUniqueNodeNames())
-            loop_nodes = model.get_nodes_by_op_type("FINNLoop")
-            for loop_node in loop_nodes:
-                loop_inst = getCustomOp(loop_node)
-                loop_body = loop_inst.get_nodeattr("body")
-                loop_body = loop_body.transform(GiveUniqueNodeNames(prefix=loop_node.name + "_"))
-                loop_inst.set_nodeattr("body", loop_body.graph)
-            model = model.transform(GiveReadableTensorNames(), apply_to_subgraphs=True)
+            model = model.transform(GiveReadableTensorNames())
             # InsertAndSetFIFODepths internally removes any shallow FIFOs
             # so no need to call RemoveShallowFIFOs here
         else:

@@ -901,6 +901,10 @@ def test_finnloop_end2end_mlo(
         verify_save_full_context=True,  # Enable per-iteration context saving
         debug_fifo=run_fifo_debug,  # snapshot per-FIFO sizing logs (tagged per loop body)
         fifo_log_verbose=True,
+        # both heuristic strategies, one per non_mlo_nodes value: with the outer
+        # nodes, heuristic_analytical takes their schedules from the tree models
+        # and characterizes only the FINNLoop with rtlsim
+        auto_fifo_strategy="heuristic_analytical" if non_mlo_nodes else "heuristic_rtlsim",
         # MLO pins folding via mvau_pe/mvau_simd on the nodes at creation time, so the
         # folding_missing check (which assumes creation-time PE=1/SIMD=1) is a false
         # positive here; target_fps would instead override the deliberate folding.
@@ -1163,6 +1167,7 @@ def test_finnloop_end2end_mlo_parallel(
         standalone_thresholds=True,
         mlo=True,
         mlo_parallel_rtlsim=True,
+        auto_fifo_strategy="heuristic_analytical",
         # folding is pinned on the nodes at creation time (see test_finnloop_end2end_mlo)
         mute_config_assertions=True,
         loop_body_hierarchy=[["", "layers.0"]],
@@ -1230,6 +1235,7 @@ def test_finnloop_end2end_mlo_batched_verification():
         synth_clk_period_ns=10.0,
         board="V80",
         mlo=True,
+        auto_fifo_strategy="heuristic_analytical",
         loop_body_hierarchy=[["", "layers.0"]],
         loop_body_range=(model.graph.node[1], model.graph.node[nodes_per_body]),
         verify_steps=["stitched_ip_rtlsim"],
@@ -1508,6 +1514,7 @@ def test_finnloop_end2end_mlo_ddr(
         rtlsim_batch_size=100,
         standalone_thresholds=True,
         mlo=True,
+        auto_fifo_strategy="heuristic_rtlsim",
         fifosim_save_waveform=True,
         loop_body_hierarchy=[["", "layers.0"]],
         loop_body_range=(model.graph.node[0], model.graph.node[nodes_per_body - 1]),

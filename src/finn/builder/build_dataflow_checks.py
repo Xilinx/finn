@@ -459,6 +459,20 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                     "Set auto_fifo_strategy to 'heuristic_rtlsim' or 'heuristic_analytical'",
                 )
             )
+        # InsertAndSetFIFODepths cannot simulate a FINNLoop as part of its stitched
+        # design; step_set_fifo_depths would only fail late in the build
+        if cfg.mlo and strategy == AutoFIFOSizingMethod.LARGEFIFO_RTLSIM:
+            checks.append(
+                _check(
+                    "auto_fifo_strategy_mlo",
+                    Severity.ERROR,
+                    False,
+                    "auto_fifo_strategy 'largefifo_rtlsim' (the default) cannot size the FIFOs "
+                    "around a FINNLoop; MLO models need a heuristic strategy. The FIFOs inside "
+                    "the loop bodies are sized by simulating each body, whatever the strategy",
+                    "Set auto_fifo_strategy to 'heuristic_rtlsim' or 'heuristic_analytical'",
+                )
+            )
 
     # === FIFO Debug Logging ===
     # fifo_log_flush_cycles reaches the RTL via int() in _attach_fifo_debug_logs and
