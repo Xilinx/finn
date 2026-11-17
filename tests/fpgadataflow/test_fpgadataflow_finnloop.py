@@ -30,6 +30,7 @@ from finn.util.basic import (
     get_vivado_version,
     make_build_dir,
     pynq_golden_files,
+    robust_rmtree,
 )
 from finn.util.rtlsim import check_fifo_log_consistency, read_fifo_log_snapshot
 from finn.util.test import stage_hw_deployment
@@ -1023,6 +1024,8 @@ def test_finnloop_end2end_mlo(
             tmp_output_dir + "/stitched_ip/finn_design.dcp"
         ), f"Check vivado.log in {tmp_output_dir}/stitched_ip"
 
+    robust_rmtree(tmp_output_dir)
+
 
 @pytest.mark.parametrize("mvau_cfg", [(16, 2, 2, 1, 2)])
 @pytest.mark.parametrize("iteration", [3])
@@ -1193,6 +1196,8 @@ def test_finnloop_end2end_mlo_parallel(
         matches = glob.glob(verif_dir + "/verify_parallel_*_%d_SUCCESS.npy" % i)
         assert matches, f"parallel rtlsim iteration {i} did not succeed!"
 
+    robust_rmtree(tmp_output_dir)
+
 
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
@@ -1242,6 +1247,8 @@ def test_finnloop_end2end_mlo_batched_verification():
     # a single SUCCESS file: all 5 frames were checked in one stitched-IP rtlsim run
     results = os.listdir(out_dir + "/verification_output")
     assert results == ["verify_stitched_ip_rtlsim_0_SUCCESS.npz"], results
+
+    robust_rmtree(out_dir)
 
 
 @pytest.mark.fpgadataflow
@@ -1354,6 +1361,8 @@ def test_finnloop_end2end_mlo_index_deadlock():
     assert os.listdir(output_dir + "/verification_output") == [
         "verify_stitched_ip_rtlsim_0_SUCCESS.npy"
     ]
+
+    robust_rmtree(output_dir)
 
 
 @pytest.mark.parametrize(
@@ -1582,3 +1591,5 @@ def test_finnloop_end2end_mlo_ddr(
             f"mlo_ddr_dim{dim}_simd{simd}_pe{pe}_hpe{helper_pe}_a{bitwidth}w{weight_bitwidth}"
         )
         stage_hw_deployment(tmp_output_dir + "/deploy", board, model_title, x, y_ref)
+
+    robust_rmtree(tmp_output_dir)
