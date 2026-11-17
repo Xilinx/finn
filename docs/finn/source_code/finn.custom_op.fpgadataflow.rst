@@ -111,6 +111,14 @@ finn.custom\_op.fpgadataflow.labelselect
    :undoc-members:
    :show-inheritance:
 
+finn.custom\_op.fpgadataflow.hwwhere
+-------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.hwwhere
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.custom\_op.fpgadataflow.selecttoken
 ------------------------------------------
 
@@ -144,6 +152,15 @@ finn.custom\_op.fpgadataflow.pool
    :undoc-members:
    :show-inheritance:
 
+finn.custom\_op.fpgadataflow.pwpolyf
+--------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.pwpolyf
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
 finn.custom\_op.fpgadataflow.streamingdataflowpartition
 --------------------------------------------------------
 
@@ -165,6 +182,14 @@ finn.custom\_op.fpgadataflow.streamingfifo
 -------------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.streamingfifo
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+finn.custom\_op.fpgadataflow.streamingreshape
+-----------------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.streamingreshape
    :members:
    :undoc-members:
    :show-inheritance:

@@ -8,14 +8,12 @@
 ############################################################################
 import numpy as np
 import os
-import shutil
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow import elementwise_binary
 from finn.custom_op.fpgadataflow.elementwise_binary import ElementwiseBinaryOperation
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.transformation.fpgadataflow.loop_rolling import LoopBodyInputType
-from finn.util.basic import roundup_to_integer_multiple
+from finn.util.basic import arith_rtl_files, fifo_rtl_files, roundup_to_integer_multiple
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     pack_innermost_dim_as_hex_string,
@@ -49,26 +47,6 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             }
         )
         return my_attrs
-
-    def adapt_for_loop_body(self, input_types):
-        """
-        Adapt elementwise binary operator for loop body execution.
-
-        When an elementwise operator is placed inside a loop, parameters that
-        are indexed per iteration (PARAMETER type) need to be received as
-        streaming inputs rather than embedded constants. This method changes
-        the lhs_style/rhs_style attributes from "const" to "input" as needed.
-        """
-        # If rhs (input[1]) is a PARAMETER (streamed per iteration),
-        # change its style to "input"
-        if len(input_types) > 1 and input_types[1] == LoopBodyInputType.PARAMETER:
-            if self.rhs_style == "const":
-                self.set_nodeattr("rhs_style", "input")
-
-        # Similarly for lhs if needed
-        if len(input_types) > 0 and input_types[0] == LoopBodyInputType.PARAMETER:
-            if self.lhs_style == "const":
-                self.set_nodeattr("lhs_style", "input")
 
     def generate_hdl(self, model, fpgapart, clk):
         lhs_style = self.get_nodeattr("lhs_style")
@@ -176,9 +154,6 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
         if has_const or mlo:
             self.generate_hdl_memstream(fpgapart)
 
-        sv_files = ["eltwise.sv", "binopf.sv", "binopi.sv", "int_to_fp32.sv", "queue.sv"]
-        for sv_file in sv_files:
-            shutil.copy(f"{rtlsrc}/{sv_file}", code_gen_dir)
         self.set_nodeattr("ipgen_path", code_gen_dir)
         self.set_nodeattr("ip_path", code_gen_dir)
 
@@ -191,14 +166,15 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             rtllib_dir = ""
 
         top_module = self.get_nodeattr("gen_top_module")
-        return [
-            f"{rtllib_dir}eltwise.sv",
-            f"{rtllib_dir}binopf.sv",
-            f"{rtllib_dir}binopi.sv",
-            f"{rtllib_dir}int_to_fp32.sv",
-            f"{rtllib_dir}queue.sv",
-            f"{code_gen_dir}{top_module}.v",
-        ]
+        return (
+            [
+                f"{rtllib_dir}eltwise.sv",
+                f"{rtllib_dir}binopi.sv",
+                f"{code_gen_dir}{top_module}.v",
+            ]
+            + arith_rtl_files(["binopf.sv", "int_to_fp32.sv"], abspath)
+            + fifo_rtl_files(abspath)
+        )
 
     def get_verilog_top_module_intf_names(self):
         """
@@ -235,9 +211,7 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
 
     def code_generation_ipi(self):
         """Constructs and returns the TCL for node instantiation in Vivado IPI."""
-        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
-        cmd = ["file mkdir %s" % source_target]
-
+        cmd = []
         node_name = self.onnx_node.name
         intf = self.get_verilog_top_module_intf_names()
         clk_name = intf["clk"][0]
@@ -320,7 +294,7 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
                 ms_rtllib_dir + "memstream.sv",
             ]
             for f in sourcefiles:
-                cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
+                cmd.append("add_files -norecurse %s" % f)
             strm_inst = node_name + "_wstrm"
             cmd.append(
                 "create_bd_cell -type hier -reference %s /%s/%s"
@@ -367,28 +341,24 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
     def instantiate_ip(self, cmd):
         node_name = self.onnx_node.name
         top_module = self.get_nodeattr("gen_top_module")
-        source_target = "./ip/verilog/rtl_ops/%s" % node_name
 
-        sourcefiles = self.get_rtl_file_list(abspath=True)
-
-        for f in sourcefiles:
-            cmd.append("add_files -copy_to %s -norecurse %s" % (source_target, f))
+        for f in self.get_rtl_file_list(abspath=True):
+            cmd.append("add_files -norecurse %s" % f)
 
         # Always create the core inside the hierarchical wrapper
         cmd.append(
             "create_bd_cell -type hier -reference %s /%s/%s" % (top_module, node_name, node_name)
         )
 
-    def derive_characteristic_fxns(self, period, override_rtlsim_dict=None, pre_hook=None):
+    def get_tav_io_dict(self):
         n_inps = np.prod(self.get_folded_input_shape(0)[:-1])
-        io_dict = {
+        return {
             "inputs": {
                 "in0": [i for i in range(n_inps)],
                 "in1": [i for i in range(n_inps)],
             },
             "outputs": {"out0": []},
         }
-        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict, pre_hook=pre_hook)
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")

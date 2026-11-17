@@ -61,6 +61,14 @@ finn.custom\_op.fpgadataflow.streamingdatawidthconverter\_rtl
    :undoc-members:
    :show-inheritance:
 
+finn.custom\_op.fpgadataflow.hwwhere\_rtl
+---------------------------------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.rtl.hwwhere_rtl
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.custom\_op.fpgadataflow.streamingfifo\_rtl
 -------------------------------------------------
 
@@ -69,10 +77,34 @@ finn.custom\_op.fpgadataflow.streamingfifo\_rtl
    :undoc-members:
    :show-inheritance:
 
+finn.custom\_op.fpgadataflow.streamingreshape\_rtl
+----------------------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.rtl.streamingreshape_rtl
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+finn.custom\_op.fpgadataflow.pwpolyf\_rtl
+--------------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.rtl.pwpolyf_rtl
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.custom\_op.fpgadataflow.thresholding\_rtl
 -------------------------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.rtl.thresholding_rtl
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+finn.custom\_op.fpgadataflow.tlastmarker\_rtl
+-----------------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.rtl.tlastmarker_rtl
    :members:
    :undoc-members:
    :show-inheritance:

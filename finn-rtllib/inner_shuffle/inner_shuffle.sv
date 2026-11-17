@@ -338,8 +338,8 @@ module inner_shuffle #(
 		end
 		else begin
 			// Track if we have completed a job
-			if(WrAddr == PAGE_OFFSET   - 1) WrJobsDone[0] <= 1;
-			if(WrAddr == 2*PAGE_OFFSET - 1) WrJobsDone[1] <= 1;
+			if(wr_en && WrAddr == PAGE_OFFSET   - 1) WrJobsDone[0] <= 1;
+			if(wr_en && WrAddr == 2*PAGE_OFFSET - 1) WrJobsDone[1] <= 1;
 
 			// Clear the relevant job once it is read
 			if(page_boundary && (rd_req_en && rd_req_rdy_all)) begin

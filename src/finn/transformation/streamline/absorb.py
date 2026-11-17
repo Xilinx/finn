@@ -333,7 +333,17 @@ class AbsorbMulIntoMultiThreshold(Transformation):
                         assert T is not None, "Initializer for thresholds is not set."
                         start_name = n.input[0]
                         # compute new thresholds and set initializer
-                        Tnew = T / A.reshape(-1, 1)
+                        A_col = A.reshape(-1, 1)
+                        with np.errstate(divide="ignore", invalid="ignore"):
+                            Tnew = T / A_col
+                        # A zero scale makes the MultiThreshold input constantly 0 for
+                        # that channel: thresholds <= 0 are always met, all others
+                        # never. Map them to -inf/+inf explicitly instead of dividing
+                        # by zero (which yields NaN for T == 0 and puts +inf before
+                        # -inf), so the thresholds stay sorted in ascending order.
+                        Tnew = np.where(A_col == 0, np.where(T <= 0, -np.inf, np.inf), Tnew).astype(
+                            Tnew.dtype
+                        )
                         # TODO: need to handle negative A values correctly; produce
                         # mul sign mask and merge into preceding matmul?
                         model.set_initializer(threshold_name, Tnew)

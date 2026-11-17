@@ -15,7 +15,9 @@ We recommend following these notebooks in the order they appear:
 2. Exporting the trained network and verify that it works as intended
 3. Generating a streaming dataflow accelerator using the FINN compiler
 
-Note: This tutorial abstract away the internal details of the steps to provide
-a simpler introduction. If you'd like to understand more of the internal
-details of what happens during the accelerator build, we recommend the
-(BNN-PYNQ end-to-end notebooks)[../bnn-pynq].
+Note: This tutorial abstracts away the internal details of the steps to provide
+a simpler introduction. For more ways to customize the build, see the
+[advanced builder settings notebook](../../advanced/4_advanced_builder_settings.ipynb).
+If you'd like to understand what happens inside the builder during the
+accelerator build, or need to debug a build, we recommend the
+[BNN-PYNQ notebooks](../bnn-pynq).

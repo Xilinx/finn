@@ -43,7 +43,9 @@ module cdma_u #(
     parameter integer                   LEN_BITS = 32,
     parameter integer                   ID_BITS = 2,
 
-    parameter integer                   DCPL_DEPTH = 4
+    parameter integer                   DCPL_DEPTH = 2,
+    parameter bit                       PACED = 1,
+    parameter integer                   N_OUTSTANDING = 2
 ) (
     input  wire                         aclk,
     input  wire                         aresetn,
@@ -118,20 +120,20 @@ logic [ADDR_BITS-1:0] rd_paddr_int;
 logic rd_valid_int, rd_ready_int;
 logic rd_done_int;
 
-Q_srl #(
-    .depth(DCPL_DEPTH),
-    .width(ADDR_BITS+LEN_BITS)
+fifo #(
+    .DEPTH(DCPL_DEPTH),
+    .DATA_WIDTH(ADDR_BITS+LEN_BITS)
 ) inst_q_rd (
-    .clock(aclk),
-    .reset(!aresetn),
+    .clk(aclk),
+    .rst(!aresetn),
     .count(),
     .maxcount(),
-    .i_d({rd_len, rd_paddr}),
-    .i_v(rd_valid),
-    .i_r(rd_ready),
-    .o_d({rd_len_int, rd_paddr_int}),
-    .o_v(rd_valid_int),
-    .o_r(rd_ready_int)
+    .idat({rd_len, rd_paddr}),
+    .ivld(rd_valid),
+    .irdy(rd_ready),
+    .odat({rd_len_int, rd_paddr_int}),
+    .ovld(rd_valid_int),
+    .ordy(rd_ready_int)
 );
 
 always_ff @(posedge aclk) begin
@@ -147,20 +149,20 @@ logic [ADDR_BITS-1:0] wr_paddr_int;
 logic wr_valid_int, wr_ready_int;
 logic wr_done_int;
 
-Q_srl #(
-    .depth(DCPL_DEPTH),
-    .width(ADDR_BITS+LEN_BITS)
+fifo #(
+    .DEPTH(DCPL_DEPTH),
+    .DATA_WIDTH(ADDR_BITS+LEN_BITS)
 ) inst_q_wr (
-    .clock(aclk),
-    .reset(!aresetn),
+    .clk(aclk),
+    .rst(!aresetn),
     .count(),
     .maxcount(),
-    .i_d({wr_len, wr_paddr}),
-    .i_v(wr_valid),
-    .i_r(wr_ready),
-    .o_d({wr_len_int, wr_paddr_int}),
-    .o_v(wr_valid_int),
-    .o_r(wr_ready_int)
+    .idat({wr_len, wr_paddr}),
+    .ivld(wr_valid),
+    .irdy(wr_ready),
+    .odat({wr_len_int, wr_paddr_int}),
+    .ovld(wr_valid_int),
+    .ordy(wr_ready_int)
 );
 
 always_ff @(posedge aclk) begin
@@ -183,7 +185,9 @@ axi_dma_rd_u #(
     .AXIS_KEEP_WIDTH(DATA_BITS/8),
     .AXIS_LAST_ENABLE(1'b1),
     .LEN_WIDTH(LEN_BITS),
-    .AXI_ID_BITS(ID_BITS)
+    .AXI_ID_BITS(ID_BITS),
+    .PACED(PACED),
+    .N_OUTSTANDING(N_OUTSTANDING)
 )
 axi_dma_rd_inst (
     .aclk(aclk),

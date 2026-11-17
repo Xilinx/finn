@@ -27,7 +27,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
-import shutil
 
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.custom_op.fpgadataflow.streamingdatawidthconverter import (
@@ -44,24 +43,6 @@ class StreamingDataWidthConverter_rtl(StreamingDataWidthConverter, RTLBackend):
         my_attrs.update(StreamingDataWidthConverter.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
-
-    def check_divisible_iowidths(self):
-        iwidth = self.get_nodeattr("inWidth")
-        owidth = self.get_nodeattr("outWidth")
-        # the rtl module only supports
-        # stream widths that are divisible by
-        # integer width ratios
-        iwidth_d = iwidth % owidth == 0
-        owidth_d = owidth % iwidth == 0
-        assert (
-            iwidth_d or owidth_d
-        ), """RTL implementation of DWC requires
-        stream widths that are integer width ratios
-        from each other. Input width is set to %s
-        and output width is set to %s """ % (
-            iwidth,
-            owidth,
-        )
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
@@ -103,9 +84,6 @@ class StreamingDataWidthConverter_rtl(StreamingDataWidthConverter, RTLBackend):
         ) as f:
             f.write(template)
 
-        sv_files = ["dwc_axi.sv", "dwc.sv"]
-        for sv_file in sv_files:
-            shutil.copy(rtlsrc + "/" + sv_file, code_gen_dir)
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
         self.set_nodeattr("ipgen_path", code_gen_dir)
@@ -121,7 +99,7 @@ class StreamingDataWidthConverter_rtl(StreamingDataWidthConverter, RTLBackend):
 
         verilog_files = [
             rtllib_dir + "dwc_axi.sv",
-            rtllib_dir + "dwc.sv",
+            rtllib_dir + "vpc.sv",
             code_gen_dir + self.get_nodeattr("gen_top_module") + ".v",
         ]
 
@@ -129,21 +107,11 @@ class StreamingDataWidthConverter_rtl(StreamingDataWidthConverter, RTLBackend):
 
     def code_generation_ipi(self):
         """Constructs and returns the TCL for node instantiation in Vivado IPI."""
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-
-        sourcefiles = [
-            "dwc_axi.sv",
-            "dwc.sv",
-            self.get_nodeattr("gen_top_module") + ".v",
-        ]
-
-        sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
-
         cmd = []
-        for f in sourcefiles:
-            cmd += ["add_files -norecurse %s" % (f)]
-        cmd += [
+        for f in self.get_rtl_file_list(abspath=True):
+            cmd.append("add_files -norecurse %s" % f)
+        cmd.append(
             "create_bd_cell -type module -reference %s %s"
             % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)
-        ]
+        )
         return cmd

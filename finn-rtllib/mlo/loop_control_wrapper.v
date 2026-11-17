@@ -32,12 +32,12 @@
 
 module $LOOP_CONTROL_WRAPPER_NAME$ #(
     parameter N_MAX_LAYERS   = $N_MAX_LAYERS$,
-    parameter INPUT_BYTES    = $INPUT_BYTES$, // number of bytes in the input shape
-    parameter OUTPUT_BYTES   = $OUTPUT_BYTES$, // number of bytes in the output shape
+    parameter INPUT_ELEMS    = $INPUT_ELEMS$, // number of elements in the input shape
     parameter N_LAYERS       = $N_LAYERS$,
 
     parameter ADDR_BITS      = 64,
-    parameter DATA_BITS      = 256,
+    parameter DATA_BITS      = $DATA_BITS$,
+    parameter N_OUTSTANDING_DMAS = $N_OUTSTANDING_DMAS$,
     parameter LEN_BITS       = 32,
     parameter IDX_BITS       = 16,
     parameter ELEM_BITS      = $ELEM_BITS$,
@@ -118,10 +118,7 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
 
     output [OLEN_BITS-1:0] out0_V_tdata,
     output                 out0_V_tvalid,
-    input                  out0_V_tready,
-
-    // Control signals
-    output wire [1:0]      done_if
+    input                  out0_V_tready
 `ifdef HAS_BASE_ADDRESS
     ,
     // Base Address
@@ -131,9 +128,10 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
 
     loop_control #(
         .N_LAYERS(N_LAYERS),
-        .FM_SIZE(INPUT_BYTES),
+        .FM_ELEMS(INPUT_ELEMS),
         .ADDR_BITS(ADDR_BITS),
         .DATA_BITS(DATA_BITS),
+        .N_OUTSTANDING_DMAS(N_OUTSTANDING_DMAS),
         .LEN_BITS(LEN_BITS),
         .IDX_BITS(IDX_BITS),
         .ELEM_BITS(ELEM_BITS),

@@ -120,17 +120,13 @@ Coding Standards
 ================
 
 FINN follows specific coding conventions for Python, HLS/C++, and SystemVerilog code.
-Please refer to the style guides in the repository root for detailed guidelines:
+Please refer to the coding rules in the `rules/ <https://github.com/Xilinx/finn/blob/dev/rules>`_ directory of the repository:
 
-* `PYTHON_STYLE_GUIDE.md <https://github.com/Xilinx/finn/blob/dev/PYTHON_STYLE_GUIDE.md>`_
-
-  - Python naming conventions, docstrings, type hints, and error handling
-  - FINN-specific patterns: CustomOps, transformations, node attributes, testing
-
-* `HDL_STYLE_GUIDE.md <https://github.com/Xilinx/finn/blob/dev/HDL_STYLE_GUIDE.md>`_
-
-  - HLS/C++ template parameters, function naming, and pragma usage
-  - SystemVerilog module structure, signal naming, and design patterns
+* `style_common.md <https://github.com/Xilinx/finn/blob/dev/rules/style_common.md>`_: file headers and licenses, comments, domain abbreviations
+* `style_python.md <https://github.com/Xilinx/finn/blob/dev/rules/style_python.md>`_: Python formatting, naming, docstrings, type hints, and errors
+* `patterns_finn.md <https://github.com/Xilinx/finn/blob/dev/rules/patterns_finn.md>`_: FINN-specific patterns: custom ops, transformations, node attributes, testing
+* `style_cpp.md <https://github.com/Xilinx/finn/blob/dev/rules/style_cpp.md>`_ and `style_hls.md <https://github.com/Xilinx/finn/blob/dev/rules/style_hls.md>`_: C++/HLS naming, documentation, formatting, and kernel architecture
+* `style_sv.md <https://github.com/Xilinx/finn/blob/dev/rules/style_sv.md>`_: SystemVerilog module structure, signal naming, and design patterns
 
 Following these standards ensures consistency across the codebase and makes code
 easier to read, review, and maintain.
@@ -143,7 +139,7 @@ These tests can be roughly grouped into three categories:
 
  * Unit tests: targeting unit functionality, e.g. a single transformation. Example: https://github.com/Xilinx/finn/blob/main/tests/transformation/streamline/test_sign_to_thres.py tests the expected behavior of the `ConvertSignToThres` transformation pass.
 
- * Small-scale integration tests: targeting a group of related classes or functions that to test how they behave together. Example: https://github.com/Xilinx/finn/blob/main/tests/fpgadataflow/test_convert_to_hls_conv_layer.py sets up variants of ONNX Conv nodes that are first lowered and then converted to FINN HLS layers.
+ * Small-scale integration tests: targeting a group of related classes or functions that to test how they behave together. Example: https://github.com/Xilinx/finn/blob/main/tests/fpgadataflow/test_convert_to_hw_pool_batch.py sets up variants of ONNX pooling nodes that are converted to FINN hardware layers, specialized and simulated.
 
  * End-to-end tests: testing a typical 'end-to-end' compilation flow in FINN, where one end is a trained QNN and the other end is a hardware implementation. These tests can be quite large and are typically broken into several steps that depend on prior ones. Examples: https://github.com/Xilinx/finn/tree/main/tests/end2end
 

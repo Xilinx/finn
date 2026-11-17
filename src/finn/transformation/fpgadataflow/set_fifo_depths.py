@@ -31,14 +31,9 @@ import numpy as np
 import os
 import warnings
 from onnx import TensorProto, helper
-from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
-from qonnx.transformation.general import (
-    GiveReadableTensorNames,
-    GiveUniqueNodeNames,
-    SortGraph,
-)
+from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from qonnx.util.basic import gen_finn_dt_tensor
 
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
@@ -53,10 +48,34 @@ from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
+def check_fifo_gauge_overflow(node_name, observed):
+    # fifo_gauge.sv exposes a fixed 32-bit occupancy counter and holds maxcount at its
+    # maximum value (2^32-1) as a sticky sentinel once the counter has wrapped. A depth
+    # sized from a wrapped counter would be unreliable, so flag that value as an overflow
+    # marker rather than trusting it as a real fill level.
+    count_overflow = 2**32 - 1
+    if observed >= count_overflow:
+        raise RuntimeError(
+            "%s: FIFO sizing gauge overflowed its 32-bit occupancy counter "
+            "(maxcount=%d); the sized depth would be unreliable." % (node_name, observed)
+        )
+
+
 def reset_implementation(node):
     node.set_nodeattr("code_gen_dir_ipgen", "")
     node.set_nodeattr("ipgen_path", "")
     node.set_nodeattr("ip_path", "")
+
+
+def set_fifo_debug_log(node, log_path, verbose, flush_cycles):
+    """Make the fifo_gauge of the StreamingFIFO_rtl instance ``node`` log to
+    ``log_path``, in the verbose format if ``verbose``, flushing every
+    ``flush_cycles`` simulated cycles (0: only at the end). The settings are
+    baked into the generated RTL, so they only take effect with code generated
+    after this call."""
+    node.set_nodeattr("debug_log_path", log_path)
+    node.set_nodeattr("fifo_log_verbose", int(verbose))
+    node.set_nodeattr("fifo_log_flush_cycles", int(flush_cycles))
 
 
 def set_signal(sim, keyw, value):
@@ -74,15 +93,7 @@ def get_signal(sim, keyw):
 
 
 def optimize_depth(depth):
-    if depth <= 2:
-        return 2
-    if depth <= 32:
-        # Q_srl FIFOs do not benefit from size < 32
-        # add some slack
-        return 32
-    # otherwise leave as is
-    # will be rounded to nearest power of two for Vivado-style FIFO
-    return int(depth)
+    return max(2, int(depth))
 
 
 class RemoveShallowFIFOs(Transformation):
@@ -134,11 +145,6 @@ class CapConvolutionFIFODepths(Transformation):
     Will be automatically called from InsertAndSetFIFODepths if the appropriate
     constructor flag is set.
 
-    Constructor arguments:
-
-    :parameter max_qsrl_depth: FIFOs deeper than this will use Vivado IP
-        instead of Verilog FIFOs (Q_srl.v)
-
     Assumed input graph properties:
 
     - all nodes are fpgadataflow nodes
@@ -157,10 +163,6 @@ class CapConvolutionFIFODepths(Transformation):
     """
 
     # TODO add unit test
-
-    def __init__(self, max_qsrl_depth=256):
-        super().__init__()
-        self.max_qsrl_depth = max_qsrl_depth
 
     def apply(self, model):
         # TODO move this to own transformation
@@ -186,12 +188,6 @@ class CapConvolutionFIFODepths(Transformation):
                 new_depth = optimize_depth(w * ifold)
                 new_depth = min(new_depth, depth)
                 op_inst.set_nodeattr("depth", new_depth)
-                # Set FIFO implementation/ram styles
-                if new_depth > self.max_qsrl_depth:
-                    op_inst.set_nodeattr("impl_style", "vivado")
-                    op_inst.set_nodeattr("ram_style", "auto")
-                else:
-                    op_inst.set_nodeattr("impl_style", "rtl")
 
         return (model, False)
 
@@ -203,7 +199,7 @@ def xsi_fifosim(model, n_inferences, max_iters=None, throttle_cycles=0, behav=Tr
     liveness threshold instead. throttle_cycles can be used for throttling
     the input stream every time a frame is finished.
     If behav=True (default), FINN_SIMULATION is defined and fifo_gauge is used.
-    If behav=False, Q_srl is used instead (no debug logging)."""
+    If behav=False, the synthesizable fifo.sv is used instead (no debug logging)."""
 
     iname = model.get_first_global_in()
     first_node = model.find_consumer(iname)
@@ -233,16 +229,22 @@ class InsertAndSetFIFODepths(Transformation):
     Constructor arguments:
 
     :parameter clk_ns: clock period (used for IP preparation)
-    :parameter max_qsrl_depth: FIFOs deeper than this will use Vivado IP
-        instead of Verilog FIFOs (Q_srl.v)
     :parameter max_depth: how deep the "max"-sized FIFOs initially inserted
         will be. If set to None, use the tensor size as the depth
     :parameter swg_exception: call CapConvolutionFIFODepths to make convolution FIFOs
         smaller where appropriate
-    :parameter vivado_ram_style: the StreamingFIFO.ram_style attribute to be used
-        for large FIFOs implemented by Vivado afterwards
     :parameter fifosim_input_throttle: use input throttling based on dataflow analysis
         while doing simulation-based FIFO sizing
+    :parameter fpgapart: The FPGA to specialize & synthesize the FIFO sizing objects for.
+    :parameter cfg_n_inferences: How many inferences to use to determine FIFO sizes.
+    :parameter debug_log_dir: Path for FIFO logs for the FIFO sizing sim. None means off.
+    :parameter debug_log_prefix: The prefix to use for FIFO log filenames on the
+        filesystem.
+    :parameter fifo_log_verbose: Whether to enrich FIFO log output.
+        False (default): <data_in>. True: <data> <direction> <cycle>
+    :parameter fifo_log_flush_cycles: How many simulated cycles to wait before
+        flushing the logs to disk. 0 disables periodic flushing.
+        Higher = better performance.
 
     Assumed input graph properties:
 
@@ -273,28 +275,28 @@ class InsertAndSetFIFODepths(Transformation):
         self,
         fpgapart,
         clk_ns=10.0,
-        max_qsrl_depth=256,
         max_depth=None,
         swg_exception=False,
-        vivado_ram_style="auto",
         fifosim_input_throttle=True,
         cfg_n_inferences=2,
         debug_log_dir=None,
         debug_log_prefix="",
+        fifo_log_verbose=False,
+        fifo_log_flush_cycles=10000,
     ):
         super().__init__()
         self.fpgapart = fpgapart
         self.clk_ns = clk_ns
-        self.max_qsrl_depth = max_qsrl_depth
         self.max_depth = max_depth
         self.swg_exception = swg_exception
-        self.vivado_ram_style = vivado_ram_style
         self.fifosim_input_throttle = fifosim_input_throttle
         self.cfg_n_inferences = cfg_n_inferences
         self.mlo_max_iter = 0
         self.ind_map = {}
         self.debug_log_dir = debug_log_dir
         self.debug_log_prefix = debug_log_prefix
+        self.fifo_log_verbose = fifo_log_verbose
+        self.fifo_log_flush_cycles = fifo_log_flush_cycles
 
     def apply(self, model):
         model = model.transform(GiveUniqueNodeNames())
@@ -345,7 +347,7 @@ class InsertAndSetFIFODepths(Transformation):
                     ifd[i] = tensor_size if tensor_size > 1 else 2
                 for o in range(len(ofd)):
                     # safe guard that for very small tensors depth is not set to 1
-                    depth = np.prod(node.get_folded_output_shape(o)[:-1])
+                    tensor_size = np.prod(node.get_folded_output_shape(o)[:-1])
                     ofd[o] = tensor_size if tensor_size > 1 else 2
             # set node attribute and ensure that it gets saved as list of integers
             node.set_nodeattr("inFIFODepths", [int(fifo) for fifo in ifd])
@@ -440,7 +442,6 @@ class InsertAndSetFIFODepths(Transformation):
             fifos[node.name] = 0
             node = getCustomOp(node)
             node.set_nodeattr("depth_monitor", 1)
-            node.set_nodeattr("impl_style", "rtl")
             # check depths and fix as necessary
             if (self.max_depth is not None) and (node.get_nodeattr("depth") != self.max_depth):
                 node.set_nodeattr("depth", self.max_depth)
@@ -451,7 +452,9 @@ class InsertAndSetFIFODepths(Transformation):
                 log_path = os.path.abspath(
                     os.path.join(self.debug_log_dir, self.debug_log_prefix + node.name + ".log")
                 )
-                getCustomOp(node).set_nodeattr("debug_log_path", log_path)
+                set_fifo_debug_log(
+                    getCustomOp(node), log_path, self.fifo_log_verbose, self.fifo_log_flush_cycles
+                )
 
         # insert FIFOs and do all transformations for RTLsim
         model = model.transform(AnnotateCycles())
@@ -475,6 +478,15 @@ class InsertAndSetFIFODepths(Transformation):
         else:
             throttle_cycles = 0
 
+        if self.debug_log_dir is not None:
+            intermediate_models_dir = os.path.abspath(
+                os.path.join(self.debug_log_dir, "intermediate_models")
+            )
+            os.makedirs(intermediate_models_dir, exist_ok=True)
+            model.save(
+                os.path.join(intermediate_models_dir, self.debug_log_prefix + "pre_fifosim.onnx")
+            )
+
         sim = xsi_fifosim(
             model, self.cfg_n_inferences, max_iters=max_iters, throttle_cycles=throttle_cycles
         )
@@ -483,7 +495,9 @@ class InsertAndSetFIFODepths(Transformation):
             maxcount_name = "maxcount_%d" % ind
             if ind == 0:
                 maxcount_name = "maxcount"
-            fifos[node.name] = sim[maxcount_name]
+            observed = sim[maxcount_name]
+            check_fifo_gauge_overflow(node.name, observed)
+            fifos[node.name] = observed
 
         # Apply depths back into the model;
         # also set in/outFIFODepths to zero for non-FIFO
@@ -499,17 +513,9 @@ class InsertAndSetFIFODepths(Transformation):
                 node_inst = getCustomOp(node)
                 node_inst.set_nodeattr("depth", depth)
                 node_inst.set_nodeattr("depth_monitor", 0)
-                # exception for top-level IO FIFOs which cause a bug in simulation
-                # (top-level IOs should not have impl_style=vivado)
-                toplevel_in = node.input[0] in [x.name for x in model.graph.input]
-                toplevel_out = node.output[0] in [x.name for x in model.graph.output]
-                toplevel_style_exception = toplevel_in or toplevel_out
-                # Set FIFO implementation/ram styles
-                if (depth > self.max_qsrl_depth) and (not toplevel_style_exception):
-                    node_inst.set_nodeattr("impl_style", "vivado")
-                    node_inst.set_nodeattr("ram_style", self.vivado_ram_style)
-                else:
-                    node_inst.set_nodeattr("impl_style", "rtl")
+                # leave every sized FIFO on "auto" so fifo.sv picks a backing for the
+                # new depth; folding config or the user can override per FIFO afterwards
+                node_inst.set_nodeattr("ram_style", "auto")
                 # reset implementation
                 reset_implementation(node_inst)
                 del fifos[node.name]
@@ -598,7 +604,7 @@ class InsertAndSetFIFODepths(Transformation):
 
         # handle custom sizing for SWG FIFOs if desired
         if self.swg_exception:
-            model = model.transform(CapConvolutionFIFODepths(max_qsrl_depth=self.max_qsrl_depth))
+            model = model.transform(CapConvolutionFIFODepths())
 
         # remove FIFOs from mlo parameter inputs
         for op_type in mlo_optypes:
@@ -672,127 +678,4 @@ class InsertAndSetFIFODepths(Transformation):
                 node_inst.set_nodeattr("inFIFODepths", [int(fifo) for fifo in fifodepth_in])
                 node_inst.set_nodeattr("outFIFODepths", [int(fifo) for fifo in fifodepth_out])
 
-        return (model, False)
-
-
-def get_fifo_split_configs(depth, max_qsrl_depth=256, max_vivado_depth=32768):
-    """Break non-power-of-2 sized FIFO depths into several ones"""
-
-    def floor_pow2(x):
-        if (x & (x - 1) == 0) and x != 0:
-            return x
-        else:
-            return 1 << ((x - 1).bit_length() - 1)
-
-    def decompose_pow2(x):
-        if x <= max_qsrl_depth:
-            return [x]
-        else:
-            r = floor_pow2(x)
-            if x == r:
-                return [x]
-            else:
-                return [r, *decompose_pow2(x - r)]
-
-    ret = []
-    # trivial case: for small FIFOs, return as-is with rtl style
-    if depth <= max_qsrl_depth:
-        return [(depth, "rtl")]
-    # first pass: ensure max depth is respected
-    # (restricted by Vivado AXIS infra IP)
-    remainder = depth
-    while remainder != 0:
-        if remainder > max_vivado_depth:
-            ret.append(max_vivado_depth)
-            remainder -= max_vivado_depth
-        else:
-            ret.append(remainder)
-            remainder = 0
-    # second pass: break non-power-of-2 sized FIFOs
-    # into several ones
-
-    ret_pass2 = list(map(decompose_pow2, ret))
-    # unpack list of lists
-    ret_pass2 = [x for dec_list in ret_pass2 for x in dec_list]
-
-    # finally, add impl_style to each split FIFO
-    ret_final = []
-    for cand_depth in ret_pass2:
-        if cand_depth <= max_qsrl_depth:
-            ret_final.append((max(2, cand_depth), "rtl"))
-        else:
-            ret_final.append((cand_depth, "vivado"))
-
-    return ret_final
-
-
-class SplitLargeFIFOs(Transformation):
-    """Split large FIFOs before implementation, for two reasons:
-
-    - impl_style="vivado" supports a max depth of 32k. Any larger
-      FIFOs must be implemented as a sequence of smaller FIFOs.
-    - impl_style="vivado" requires power-of-two depths, which is
-      normally handled by rounding up to the nearest power-of-two.
-      So a FIFO of size 8196 normally gets rounded-up to a depth of
-      16384 and wastes a lot of resources. Here, instead, we split
-      this up into two FIFOs of depth 8192 + 4.
-
-    """
-
-    def __init__(self, max_qsrl_depth=256, max_vivado_depth=32768):
-        super().__init__()
-        self.max_qsrl_depth = max_qsrl_depth
-        self.max_vivado_depth = max_vivado_depth
-
-    def apply(self, model):
-        graph = model.graph
-        node_ind = 0
-        graph_modified = False
-        for node in graph.node:
-            node_ind += 1
-            if node.op_type == ("StreamingFIFO_rtl"):
-                n_inst = getCustomOp(node)
-                depth = n_inst.get_nodeattr("depth")
-                cfgs = get_fifo_split_configs(depth, self.max_qsrl_depth, self.max_vivado_depth)
-                if len(cfgs) > 1:
-                    fld_shape = n_inst.get_folded_output_shape()
-                    n_shape = n_inst.get_normal_output_shape()
-                    dtype = n_inst.get_nodeattr("dataType")
-                    ram_style = n_inst.get_nodeattr("ram_style")
-                    shape = model.get_tensor_shape(node.input[0])
-                    for i, (fifo_depth, impl_style) in enumerate(cfgs):
-                        if i == 0:
-                            inp = node.input[0]
-                        else:
-                            inp = node.name + "_" + str(i - 1) + "_out"
-                        if i == len(cfgs) - 1:
-                            outp = node.output[0]
-                        else:
-                            outp = node.name + "_" + str(i) + "_out"
-                            out_tensor = helper.make_tensor_value_info(
-                                outp, TensorProto.FLOAT, shape
-                            )
-                            graph.value_info.append(out_tensor)
-                            model.set_tensor_datatype(out_tensor.name, DataType[dtype])
-                        fifo_node = helper.make_node(
-                            "StreamingFIFO_rtl",
-                            [inp],
-                            [outp],
-                            domain="finn.custom_op.fpgadataflow.rtl",
-                            backend="fpgadataflow",
-                            depth=fifo_depth,
-                            folded_shape=fld_shape,
-                            normal_shape=n_shape,
-                            dataType=dtype,
-                            impl_style=impl_style,
-                            ram_style=ram_style,
-                            name=node.name + "_" + str(i),
-                        )
-                        graph.node.insert(node_ind + i, fifo_node)
-
-                    graph.node.remove(node)
-                    graph_modified = True
-        if graph_modified:
-            model = model.transform(SortGraph())
-            model = model.transform(GiveReadableTensorNames())
         return (model, False)

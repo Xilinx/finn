@@ -28,7 +28,7 @@
   "Thresholding_rtl_2": {
     "PE": 1
   },
-  "StreamingMaxPool_hls_0": {
+  "Pool_hls_0": {
     "PE": 1
   },
   "ConvolutionInputGenerator_rtl_2": {
@@ -57,7 +57,7 @@
   "Thresholding_rtl_4": {
     "PE": 1
   },
-  "StreamingMaxPool_hls_1": {
+  "Pool_hls_1": {
     "PE": 1
   },
   "ConvolutionInputGenerator_rtl_4": {

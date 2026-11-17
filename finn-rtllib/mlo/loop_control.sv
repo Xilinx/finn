@@ -31,8 +31,8 @@
  *****************************************************************************/
 
 module loop_control #(
-    // COMPILER SET, this is the size of the global in, global out frames
-    int unsigned FM_SIZE,
+    // COMPILER SET, number of elements in the global in/out frames
+    int unsigned FM_ELEMS,
     // COMPILER SET, number of layers
     int unsigned N_LAYERS,
     // COMPILER SET, element bit width
@@ -46,6 +46,8 @@ module loop_control #(
     int unsigned ADDR_BITS,
     int unsigned DATA_BITS,
     int unsigned LEN_BITS,
+    // COMPILER SET, number of intermediate frame slots in external memory
+    int unsigned N_OUTSTANDING_DMAS,
 
     bit [ADDR_BITS-1:0] ADDRESS_OFFSET = 0
 ) (
@@ -121,6 +123,7 @@ module loop_control #(
     // Base Address
     input  [ADDR_BITS-1:0]      base_address
 );
+`default_nettype none
 
 logic idx_if_in_tvalid, idx_if_in_tready;
 logic [IDX_BITS-1:0] idx_if_in_tdata;
@@ -138,7 +141,7 @@ logic [ILEN_BITS-1:0] axis_if_out_tdata;
 
 mux #(
     .IDX_BITS(IDX_BITS),
-    .FM_SIZE(FM_SIZE),
+    .FM_ELEMS(FM_ELEMS),
     .ELEM_BITS(ELEM_BITS),
     .ILEN_BITS(ILEN_BITS)
 ) inst_mux_in (
@@ -175,7 +178,7 @@ mux #(
 demux #(
     .N_LAYERS(N_LAYERS),
     .IDX_BITS(IDX_BITS),
-    .FM_SIZE(FM_SIZE),
+    .FM_ELEMS(FM_ELEMS),
     .ELEM_BITS(ELEM_BITS),
     .OLEN_BITS(OLEN_BITS)
 ) inst_mux_out (
@@ -210,7 +213,7 @@ demux #(
 //  ================-----------------------------------------------------------------
 
 intermediate_frames #(
-    .FM_SIZE(FM_SIZE),
+    .FM_ELEMS(FM_ELEMS),
     .ELEM_BITS(ELEM_BITS),
     .ILEN_BITS(ILEN_BITS),
     .OLEN_BITS(OLEN_BITS),
@@ -218,6 +221,7 @@ intermediate_frames #(
     .DATA_BITS(DATA_BITS),
     .LEN_BITS(LEN_BITS),
     .IDX_BITS(IDX_BITS),
+    .N_OUTSTANDING_DMAS(N_OUTSTANDING_DMAS),
     .ADDRESS_OFFSET(ADDRESS_OFFSET)
 ) inst_intermediate_frames (
     .aclk(aclk),
@@ -280,4 +284,5 @@ intermediate_frames #(
     .base_address(base_address)
 );
 
+`default_nettype wire
 endmodule

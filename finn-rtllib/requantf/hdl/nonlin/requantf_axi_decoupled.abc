@@ -1,0 +1,9 @@
+#############################################################################
+# Copyright Advanced Micro Devices, Inc.
+# SPDX-License-Identifier: MIT
+#############################################################################
+
+import	requantf_decoupled @infra/fifo
+read_sv requantf_axi_decoupled.sv
+setup_tb  requantf_axi_decoupled_tb
+setup_top requantf_axi_decoupled_top

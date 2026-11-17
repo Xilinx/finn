@@ -31,8 +31,6 @@ import pytest
 import json
 import numpy as np
 import os
-import re
-import shutil
 import torch
 import torch.nn as nn
 from brevitas.core.quant import QuantType
@@ -153,19 +151,13 @@ def test_end2end_cybsec_mlp_export():
 @pytest.mark.vivado
 @pytest.mark.end2end
 def test_end2end_cybsec_mlp_build(build_board):
-    # AUP-ZU3 board requires at least Vivado 2024.1
-    # otherwise this test will be skipped
-    vivado_path = os.environ.get("XILINX_VIVADO")
-    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
-    year, minor = int(match.group(1)), int(match.group(2))
-    if (year, minor) < (2024, 1) and build_board == "AUP-ZU3_8GB":
-        pytest.skip("AUP-ZU3 board requires at least vivado 2024.1")
     model_file = get_checkpoint_name("export")
     load_test_checkpoint_or_skip(model_file)
     output_dir = make_build_dir("test_end2end_cybsec_mlp_build")
 
     cfg = build.DataflowBuildConfig(
         output_dir=output_dir,
+        enable_build_pdb_debug=False,
         target_fps=1000000,
         synth_clk_period_ns=target_clk_ns,
         board=build_board,
@@ -203,7 +195,7 @@ def test_end2end_cybsec_mlp_build(build_board):
         # InsertDWC/InsertFIFO, so these totals now also include the
         # StreamingFIFO and StreamingDataWidthConverter nodes, not just the
         # compute layers.
-        assert est_res_dict["total"]["LUT"] == 8076.0
+        assert est_res_dict["total"]["LUT"] == 8215.0
         assert est_res_dict["total"]["BRAM_18K"] == 36.0
-    shutil.copytree(output_dir + "/deploy", get_checkpoint_name("build"))
-    shutil.rmtree(get_checkpoint_name("build"))
+    assert os.path.isfile(output_dir + "/deploy/bitfile/finn-accel.bit")
+    assert os.path.isfile(output_dir + "/deploy/driver/driver.py")

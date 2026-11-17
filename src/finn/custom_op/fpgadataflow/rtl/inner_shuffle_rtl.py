@@ -6,40 +6,12 @@
 #
 # @author       Shane T. Fleming <shane.fleming@amd.com>
 ############################################################################
-import math
 import os
-import shutil
 from qonnx.core.datatype import DataType
-from typing import Optional
 
 from finn.custom_op.fpgadataflow.inner_shuffle import InnerShuffle
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-
-
-def auto_size_simd(I_dim: int, SIMD: int) -> Optional[int]:
-    """
-    Return the smallest divisor d of I_dim such that d > SIMD.
-    if no such divisor exists, return None.
-    """
-    if I_dim <= 0:
-        raise ValueError("I_dim must be a positive integer")
-    if SIMD < 0:
-        raise ValueError("SIMD must be a non-negative integer")
-
-    candidates = []
-    limit = int(math.isqrt(I_dim))
-    for a in range(1, limit + 1):
-        if I_dim % a == 0:
-            b = I_dim // a
-            if a > SIMD:
-                candidates.append(a)
-            if b > SIMD:
-                candidates.append(b)
-
-    if not candidates:
-        return None
-
-    return min(candidates)
+from finn.util.basic import fifo_rtl_files
 
 
 class InnerShuffle_rtl(InnerShuffle, RTLBackend):
@@ -47,16 +19,6 @@ class InnerShuffle_rtl(InnerShuffle, RTLBackend):
 
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
-
-        # check some constraints that it is a legal InnerShuffle
-        I_dim = self.get_nodeattr("transpose_in_shape")[-2]
-        SIMD = self.get_nodeattr("SIMD")
-        if I_dim % SIMD != 0:
-            new_simd = auto_size_simd(I_dim, SIMD)
-            if new_simd is not None:
-                self.set_nodeattr("SIMD", new_simd)
-            else:
-                raise RuntimeError("Unable to determine a new SIMD value for this transpose.")
 
     def get_nodeattr_types(self):
         my_attrs = {}
@@ -103,46 +65,32 @@ class InnerShuffle_rtl(InnerShuffle, RTLBackend):
         # (e.g. by GiveUniqueNodeNames(prefix) during MakeZynqProject)
         self.set_nodeattr("gen_top_module", self.get_verilog_top_module_name())
 
-        sv_files = ["inner_shuffle.sv", "skid.sv", "elasticmem.sv", "queue.sv"]
-        for sv_files in sv_files:
-            shutil.copy(f"{rtlsrc}/{sv_files}", code_gen_dir)
         self.set_nodeattr("ipgen_path", code_gen_dir)
         self.set_nodeattr("ip_path", code_gen_dir)
 
     def get_rtl_file_list(self, abspath=False):
         if abspath:
             code_gen_dir = f"{self.get_nodeattr('code_gen_dir_ipgen')}/"
-            rtllib_dir = f'{os.environ["FINN_ROOT"]}/finn-rtllib/inner_shuffle'
+            rtllib_dir = f'{os.environ["FINN_ROOT"]}/finn-rtllib'
         else:
             code_gen_dir = ""
             rtllib_dir = ""
 
         top_module = self.get_nodeattr("gen_top_module")
         return [
-            f"{rtllib_dir}/inner_shuffle.sv",
-            f"{rtllib_dir}/skid.sv",
-            f"{rtllib_dir}/elasticmem.sv",
-            f"{rtllib_dir}/queue.sv",
+            f"{rtllib_dir}/inner_shuffle/inner_shuffle.sv",
+            f"{rtllib_dir}/skid/skid.sv",
+            f"{rtllib_dir}/inner_shuffle/elasticmem.sv",
             f"{code_gen_dir}{top_module}.v",
-        ]
+        ] + fifo_rtl_files(abspath)
 
     def code_generation_ipi(self):
         """Constructs and returns the TCL for node instantiation in Vivado IPI."""
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         top_module = self.get_nodeattr("gen_top_module")
-        sourcefiles = [
-            "inner_shuffle.sv",
-            "skid.sv",
-            "queue.sv",
-            "elasticmem.sv",
-            f"{top_module}.v",
-        ]
-        sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
-
         cmd = []
-        for vf in sourcefiles:
-            cmd += [f"add_files -norecurse {vf}"]
-        cmd += [f"create_bd_cell -type module -reference {top_module} {self.onnx_node.name}"]
+        for f in self.get_rtl_file_list(abspath=True):
+            cmd.append(f"add_files -norecurse {f}")
+        cmd.append(f"create_bd_cell -type module -reference {top_module} {self.onnx_node.name}")
         return cmd
 
     def execute_node(self, context, graph):

@@ -35,6 +35,8 @@ from qonnx.core.modelwrapper import ModelWrapper
 
 from finn.custom_op.fpgadataflow import register_custom_op
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.transformation.fpgadataflow.loop_rolling import LoopBodyInputType
+from finn.util.data_packing import hls_datatype_str
 
 
 # Generic implementation for elementwise binary operations
@@ -153,6 +155,26 @@ class ElementwiseBinaryOperation(HWCustomOp):
     @property
     def rhs_style(self):
         return self.get_nodeattr("rhs_style")
+
+    def adapt_for_loop_body(self, input_types):
+        """
+        Adapt elementwise binary operator for loop body execution.
+
+        When an elementwise operator is placed inside a loop, parameters that
+        are indexed per iteration (PARAMETER type) need to be received as
+        streaming inputs rather than embedded constants. This method changes
+        the lhs_style/rhs_style attributes from "const" to "input" as needed.
+        """
+        # If rhs (input[1]) is a PARAMETER (streamed per iteration),
+        # change its style to "input"
+        if len(input_types) > 1 and input_types[1] == LoopBodyInputType.PARAMETER:
+            if self.rhs_style == "const":
+                self.set_nodeattr("rhs_style", "input")
+
+        # Similarly for lhs if needed
+        if len(input_types) > 0 and input_types[0] == LoopBodyInputType.PARAMETER:
+            if self.lhs_style == "const":
+                self.set_nodeattr("lhs_style", "input")
 
     # Number of parallel processed elements as property for convenience
     @property
@@ -306,7 +328,8 @@ class ElementwiseBinaryOperation(HWCustomOp):
 
     # Minimizes the width of the accumulator data type, 'accumulator width' here
     # due to convention, it is actually the output data type
-    def minimize_accumulator_width(self, model: ModelWrapper):
+    def minimize_accumulator_width(self, model: ModelWrapper, datatype_only=False):
+        """Minimize the output data type width."""
         # If any of the inputs is not an integer, the bit-width cannot be
         # minimized
         if not all([self.lhs_dtype.is_integer(), self.rhs_dtype.is_integer()]):
@@ -338,7 +361,11 @@ class ElementwiseBinaryOperation(HWCustomOp):
 
     # Minimizes the width of the weight data type, 'weight' here due to
     # convention, it actually applies to any constant initializer input
-    def minimize_weight_bit_width(self, model: ModelWrapper):
+    def minimize_weight_bit_width(self, model: ModelWrapper, datatype_only=False):
+        """Minimize the constant input data type width."""
+        if datatype_only:
+            return
+
         # Check for an initializer providing the left hand side input
         lhs = model.get_initializer(self.onnx_node.input[0])
         # If the left hand side input is provided as initializer, minimize the
@@ -362,6 +389,10 @@ class ElementwiseBinaryOperation(HWCustomOp):
                     _mag = _max if _min > 0 else _min if (abs(_min) > _max) else (-_max - 1)
                     # Smallest data type large enough to represent this range of values
                     lhs_dtype = DataType.get_smallest_possible(_mag)
+                    # BIPOLAR uses {-1,+1} encoding which is incompatible
+                    # with elementwise binary constant handling; use BINARY
+                    if lhs_dtype == DataType["BIPOLAR"]:
+                        lhs_dtype = DataType["BINARY"]
                 elif lhs_dtype.is_fixed_point():
                     # Convert the fixed-point array to corresponding integers and get
                     # smallest integer representation
@@ -402,6 +433,8 @@ class ElementwiseBinaryOperation(HWCustomOp):
                     _mag = _max if _min > 0 else _min if (abs(_min) > _max) else (-_max - 1)
                     # Smallest data type large enough to represent this range of values
                     rhs_dtype = DataType.get_smallest_possible(_mag)
+                    if rhs_dtype == DataType["BIPOLAR"]:
+                        rhs_dtype = DataType["BINARY"]
                 elif rhs_dtype.is_fixed_point():
                     # Convert the fixed-point array to corresponding integers and get
                     # smallest integer representation
@@ -467,7 +500,7 @@ class ElementwiseBinaryOperation(HWCustomOp):
         else:
             return math.ceil(depth / 512) * math.ceil(width / 36)
 
-    def bram_estimation(self):
+    def bram_estimation(self, fpgapart):
         ram_style = self.get_nodeattr("ram_style")
         if ram_style not in ["auto", "block"]:
             return 0
@@ -478,7 +511,7 @@ class ElementwiseBinaryOperation(HWCustomOp):
             )
         )
 
-    def uram_estimation(self):
+    def uram_estimation(self, fpgapart):
         ram_style = self.get_nodeattr("ram_style")
         if ram_style != "ultra":
             return 0
@@ -489,26 +522,26 @@ class ElementwiseBinaryOperation(HWCustomOp):
             )
         )
 
-    def bram_efficiency_estimation(self):
-        bram18_est = self.bram_estimation()
+    def bram_efficiency_estimation(self, fpgapart):
+        bram18_est = self.bram_estimation(fpgapart)
         if bram18_est == 0:
             return 1
         used_bits = sum(width * depth for width, depth in self._parameter_memory_specs())
         bram18_est_capacity = bram18_est * 36 * 512
         return used_bits / bram18_est_capacity
 
-    def uram_efficiency_estimation(self):
+    def uram_efficiency_estimation(self, fpgapart):
         # TODO: Versal URAM supports flexible bit widths (9/18/36/72) unlike
         # UltraScale+ which only supports 72-bit. This could improve efficiency
         # for narrow data types on Versal devices.
-        uram_est = self.uram_estimation()
+        uram_est = self.uram_estimation(fpgapart)
         if uram_est == 0:
             return 1
         used_bits = sum(width * depth for width, depth in self._parameter_memory_specs())
         uram_est_capacity = uram_est * 72 * 4096
         return used_bits / uram_est_capacity
 
-    def lut_estimation(self):
+    def lut_estimation(self, fpgapart):
         ram_style = self.get_nodeattr("ram_style")
         if ram_style != "distributed":
             return 0
@@ -914,7 +947,7 @@ class ElementwiseMax(ElementwiseBinaryOperation):
     # C++ operation template available as property
     @property
     def cpp_op(self) -> str:
-        odt_hls_name = self.out_dtype.get_hls_datatype_str()
+        odt_hls_name = hls_datatype_str(self.out_dtype)
         return "({0} >= {1} ? (%s){0} : (%s){1})" % (odt_hls_name, odt_hls_name)
 
     # RTL operation template available as property
@@ -923,7 +956,11 @@ class ElementwiseMax(ElementwiseBinaryOperation):
         return None
 
     # Override minimize_weight_bit_width to prevent type incompatibility
-    def minimize_weight_bit_width(self, model: ModelWrapper):
+    def minimize_weight_bit_width(self, model: ModelWrapper, datatype_only=False):
+        """Minimize the constant input data type width."""
+        if datatype_only:
+            return
+
         # For comparison operations like max/min, both operands must have
         # compatible types. Don't minimize if one side is float and the
         # minimized constant would become integer.

@@ -7,14 +7,12 @@
 # @author       Shane T. Fleming <shane.fleming@amd.com>
 ############################################################################
 
-import math
 import numpy as np
-import os
-import re
 import warnings
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.input_gen import input_gen_buffer_depth
 
 
 class _NestSim:
@@ -35,7 +33,14 @@ class _NestSim:
         else:
             self.N = rest[0]
             self.C = rest[1]
-            self.R_INNER = R and (self.C > 0) and (self.C * self.N <= W)
+            # As in finn-hlslib input_gen.hpp: the inner loop may advance the free
+            # pointer in lockstep if its furthest advance, (N-1)*C plus its own
+            # (hypothetical) free-pointer rewind, never carries it beyond W.
+            self.R_INNER = (
+                R
+                and (self.C > 0)
+                and ((self.N - 1) * self.C + _NestSim(True, self.C, *rest[2:])._fp_rewind <= W)
+            )
             self.inner = _NestSim(self.R_INNER, self.C, *rest[2:])
             self._rp_rewind = (self.N - 1) * self.C + self.inner._rp_rewind
             self._fp_rewind = (self.N - 1) * self.C + self.inner._fp_rewind if self.R_INNER else 0
@@ -80,6 +85,10 @@ class OuterShuffle(HWCustomOp):
             "NumChannels": ("i", False, 128),
             "original_node_name": ("s", False, ""),  # Track original shuffle name for SIMD config
             "original_simd": ("i", False, 1),  # Track original shuffle SIMD for config export
+            # Storage of the input_gen reorder buffer. "auto" leaves the choice to
+            # HLS, which binds buffers deeper than 262144 words to URAM by itself.
+            # Affects resources only, not the II (see get_input_gen_ii).
+            "ram_style": ("s", False, "auto", {"auto", "block", "distributed", "ultra"}),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -146,56 +155,61 @@ class OuterShuffle(HWCustomOp):
         folded_ishape = normal_ishape[:-1] + [fold, simd]
         return tuple(folded_ishape)
 
+    def get_input_gen_nest(self):
+        """The loop nest the HLS kernel instantiates input_gen<> with.
+
+        Returns (num_words, extents, coeffs): words per frame after SIMD folding,
+        the output loop extents and their input-side coefficients, derived from
+        transpose_in_shape, perm and SIMD exactly like the HLS backend's docompute.
+        """
+        simd = self.get_nodeattr("SIMD")
+        in_shape = list(self.get_nodeattr("transpose_in_shape"))
+        perm = list(self.get_nodeattr("perm"))
+        extents = [in_shape[p] for p in perm]
+        adjusted = in_shape + [1]
+        input_strides = [int(np.prod(adjusted[i + 1 :])) for i in range(len(in_shape))]
+        coeffs = [input_strides[p] for p in perm]
+        extents[-1] = int(extents[-1] / simd)
+        coeffs = [1 if x == 1 else int(x / simd) for x in coeffs]
+        return int(np.prod(extents)), extents, coeffs
+
+    def get_buffer_depth(self):
+        """Depth (BUF_SIZE, in words) of the input_gen reorder buffer, as the
+        stall-free sizing of finn-hlslib input_gen() dimensions it."""
+        num_words, extents, coeffs = self.get_input_gen_nest()
+        return input_gen_buffer_depth(num_words, extents, coeffs)
+
+    def get_input_gen_ii(self):
+        """Pipeline II the HLS kernel achieves for its reorder buffer.
+
+        Always 1: buffers up to 262144 words read with latency 1, and deeper
+        ones, which HLS maps to a latency-pipelined memory cascade (URAM), are
+        read ahead into a small queue by input_gen() (finn-hlslib 5f0aec0+), so
+        the cascade latency no longer enters the loop recurrence. Before that,
+        deep buffers dropped to II=3 (Vivado 2024.2) or 1 + depth/131072
+        (2025.1+). Explicit storage (ram_style) does not change the II either.
+        """
+        return 1
+
     def get_exp_cycles(self):
         """Estimate cycles by simulating the input_gen HLS pipeline.
 
-        Derives all parameters from transpose_in_shape, perm, and SIMD:
-        - output shape: apply perm to input shape
-        - loop coefficients: input strides permuted by perm
-        - buffer size: power-of-2 >= max_rp_retract + WP_DELAY + 2
+        Derives the loop nest from transpose_in_shape, perm and SIMD
+        (get_input_gen_nest), the buffer depth from the stall-free sizing of
+        finn-hlslib input_gen() (get_buffer_depth) and its pipeline II
+        (get_input_gen_ii).
 
         The HLS pipeline has three stall sources:
         1. WP_DELAY (=4): write-pointer pipeline latency before reads begin
         2. Read stalls: consumer waits for data (rp >= wp_delayed)
         3. Write stalls: producer blocked by full buffer (wp - fp >= buf_size)
-
-        When buf_size > 262144 (URAM), pipeline II=3 due to read latency.
         """
-        simd = self.get_nodeattr("SIMD")
-        in_shape = list(self.get_nodeattr("transpose_in_shape"))
-        perm = list(self.get_nodeattr("perm"))
-
-        # Derive output shape and loop coefficients from input shape and perm
-        out_shape = [in_shape[p] for p in perm]
-        adjusted = in_shape + [1]
-        input_strides = [int(np.prod(adjusted[i + 1 :])) for i in range(len(in_shape))]
-        loop_coeffs = [input_strides[p] for p in perm]
-
-        # Apply SIMD folding to innermost dimension
-        out_shape[-1] = int(out_shape[-1] / simd)
-        lc = [1 if x == 1 else int(x / simd) for x in loop_coeffs]
-        total_elems = int(np.prod(out_shape))
-
-        # Build the Nest args: Nest<true, IFM_SIZE, N0, C0, N1, C1, ..., Nn, Cn>
-        interleaved = [int(item) for pair in zip(out_shape, lc) for item in pair]
-
-        # Create Nest simulation and compute buffer size
+        total_elems, extents, coeffs = self.get_input_gen_nest()
+        interleaved = [int(item) for pair in zip(extents, coeffs) for item in pair]
         nest = _NestSim(True, total_elems, *tuple(interleaved))
         WP_DELAY = 4
-        addr_bits = max(1, math.ceil(math.log2(max(1, nest.max_rp_retract + WP_DELAY + 2))))
-        buf_size = 1 << addr_bits
-
-        # Check vivado version
-        vivado_path = os.environ.get("XILINX_VIVADO")
-        match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
-        year, minor = int(match.group(1)), int(match.group(2))
-        if (year, minor) < (2024, 2):
-            pipeline_ii = 1
-        else:
-            # Pipeline II: BRAM (depth <= 262144) achieves II=1;
-            # URAM (depth > 262144) has read latency=3, forcing II=3.
-            URAM_DEPTH_THRESHOLD = 262144
-            pipeline_ii = 3 if buf_size > URAM_DEPTH_THRESHOLD else 1
+        buf_size = self.get_buffer_depth()
+        pipeline_ii = self.get_input_gen_ii()
 
         # Simulate the input_gen pipeline at II=1.
         # Models the wp delay pipeline, finite buffer backpressure,

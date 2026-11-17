@@ -35,15 +35,22 @@ from finn.util.fpgadataflow import is_fpgadataflow_node
 class MinimizeWeightBitWidth(Transformation):
     """For relevant nodes, call the weight bit width minimization
     functions to save on resources. May alter tensor weightDataType
-    if the node does not have runtime writeable weights."""
+    if the node does not have runtime writeable weights.
 
-    def __init__(self):
+    Parameters
+    ----------
+    datatype_only : bool
+        If True, skip value-based minimization and only use datatype bounds.
+    """
+
+    def __init__(self, datatype_only=False):
         super().__init__()
+        self.datatype_only = datatype_only
 
     def apply(self, model):
         for node in model.graph.node:
             if is_fpgadataflow_node(node):
                 inst = getCustomOp(node)
                 if hasattr(inst, "minimize_weight_bit_width"):
-                    inst.minimize_weight_bit_width(model)
+                    inst.minimize_weight_bit_width(model, datatype_only=self.datatype_only)
         return (model, False)

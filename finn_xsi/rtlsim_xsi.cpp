@@ -10,6 +10,7 @@
  ***************************************************************************/
 
 #include <string>
+#include <string_view>
 #include <iostream>
 #include <sstream>
 #include <fstream>
@@ -27,12 +28,65 @@ int main(int const  argc, char const *const  argv[]) {
 
 	// Load Kernel and Design
 	xsi::Kernel  kernel(kernel_libname);
-	xsi::Design  top(kernel, design_libname, xsim_log_filename, trace_filename);
+	xsi::Design  top(kernel, design_libname, trace_filename);
 	using  Port = xsi::Port;
 	if(trace_filename) {
 		// TODO make tracing more finer-grain if possible?
 		top.trace_all();
 	}
+
+	// Collect all simulator messages ($display, $warning, $error, ...) in a
+	// transcript (rtlsim.log; this driver's own console output goes to stdout)
+	// and count the $error/$fatal reports among them. The simulator itself
+	// neither stops nor changes its status on these.
+	std::ofstream  transcript("rtlsim.log", std::ios::out | std::ios::trunc);
+	size_t  sim_errors = 0;
+	auto const  drain_messages = [&top, &transcript, &sim_errors]() {
+		char const *const  info = top.get_error_info();
+		if(!info || !*info)  return;
+
+		std::string_view const  s(info);
+		size_t  pos = 0;
+		while(pos < s.size()) {
+			// Frame: @"<text>"\n (design) or "<text>"\n (kernel), no escaping.
+			// Anything from the first incomplete frame on is kept verbatim.
+			size_t const  beg = pos;
+			if(s[pos] == '@')  pos++;
+			size_t  end = std::string_view::npos;
+			if((pos < s.size()) && (s[pos] == '"')) {
+				// Closing "\n must be followed by the end or the next frame. As
+				// kernel messages never start with a newline, a following "\n is
+				// not taken as a frame start: keeps text ending in a quote intact.
+				end = ++pos;
+				while((end = s.find("\"\n", end)) != std::string_view::npos) {
+					size_t const  nxt = end + 2;
+					if(nxt == s.size())  break;
+					if(s.compare(nxt, 2, "@\"") == 0)  break;
+					if((s[nxt] == '"') && (s.compare(nxt, 2, "\"\n") != 0))  break;
+					end = nxt;
+				}
+			}
+			if(end == std::string_view::npos)  pos = beg;
+
+			{ // Message to log & update error count
+				std::string_view const  msg = s.substr(pos, end == std::string_view::npos? std::string_view::npos : end - pos);
+				transcript << msg;
+
+				// Design $error/$fatal (incl. failed assertions) and kernel errors
+				for(std::string_view const  knd : { "Error:", "Fatal:", "ERROR:", "FATAL_ERROR:" }) {
+					if(msg.substr(0, knd.size()) == knd) {
+						sim_errors++;
+						break;
+					}
+				}
+			}
+
+			if(end == std::string_view::npos)  break;
+			pos = end + 2;
+		}
+		transcript.flush();
+	};
+	drain_messages();
 
 	// Ultimate Simulation Summary
 	std::string  synopsis;
@@ -215,10 +269,11 @@ int main(int const  argc, char const *const  argv[]) {
 					std::cout << '\t' << s.name << '=' << ((100 * s.total_txns) / (n_inferences * s.job_size)) << '%';
 				}
 				std::cout << "\tMute Outputs: " << omute << std::endl;
+				drain_messages();
 			}
 
 			// Check for exit
-			if((timeout > max_iters) || (!itodo && !otodo))  break;
+			if(sim_errors || (timeout > max_iters) || (!itodo && !otodo))  break;
 		}
 
 		size_t  total_in_txns = 0;
@@ -287,14 +342,12 @@ int main(int const  argc, char const *const  argv[]) {
 		}
 	}
 
-	{ // Log error info to file (includes final block output)
-		std::ofstream  error_file("fifosim.err", std::ios::out | std::ios::trunc);
-		error_file << top.get_error_info();
-	}
+	// Remaining messages incl. final-block output
+	drain_messages();
 
 	{ // Synopsis and `max_count` readings to results file
 		std::ofstream  results_file("results.txt", std::ios::out | std::ios::trunc);
-		results_file << synopsis << std::endl;
+		results_file << synopsis << "\nSIM_ERRORS\t" << sim_errors << std::endl;
 		for(auto const &[name, val] : maxcounts) {
 			results_file << name << '\t' << val << std::endl;
 		}

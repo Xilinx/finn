@@ -29,6 +29,7 @@
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.extract_conv_bias import ExtractBiasFromConv
 from qonnx.transformation.gemm_to_matmul import GemmToMatMul
+from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.quant_constant_folding import FoldTransposeIntoQuantInit
 from qonnx.transformation.remove import RemoveIdentityOps
@@ -41,6 +42,11 @@ from finn.transformation.qonnx.quant_act_to_multithreshold import (
     ConvertQuantActToMultiThreshold,
     default_filter_function_generator,
 )
+
+#: Op types of the QONNX quantization nodes, i.e. the nodes that mark a model as
+#: QONNX rather than FINN-ONNX. IntQuant is the current name of the integer
+#: quantizer and Quant the name Brevitas exports, which QONNX keeps as an alias.
+QONNX_QUANT_OP_TYPES = ["IntQuant", "Quant", "BipolarQuant", "FloatQuant", "Trunc"]
 
 
 class ConvertQONNXtoFINN(Transformation):
@@ -55,7 +61,7 @@ class ConvertQONNXtoFINN(Transformation):
     are converted to MultiThreshold nodes. A warning will be emitted when a Quant node
     is not converted to a MultiThreshold node.
 
-    :param filter_function: Each candidate Quant and BinaryQant node is first evaluated
+    :param filter_function: Each candidate Quant and BipolarQuant node is first evaluated
         by this function. If the function returns False,
         then the node is not converted to a MultiTrheshold node.
         The function is given the model and candidate node as parameters.
@@ -81,6 +87,12 @@ class ConvertQONNXtoFINN(Transformation):
         model = model.transform(InferDataTypes())
         # Fold weights
         model = model.transform(FoldQuantWeights())
+        # Annotate tensor layouts so the activation handler can set the
+        # MultiThreshold data_layout from its input tensor. Required since
+        # qonnx no longer defaults MultiThreshold.data_layout to "NCHW";
+        # without an explicit layout, InferDataLayouts yields UNKNOWN and
+        # downstream transpose absorption/streamlining breaks (e.g. cnv).
+        model = model.transform(InferDataLayouts())
         # Convert activations
         model = model.transform(
             ConvertQuantActToMultiThreshold(
@@ -89,6 +101,9 @@ class ConvertQONNXtoFINN(Transformation):
         )
         # Recompute datatypes
         model = model.transform(InferDataTypes())
+        # Re-run layout inference now that MultiThreshold nodes carry an
+        # explicit data_layout, propagating layouts to the new tensors.
+        model = model.transform(InferDataLayouts())
         # Convert AvgPool -> Mul -> Trunc structure to QuantAvgPool2d
         model = model.transform(AvgPoolAndTruncToQuantAvgPool())
         # Remove empty padding if it exists

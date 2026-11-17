@@ -21,7 +21,7 @@
   "Thresholding_2": {
     "preferred_impl_style": ""
   },
-  "StreamingMaxPool_0": {
+  "Pool_0": {
     "preferred_impl_style": ""
   },
   "ConvolutionInputGenerator_2": {
@@ -42,7 +42,7 @@
   "Thresholding_4": {
     "preferred_impl_style": ""
   },
-  "StreamingMaxPool_1": {
+  "Pool_1": {
     "preferred_impl_style": ""
   },
   "ConvolutionInputGenerator_4": {

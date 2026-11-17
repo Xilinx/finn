@@ -30,7 +30,6 @@
 import json
 import multiprocessing as mp
 import os
-import subprocess
 import warnings
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
@@ -40,8 +39,9 @@ from shutil import copytree
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
-from finn.util.basic import make_build_dir, resolve_xilinx_tool
+from finn.util.basic import make_build_dir
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
+from finn.util.launcher import run_tool
 
 
 def is_external_input(model, node, i):
@@ -416,21 +416,15 @@ class CreateStitchedIP(Transformation):
         ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/memstream")
         if self.signature:
             ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/axi_info")
-        if model.graph.node[0].op_type not in ["StreamingFIFO_rtl", "IODMA_hls"]:
+        # DMA partitions may start with the DWC attached to an output IODMA
+        has_iodma = any(n.op_type == "IODMA_hls" for n in model.graph.node)
+        if model.graph.node[0].op_type != "StreamingFIFO_rtl" and not has_iodma:
             warnings.warn(
                 """First node is not StreamingFIFO or IODMA.
                 You may experience incorrect stitched-IP rtlsim or hardware
                 behavior. It is strongly recommended to insert FIFOs prior to
                 calling CreateStitchedIP."""
             )
-        if model.graph.node[0].op_type == "StreamingFIFO_rtl":
-            firstfifo = getCustomOp(model.graph.node[0])
-            if firstfifo.get_nodeattr("impl_style") == "vivado":
-                warnings.warn(
-                    """First FIFO has impl_style=vivado, which may cause
-                    simulation glitches (e.g. dropping the first input sample
-                    after reset)."""
-                )
         for node in model.graph.node:
             # ensure that all nodes are fpgadataflow, and that IPs are generated
             assert is_hls_node(node) or is_rtl_node(
@@ -769,18 +763,12 @@ close $ofile
         tcl_string = "\n".join(tcl) + "\n"
         with open(vivado_stitch_proj_dir + "/make_project.tcl", "w") as f:
             f.write(tcl_string)
-        # create a shell script and call Vivado
-        make_project_sh = vivado_stitch_proj_dir + "/make_project.sh"
-        working_dir = os.environ["PWD"]
-        vivado_cmd = resolve_xilinx_tool("vivado")
-        with open(make_project_sh, "w") as f:
-            f.write("#!/bin/bash \n")
-            f.write("cd {}\n".format(vivado_stitch_proj_dir))
-            f.write("{} -mode batch -source make_project.tcl\n".format(vivado_cmd))
-            f.write("cd {}\n".format(working_dir))
-        bash_command = ["bash", make_project_sh]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
+        # call Vivado; make_project.sh repeats the run by hand
+        run_tool(
+            ["vivado", "-mode", "batch", "-source", "make_project.tcl"],
+            cwd=vivado_stitch_proj_dir,
+            replay=vivado_stitch_proj_dir + "/make_project.sh",
+        )
         # wrapper may be created in different location depending on Vivado version
         if not os.path.isfile(wrapper_filename):
             # check in alternative location (.gen instead of .srcs)

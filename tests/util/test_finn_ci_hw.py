@@ -211,11 +211,11 @@ _COLLECT_ERROR = (
 )
 _REAL_PASS = (
     '<testcase classname="test_bnn_hw_pytest.TestBnn" '
-    'name="test_type_execute[AUP_ZU3_bnn_w1_a1_tfc_batchSize-1_platform-zynq-iodma]"/>'
+    'name="test_type_execute[AUP_ZU3_bnn_w1_a1_tfc_batchSize-1_platform-pynq-iodma]"/>'
 )
 _REAL_FAIL = (
     '<testcase classname="test_bnn_hw_pytest.TestBnn" '
-    'name="test_type_execute[AUP_ZU3_bnn_w2_a2_tfc_batchSize-1_platform-zynq-iodma]">'
+    'name="test_type_execute[AUP_ZU3_bnn_w2_a2_tfc_batchSize-1_platform-pynq-iodma]">'
     "<failure>readback mismatch</failure></testcase>"
 )
 
@@ -502,11 +502,11 @@ def test_generate_tests_skips_an_incomplete_model_by_name(tmp_path, monkeypatch)
     assert argnames == ["test_dir", "batch_size", "platform"]
     by_id = dict(zip(ids, argvalues))
     assert sorted(by_id) == [
-        "ZCU104_bnn_w1_a1_cnv_batchSize-1_platform-zynq-iodma",
-        "ZCU104_bnn_w2_a2_tfc_batchSize-1_platform-zynq-iodma",
+        "ZCU104_bnn_w1_a1_cnv_batchSize-1_platform-pynq-iodma",
+        "ZCU104_bnn_w2_a2_tfc_batchSize-1_platform-pynq-iodma",
     ]
-    assert not getattr(by_id["ZCU104_bnn_w1_a1_cnv_batchSize-1_platform-zynq-iodma"], "marks", ())
-    marks = by_id["ZCU104_bnn_w2_a2_tfc_batchSize-1_platform-zynq-iodma"].marks
+    assert not getattr(by_id["ZCU104_bnn_w1_a1_cnv_batchSize-1_platform-pynq-iodma"], "marks", ())
+    marks = by_id["ZCU104_bnn_w2_a2_tfc_batchSize-1_platform-pynq-iodma"].marks
     assert [m.name for m in marks] == ["skip"]
     # the prefix is what report aggregation keys on, so it leads the reason
     assert marks[0].kwargs["reason"] == "%s bnn_w2_a2_tfc is missing driver.py" % (

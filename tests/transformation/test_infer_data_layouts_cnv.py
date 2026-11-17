@@ -55,7 +55,6 @@ from finn.util.test import get_test_model_trained
 
 
 @pytest.mark.transform
-@pytest.mark.xfail
 def test_infer_data_layouts_cnv():
     build_dir = make_build_dir(prefix="test_infer_data_layouts_cnv_")
     try:
