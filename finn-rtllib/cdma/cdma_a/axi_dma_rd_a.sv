@@ -223,20 +223,20 @@ assign rready = axis_out_tready;
 
 assign rxfer = rready & rvalid;
 
-Q_srl #(
-    .depth(MAX_OUTSTANDING),
-    .width(1)
+fifo #(
+    .DEPTH(MAX_OUTSTANDING),
+    .DATA_WIDTH(1)
 ) inst_q_rd (
-    .clock(aclk),
-    .reset(!aresetn),
+    .clk(aclk),
+    .rst(!aresetn),
     .count(),
     .maxcount(),
-    .i_d(ctl_r & ar_final_transaction),
-    .i_v(arxfer),
-    .i_r(burst_ready_snk),
-    .o_d(r_final_transaction),
-    .o_v(),
-    .o_r(rlast & rxfer)
+    .idat(ctl_r & ar_final_transaction),
+    .ivld(arxfer),
+    .irdy(burst_ready_snk),
+    .odat(r_final_transaction),
+    .ovld(),
+    .ordy(rlast & rxfer)
 );
 
 /////////////////////////////////////////////////////////////////////////////

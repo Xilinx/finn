@@ -34,12 +34,16 @@ import onnx
 from onnx import helper as oh
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.util.basic import qonnx_make_model
 
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.convert_to_hw_layers import InferSplitLayer
+from finn.transformation.fpgadataflow.convert_to_hw_layers import (
+    InferConcatLayer,
+    InferSplitLayer,
+)
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
@@ -80,6 +84,81 @@ def make_split_model(IN_SHAPE, IN_DTYPE, SPLIT, AXIS):
     model = model.transform(GiveUniqueNodeNames())
 
     return model
+
+
+def make_split_concat_model(IN_SHAPE, IN_DTYPE, SPLIT):
+    """Split along the last axis and concatenate the parts again: the outputs of
+    the split feed another node instead of the graph outputs."""
+    inp = oh.make_tensor_value_info("global_in", onnx.TensorProto.FLOAT, IN_SHAPE)
+    out = oh.make_tensor_value_info("global_out", onnx.TensorProto.FLOAT, IN_SHAPE)
+    parts = ["part_" + str(i) for i in range(len(SPLIT))]
+    split_init = onnx.numpy_helper.from_array(
+        np.array(SPLIT, dtype=np.int64), name="Split_0_param0"
+    )
+    split_node = oh.make_node("Split", [inp.name, split_init.name], parts, axis=-1)
+    concat_node = oh.make_node("Concat", parts, [out.name], axis=-1)
+    value_info = [
+        oh.make_tensor_value_info(p, onnx.TensorProto.FLOAT, IN_SHAPE[:-1] + [s])
+        for p, s in zip(parts, SPLIT)
+    ]
+    graph = oh.make_graph(
+        nodes=[split_node, concat_node],
+        name="split_concat_test",
+        inputs=[inp],
+        outputs=[out],
+        value_info=value_info,
+    )
+    model = ModelWrapper(qonnx_make_model(graph, opset_imports=[oh.make_opsetid("", 13)]))
+    for name in [inp.name, out.name] + parts:
+        model.set_tensor_datatype(name, IN_DTYPE)
+        model.set_tensor_layout(name, ["N", "H", "W", "C"])
+    model.set_initializer(split_init.name, np.array(SPLIT, dtype=np.int64))
+    model = model.transform(GiveUniqueNodeNames())
+    return model
+
+
+@pytest.mark.parametrize(
+    "exec_mode",
+    ["insert_fifo", pytest.param("stitched_rtlsim", marks=[pytest.mark.vivado, pytest.mark.slow])],
+)
+@pytest.mark.parametrize("idt", [DataType["INT3"]])
+@pytest.mark.fpgadataflow
+def test_fpgadataflow_split_concat_fifos(exec_mode, idt):
+    """The FIFO after each output of a split with unequal outputs takes the shape
+    of that output, not of output 0."""
+    fpga_part = "xc7z020clg400-1"
+    clk_ns = 10
+    i_shape = [1, 5, 5, 10]
+    split = [2, 2, 6]
+    model = make_split_concat_model(i_shape, idt, split)
+    test_input = np.random.randint(idt.min(), idt.max() + 1, i_shape).astype(np.float32)
+    input_dict = {model.get_first_global_in(): test_input}
+
+    model = model.transform(InferSplitLayer())
+    model = model.transform(InferConcatLayer())
+    model = model.transform(SpecializeLayers(fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(InsertFIFO(create_shallow_fifos=True))
+
+    split_node = model.get_nodes_by_op_type("StreamingSplit_hls")[0]
+    split_inst = getCustomOp(split_node)
+    for i, part in enumerate(split_node.output):
+        fifo = model.find_consumer(part)
+        assert fifo.op_type.startswith("StreamingFIFO")
+        fifo_inst = getCustomOp(fifo)
+        assert fifo_inst.get_nodeattr("folded_shape") == list(split_inst.get_folded_output_shape(i))
+        assert fifo_inst.get_nodeattr("normal_shape") == list(split_inst.get_normal_output_shape(i))
+        assert model.get_tensor_shape(fifo.output[0]) == list(split_inst.get_normal_output_shape(i))
+
+    if exec_mode == "stitched_rtlsim":
+        model = model.transform(SpecializeLayers(fpga_part))
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(PrepareIP(fpga_part, clk_ns))
+        model = model.transform(HLSSynthIP())
+        model = model.transform(CreateStitchedIP(fpga_part, clk_ns, run_synth=False))
+        model.set_metadata_prop("exec_mode", "rtlsim")
+        ret_sim = execute_onnx(model, input_dict)
+        assert (ret_sim[model.graph.output[0].name] == test_input).all()
 
 
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim", "stitched_rtlsim"])

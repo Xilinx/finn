@@ -20,18 +20,15 @@ from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 class Crop(HWCustomOp):
     """Abstraction layer for Crop layers."""
 
-    def __init__(self, onnx_node, **kwargs):
-        super().__init__(onnx_node, **kwargs)
-
     def get_nodeattr_types(self):
         my_attrs = {
             "DataType": ("s", True, ""),
             "ImgDim": ("ints", True, []),  # [h, w]
             "NumChannels": ("i", True, 0),
-            "CropNorth": ("i", True, []),
-            "CropSouth": ("i", True, []),
-            "CropWest": ("i", True, []),
-            "CropEast": ("i", True, []),
+            "CropNorth": ("i", True, 0),
+            "CropSouth": ("i", True, 0),
+            "CropWest": ("i", True, 0),
+            "CropEast": ("i", True, 0),
             "SIMD": ("i", False, 1),
             "numInputVectors": ("ints", False, []),
         }

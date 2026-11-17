@@ -15,6 +15,7 @@ Users can:
 - Inject custom steps before/after phases using inject_steps_before/after config
 """
 
+import logging
 import os
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -27,6 +28,7 @@ from finn.builder.build_dataflow_steps import (
     step_create_dataflow_partition,
     step_create_stitched_ip,
     step_deployment_package,
+    step_export_portable_rtl,
     step_generate_estimate_reports,
     step_hw_codegen,
     step_hw_ipgen,
@@ -36,6 +38,7 @@ from finn.builder.build_dataflow_steps import (
     step_make_driver,
     step_measure_rtlsim_performance,
     step_minimize_bit_width,
+    step_minimize_bit_width_datatype_only,
     step_qonnx_to_finn,
     step_set_fifo_depths,
     step_specialize_layers,
@@ -46,6 +49,8 @@ from finn.builder.build_dataflow_steps import (
     step_transpose_decomposition,
 )
 from finn.util.fpgadataflow import is_mlo
+
+log = logging.getLogger(__name__)
 
 
 def _save_intermediate_model(model: ModelWrapper, step_name: str, cfg: DataflowBuildConfig):
@@ -150,6 +155,7 @@ def phase_convert_to_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     Internal steps:
     - step_convert_to_hw: Infer hardware layer types (validates conversion success)
     - step_create_dataflow_partition: Create accelerator subgraph
+    - step_minimize_bit_width_datatype_only: Datatype-based bit width minimization
     - step_specialize_layers: Convert to HLS or RTL variants
     - step_loop_rolling: Process FINNLoop nodes (auto-detects if needed)
 
@@ -165,6 +171,8 @@ def phase_convert_to_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     """
     model = _execute_step(step_convert_to_hw, model, cfg)
     model = _execute_step(step_create_dataflow_partition, model, cfg)
+    model = _execute_step(step_minimize_bit_width_datatype_only, model, cfg)
+
     model = _execute_step(step_specialize_layers, model, cfg)
     model = _execute_step(step_loop_rolling, model, cfg)
 
@@ -176,14 +184,14 @@ def phase_optimize_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     FIFO sizing, generate reports.
 
     This phase configures the hardware parallelism and resource usage. It applies
-    folding configurations, minimizes bit widths (after folding), decomposes
-    transpose/shuffle operations, sizes FIFOs,
+    folding configurations, minimizes bit widths (second pass, value-based, after
+    folding decisions), decomposes transpose/shuffle operations, sizes FIFOs,
     and generates analytical performance/resource reports.
 
     Internal steps (each step checks its own config parameters):
     - step_target_fps_parallelization: Auto-parallelization (if target_fps set)
     - step_apply_folding_config: Apply folding configuration (if config provided)
-    - step_minimize_bit_width: Minimize weight/accumulator bit widths (if enabled)
+    - step_minimize_bit_width: Value-based bit width minimization (second pass)
     - step_transpose_decomposition: Decompose Shuffle nodes
     - step_set_fifo_depths: FIFO sizing (see placement rules below)
     - step_generate_estimate_reports: Generate analytical estimates (if requested)
@@ -191,13 +199,13 @@ def phase_optimize_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     Whether FIFO sizing runs here is an orchestration decision owned by the phase
     (the step itself just sizes FIFOs):
 
-    - For MLO models it is deferred to phase_build_hardware, because the
-      characterize strategy requires FINNLoop nodes to have stitched IP, which
-      depends on loop body FIFO sizing and IP generation happening first.
+    - For MLO models it is deferred to phase_build_hardware, because FIFO sizing
+      characterizes the FINNLoop nodes with rtlsim, which requires their stitched
+      IP, which depends on loop body FIFO sizing and IP generation happening first.
     - For estimate-only builds whose configured sizing strategy needs synthesis it
-      is skipped, so the estimate flow stays fast and synthesis-free. A future
-      analytical (non-synthesis) sizing strategy would still run and feed the
-      estimate reports.
+      is skipped, so the estimate flow stays fast and synthesis-free.
+      ``heuristic_analytical`` still runs and feeds the estimate reports; it only
+      generates IP for nodes that have no tree model.
 
     Args:
         model: Input ModelWrapper
@@ -208,6 +216,8 @@ def phase_optimize_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     """
     model = _execute_step(step_target_fps_parallelization, model, cfg)
     model = _execute_step(step_apply_folding_config, model, cfg)
+    # Second pass: value-based bit width minimization (not datatype_only) after
+    # folding decisions like runtime_writeable_weights have been made
     model = _execute_step(step_minimize_bit_width, model, cfg)
     model = _execute_step(step_transpose_decomposition, model, cfg)
     if is_mlo(model):
@@ -217,17 +227,18 @@ def phase_optimize_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
         # FIFO depths only affect synthesized hardware, so skip sizing for an
         # estimate-only build whose sizing strategy needs synthesis (the rtlsim-based
         # auto strategies or the folding-config path). This keeps the estimate flow
-        # fast and synthesis-free. A future analytical (non-synthesis) strategy would
-        # not be skipped, so it could still feed FIFO resources into the estimates.
+        # fast and synthesis-free. heuristic_analytical is not skipped, so it still
+        # feeds FIFO resources into the estimates; in an estimate-only build it
+        # uses tree models only (see step_set_fifo_depths), so no synthesis either.
         only_estimates = all(
             out == DataflowOutputType.ESTIMATE_REPORTS for out in cfg.generate_outputs
         )
-        sizing_needs_synthesis = not cfg.auto_fifo_depths or cfg.auto_fifo_strategy in (
-            "characterize",
+        sizing_needs_synthesis = not cfg.auto_fifo_depths or cfg._resolve_auto_fifo_strategy() in (
+            "heuristic_rtlsim",
             "largefifo_rtlsim",
         )
         if only_estimates and sizing_needs_synthesis:
-            print(
+            log.info(
                 "Skipping step_set_fifo_depths: only estimate reports requested and "
                 "the configured FIFO sizing strategy requires synthesis. FIFO sizing "
                 "is not needed for an estimate-only build."
@@ -261,7 +272,7 @@ def _apply_to_loop_bodies(model: ModelWrapper, cfg: DataflowBuildConfig, step_fn
         # emit per-loop debug_fifo logs / waveforms without needing a special
         # signature. Steps read this via model.get_metadata_prop("loop_context").
         loop_model.set_metadata_prop("loop_context", node.name)
-        print(f"Running {step_fn.__name__} for FINNLoop: {node.name}")
+        log.info(f"Running {step_fn.__name__} for FINNLoop: {node.name}")
         loop_model = step_fn(loop_model, cfg)
 
         # Clear the transient tag so it doesn't leak into the saved body graph
@@ -322,6 +333,14 @@ def phase_build_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     # Must happen after loop body stitched IPs so FINNLoop can be characterized
     if is_mlo(model):
         model = _execute_step(step_set_fifo_depths, model, cfg)
+        # The FIFO nodes have no generated code yet: step_set_fifo_depths runs
+        # its own PrepareIP before characterizing, but inserts the FIFOs after
+        # it, and RemoveShallowFIFOs then removes some of them. This has to
+        # come after all of that, which is why it is here rather than at the
+        # end of the step. Everything else is already
+        # generated and PrepareIP skips it -- though it still walks the graph
+        # and every subgraph to find that out, warning per node as it goes.
+        model = _execute_step(step_hw_codegen, model, cfg)
 
     # Step 6: HW ipgen for main model
     model = _execute_step(step_hw_ipgen, model, cfg)
@@ -339,6 +358,7 @@ def phase_generate_outputs(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     Internal steps (each step checks generate_outputs):
     - step_create_stitched_ip: Create stitched IP (includes OOC synth if requested)
+    - step_export_portable_rtl: Export portable RTL project (if requested)
     - step_measure_rtlsim_performance: Measure RTL sim performance (if requested)
     - step_synthesize_bitfile: Full bitfile synthesis (if BITFILE requested)
     - step_make_driver: Generate PYNQ or C++ driver (if BITFILE requested)
@@ -355,6 +375,7 @@ def phase_generate_outputs(model: ModelWrapper, cfg: DataflowBuildConfig):
         ModelWrapper with final hardware artifacts generated
     """
     model = _execute_step(step_create_stitched_ip, model, cfg)
+    model = _execute_step(step_export_portable_rtl, model, cfg)
     model = _execute_step(step_measure_rtlsim_performance, model, cfg)
     model = _execute_step(step_synthesize_bitfile, model, cfg)
     model = _execute_step(step_make_driver, model, cfg)

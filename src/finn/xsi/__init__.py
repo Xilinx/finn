@@ -118,6 +118,10 @@ def __getattr__(name: str) -> Any:
         wrapper.__name__ = name
         wrapper.__doc__ = f"Wrapper for finn_xsi.adapter.{name}"
         return wrapper
+    if name == "SimulationError":
+        if not _load_modules():
+            raise ImportError("finn_xsi not available. Run: python -m finn.xsi.setup")
+        return _sim_engine_module.SimulationError
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
 

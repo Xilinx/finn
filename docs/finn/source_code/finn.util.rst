@@ -171,6 +171,15 @@ finn.util.pytorch
  :show-inheritance:
 
 
+finn.util.torch_hw_modules
+---------------------------
+
+.. automodule:: finn.util.torch_hw_modules
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
 finn.util.test
 ---------------------
 

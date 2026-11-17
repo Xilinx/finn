@@ -36,7 +36,7 @@ import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 
 model_name = "tfc_w1a1"
-platform_name = "Pynq-Z1"
+platform_name = "AUP-ZU3_8GB"
 
 cfg = build.DataflowBuildConfig(
     output_dir="output_%s_%s" % (model_name, platform_name),
@@ -47,7 +47,6 @@ cfg = build.DataflowBuildConfig(
     specialize_layers_config_file="specialize_layers_config.json",
     synth_clk_period_ns=10.0,
     board=platform_name,
-    shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
     debug_fifo=True,
     generate_outputs=[
         build_cfg.DataflowOutputType.PYNQ_DRIVER,

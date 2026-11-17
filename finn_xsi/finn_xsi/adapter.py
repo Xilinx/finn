@@ -11,12 +11,17 @@
 import errno
 import os
 import os.path
-import re
+import xsi
 from finn_xsi.sim_engine import SimEngine
 from finn_xsi.srcutil import order_pkg_first
 from typing import Optional
 
-from finn.util.basic import launch_process_helper, resolve_xilinx_tool
+from finn.util.basic import (
+    get_rtlsim_timeout_error_message,
+    launch_process_helper,
+    resolve_xilinx_tool,
+)
+from finn.util.launcher import ToolUnavailable
 
 
 def locate_glbl() -> Optional[str]:
@@ -130,26 +135,55 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False, beha
 
 
 def get_simkernel_so():
+    """Return the file name of the XSI simulation kernel library of the Vivado
+    installation in XILINX_VIVADO. Vivado 2024.2 renamed it from
+    librdi_simulator_kernel.so to libxv_simulator_kernel.so."""
     vivado_path = os.environ.get("XILINX_VIVADO")
-    # xsi kernel lib name depends on Vivado version (renamed in 2024.2)
-    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
-    year, minor = int(match.group(1)), int(match.group(2))
-    if (year, minor) > (2024, 1):
-        simkernel_so = "libxv_simulator_kernel.so"
-    else:
-        simkernel_so = "librdi_simulator_kernel.so"
-    return simkernel_so
+    if not vivado_path:
+        raise ToolUnavailable("vivado", "XILINX_VIVADO is not set")
+    lib_dir = os.path.join(vivado_path, "lib", "lnx64.o")
+    for simkernel_so in ("libxv_simulator_kernel.so", "librdi_simulator_kernel.so"):
+        if os.path.isfile(os.path.join(lib_dir, simkernel_so)):
+            return simkernel_so
+    raise ToolUnavailable("vivado", f"no XSI simulation kernel library in {lib_dir}")
 
 
 def load_sim_obj(sim_out_dir, out_so_relative_path, tracefile=None, simkernel_so=None):
     if simkernel_so is None:
         simkernel_so = get_simkernel_so()
-    oldcwd = os.getcwd()
-    os.chdir(sim_out_dir)
-    sim = SimEngine(simkernel_so, out_so_relative_path, "finnxsi_rtlsim.log", tracefile)
+    # The xsim kernel opens some snapshot files lazily during simulation, e.g.
+    # xsim.dir/<top>/xsim.svtype on the first executed $readmemh (XPM memories with
+    # a MEMORY_INIT_FILE do so at #10). With a relative design path, these lookups
+    # use the process CWD at that later time and abort the process (exit(1)) if it
+    # is no longer sim_out_dir. Hence, load by absolute paths and pass the snapshot
+    # directory as xsimDir, which does not change the CWD at all.
+    sim_out_dir = os.path.abspath(sim_out_dir)
+    transcript = os.path.join(sim_out_dir, "rtlsim.log")
+    if tracefile:
+        # relative trace files land in sim_out_dir
+        tracefile = os.path.join(sim_out_dir, tracefile)
+    if xsi.has_xsim_dir:
+        sim = SimEngine(
+            simkernel_so,
+            os.path.join(sim_out_dir, out_so_relative_path),
+            tracefile,
+            os.path.join(sim_out_dir, "xsim.dir"),
+            transcript,
+        )
+    else:
+        # XSI < 2023.1 lacks xsimDir: fall back to a temporary chdir around the
+        # design load. Only covers lazy file accesses during the load itself (e.g.
+        # $readmemh at t=0), not ones after the first time advance.
+        oldcwd = os.getcwd()
+        os.chdir(sim_out_dir)
+        try:
+            sim = SimEngine(simkernel_so, out_so_relative_path, tracefile, transcript=transcript)
+        finally:
+            os.chdir(oldcwd)
     if tracefile:
         sim.top.trace_all()
-    os.chdir(oldcwd)
+    # messages from the design load, incl. t=0 initial blocks
+    sim.drain_messages()
     return sim
 
 
@@ -161,10 +195,22 @@ def reset_rtlsim(
 
 
 def close_rtlsim(sim):
-    sim_finish = sim.top.getPort("sim_finish")
-    if sim_finish is not None:
-        sim_finish.set(1).write_back()
-        sim.cycle({})
+    try:
+        sim_finish = sim.top.getPort("sim_finish")
+        if sim_finish is not None:
+            sim_finish.set(1).write_back()
+            sim.cycle({})
+        # messages since the last run(), incl. final-block output
+        sim.drain_messages()
+    finally:
+        # Explicitly finalize the design (calls xsi_close -> flushes+closes the
+        # .wdb) instead of relying on GC of sim.top. Port back-refs and the pybind
+        # use_map can keep the Design alive past `del sim`, so without this the
+        # waveform can be left unflushed on a timeout/pdb exit, corrupting its
+        # trace tail.
+        close = getattr(sim.top, "close", None)
+        if close is not None:
+            close()
     del sim
 
 
@@ -174,6 +220,7 @@ def rtlsim_multi_io(
     num_out_values,
     sname="_V_V",
     liveness_threshold=10000,
+    liveness_estimate=None,
 ):
     if len(io_dict["outputs"]) > 1:
         assert isinstance(
@@ -197,20 +244,37 @@ def rtlsim_multi_io(
         sim.stream_input(stream_name, hexstring_input)
 
     hex_output_streams = {}
+    watchdogs = []
     for out in io_dict["outputs"]:
         stream_name = out + sname
+        watchdog = sim.create_watchdog(f"{stream_name} timeout", liveness_threshold)
+        watchdogs.append(watchdog)
         hex_output_streams[out] = sim.collect_output(
             stream_name,
             num_out_values[out],
-            watchdog=sim.create_watchdog(f"{stream_name} timeout", liveness_threshold),
+            watchdog=watchdog,
         )
 
     start_ticks = sim.ticks
-    ret = sim.run()
-    if len(ret) > 0:
-        assert False, f"RTL simulation watchdogs {str(ret)} timed out. Check rtlsim_trace if any."
-    end_ticks = sim.ticks
-    for out in io_dict["outputs"]:
-        io_dict["outputs"][out] = list(map(lambda var: int(var, base=16), hex_output_streams[out]))
+    try:
+        ret = sim.run()
+        if len(ret) > 0:
+            assert False, (
+                get_rtlsim_timeout_error_message(liveness_threshold, liveness_estimate)
+                + f" Triggered watchdogs: {str(ret)}. Check rtlsim_trace if any."
+            )
+        end_ticks = sim.ticks
+        for out in io_dict["outputs"]:
+            io_dict["outputs"][out] = list(
+                map(lambda var: int(var, base=16), hex_output_streams[out])
+            )
+    finally:
+        # Remove the per-output watchdogs so they do not outlive this data pass.
+        # sim.watchdogs is persistent; a leftover (already-exhausted) watchdog
+        # would keep ticking and prematurely abort any later sim.run(), e.g. a
+        # post-hook AXI-Lite weight read-back (see test_fpgadataflow_mvau).
+        for watchdog in watchdogs:
+            if watchdog in sim.watchdogs:
+                sim.remove_watchdog(watchdog)
 
     return end_ticks - start_ticks

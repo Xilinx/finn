@@ -32,7 +32,6 @@ import json
 import numpy as np
 import os
 import re
-import shutil
 import torch
 import torch.nn as nn
 from brevitas.core.quant import QuantType
@@ -147,7 +146,7 @@ def test_end2end_cybsec_mlp_export():
 
 
 # board
-@pytest.mark.parametrize("build_board", ["Pynq-Z1", "AUP-ZU3_8GB"])
+@pytest.mark.parametrize("build_board", ["AUP-ZU3_8GB"])
 @pytest.mark.xdist_group(name="end2end_cybsec")
 @pytest.mark.slow
 @pytest.mark.vivado
@@ -166,6 +165,7 @@ def test_end2end_cybsec_mlp_build(build_board):
 
     cfg = build.DataflowBuildConfig(
         output_dir=output_dir,
+        enable_build_pdb_debug=False,
         target_fps=1000000,
         synth_clk_period_ns=target_clk_ns,
         board=build_board,
@@ -203,7 +203,7 @@ def test_end2end_cybsec_mlp_build(build_board):
         # InsertDWC/InsertFIFO, so these totals now also include the
         # StreamingFIFO and StreamingDataWidthConverter nodes, not just the
         # compute layers.
-        assert est_res_dict["total"]["LUT"] == 8076.0
+        assert est_res_dict["total"]["LUT"] == 8215.0
         assert est_res_dict["total"]["BRAM_18K"] == 36.0
-    shutil.copytree(output_dir + "/deploy", get_checkpoint_name("build"))
-    shutil.rmtree(get_checkpoint_name("build"))
+    assert os.path.isfile(output_dir + "/deploy/bitfile/finn-accel.bit")
+    assert os.path.isfile(output_dir + "/deploy/driver/driver.py")

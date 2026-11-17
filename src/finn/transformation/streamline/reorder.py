@@ -1,5 +1,5 @@
 # Copyright (C) 2020-2022, Xilinx, Inc.
-# Copyright (C) 2022-2024, Advanced Micro Devices, Inc.
+# Copyright Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -42,6 +42,8 @@ from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import get_by_name
+
+from finn.util.basic import resolve_resize_param_input
 
 
 class MoveAddPastMul(Transformation):
@@ -636,7 +638,19 @@ class MakeMaxPoolNHWC(Transformation):
             if n.op_type == "MaxPool":
                 consumer = model.find_consumer(n.output[0])
                 producer = model.find_producer(n.input[0])
-                if consumer is not None and consumer.op_type == "Transpose":
+                # Case A (consumer path) rewires a single consumer transpose above
+                # the pool. If the pool output is a fork, find_consumer only returns
+                # the first consumer, so Case A would strand the pool on one branch
+                # and leave the other branch reading the un-pooled tensor. Skip it in
+                # that case and let the producer path (Case B) handle it: Case B only
+                # rewires the producer transpose + pool and keeps both fork consumers
+                # intact, after which MoveTransposePastFork duplicates the transpose
+                # onto both branches so they cancel symmetrically.
+                if (
+                    consumer is not None
+                    and consumer.op_type == "Transpose"
+                    and not model.is_fork_node(n)
+                ):
                     perms = list(get_by_name(consumer.attribute, "perm").ints)
                     if perms == [0, 2, 3, 1]:
                         ceil_mode = get_by_name(n.attribute, "ceil_mode")
@@ -715,9 +729,13 @@ class MakeScaleResizeNHWC(Transformation):
                 consumer = model.find_consumer(n.output[0])
                 producer = model.find_producer(n.input[0])
                 if n.op_type == "Upsample":
-                    scales_ind = 1
+                    param_ind = 1
+                    param_dtype = "float32"
                 else:
-                    scales_ind = 2
+                    param_ind, is_sizes = resolve_resize_param_input(model, n)
+                    # sizes are int64, scales are float32; preserve the dtype so
+                    # the NCHW->NHWC permutation below doesn't corrupt sizes
+                    param_dtype = "int64" if is_sizes else "float32"
                 if producer is not None and producer.op_type == "Transpose":
                     perms = list(get_by_name(producer.attribute, "perm").ints)
                     if perms == [0, 3, 1, 2]:
@@ -727,12 +745,12 @@ class MakeScaleResizeNHWC(Transformation):
                             model = model.transform(MoveTransposePastFork())
                             # topology modified, "ask" ModelWrapper to apply this transform again
                             return (model, True)
-                        old_value = model.get_initializer(n.input[scales_ind])
+                        old_value = model.get_initializer(n.input[param_ind])
                         new_value = np.array(
                             [old_value[idx] for idx in (0, 2, 3, 1)],
-                            dtype=np.dtype("float32"),
+                            dtype=np.dtype(param_dtype),
                         )
-                        model.set_initializer(n.input[scales_ind], new_value)
+                        model.set_initializer(n.input[param_ind], new_value)
                         start_name = producer.input[0]
                         mid_name = n.input[0]
                         end_name = n.output[0]
@@ -749,12 +767,12 @@ class MakeScaleResizeNHWC(Transformation):
                 elif consumer is not None and consumer.op_type == "Transpose":
                     perms = list(get_by_name(consumer.attribute, "perm").ints)
                     if perms == [0, 2, 3, 1]:
-                        old_value = model.get_initializer(n.input[scales_ind])
+                        old_value = model.get_initializer(n.input[param_ind])
                         new_value = np.array(
                             [old_value[idx] for idx in (0, 2, 3, 1)],
-                            dtype=np.dtype("float32"),
+                            dtype=np.dtype(param_dtype),
                         )
-                        model.set_initializer(n.input[scales_ind], new_value)
+                        model.set_initializer(n.input[param_ind], new_value)
                         start_name = n.input[0]
                         mid_name = consumer.input[0]
                         end_name = consumer.output[0]
@@ -862,6 +880,67 @@ class MoveLinearPastFork(MoveOpPastFork):
 class MoveTransposePastFork(MoveOpPastFork):
     def __init__(self):
         super().__init__(["Transpose"])
+
+
+# Ported from finn-plus (originally authored by Christoph Berganski).
+class MoveTransposePastEltwise(Transformation):
+    """Move a Transpose past a following elementwise Add/Mul whose other input is
+    a constant initializer: y = transpose(x) (op) a  <=>  y = transpose(x (op) a^T),
+    where a^T is a transposed by the inverse permutation (scalar/effectively-scalar
+    constants are left untouched). This lets NHWC<->NCHW transposes slide past the
+    per-channel bias/scale ops between convolutions so that opposite transposes end
+    up adjacent and cancel via AbsorbConsecutiveTransposes. Only handles plain
+    (non-fork, non-join) transposes feeding a non-join Add/Mul."""
+
+    def apply(self, model):
+        graph = model.graph
+        graph_modified = False
+        for node in graph.node:
+            if node.op_type != "Transpose":
+                continue
+            # only plain transposes are handled here (forks/joins are covered by
+            # dedicated MoveTransposePastFork / MoveTransposePastJoinAdd passes)
+            if model.is_fork_node(node) or model.is_join_node(node):
+                continue
+            successor = model.find_direct_successors(node)
+            if successor is None:
+                continue
+            successor = successor[0]
+            if successor.op_type not in {"Add", "Mul"}:
+                continue
+            inp = node.input[0]
+            mid = node.output[0]
+            out = successor.output[0]
+            # identify which eltwise input is the transpose output vs. the addend
+            xt, a = successor.input
+            if xt != mid:
+                xt, a = a, xt
+            assert xt == mid, f"Unexpected graph pattern at {node.name}"
+            # only applies when the other eltwise input is a constant initializer
+            value = model.get_initializer(a)
+            if value is None:
+                continue
+            perm = get_by_name(node.attribute, "perm")
+            perm = list(perm.ints) if perm is not None else None
+            inverse_perm = None if not perm else [perm.index(i) for i in range(len(perm))]
+            # transpose the constant so it still lines up post-move, unless it is
+            # scalar / effectively scalar (broadcasts either way)
+            if not (value.shape is None or all(x == 1 for x in value.shape)):
+                model.set_initializer(a, value.transpose(inverse_perm))
+            # rewire so the elementwise op runs first, then the transpose
+            successor.input[:] = [inp, a]
+            successor.output[0] = mid
+            node.input[0] = mid
+            node.output[0] = out
+            # only the middle tensor changes shape (it now holds the elementwise
+            # result before transposing); drop its stale annotation and re-infer.
+            # inp/out are unchanged and must not be cleared -- clearing a graph
+            # input's shape here cannot be recovered by InferShapes.
+            model.set_tensor_shape(mid, None)
+            graph_modified = True
+            break
+        model = model.transform(InferShapes())
+        return model, graph_modified
 
 
 def permute_shape(shape, perm):
@@ -1340,7 +1419,7 @@ class MoveTransposePastJoinAdd(MoveIdenticalOpPastJoinOp):
         first_perm = get_by_name(producers[0].attribute, "perm").ints
         for producer in producers:
             if first_perm != get_by_name(producer.attribute, "perm").ints:
-                False
+                return False
         return True
 
 
@@ -1385,6 +1464,37 @@ class MoveAddPastJoinAdd(MoveIdenticalOpPastJoinOp):
         return True
 
 
+class MoveMulPastJoinMul(MoveIdenticalOpPastJoinOp):
+    """Move constant Mul operations past a join Mul node, folding the two
+    constants into a single one: (x*A) * (y*B) -> (x*y) * (A*B).
+    Unlike MoveMulPastJoinAdd, the two constants need not be equal since they
+    are combined into their product."""
+
+    def __init__(self):
+        super().__init__(["Mul"], ["Mul"])
+
+    def are_producers_identical(self, model, producers):
+        if not super().are_producers_identical(model, producers):
+            return False
+        for producer in producers:
+            if model.get_initializer(producer.input[1]) is None:
+                return False
+        return True
+
+    def move_node(self, model, n, producers):
+        """
+        Fold the producer constants into their product on the surviving
+        producer, then use the base move_node to move it past the join node
+        (and delete the rest).
+        """
+        mul_inits = [model.get_initializer(producer.input[1]) for producer in producers]
+        new_init = np.prod(mul_inits, axis=0)
+        model.set_initializer(producers[0].input[1], new_init)
+        super().move_node(model, n, producers)
+
+        return True
+
+
 class MoveTransposePastJoinConcat(MoveIdenticalOpPastJoinOp):
     def __init__(self):
         super().__init__(["Transpose"], ["Concat"])
@@ -1395,7 +1505,7 @@ class MoveTransposePastJoinConcat(MoveIdenticalOpPastJoinOp):
         first_perm = get_by_name(producers[0].attribute, "perm").ints
         for producer in producers:
             if first_perm != get_by_name(producer.attribute, "perm").ints:
-                False
+                return False
         return True
 
     def move_node(self, model, n, producers):

@@ -10,7 +10,7 @@ Brevitas Export
 
 FINN expects an ONNX model as input. This can be a model trained with `Brevitas <https://github.com/Xilinx/brevitas>`_. Brevitas is a PyTorch library for quantization-aware training and the FINN Docker image comes with several `example Brevitas networks <https://github.com/Xilinx/brevitas/tree/master/src/brevitas_examples/bnn_pynq>`_.
 Brevitas provides an export of a quantized network in QONNX representation, which is the format that can be ingested by FINN.
-In a QONNX graph, all quantization is represented using Quant, BinaryQuant or Trunc nodes.
+In a QONNX graph, all quantization is represented using dedicated quantization nodes: Quant (also called IntQuant), BipolarQuant, FloatQuant and Trunc.
 QONNX must be converted into FINN-ONNX by :py:mod:`finn.transformation.qonnx.convert_qonnx_to_finn`. FINN-ONNX is the intermediate representation (IR) FINN uses internally.
 In this IR, quantized weights are indicated through tensors with additional attributes to mark low-precision datatypes and quantized activations are expressed as MultiThreshold nodes.
 

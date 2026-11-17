@@ -47,11 +47,12 @@ from finn.util.basic import make_build_dir
 @pytest.mark.brevitas_export
 @pytest.mark.parametrize("kernel_size", [2, 3])
 @pytest.mark.parametrize("stride", [1, 2])
-@pytest.mark.parametrize("signed", [True])  # TODO: Add unsigned test case
+@pytest.mark.parametrize("signed", [True, False])
 @pytest.mark.parametrize("bit_width", [2, 4])
 @pytest.mark.parametrize("input_bit_width", [4, 8, 16])
 @pytest.mark.parametrize("channels", [2, 4])
 @pytest.mark.parametrize("idim", [7, 8])
+@pytest.mark.parametrize("float_to_int_impl_type", ["FLOOR", "ROUND"])
 def test_brevitas_avg_pool_export(
     kernel_size,
     stride,
@@ -60,6 +61,7 @@ def test_brevitas_avg_pool_export(
     input_bit_width,
     channels,
     idim,
+    float_to_int_impl_type,
 ):
     build_dir = make_build_dir(prefix="test_brevitas_avg_pool_export")
     export_onnx_path = os.path.join(build_dir, "test.onnx")
@@ -78,7 +80,7 @@ def test_brevitas_avg_pool_export(
         stride=stride,
         bit_width=bit_width,
         return_quant_tensor=False,
-        float_to_int_impl_type="FLOOR",
+        float_to_int_impl_type=float_to_int_impl_type,
     )
     model_brevitas = torch.nn.Sequential(quant_node, quant_avgpool)
     model_brevitas.eval()

@@ -29,20 +29,56 @@
 
 import numpy as np
 import os
+import warnings
 from dataclasses import dataclass, field
 from dataclasses_json import dataclass_json
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
 from finn.transformation.fpgadataflow.alveo_build import VitisOptStrategy
-from finn.util.basic import hbm_boards, part_map, vitis_default_platform
+from finn.util.basic import (
+    hbm_boards,
+    is_versal,
+    part_map,
+    pynq_part_map,
+    slash_part_map,
+    vitis_default_platform,
+    vitis_part_map,
+)
 
 
 class AutoFIFOSizingMethod(str, Enum):
-    "Select the type of automatic FIFO sizing strategy."
+    """Select the type of automatic FIFO sizing strategy.
 
-    CHARACTERIZE = "characterize"
+    The two heuristic strategies differ only in where each node's token access
+    vector comes from. ``heuristic_analytical`` builds it from the node's tree
+    model, which needs no IP generation and no simulator; ``heuristic_rtlsim``
+    measures it per node with rtlsim, which is far slower but covers operators
+    that have no tree model. Both then size the FIFOs with the chained-TAV pass
+    (``DeriveFIFOSizes``).
+
+    ``"characterize"``, the name of the rtlsim-based strategy these replaced, is
+    still accepted as a deprecated alias of ``heuristic_rtlsim``.
+    """
+
+    #: token access vectors from the operators' tree models
+    HEURISTIC_ANALYTICAL = "heuristic_analytical"
+    #: token access vectors measured per node with rtlsim
+    HEURISTIC_RTLSIM = "heuristic_rtlsim"
+    #: set every FIFO large, rtlsim the whole graph, then trim to the high-water mark
     LARGEFIFO_RTLSIM = "largefifo_rtlsim"
+
+    @classmethod
+    def _missing_(cls, value):
+        if value == "characterize":
+            warnings.warn(
+                "auto_fifo_strategy 'characterize' has been replaced by 'heuristic_rtlsim' "
+                "and will be removed in a future release; use 'heuristic_rtlsim' "
+                "(or 'heuristic_analytical') instead.",
+                DeprecationWarning,
+            )
+            return cls.HEURISTIC_RTLSIM
+        return None
 
 
 class ShellFlowType(str, Enum):
@@ -50,6 +86,7 @@ class ShellFlowType(str, Enum):
     the FINN-generated accelerator."""
 
     VIVADO_ZYNQ = "vivado_zynq"
+    VIVADO_VERSAL = "vivado_versal"
     VITIS_ALVEO = "vitis_alveo"
     SLASH_ALVEO = "slash_alveo"
 
@@ -65,6 +102,7 @@ class DataflowOutputType(str, Enum):
     PYNQ_DRIVER = "pynq_driver"
     CPP_DRIVER = "cpp_driver"
     DEPLOYMENT_PACKAGE = "deployment_package"
+    PORTABLE_RTL = "portable_rtl"
 
 
 class VitisOptStrategyCfg(str, Enum):
@@ -76,15 +114,6 @@ class VitisOptStrategyCfg(str, Enum):
     PERFORMANCE_BEST = "performance_best"
     SIZE = "size"
     BUILD_SPEED = "quick"
-
-
-class LargeFIFOMemStyle(str, Enum):
-    """Type of memory resource to use for large FIFOs."""
-
-    AUTO = "auto"
-    BRAM = "block"
-    LUTRAM = "distributed"
-    URAM = "ultra"
 
 
 class VerificationStepType(str, Enum):
@@ -102,6 +131,26 @@ class VerificationStepType(str, Enum):
     NODE_BY_NODE_RTLSIM = "node_by_node_rtlsim"
     #: verify after step_create_stitched_ip, using stitched-ip Verilog
     STITCHED_IP_RTLSIM = "stitched_ip_rtlsim"
+
+
+#: Maps each VerificationStepType to the (phase, step) it depends on.
+#: run_all_config_checks uses this to flag a verify_steps entry whose
+#: owning step won't run given steps/start_step/stop_step.
+#: A new VerificationStepType member must add its own entry here too.
+verify_step_prereqs = {
+    VerificationStepType.QONNX_TO_FINN_PYTHON: ("phase_prepare_model", "step_qonnx_to_finn"),
+    VerificationStepType.TIDY_UP_PYTHON: ("phase_prepare_model", "step_tidy_up"),
+    VerificationStepType.STREAMLINED_PYTHON: ("phase_optimize_model", "step_streamline"),
+    VerificationStepType.FOLDED_HLS_CPPSIM: (
+        "phase_optimize_hardware",
+        "step_minimize_bit_width",
+    ),
+    VerificationStepType.NODE_BY_NODE_RTLSIM: ("phase_build_hardware", "step_hw_ipgen"),
+    VerificationStepType.STITCHED_IP_RTLSIM: (
+        "phase_generate_outputs",
+        "step_create_stitched_ip",
+    ),
+}
 
 
 #: List of steps that will be run as part of the standard dataflow build, in the
@@ -192,6 +241,13 @@ class DataflowBuildConfig:
     #: verification. Only required if verify_steps is not empty.
     verify_expected_output_npy: Optional[str] = "expected_output.npy"
 
+    #: (Optional) Number of frames to verify in a single stitched-IP rtlsim run.
+    #: Only the stitched_ip_rtlsim verification step uses this. All other steps and
+    #: stitched_ip_rtlsim when this is unset, verify one frame at a time.
+    #: A single-frame verification input/output pair is repeated to this many frames.
+    #: This is separate from rtlsim_batch_size, which controls performance simulation.
+    verify_batch_size: Optional[int] = None
+
     #: (Optional) Save full execution context for each of the verify_steps.
     #: By default, only the top-level graph output is saved.
     verify_save_full_context: Optional[bool] = False
@@ -246,7 +302,7 @@ class DataflowBuildConfig:
 
     #: Target board, only needed for generating full bitfiles where the FINN
     #: design is integrated into a shell.
-    #: e.g. "Pynq-Z1" or "U250"
+    #: e.g. "AUP-ZU3_8GB" or "U55C"
     board: Optional[str] = None
 
     #: Target shell flow, only needed for generating full bitfiles where the FINN
@@ -264,17 +320,11 @@ class DataflowBuildConfig:
     #: for each FIFO.
     auto_fifo_depths: Optional[bool] = True
 
-    #: Whether FIFO nodes with depth larger than 32768 will be split.
-    #: Allow to configure very large FIFOs in the folding_config_file.
-    split_large_fifos: Optional[bool] = False
-
     #: When `auto_fifo_depths = True`, select which method will be used for
-    #: setting the FIFO sizes.
+    #: setting the FIFO sizes. See :class:`AutoFIFOSizingMethod`; the two
+    #: heuristic strategies differ only in whether each node's token access
+    #: vector comes from its tree model or from rtlsim.
     auto_fifo_strategy: Optional[AutoFIFOSizingMethod] = AutoFIFOSizingMethod.LARGEFIFO_RTLSIM
-
-    #: Memory resource type for large FIFOs
-    #: Only relevant when `auto_fifo_depths = True`
-    large_fifo_mem_style: Optional[LargeFIFOMemStyle] = LargeFIFOMemStyle.AUTO
 
     #: Enable input throttling for simulation-based FIFO sizing
     #: Only relevant if auto_fifo_strategy = LARGEFIFO_RTLSIM
@@ -285,12 +335,23 @@ class DataflowBuildConfig:
     fifosim_n_inferences: Optional[int] = 2
 
     #: Enable saving waveforms from simulation-based FIFO sizing.
-    #: Applies to the LARGEFIFO_RTLSIM strategy as well as the characterize
-    #: strategy (used for MLO/FINNLoop models), where it traces the per-node
-    #: characterization simulations.
+    #: Applies to the LARGEFIFO_RTLSIM strategy (including the FIFO sizing of
+    #: MLO/FINNLoop loop bodies) and, for MLO models sized with a heuristic
+    #: strategy, to the per-node characterization simulations that derive the
+    #: token access vectors (HEURISTIC_RTLSIM, or nodes without a tree model).
     fifosim_save_waveform: Optional[bool] = False
 
+    #: Enable FIFOs to output log files documenting what they witness.
     debug_fifo: Optional[bool] = False
+
+    #: FIFO log format. True: "<data> <dir> <cycle>"; False: "<data_in>".
+    #: Only applicable when debug_fifo=True.
+    fifo_log_verbose: Optional[bool] = False
+
+    #: FIFO Log flush rate (cycles), larger = less simulation slowdown.
+    #: Only applicable when debug_fifo=True.
+    #: 0 means only write logs at the end of simulation.
+    fifo_log_flush_cycles: Optional[int] = 10000
 
     #: Target clock frequency (in nanoseconds) for Vitis HLS synthesis.
     #: e.g. `hls_clk_period_ns=5.0` will target a 200 MHz clock.
@@ -332,8 +393,10 @@ class DataflowBuildConfig:
     #: Whether pdb postmortem debuggig will be launched when the build fails
     enable_build_pdb_debug: Optional[bool] = True
 
-    #: When True, all warnings and compiler output will be printed in stdout.
-    #: Otherwise, these will be suppressed and only appear in the build log.
+    #: When True, the console also shows FINN's INFO records, the output of tools
+    #: launched through launch_process_helper and each Python warning. Otherwise
+    #: these only appear in build_dataflow.log, while the console shows the step
+    #: timeline, FINN's warnings and errors and a count of Python warnings.
     verbose: Optional[bool] = False
 
     #: If given, only run the steps in the list. If not, run default steps.
@@ -369,14 +432,10 @@ class DataflowBuildConfig:
     #: run can measure latency and pipeline-fill throughput only.
     rtlsim_batch_size: Optional[int] = 2
 
-    #: If set to True, FIFOs with impl_style=vivado will be kept during
-    #: rtlsim, otherwise they will be replaced by RTL implementations.
-    rtlsim_use_vivado_comps: Optional[bool] = True
-
     #: Use behavioral simulation for RTLSim verification steps.
     #: When True, passes -define FINN_SIMULATION to xelab, enabling faster
     #: behavioral models for DSP-heavy modules (MVU, LayerNorm, Elementwise)
-    #: and fifo_gauge (with debug capabilities) instead of Q_srl.
+    #: and fifo_gauge (with debug capabilities) instead of the synthesizable fifo.sv.
     #: Does not affect FIFO sizing which always uses behavioral simulation.
     verify_rtlsim_behavioral: Optional[bool] = False
 
@@ -432,14 +491,15 @@ class DataflowBuildConfig:
             return self.hls_clk_period_ns
 
     def _resolve_driver_platform(self):
-        if self.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
-            return "zynq-iodma"
-        elif self.shell_flow_type == ShellFlowType.VITIS_ALVEO:
+        shell_flow_type = self._resolve_shell_flow_type()
+        if shell_flow_type in (ShellFlowType.VIVADO_ZYNQ, ShellFlowType.VIVADO_VERSAL):
+            return "pynq-iodma"
+        elif shell_flow_type == ShellFlowType.VITIS_ALVEO:
             return "vitis-xrt"
-        elif self.shell_flow_type == ShellFlowType.SLASH_ALVEO:
+        elif shell_flow_type == ShellFlowType.SLASH_ALVEO:
             return "slash-vrt"
         else:
-            raise Exception("Couldn't resolve driver platform for " + str(self.shell_flow_type))
+            raise Exception("Couldn't resolve driver platform for " + str(shell_flow_type))
 
     def _resolve_fpga_part(self):
         if self.fpga_part is None:
@@ -467,6 +527,13 @@ class DataflowBuildConfig:
             n_cycles_per_frame = n_clock_cycles_per_sec / self.target_fps
             return int(n_cycles_per_frame)
 
+    def _resolve_auto_fifo_strategy(self):
+        """The ``AutoFIFOSizingMethod`` for ``auto_fifo_strategy``, which may be
+        given as the enum or its string value. Maps the deprecated
+        ``"characterize"`` to ``HEURISTIC_RTLSIM``; raises ValueError for an
+        unknown strategy."""
+        return AutoFIFOSizingMethod(self.auto_fifo_strategy)
+
     def _resolve_vitis_opt_strategy(self):
         # convert human-readable enum to value expected by v++
         name_to_strategy = {
@@ -488,6 +555,29 @@ class DataflowBuildConfig:
             raise Exception(
                 "Could not resolve Vitis platform:" " need either board or vitis_platform specified"
             )
+
+    def _resolve_shell_flow_type(self):
+        """Resolve the shell flow from an explicit setting, else from the board.
+
+        When shell_flow_type is unset, infer it from the board's membership in
+        FINN's part maps (Alveo -> VITIS_ALVEO, Zynq PYNQ -> VIVADO_ZYNQ,
+        Versal PYNQ -> VIVADO_VERSAL, V80 -> SLASH_ALVEO), mirroring
+        _resolve_fpga_part/_resolve_vitis_platform. An explicit shell_flow_type
+        always wins.
+        """
+        if self.shell_flow_type is not None:
+            return self.shell_flow_type
+        if self.board in vitis_part_map:
+            return ShellFlowType.VITIS_ALVEO
+        elif self.board in pynq_part_map:
+            if is_versal(pynq_part_map[self.board]):
+                return ShellFlowType.VIVADO_VERSAL
+            return ShellFlowType.VIVADO_ZYNQ
+        elif self.board in slash_part_map:
+            return ShellFlowType.SLASH_ALVEO
+        raise Exception(
+            "Could not resolve shell_flow_type: need either board or shell_flow_type specified"
+        )
 
     def _resolve_verification_steps(self):
         if self.verify_steps is None:

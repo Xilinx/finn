@@ -41,15 +41,23 @@ import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.minimize_accumulator_width import (
+    MinimizeAccumulatorWidth,
+)
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.test import tree_model_test
+
+tree_model_fpga_part = "xczu7ev-ffvc1156-2-e"
+tree_model_clk_ns = 5.0
 
 
 def make_accpool_modelwrapper(ch, pe, idim, idt, impl_style):
-    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, idim, idim, ch])
+    idim_h, idim_w = (idim, idim) if isinstance(idim, int) else idim
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, idim_h, idim_w, ch])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, 1, 1, ch])
 
     accpool_node = helper.make_node(
@@ -61,7 +69,7 @@ def make_accpool_modelwrapper(ch, pe, idim, idt, impl_style):
         NumChannels=ch,
         PE=pe,
         inputDataType=idt.name,
-        numInputVectors=[1, idim, idim],
+        numInputVectors=[1, idim_h, idim_w],
         preferred_impl_style=impl_style,
     )
     graph = helper.make_graph(nodes=[accpool_node], name="graph", inputs=[inp], outputs=[outp])
@@ -79,13 +87,13 @@ def prepare_inputs(input_tensor, idt):
 
 
 # data type
-@pytest.mark.parametrize("idt", [DataType["UINT4"], DataType["UINT16"]])
+@pytest.mark.parametrize("idt", [DataType["UINT4"], DataType["UINT16"], DataType["INT8"]])
 # channels
 @pytest.mark.parametrize("ch", [64])
 # folding
 @pytest.mark.parametrize("fold", [-1, 2, 1])
-# image dimension
-@pytest.mark.parametrize("imdim", [7])
+# image dimension: square size or (H, W)
+@pytest.mark.parametrize("imdim", [7, (5, 9)])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 # impl_style
@@ -100,7 +108,8 @@ def test_fpgadataflow_globalaccpool(idt, ch, fold, imdim, exec_mode, impl_style)
     assert ch % pe == 0
 
     # generate input data
-    x = gen_finn_dt_tensor(idt, (1, imdim, imdim, ch))
+    imdim_h, imdim_w = (imdim, imdim) if isinstance(imdim, int) else imdim
+    x = gen_finn_dt_tensor(idt, (1, imdim_h, imdim_w, ch))
 
     # prepare input data and execute
     input_dict = prepare_inputs(x, idt)
@@ -111,6 +120,15 @@ def test_fpgadataflow_globalaccpool(idt, ch, fold, imdim, exec_mode, impl_style)
     y = oxe.execute_onnx(model, input_dict)["outp"]
 
     assert (y == expected_y).all(), "HW layer verification failed"
+
+    # MinimizeAccumulatorWidth - should set output datatype based on accumulation range
+    model = model.transform(MinimizeAccumulatorWidth())
+    odt = model.get_tensor_datatype("outp")
+    npixels = imdim_h * imdim_w
+    if idt.signed():
+        assert odt.min() <= npixels * idt.min()
+    else:
+        assert odt.max() >= npixels * idt.max()
 
     model = model.transform(SpecializeLayers("xc7z020clg400-1"))
 
@@ -137,10 +155,48 @@ def test_fpgadataflow_globalaccpool(idt, ch, fold, imdim, exec_mode, impl_style)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)
         exp_cycles = exp_cycles_dict[node.name]
-        # commented out, needs performance debug:
-        # test_fpgadataflow_globalaccpool[rtlsim-7-1-64-DataType["UINT4"]]
-        # assert False where False =
-        # <function isclose at 0x7eff26d5ca60>(50, 103, atol=(0.1 * 103))
-        # assert np.isclose(exp_cycles, cycles_rtlsim, atol=0.1 * cycles_rtlsim)
-        assert exp_cycles != 0
-        assert cycles_rtlsim != 0
+        assert np.isclose(exp_cycles, cycles_rtlsim, atol=0.1 * cycles_rtlsim)
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        (32, 4, 4),
+        (64, 8, 4),
+        (16, 2, 8),
+        (48, 6, 3),
+        (12, 4, 5),
+        (128, 16, 4),
+        (64, 32, 4),
+    ],
+)
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_globalaccpool(config):
+    ch, pe, idim = config
+    model = make_accpool_modelwrapper(ch, pe, idim, DataType["UINT4"], "hls")
+    model = model.transform(SpecializeLayers(tree_model_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+
+    node_details = ("GlobalAccPool", config)
+
+    # The two loops are placed exactly, so the token counts cannot drift at all
+    # and the budget is a floor rather than a fraction. The length floor covers
+    # the one cycle the reference's period rounds away on a wide accumulator.
+    max_allowed_volume_frac = 0.0
+    volume_const = 2
+    max_allowed_length_frac = 0.0
+    length_const = 4
+
+    assert tree_model_test(
+        model,
+        node_details,
+        tree_model_fpga_part,
+        tree_model_clk_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    ), "characterized TAV does not match RTLsim'd one!"

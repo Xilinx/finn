@@ -11,6 +11,8 @@ driver. It checks two things quickly, without building or running any hardware:
    ``gen_finn_dt_tensor``).
 """
 
+import pytest
+
 import importlib.util
 import numpy as np
 import qonnx.core.datatype
@@ -19,6 +21,8 @@ import sys
 
 import finn.util.data_packing
 from finn.transformation.fpgadataflow.make_driver import _generate_minimal_module
+
+pytestmark = pytest.mark.fpgadataflow
 
 BASIC_FUNCS = [
     "roundup_to_integer_multiple",

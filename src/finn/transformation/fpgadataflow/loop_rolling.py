@@ -11,6 +11,7 @@
 ###################################################################################
 
 import copy
+import logging
 import numpy as np
 import onnx
 import onnxscript
@@ -26,6 +27,8 @@ from typing import List, Tuple
 
 from finn.util import onnxscript_helpers as osh
 from finn.util.basic import make_build_dir
+
+log = logging.getLogger(__name__)
 
 
 def get_constant_from_value(value):
@@ -70,17 +73,10 @@ def build_loop_replace_pattern(graph, LoopBody):
             g_shape = nodes[0].inputs[i].shape
             for node in nodes:
                 if node.inputs[i].shape != g_shape:
-                    print(
-                        (
-                            f"LoopRolling: Index {i} expected shape {g_shape}, "
-                            f"got {node.inputs[i].shape}."
-                        )
-                    )
                     raise Exception(
-                        (
-                            "LoopRolling: all loop-body initializers of the same index "
-                            "must have the same shape."
-                        )
+                        "LoopRolling: all loop-body initializers of the same index "
+                        f"must have the same shape; index {i} expected {g_shape}, "
+                        f"got {node.inputs[i].shape}."
                     )
 
             # Build Concat Node
@@ -257,8 +253,9 @@ class LoopExtraction(Transformation):
             elif len(succs) > 0:
                 mnode = succs[0]
             else:
-                print("error: could not find metadata for node")
-                exit(1)
+                raise RuntimeError(
+                    f"LoopRolling: no neighbour to take metadata from for {node.name}"
+                )
 
             node.metadata_props["pkg.torch.onnx.name_scopes"] = mnode.metadata_props.get(
                 "pkg.torch.onnx.name_scopes", ""
@@ -487,36 +484,40 @@ class LoopRolling(Transformation):
         # TODO: write a check to ensure that there is only one
         #       set of consecutive nodes.
         nodes = osh.find_nodes_of_optype(graph, LoopBody.function.name)
+        # MLO requires at least two repetitions of the loop body to roll into a
+        # FINNLoop. A single instance (iteration=1) cannot be handled by the
+        # downstream MLO machinery.
+        if len(nodes) < 2:
+            raise Exception(
+                f"LoopRolling: MLO requires at least 2 repetitions of the loop "
+                f"body, but found {len(nodes)}. A single-instance model cannot be "
+                f"rolled into a FINNLoop. Disable 'mlo' (or fix 'loop_body_hierarchy'/"
+                f"'loop_body_range') for this model."
+            )
         # Loop through all the nodes (execept the last one) and
         # identify the input to output pairs
 
         # my loop rolling code assumes that the activation inputs are listed first and
         # that corresponding output activations have the same index as the input
         input_swaps = []
-        if len(nodes) == 1:
-            # find and label the activation inputs
-            for i, input in enumerate(nodes[0].inputs):
-                if not input.is_initializer():
-                    if input.is_graph_input() or input.producer().op_type != "Constant":
-                        input_swaps.append((len(input_swaps), i))
-        else:
-            for i in range(len(nodes) - 1):
-                a_node = nodes[i]
-                b_node = nodes[i + 1]
+        # nodes is guaranteed to have >= 2 entries (checked above).
+        for i in range(len(nodes) - 1):
+            a_node = nodes[i]
+            b_node = nodes[i + 1]
 
-                for a_out in a_node.outputs:
-                    # Require that outputs of a have a single use of b_node
-                    assert len(a_out.uses()) == 1
-                    assert a_out.uses()[0][0] is b_node
+            for a_out in a_node.outputs:
+                # Require that outputs of a have a single use of b_node
+                assert len(a_out.uses()) == 1
+                assert a_out.uses()[0][0] is b_node
 
-                    a_use_index = a_out.uses()[0][1]
-                    input_swap = (a_out.index(), a_use_index)
-                    if i == 0:
-                        # add swaps from the first node
-                        input_swaps.append(input_swap)
-                    else:
-                        # check that they are the same in the rest
-                        assert input_swap in input_swaps
+                a_use_index = a_out.uses()[0][1]
+                input_swap = (a_out.index(), a_use_index)
+                if i == 0:
+                    # add swaps from the first node
+                    input_swaps.append(input_swap)
+                else:
+                    # check that they are the same in the rest
+                    assert input_swap in input_swaps
 
         # apply the input swaps to each nodes
         for node in nodes:
@@ -567,7 +568,7 @@ class LoopRolling(Transformation):
         change_function_calls_to_loop = pattern.RewriteRule(LoopMatchPattern, loop_replace_pattern)
         rewrite_set = pattern.RewriteRuleSet([change_function_calls_to_loop])
         count = rewrite_set.apply_to_model(model_ir, verbose=None)
-        print(f"Rolled {count} function calls into a loop operator")
+        log.info(f"Rolled {count} function calls into a loop operator")
 
         for node in model_ir.graph._nodes:
             if node.op_type == "FINNLoop":

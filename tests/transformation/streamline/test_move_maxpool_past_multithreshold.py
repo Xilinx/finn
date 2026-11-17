@@ -38,9 +38,7 @@ import finn.core.onnx_exec as oxe
 from finn.transformation.streamline.reorder import MoveMaxPoolPastMultiThreshold
 
 
-def get_multithreshold_rand_params(channels, num_of_thres, seed=None):
-    if seed is not None:
-        np.random.seed(seed)
+def get_multithreshold_rand_params(channels, num_of_thres):
     steps = np.random.rand(channels, 1) * 2
     bias = np.random.rand(channels, 1) * 10
     thres = [np.arange(num_of_thres) for chn in range(channels)]
@@ -82,7 +80,7 @@ def test_move_maxpool_past_multithreshold():
             domain="qonnx.custom_op.general",
             out_dtype="BIPOLAR",
             out_bias=-1.0,
-            out_scale=1.0,
+            out_scale=2.0,
         )
     ]
     nodes += [helper.make_node("MaxPool", ["t2"], ["t3"], **maxpool_config)]
@@ -110,7 +108,7 @@ def test_move_maxpool_past_multithreshold():
     model = model.transform(InferDataTypes())
 
     model.set_initializer("thres1", np.array([[0]], dtype=np.float32))
-    model.set_initializer("thres2", get_multithreshold_rand_params(*thres2_shape, seed=0))
+    model.set_initializer("thres2", get_multithreshold_rand_params(*thres2_shape))
 
     # Transform
     new_model = model.transform(MoveMaxPoolPastMultiThreshold())

@@ -29,12 +29,16 @@
 
 import pytest
 
+import copy
 import numpy as np
+from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
+import finn.core.onnx_exec as oxe
 from finn.core.rtlsim_exec import rtlsim_exec
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
@@ -129,3 +133,103 @@ def test_runtime_weights_single_layer():
     # only use second batch element in output; first will be invalid due to
     # old weights (see above)
     assert (y[1] == np.dot(in_tensor[1], new_weights)).all()
+
+
+# SIMD > 1 (but < K*K) so that the element order within a weight word matters
+@pytest.mark.parametrize(
+    "impl_style, part", [("hls", test_fpga_part), ("rtl", "xcvc1902-vsva2197-2MP-e-S")]
+)
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+def test_runtime_weights_vvau(impl_style, part):
+    idt = DataType["INT4"]
+    wdt = DataType["INT4"]
+    odt = DataType["INT32"]
+    k = 3
+    dim = 4
+    channels = 4
+    pe = 2
+    simd = 3
+    in_shape = [1, dim, dim, k * k * channels]
+    out_shape = [1, dim, dim, channels]
+    vvau_node = helper.make_node(
+        "VVAU",
+        ["inp", "weights"],
+        ["outp"],
+        domain="finn.custom_op.fpgadataflow",
+        backend="fpgadataflow",
+        PE=pe,
+        SIMD=simd,
+        Dim=[dim, dim],
+        Channels=channels,
+        Kernel=[k, k],
+        resType="dsp" if impl_style == "rtl" else "lut",
+        inputDataType=idt.name,
+        weightDataType=wdt.name,
+        outputDataType=odt.name,
+        noActivation=1,
+        mem_mode="internal_decoupled",
+        runtime_writeable_weights=1,
+        preferred_impl_style=impl_style,
+    )
+    graph = helper.make_graph(
+        nodes=[vvau_node],
+        name="vvau_graph",
+        inputs=[helper.make_tensor_value_info("inp", TensorProto.FLOAT, in_shape)],
+        outputs=[helper.make_tensor_value_info("outp", TensorProto.FLOAT, out_shape)],
+    )
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="vvau-model"))
+    model.set_tensor_datatype("inp", idt)
+    model.set_tensor_datatype("outp", odt)
+    model.set_tensor_datatype("weights", wdt)
+    old_weights = gen_finn_dt_tensor(wdt, (channels, 1, k, k))
+    model.set_initializer("weights", old_weights)
+    # the HW op executed in Python serves as reference for old and new weights
+    ref_model = copy.deepcopy(model)
+
+    def expected_output(x, weights):
+        ref_model.set_initializer("weights", weights)
+        return oxe.execute_onnx(ref_model, {"inp": x})["outp"]
+
+    model = model.transform(SpecializeLayers(part))
+    vvau = model.get_nodes_by_op_type("VVAU_" + impl_style)[0]
+    op_inst = getCustomOp(vvau)
+    old_weight_stream = make_runtime_weight_stream(op_inst, old_weights)
+    model = model.transform(InsertFIFO(True))
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareIP(part, target_clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(CreateStitchedIP(part, target_clk_ns))
+    model.set_metadata_prop("exec_mode", "rtlsim")
+    inp_name = model.graph.input[0].name
+    out_name = model.graph.output[0].name
+    # two copies of the input, the first one only flushes out the pipeline
+    # (see test_runtime_weights_single_layer)
+    in_tensor = np.tile(gen_finn_dt_tensor(idt, in_shape), (2, 1, 1, 1))
+    exec_ctx = {inp_name: in_tensor}
+    extracted_weight_stream = []
+
+    def read_weights(sim):
+        addresses = [4 * i for i in range(len(old_weight_stream))]
+        read_handle = sim.read_axilite("s_axilite_0", iter(addresses))
+        sim.run()
+        for addr in addresses:
+            extracted_weight_stream.append(int(read_handle[addr], 16))
+
+    rtlsim_exec(model, exec_ctx, pre_hook=read_weights)
+    assert extracted_weight_stream == old_weight_stream
+    y = exec_ctx[out_name]
+    assert (y[1] == expected_output(in_tensor[1:2], old_weights)[0]).all()
+
+    new_weights = gen_finn_dt_tensor(wdt, (channels, 1, k, k))
+    new_weight_stream = make_runtime_weight_stream(op_inst, new_weights)
+
+    def write_weights(sim):
+        writes = [(4 * i, format(nw, "x")) for i, nw in enumerate(new_weight_stream)]
+        sim.write_axilite("s_axilite_0", iter(writes))
+        sim.run()
+
+    rtlsim_exec(model, exec_ctx, pre_hook=write_weights)
+    y = exec_ctx[out_name]
+    assert (y[1] == expected_output(in_tensor[1:2], new_weights)[0]).all()

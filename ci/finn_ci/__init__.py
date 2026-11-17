@@ -18,5 +18,6 @@ Submodules:
   retention - image/artifact/snapshot tree rotation and pip-cache pruning
   lsf       - bjobs orphan-job parsing for the build reaper
   failures  - the stdlib JUnit failure printer
+  hw        - the build-to-HW zip resolver and HW config projection
   __main__  - the CLI dispatched by python3 -m finn_ci
 """

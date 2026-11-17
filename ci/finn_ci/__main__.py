@@ -14,7 +14,7 @@ retention, or LSF parsing logic.
 import argparse
 import json
 import sys
-from finn_ci import config, failures, lsf, retention, timing
+from finn_ci import config, failures, hw, lsf, retention, timing
 
 
 def main(argv=None):
@@ -34,6 +34,9 @@ def _dispatch(argv):
     sub = parser.add_subparsers(dest="cmd")
 
     sub.add_parser("stage-choices-json")
+    # The HW pipeline's Validate reads this one bundle instead of three
+    # subcommands, so the BOARDS/STAGES tables are validated once per HW build.
+    sub.add_parser("hw-config-json")
 
     # validate-config is the one entry point the Validate stage in Jenkins
     # delegates to. Folds enabled_params / job_key / shard_plan into a single
@@ -80,6 +83,26 @@ def _dispatch(argv):
     p.add_argument("lines_per", type=int)
     p.add_argument("max_fails", type=int)
 
+    p = sub.add_parser("resolve-build-zips")
+    p.add_argument("--artifact-dir", required=True)
+    p.add_argument("--job-key", required=True)
+    p.add_argument(
+        "--tests",
+        required=True,
+        help="Comma-separated HW test types (e.g. bnn_build_sanity,bnn_build_full)",
+    )
+    p.add_argument("--boards", required=True, help="Comma-separated board names")
+    p.add_argument("--build-dir", default="", help="Optional explicit build directory override")
+
+    # strip-collection-errors and packaging-skips both print one "<file>: <entry>"
+    # line per finding and nothing at all when there is none, so the HW pipeline
+    # can decide whether to flag the run by testing for empty output.
+    p = sub.add_parser("strip-collection-errors")
+    p.add_argument("reports_dir")
+
+    p = sub.add_parser("packaging-skips")
+    p.add_argument("reports_dir")
+
     # One numbered-tree rotation for the image / artifact / snapshot trees.
     # retain_n and max_age_days come from RETENTION[kind], so a caller cannot
     # pass a window that disagrees with the documented policy.
@@ -93,6 +116,18 @@ def _dispatch(argv):
     args = parser.parse_args(argv)
     if args.cmd == "stage-choices-json":
         print(json.dumps(config.jenkins_stage_choices()))
+        return 0
+    if args.cmd == "hw-config-json":
+        config.validate_config()
+        print(
+            json.dumps(
+                {
+                    "shards": hw.hw_shards(),
+                    "test_types": hw.hw_test_types(),
+                    "labels": hw.hw_test_type_labels(),
+                }
+            )
+        )
         return 0
     if args.cmd == "validate-config":
         config.validate_config()
@@ -134,6 +169,24 @@ def _dispatch(argv):
         return timing.merge_maps(args.reports_dir)
     if args.cmd == "print-failures":
         return failures.print_failures(args.junit_xml, args.stash, args.lines_per, args.max_fails)
+    if args.cmd == "resolve-build-zips":
+        tests = [t for t in args.tests.split(",") if t]
+        boards = [b for b in args.boards.split(",") if b]
+        result = hw.resolve_build_zips(
+            args.artifact_dir, args.job_key, tests, boards, args.build_dir
+        )
+        print(json.dumps(result))
+        return 0
+    if args.cmd == "strip-collection-errors":
+        for name, entries in hw.strip_collection_errors(args.reports_dir).items():
+            for entry in entries:
+                print("%s: %s" % (name, entry))
+        return 0
+    if args.cmd == "packaging-skips":
+        for name, reasons in hw.packaging_skips(args.reports_dir).items():
+            for reason in reasons:
+                print("%s: %s" % (name, reason))
+        return 0
     if args.cmd == "prune":
         policy = retention.RETENTION[args.kind]
         prune_fn = {

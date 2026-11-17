@@ -29,6 +29,7 @@
 
 import inspect
 import json
+import logging
 import numpy as np
 import os
 import qonnx
@@ -50,6 +51,8 @@ from finn.util.data_packing import to_external_tensor
 from finn.util.rtlsim import dat_file_to_numpy_array
 
 from . import template_driver
+
+log = logging.getLogger(__name__)
 
 
 def _extract_license_header(source_module):
@@ -160,10 +163,9 @@ class MakeCPPDriver(Transformation):
                 shlex.split(command), cwd=cwd, check=True, text=True, capture_output=True
             )
             if debug:
-                print(result.stdout)  # Print the output for debugging purposes
+                log.debug(result.stdout)
         except subprocess.CalledProcessError as e:
-            print(f"Error running command: {command}")
-            print(f"Output:{e.stdout}; Error:{e.stderr}")
+            log.error(f"Error running command: {command}\nOutput: {e.stdout}\nError: {e.stderr}")
             raise e
 
     def _build_vitis_config(self, model: ModelWrapper):
@@ -348,7 +350,7 @@ class MakePYNQDriver(Transformation):
     after conversion to HLS layers, folding and the creation of
     dataflow partitions for correct operation.
 
-    platform: one of ["zynq-iodma", "vitis-xrt"]
+    platform: one of ["pynq-iodma", "vitis-xrt"]
 
     Outcome if successful: sets the pynq_driver_dir attribute in the ONNX
     ModelProto's metadata_props field, with the created driver dir as the
@@ -358,6 +360,14 @@ class MakePYNQDriver(Transformation):
 
     def __init__(self, platform):
         super().__init__()
+        if platform == "zynq-iodma":
+            warnings.warn(
+                'Platform "zynq-iodma" has been renamed to "pynq-iodma" and will be '
+                "removed in a future release.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            platform = "pynq-iodma"
         self.platform = platform
 
     def apply(self, model):
@@ -473,8 +483,14 @@ class MakePYNQDriver(Transformation):
                     dma_sdp_output = sdp_inst.onnx_node.output[0]
                     dma_target_sdp = getCustomOp(model.find_consumer(dma_sdp_output))
                     dma_target_model = ModelWrapper(dma_target_sdp.get_nodeattr("model"))
-                    iodma_output_tensor = iodma_node.onnx_node.output[0]
-                    dma_consumer = dma_target_model.find_consumer(iodma_output_tensor)
+                    # follow the partition output, as a DWC may sit after the IODMA
+                    dma_consumer = dma_target_model.find_consumer(df_model.graph.output[0].name)
+                    # skip FIFOs/DWCs: the driver repeats the weights once per output
+                    # pixel, so it needs the output shape of the consuming layer
+                    while dma_consumer.op_type.startswith(
+                        ("StreamingFIFO", "StreamingDataWidthConverter")
+                    ):
+                        dma_consumer = dma_target_model.find_consumer(dma_consumer.output[0])
                     ext_weight_shapes_dict[idma_name] = dma_target_model.get_tensor_shape(
                         dma_consumer.output[0]
                     )
