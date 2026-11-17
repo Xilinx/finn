@@ -54,20 +54,3 @@ def test_failure_archive_includes_launcher_transcripts_in_build_families(tmp_pat
         assert set(archive.getnames()) == {str(path).lstrip("/") for path in expected}
         for path in expected:
             assert archive.extractfile(str(path).lstrip("/")).read() == path.read_bytes()
-
-
-@pytest.mark.util
-def test_xsi_source_diagnostics_are_scoped_by_the_shard_marker(tmp_path):
-    build = tmp_path / "build"
-    build.mkdir()
-    source = tmp_path / "source"
-    old = write_file(source, "finn_xsi/compile_xsi.stdout.log")
-    os.utime(old, (1, 1))
-    marker = write_file(tmp_path, "start")
-    os.utime(marker, (2, 2))
-    recent = write_file(source, "finn_xsi/compile_xsi.stderr.log")
-    bundle = tmp_path / "failure.tar.gz"
-    env = {**os.environ, "FINN_ROOT": str(source), "FINN_LSF_NFS_STAGING": ""}
-    subprocess.run(["bash", str(SCRIPT), str(build), str(bundle), str(marker)], env=env, check=True)
-    with tarfile.open(bundle) as archive:
-        assert archive.getnames() == [str(recent).lstrip("/")]

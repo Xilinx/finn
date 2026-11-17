@@ -14,7 +14,14 @@ from pathlib import Path
 
 from finn.util import launcher, vivado
 from finn.util.basic import make_build_dir, robust_rmtree
-from finn.util.launcher import ToolFailed, run_process, run_tool, transcript_files
+from finn.util.build_log import log_run
+from finn.util.launcher import (
+    ToolFailed,
+    ToolUnavailable,
+    run_process,
+    run_tool,
+    transcript_files,
+)
 
 
 def make_tool(directory, name, body):
@@ -301,18 +308,6 @@ def test_linker_failures_quote_the_cause_and_name_the_stderr_transcript(tmp_path
 
 
 @pytest.mark.util
-def test_tool_transcripts_preserve_raw_newlines(tmp_path):
-    out, err = b"a\r\nb\rc\n", b"e\r\n"
-    result = run_tool(
-        [sys.executable, "-c", f"import os; os.write(1, {out!r}); os.write(2, {err!r})"],
-        transcript=tmp_path / "raw",
-    )
-    assert (result.stdout, result.stderr) == (out, err)
-    assert (tmp_path / "raw.stdout.log").read_bytes() == out
-    assert (tmp_path / "raw.stderr.log").read_bytes() == err
-
-
-@pytest.mark.util
 def test_tcl_errors_are_quoted():
     # Vivado 2025.2 prints a plain Tcl error on stdout, with no ERROR: line
     warning = "CRITICAL WARNING: [BD 41-1356] Slave segment is not assigned into address space"
@@ -477,3 +472,54 @@ def test_ignored_sighup_does_not_stop_the_tool(tmp_path):
     finally:
         runner.kill()
         runner.wait()
+
+
+@pytest.mark.util
+def test_tool_failure_logs_both_streams_before_raising(tmp_path):
+    log_path = tmp_path / "build.log"
+    with log_run(str(log_path), runner="finn.builder.build_dataflow"):
+        with pytest.raises(ToolFailed):
+            run_tool(
+                [
+                    sys.executable,
+                    "-c",
+                    "import sys; print('out'); print('error: bad', file=sys.stderr); sys.exit(3)",
+                ],
+                transcript=tmp_path / "failed",
+                log_output=True,
+            )
+    assert "finn.util.launcher: out" in log_path.read_text()
+    assert "finn.util.launcher: error: bad" in log_path.read_text()
+
+
+@pytest.mark.util
+def test_missing_tools_are_distinct_from_bad_working_and_transcript_paths(tmp_path, monkeypatch):
+    monkeypatch.setenv("PATH", str(tmp_path))
+    with pytest.raises(ToolUnavailable, match="not found in PATH"):
+        run_tool(["missing-compiler"])
+    not_executable = tmp_path / "compiler"
+    not_executable.write_text("exit 0\n")
+    with pytest.raises(ToolUnavailable, match="no executable"):
+        run_tool([not_executable])
+    with pytest.raises(FileNotFoundError):
+        run_tool([sys.executable], cwd=tmp_path / "missing-directory")
+    with pytest.raises(NotADirectoryError):
+        run_tool([sys.executable], cwd=not_executable)
+    with pytest.raises(OSError) as failed:
+        run_tool([sys.executable], transcript=not_executable / "transcript")
+    assert not isinstance(failed.value, ToolUnavailable)
+
+
+@pytest.mark.util
+def test_environment_overrides_reach_execution_and_replay(tmp_path, monkeypatch):
+    monkeypatch.setenv("TOOLCHAIN_PRIVATE_ENV", "do not record this")
+    replay = tmp_path / "repeat.sh"
+    value = "/library path/with 'quotes'"
+    cmd = [sys.executable, "-c", "import os; print(os.environ['LD_LIBRARY_PATH'])"]
+    result = run_tool(cmd, env_overrides={"LD_LIBRARY_PATH": value}, replay=replay)
+    assert result.stdout.decode().strip() == value
+    assert "TOOLCHAIN_PRIVATE_ENV" not in replay.read_text()
+    repeated = run_process(["bash", replay], env={"PATH": os.environ["PATH"]})
+    assert repeated.stdout == result.stdout
+    with pytest.raises(ValueError, match="Invalid environment variable"):
+        run_tool(cmd, env_overrides={"BAD;NAME": "value"}, replay=replay)

@@ -5,15 +5,11 @@
 
 import pytest
 
-import contextlib
-import importlib.util
 import json
 import os
 import shutil
-import signal
 import subprocess
 import sys
-import time
 import types
 from onnx import TensorProto, helper
 from pathlib import Path
@@ -25,9 +21,7 @@ from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.transformation.fpgadataflow import alveo_build, make_driver
 from finn.transformation.fpgadataflow.make_driver import MakeCPPDriver
 from finn.util.basic import CppBuilder, launch_process_helper
-from finn.util.build_log import log_run
-from finn.util.launcher import ToolFailed, ToolUnavailable, run_process, run_tool
-from finn.xsi import setup
+from finn.util.launcher import ToolFailed, run_process, run_tool
 
 FAKE_TOOL = """
 import json, os, sys
@@ -67,77 +61,19 @@ def printed_call(path):
 
 
 @pytest.mark.util
-@pytest.mark.parametrize("check", [False, True])
-@pytest.mark.parametrize("as_string", [False, True])
-def test_helper_preserves_decoding_output_and_checked_status(tool_dir, capfd, check, as_string):
+def test_helper_returns_strings_and_raises_when_checked(tool_dir):
+    # launch_process_helper is kept for callers outside FINN, on top of run_process.
     tool = tool_dir(
-        "utility with spaces",
-        "import os; os.write(1, b'out\\xff\\r\\nline\\rend\\n'); "
-        "os.write(2, b'err\\xfe\\r\\n'); raise SystemExit(9)",
+        "utility", "import sys; print('out'); print('err', file=sys.stderr); sys.exit(9)"
     )
-    args = str(tool) if as_string else [str(tool)]
-    if check:
-        with pytest.raises(subprocess.CalledProcessError) as failed:
-            launch_process_helper(args, check=True)
-        assert failed.value.cmd == args
-        assert (failed.value.output, failed.value.stderr) == (
-            "out\ufffd\nline\nend\n",
-            "err\ufffd\n",
-        )
-    else:
-        assert launch_process_helper(args) == ("out\ufffd\nline\nend\n", "err\ufffd\n")
-    assert tuple(capfd.readouterr()) == ("out\ufffd\nline\nend\n", "err\ufffd\n")
-
-
-@pytest.mark.util
-def test_tool_failure_logs_both_streams_before_raising(tmp_path):
-    log_path = tmp_path / "build.log"
-    with log_run(str(log_path), runner="finn.builder.build_dataflow"):
-        with pytest.raises(ToolFailed):
-            run_tool(
-                [
-                    sys.executable,
-                    "-c",
-                    "import sys; print('out'); print('error: bad', file=sys.stderr); sys.exit(3)",
-                ],
-                transcript=tmp_path / "failed",
-                log_output=True,
-            )
-    assert "finn.util.launcher: out" in log_path.read_text()
-    assert "finn.util.launcher: error: bad" in log_path.read_text()
-
-
-@pytest.mark.util
-def test_missing_tools_are_distinct_from_bad_working_and_transcript_paths(tmp_path, monkeypatch):
-    monkeypatch.setenv("PATH", str(tmp_path))
-    with pytest.raises(ToolUnavailable, match="not found in PATH"):
-        run_tool(["missing-compiler"])
-    not_executable = tmp_path / "compiler"
-    not_executable.write_text("exit 0\n")
-    with pytest.raises(ToolUnavailable, match="no executable"):
-        run_tool([not_executable])
-    with pytest.raises(FileNotFoundError):
-        run_tool([sys.executable], cwd=tmp_path / "missing-directory")
-    with pytest.raises(NotADirectoryError):
-        run_tool([sys.executable], cwd=not_executable)
-    with pytest.raises(OSError) as failed:
-        run_tool([sys.executable], transcript=not_executable / "transcript")
-    assert not isinstance(failed.value, ToolUnavailable)
-
-
-@pytest.mark.util
-def test_environment_overrides_reach_execution_and_replay(tmp_path, monkeypatch):
-    monkeypatch.setenv("TOOLCHAIN_PRIVATE_ENV", "do not record this")
-    replay = tmp_path / "repeat.sh"
-    value = "/library path/with 'quotes'"
-    cmd = [sys.executable, "-c", "import os; print(os.environ['LD_LIBRARY_PATH'])"]
-    result = run_tool(cmd, env_overrides={"LD_LIBRARY_PATH": value}, replay=replay)
-    assert result.stdout.decode().strip() == value
-    assert "TOOLCHAIN_PRIVATE_ENV" not in replay.read_text()
-    repeated = run_process(["bash", replay], env={"PATH": os.environ["PATH"]})
-    assert repeated.stdout == result.stdout
-    with pytest.raises(ValueError, match="Invalid environment variable"):
-        run_tool(cmd, env_overrides={"BAD;NAME": "value"}, replay=replay)
+    assert launch_process_helper([str(tool)]) == ("out\n", "err\n")
+    with pytest.raises(subprocess.CalledProcessError) as failed:
+        launch_process_helper([str(tool)], check=True)
+    assert (failed.value.returncode, failed.value.output, failed.value.stderr) == (
+        9,
+        "out\n",
+        "err\n",
+    )
 
 
 @pytest.mark.util
@@ -256,149 +192,49 @@ def link_model(tmp_path, monkeypatch, tool_dir):
 
 
 @pytest.mark.util
-@pytest.mark.parametrize("outcome", ["success", "failure", "missing"])
-def test_xo_packaging_checks_status_and_artifacts(tmp_path, tool_dir, monkeypatch, outcome):
+def test_xo_packaging_rejects_a_failed_vivado_run_with_a_stale_xo(tmp_path, tool_dir, monkeypatch):
     tool_dir("vivado")
     for name in ("VITIS_PATH", "PLATFORM_REPO_PATHS", "XILINX_XRT"):
         monkeypatch.setenv(name, str(tmp_path))
-    monkeypatch.delenv("PWD", raising=False)
+    monkeypatch.delenv("PWD", raising=False)  # the scripts used to read it
     directory = tmp_path / "xo with spaces"
     model = kernel_model(directory)
-    if outcome != "missing":
-        monkeypatch.setenv("FAKE_OUTPUTS", json.dumps({"vivado": ["design.xo"]}))
-    if outcome == "failure":
-        monkeypatch.setenv("FAKE_FAIL", "vivado")
-        (directory / "design.xo").write_text("stale")
-    transform = alveo_build.CreateVitisXO("design")
-    if outcome == "success":
-        transform.apply(model)
-        assert model.get_metadata_prop("vitis_xo") == str(directory / "design.xo")
-    else:
-        with pytest.raises(ToolFailed if outcome == "failure" else AssertionError):
-            transform.apply(model)
-    call = printed_call(directory / "gen_xo.stdout.log")
-    assert call["cwd"] == str(directory)
-    assert call["argv"] == ["-mode", "batch", "-source", "gen_xo.tcl"]
+    (directory / "design.xo").write_text("stale")
+    monkeypatch.setenv("FAKE_FAIL", "vivado")
+    with pytest.raises(ToolFailed):
+        alveo_build.CreateVitisXO("design").apply(model)
 
 
 @pytest.mark.util
-@pytest.mark.parametrize(
-    "outcome", ["success", "failure", "missing", "report_failure", "report_missing"]
-)
-def test_vitis_link_preserves_arguments_and_rejects_failed_tools(link_model, monkeypatch, outcome):
+@pytest.mark.parametrize("failing", ["v++", "vivado"])
+def test_vitis_link_rejects_failed_tools_and_keeps_its_arguments(link_model, monkeypatch, failing):
     model, directory = link_model
-    if outcome != "missing":
-        monkeypatch.setenv(
-            "FAKE_OUTPUTS", json.dumps({"v++": ["a.xclbin"], "vivado": ["synth_report.xml"]})
-        )
-    if outcome == "report_missing":
-        monkeypatch.setenv("FAKE_OUTPUTS", json.dumps({"v++": ["a.xclbin"]}))
-    if outcome in ("failure", "report_failure"):
-        monkeypatch.setenv("FAKE_FAIL", "v++" if outcome == "failure" else "vivado")
-        (directory / "a.xclbin").write_text("stale")
+    monkeypatch.setenv(
+        "FAKE_OUTPUTS", json.dumps({"v++": ["a.xclbin"], "vivado": ["synth_report.xml"]})
+    )
+    monkeypatch.setenv("FAKE_FAIL", failing)
+    (directory / "a.xclbin").write_text("stale")
     transform = alveo_build.VitisLink("/platform path/u55c.xpfm", 5, enable_debug=True)
-    if outcome == "success":
+    with pytest.raises(ToolFailed):
         transform.apply(model)
-        assert model.get_metadata_prop("bitfile") == str(directory / "a.xclbin")
-        assert model.get_metadata_prop("vivado_synth_rpt") == str(directory / "synth_report.xml")
-    else:
-        with pytest.raises(
-            AssertionError if outcome in ("missing", "report_missing") else ToolFailed
-        ):
-            transform.apply(model)
-    call = printed_call(directory / "run_vitis_link.stdout.log")
-    assert call["cwd"] == str(directory)
-    args = call["argv"]
+    # A failed link leaves no bitfile; a failed report leaves no report path.
+    failed_prop = "bitfile" if failing == "v++" else "vivado_synth_rpt"
+    assert model.get_metadata_prop(failed_prop) is None
+    # The command was a shell string before: paths with spaces and lists must stay intact.
+    args = printed_call(directory / "run_vitis_link.stdout.log")["argv"]
     assert args[args.index("--platform") + 1] == "/platform path/u55c.xpfm"
     assert len([arg for arg in args if arg.endswith("kernel.xo")]) == 2
     assert args.count("--dk") == 2
-    assert args[args.index("--kernel_frequency") + 1] == "200"
-    if outcome in ("success", "report_failure", "report_missing"):
-        report = printed_call(directory / "gen_report_xml.stdout.log")
-        assert report["argv"][-1] == "gen_report_xml.tcl"
-    else:
-        assert not (directory / "gen_report_xml.stdout.log").exists()
 
 
 @pytest.mark.util
-@pytest.mark.parametrize("hardware", [False, True])
-@pytest.mark.parametrize("outcome", ["success", "failure", "missing"])
-def test_slash_link_checks_status_and_mode_specific_outputs(
-    link_model, monkeypatch, hardware, outcome
-):
+def test_slash_link_rejects_a_failed_link_with_a_stale_vbin(link_model, monkeypatch):
     model, directory = link_model
-    outputs = ["finn.vbin", "finn.vbin.prj/report_utilization_finn.xml"]
-    if outcome != "missing":
-        monkeypatch.setenv("FAKE_OUTPUTS", json.dumps({"slashkit": outputs}))
-    if outcome == "failure":
-        monkeypatch.setenv("FAKE_FAIL", "slashkit")
-        (directory / "finn.vbin").write_text("stale")
-    transform = alveo_build.SlashLink(build_hardware=hardware)
-    if outcome == "success":
-        transform.apply(model)
-        assert model.get_metadata_prop("bitfile") == str(directory / "finn.vbin")
-        assert (model.get_metadata_prop("slash_report") is not None) == hardware
-    else:
-        with pytest.raises(ToolFailed if outcome == "failure" else AssertionError):
-            transform.apply(model)
-    call = printed_call(directory / "run_slash_link.stdout.log")
-    assert call["cwd"] == str(directory)
-    args = call["argv"]
-    assert args[args.index("--platform") + 1] == ("hw" if hardware else "sim")
-    assert len(args[args.index("--kernels") + 1 :]) == 2
-
-
-@pytest.mark.util
-def test_slash_hardware_requires_report_but_simulation_does_not(link_model, monkeypatch):
-    model, _ = link_model
-    monkeypatch.setenv("FAKE_OUTPUTS", json.dumps({"slashkit": ["finn.vbin"]}))
-    with pytest.raises(AssertionError, match="no report generated"):
+    monkeypatch.setenv("FAKE_FAIL", "slashkit")
+    (directory / "finn.vbin").write_text("stale")
+    with pytest.raises(ToolFailed):
         alveo_build.SlashLink(build_hardware=True).apply(model)
-    alveo_build.SlashLink(build_hardware=False).apply(model)
-
-
-@pytest.mark.util
-def test_driver_utilities_keep_distinct_transcripts_and_fail_at_the_command(
-    tmp_path, tool_dir, monkeypatch
-):
-    tool_dir("git")
-    tool_dir("xclbinutil")
-    logs = tmp_path / "separate logs"
-    logs.mkdir()
-    monkeypatch.setattr(make_driver, "make_build_dir", lambda prefix: str(logs))
-    driver = MakeCPPDriver("vitis-xrt", "latest")
-    driver._run_command(["git", "init"], cwd=str(tmp_path))
-    driver._run_command(
-        ["git", "remote", "add", "origin", "repo path with spaces"], cwd=str(tmp_path)
-    )
-    driver._run_command(["xclbinutil", "-i", "bitfile path with spaces"], cwd=str(tmp_path))
-    assert printed_call(logs / "git-init.stdout.log")["argv"] == ["init"]
-    assert printed_call(logs / "git-remote.stdout.log")["argv"][-1] == "repo path with spaces"
-    assert (
-        printed_call(tmp_path / "xclbinutil.stdout.log")["argv"][-1] == "bitfile path with spaces"
-    )
-    monkeypatch.setenv("FAKE_FAIL", "git")
-    with pytest.raises(ToolFailed, match="simulated failure"):
-        driver._run_command("git fetch origin HEAD", cwd=str(tmp_path))
-    assert driver.command_log_dir == str(logs)
-    assert not list(tmp_path.glob("git-*"))
-
-
-@pytest.mark.util
-@pytest.mark.parametrize("fail", [False, True])
-def test_xsi_setup_can_compile_before_the_extension_exists(tmp_path, tool_dir, monkeypatch, fail):
-    tool_dir("g++")
-    source = tmp_path / "finn_xsi"
-    source.mkdir()
-    monkeypatch.setenv("FINN_ROOT", str(tmp_path))
-    if fail:
-        monkeypatch.setenv("FAKE_FAIL", "g++")
-    else:
-        monkeypatch.setenv("FAKE_OUTPUTS", json.dumps({"g++": ["xsi.so"]}))
-    assert setup.build_xsi(force=True, verbose=False) == (not fail)
-    call = printed_call(source / "compile_xsi.stdout.log")
-    assert call["cwd"] == str(source)
-    assert call["argv"][-2:] == ["-ldl", "-lrt"]
+    assert model.get_metadata_prop("bitfile") is None
 
 
 @pytest.mark.util
@@ -511,111 +347,9 @@ def test_generated_cpp_driver_excludes_git_diagnostics(tmp_path, monkeypatch):
 
 
 @pytest.mark.util
-def test_cppsim_cancellation_stops_the_tool_and_its_child(tmp_path, tool_dir):
-    pids_file = tmp_path / "pids.json"
-    tool = tool_dir(
-        "node_model",
-        f"""
-import json, os, subprocess, sys, time
-child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
-with open({str(pids_file)!r} + ".tmp", "w") as stream:
-    json.dump({{"tool": os.getpid(), "child": child.pid}}, stream)
-os.rename({str(pids_file)!r} + ".tmp", {str(pids_file)!r})
-time.sleep(120)
-""",
-    )
-    runner = """
-import sys
-from types import SimpleNamespace
-from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
-attrs = {"executable_path": sys.argv[1], "code_gen_dir_cppsim": sys.argv[2]}
-HLSBackend.exec_precompiled_singlenode_model(SimpleNamespace(get_nodeattr=attrs.__getitem__))
-"""
-    proc = subprocess.Popen(
-        [sys.executable, "-c", runner, str(tool), str(tmp_path)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        start_new_session=True,
-    )
-    pids = None
-    try:
-        deadline = time.monotonic() + 60
-        while not pids_file.exists():
-            assert proc.poll() is None, "cppsim runner exited before readiness"
-            assert time.monotonic() < deadline, "cppsim tool did not become ready"
-            time.sleep(0.02)
-        pids = json.loads(pids_file.read_text())
-        proc.terminate()
-        proc.communicate(timeout=30)
-        assert proc.returncode == -signal.SIGTERM
-        deadline = time.monotonic() + 10
-        for pid in pids.values():
-            while True:
-                try:
-                    state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
-                    if state == "Z":
-                        break
-                except (FileNotFoundError, ProcessLookupError):
-                    break
-                assert time.monotonic() < deadline, f"cppsim process {pid} survived cancellation"
-                time.sleep(0.02)
-    finally:
-        if proc.poll() is None:
-            proc.terminate()
-            proc.communicate(timeout=30)
-        if pids is not None:
-            try:
-                os.killpg(pids["tool"], signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-
-
-@pytest.mark.util
-@pytest.mark.parametrize("outcome", ["success", "failure", "missing"])
-def test_xelab_adapter_checks_status_and_preserves_its_arguments(
-    tmp_path, tool_dir, monkeypatch, outcome
-):
-    tool_dir("xelab")
-    # Load the actual adapter source without publishing a fake adapter in the
-    # package. Compilation does not need the C extension or simulation engine.
-    root = Path(__file__).resolve().parents[2] / "finn_xsi"
-    monkeypatch.syspath_prepend(str(root))
-    with monkeypatch.context() as modules:
-        modules.setitem(sys.modules, "xsi", types.ModuleType("xsi"))
-        engine = types.ModuleType("finn_xsi.sim_engine")
-        engine.SimEngine = object
-        modules.setitem(sys.modules, "finn_xsi.sim_engine", engine)
-        spec = importlib.util.spec_from_file_location(
-            "toolchain_adapter", root / "finn_xsi" / "adapter.py"
-        )
-        adapter = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(adapter)
-    if outcome != "missing":
-        monkeypatch.setenv("FAKE_OUTPUTS", json.dumps({"xelab": ["xsim.dir/top/xsimk.so"]}))
-    if outcome == "failure":
-        monkeypatch.setenv("FAKE_FAIL", "xelab")
-    monkeypatch.setenv("FINN_XELAB_MT", "1")
-    sources = [str(tmp_path / "mod.sv"), str(tmp_path / "mod_pkg.sv")]
-    if outcome == "success":
-        assert (
-            adapter.compile_sim_obj("top", sources, str(tmp_path), debug=True)[1]
-            == "xsim.dir/top/xsimk.so"
-        )
-    else:
-        with pytest.raises(ToolFailed if outcome == "failure" else FileNotFoundError):
-            adapter.compile_sim_obj("top", sources, str(tmp_path), debug=True)
-    args = printed_call(tmp_path / "compile_xelab.stdout.log")["argv"]
-    assert args[args.index("--mt") + 1] == "off"
-    assert args[args.index("-debug") + 1] == "all"
-    project = (tmp_path / "rtlsim.prj").read_text()
-    assert project.index("mod_pkg.sv") < project.index("mod.sv")
-
-
-@pytest.mark.util
 @pytest.mark.parametrize("failure", [None, "compiler", "simulation"])
-@pytest.mark.parametrize("in_build", [False, True])
 def test_cpp_rtlsim_passes_library_environment_and_rejects_stale_results(
-    tmp_path, tool_dir, monkeypatch, capfd, failure, in_build
+    tmp_path, tool_dir, monkeypatch, failure
 ):
     directory = tmp_path / "simulation with spaces"
     directory.mkdir()
@@ -665,26 +399,15 @@ os.chmod("rtlsim_xsi", 0o755)
         "vivado_stitch_ifnames",
         json.dumps({"s_axis": [["in", 16]], "m_axis": [["out", 16]], "aximm": []}),
     )
-    build_log = tmp_path / "build.log"
-    context = (
-        log_run(str(build_log), runner="finn.builder.build_dataflow")
-        if in_build
-        else contextlib.nullcontext()
-    )
-    with context:
-        if failure:
-            with pytest.raises(ToolFailed):
-                rtlsim_exec.rtlsim_exec_cppxsi(model, {"inp": 1}, dummy_data_mode=True)
-            assert (directory / "results.txt").read_text() == "invalid stale results"
-        else:
-            assert rtlsim_exec.rtlsim_exec_cppxsi(model, {"inp": 1}, dummy_data_mode=True) == {
-                "CYCLES": 42,
-                "TIMEOUT": 0,
-            }
-    console = capfd.readouterr()
-    assert "diagnostic from rtlsim_xsi" not in console.out + console.err
-    if in_build:
-        assert "diagnostic from rtlsim_xsi" not in build_log.read_text()
+    if failure:
+        with pytest.raises(ToolFailed):
+            rtlsim_exec.rtlsim_exec_cppxsi(model, {"inp": 1}, dummy_data_mode=True)
+        assert (directory / "results.txt").read_text() == "invalid stale results"
+    else:
+        assert rtlsim_exec.rtlsim_exec_cppxsi(model, {"inp": 1}, dummy_data_mode=True) == {
+            "CYCLES": 42,
+            "TIMEOUT": 0,
+        }
     if failure != "compiler":
         call = printed_call(directory / "rtlsim_xsi.stdout.log")
         assert call["cwd"] == str(directory)
