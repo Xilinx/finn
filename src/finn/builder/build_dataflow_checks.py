@@ -16,6 +16,7 @@ from finn.builder.build_dataflow_config import (
     DataflowBuildConfig,
     DataflowOutputType,
     ShellFlowType,
+    VerificationStepType,
     verify_step_prereqs,
 )
 from finn.util.basic import (
@@ -562,6 +563,32 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                     "for MLO models",
                 )
             )
+    if cfg.mlo_parallel_rtlsim and not cfg.mlo:
+        checks.append(
+            _check(
+                "mlo_parallel_rtlsim",
+                Severity.WARNING,
+                False,
+                "mlo_parallel_rtlsim=True without mlo=True has no effect",
+                "Enable mlo or remove mlo_parallel_rtlsim",
+            )
+        )
+    if (
+        cfg.mlo
+        and cfg.mlo_parallel_rtlsim
+        and VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps()
+        and not cfg.verify_input_npy
+    ):
+        checks.append(
+            _check(
+                "mlo_parallel_rtlsim_input",
+                Severity.ERROR,
+                False,
+                "mlo_parallel_rtlsim=True needs verify_input_npy: the parallel stitched-IP "
+                "rtlsim derives its per-iteration golden frames from it",
+                "Set verify_input_npy, or disable mlo_parallel_rtlsim",
+            )
+        )
     if cfg.mlo and cfg.verify_save_full_context:
         checks.append(
             _check(

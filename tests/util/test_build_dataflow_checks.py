@@ -449,3 +449,44 @@ def test_vivado_version_checks_without_vivado(check_name, kw):
     check = next(c for c in report.checks if c.name == check_name)
     assert not check.passed
     assert "found unknown" in check.message
+
+
+@pytest.mark.util
+# config, failing check (None: neither fails), its severity
+@pytest.mark.parametrize(
+    "kw, check_name, severity",
+    [
+        ({"mlo_parallel_rtlsim": True}, "mlo_parallel_rtlsim", "WARNING"),
+        (
+            {
+                "mlo": True,
+                "mlo_parallel_rtlsim": True,
+                "verify_steps": ["stitched_ip_rtlsim"],
+                "verify_input_npy": None,
+            },
+            "mlo_parallel_rtlsim_input",
+            "ERROR",
+        ),
+        (
+            {
+                "mlo": True,
+                "mlo_parallel_rtlsim": True,
+                "verify_steps": ["stitched_ip_rtlsim"],
+                "verify_input_npy": "input.npy",
+            },
+            None,
+            None,
+        ),
+    ],
+)
+def test_mlo_parallel_rtlsim_checks(kw, check_name, severity):
+    """mlo_parallel_rtlsim is flagged without MLO, and rejected at config-check
+    time without the verification input it derives its golden frames from."""
+    output_dir = make_build_dir("test_config_check_mlo_parallel_")
+    report = run_all_config_checks(cfg(output_dir, **kw))
+    failed = {c.name: c.severity.value for c in report.checks if not c.passed}
+    for name in ("mlo_parallel_rtlsim", "mlo_parallel_rtlsim_input"):
+        if name == check_name:
+            assert failed[name] == severity
+        else:
+            assert name not in failed
