@@ -1493,9 +1493,9 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
         # and RTL elementwise ops)
         rtlsim_perf_dict = xsi_fifosim(model, rtlsim_bs, max_iters=max_iters, behav=False)
         # keep keys consistent between the Python and C++-styles
-        for key, val in rtlsim_perf_dict.items():
-            if "max_count" in key:
-                del rtlsim_perf_dict[key]
+        rtlsim_perf_dict = {
+            key: val for key, val in rtlsim_perf_dict.items() if "max_count" not in key
+        }
         rtlsim_perf_dict = annotate_rtlsim_performance(
             rtlsim_perf_dict, rtlsim_bs, cfg.synth_clk_period_ns
         )
