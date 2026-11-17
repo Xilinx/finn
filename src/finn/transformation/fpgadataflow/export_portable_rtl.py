@@ -1,6 +1,7 @@
 # Copyright Advanced Micro Devices, Inc.
 # SPDX-License-Identifier: BSD-3-Clause
 
+import filecmp
 import os
 import re
 import shutil
@@ -91,25 +92,31 @@ class ExportPortableRTL(Transformation):
         dat_names = set()  # file names taken in data_dir
 
         def export_dat(src_dat, prefix):
-            """Copy src_dat into data_dir under a unique name and map it.
+            """Copy src_dat into data_dir and map it.
 
-            Several nodes use the same file name (e.g. every decoupled node's
-            memblock.dat), so a name already taken gets the node name as prefix,
-            and a remaining clash is an error rather than a silent reuse."""
+            A name may only be shared by identical files: HLS keeps copies of
+            the same ROM file in several places of its project, but every
+            decoupled node has its own, different memblock.dat. A name taken by
+            different content gets the node name as prefix, then a counter."""
             if src_dat in dat_mapping:
                 return
             name = os.path.basename(src_dat)
-            if name in dat_names and prefix:
-                name = prefix + "_" + name
-            if name in dat_names:
-                raise Exception(
-                    f"ExportPortableRTL: cannot give {src_dat} a unique name in {data_dir}"
-                )
-            dat_names.add(name)
-            dest_dat = os.path.join(data_dir, name)
-            shutil.copy2(src_dat, dest_dat)
-            # Relative path from src_dir to data_dir
-            dat_mapping[src_dat] = os.path.relpath(dest_dat, src_dir)
+            stem, ext = os.path.splitext(name)
+            candidates = [name, f"{prefix}_{name}"]
+            i = 1
+            while True:
+                for cand in candidates:
+                    dest_dat = os.path.join(data_dir, cand)
+                    if cand not in dat_names:
+                        dat_names.add(cand)
+                        shutil.copy2(src_dat, dest_dat)
+                    elif not filecmp.cmp(src_dat, dest_dat, shallow=False):
+                        continue
+                    # Relative path from src_dir to data_dir
+                    dat_mapping[src_dat] = os.path.relpath(dest_dat, src_dir)
+                    return
+                candidates = [f"{prefix}_{stem}_{i}{ext}"]
+                i += 1
 
         # Collect .dat files from all nodes
         for node in model.graph.node:
