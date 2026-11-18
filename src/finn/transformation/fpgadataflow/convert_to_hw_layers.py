@@ -537,7 +537,7 @@ class InferPWPolyFLayer(Transformation):
         return (model, graph_modified)
 
 
-def _check_uniform_thresholds(thresholds, rtol=1e-2):
+def _check_uniform_thresholds(thresholds, ulp_tol=4):
     """Check if thresholds have uniform (equal) step sizes per channel.
 
     For requant conversion, thresholds must be uniform (equal step sizes)
@@ -545,7 +545,8 @@ def _check_uniform_thresholds(thresholds, rtol=1e-2):
 
     Args:
         thresholds: numpy array of shape (num_channels, num_thresholds)
-        rtol: relative tolerance for comparing step sizes (default 1%)
+        ulp_tol: largest distance from the least-squares line, in float32 ulp
+            of the largest threshold (default 4)
 
     Returns:
         tuple: (is_uniform, step_sizes, first_thresholds) where:
@@ -563,22 +564,19 @@ def _check_uniform_thresholds(thresholds, rtol=1e-2):
     step_sizes = []
     first_thresholds = []
     is_uniform = True
+    idx = np.arange(num_thresholds)
 
     for ch in range(num_channels):
-        ch_thresholds = np.sort(thresholds[ch])
-        diffs = np.diff(ch_thresholds)
-
-        if len(diffs) > 0:
-            step_size = diffs[0]
-            step_sizes.append(step_size)
-            first_thresholds.append(ch_thresholds[0])
-
-            # Check if all steps are equal (within tolerance)
-            if not np.allclose(diffs, step_size, rtol=rtol):
-                is_uniform = False
-        else:
-            step_sizes.append(1.0)
-            first_thresholds.append(ch_thresholds[0])
+        ch_thresholds = np.sort(thresholds[ch]).astype(np.float64)
+        # least-squares line through all thresholds: the first gap alone carries the
+        # float32 rounding of two thresholds, which drifts over many steps
+        step_size, first_threshold = np.polyfit(idx, ch_thresholds, 1)
+        step_sizes.append(step_size)
+        first_thresholds.append(first_threshold)
+        residual = np.abs(ch_thresholds - (first_threshold + idx * step_size))
+        tol = ulp_tol * np.spacing(np.float32(np.abs(ch_thresholds).max()))
+        if step_size <= 0 or residual.max() > tol:
+            is_uniform = False
 
     return is_uniform, np.array(step_sizes), np.array(first_thresholds)
 
