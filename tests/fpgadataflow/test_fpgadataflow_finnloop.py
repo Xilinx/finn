@@ -978,8 +978,11 @@ def test_finnloop_end2end_mlo(
 
     # Load and verify the iteration context file has expected structure
     ctx_file = os.path.join(verif_dir, iteration_context_files[0])
-    ctx_data = np.load(ctx_file)
-    iter_keys = [k for k in ctx_data.files if k.startswith("iter_")]
+    # close the npz right away: a lazily loaded NpzFile keeps the file open, and on
+    # NFS an open file cannot be removed (silly-renamed to .nfs*, EBUSY on unlink),
+    # which would break the robust_rmtree() of the build directory at the end
+    with np.load(ctx_file) as ctx_data:
+        iter_keys = [k for k in ctx_data.files if k.startswith("iter_")]
     assert len(iter_keys) > 0, "No iteration keys found in context file"
 
     # Verify we have contexts for all iterations
@@ -1569,8 +1572,11 @@ def test_finnloop_end2end_mlo_ddr(
 
     # Load and verify the iteration context file has expected structure
     ctx_file = os.path.join(verif_dir, iteration_context_files[0])
-    ctx_data = np.load(ctx_file)
-    iter_keys = [k for k in ctx_data.files if k.startswith("iter_")]
+    # close the npz right away: a lazily loaded NpzFile keeps the file open, and on
+    # NFS an open file cannot be removed (silly-renamed to .nfs*, EBUSY on unlink),
+    # which would break the robust_rmtree() of the build directory at the end
+    with np.load(ctx_file) as ctx_data:
+        iter_keys = [k for k in ctx_data.files if k.startswith("iter_")]
     assert len(iter_keys) > 0, "No iteration keys found in context file"
 
     # Verify we have contexts for all iterations
