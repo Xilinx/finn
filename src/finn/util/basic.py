@@ -36,6 +36,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import warnings
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.util.basic import gen_finn_dt_tensor, roundup_to_integer_multiple
@@ -339,6 +340,11 @@ def launch_process_helper(
 ) -> Tuple[str, str]:
     """Launch a process and capture its output for logging with Python loggers.
 
+    .. deprecated::
+        Use ``finn.util.launcher.run_tool``, which raises ``ToolFailed`` on a
+        nonzero exit and keeps a replay script and transcripts. FINN no longer
+        calls this function.
+
     Returns ``(cmd_out, cmd_err)`` as UTF-8 strings, with undecodable bytes in
     tool output replaced and CRLF/CR newlines normalized to LF, as in subprocess
     text mode. In a ``log_run`` (a build), both
@@ -353,6 +359,11 @@ def launch_process_helper(
     hand after emitting the output. A string argument names one executable;
     command-line strings are not split or interpreted by a shell.
     """
+    warnings.warn(
+        "launch_process_helper is deprecated; use finn.util.launcher.run_tool",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if proc_env is None:
         proc_env = os.environ.copy()
     command = [args] if isinstance(args, (str, os.PathLike)) else args

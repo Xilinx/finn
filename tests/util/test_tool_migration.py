@@ -62,12 +62,13 @@ def printed_call(path):
 
 @pytest.mark.util
 def test_helper_returns_strings_and_raises_when_checked(tool_dir):
-    # launch_process_helper is kept for callers outside FINN, on top of run_process.
+    # launch_process_helper is kept, deprecated, for callers outside FINN.
     tool = tool_dir(
         "utility", "import sys; print('out'); print('err', file=sys.stderr); sys.exit(9)"
     )
-    assert launch_process_helper([str(tool)]) == ("out\n", "err\n")
-    with pytest.raises(subprocess.CalledProcessError) as failed:
+    with pytest.deprecated_call(match="run_tool"):
+        assert launch_process_helper([str(tool)]) == ("out\n", "err\n")
+    with pytest.raises(subprocess.CalledProcessError) as failed, pytest.deprecated_call():
         launch_process_helper([str(tool)], check=True)
     assert (failed.value.returncode, failed.value.output, failed.value.stderr) == (
         9,

@@ -141,8 +141,7 @@ The following outputs will be generated regardless of which particular outputs a
 * ``build_dataflow.log`` is the build logfile. It holds the records of FINN's loggers and the Python warnings
   of the build, each with its level and the configured step or phase that produced it, and the output of
   tools launched through ``finn.util.launcher.run_tool(..., log_output=True)`` (such as xelab and the
-  C++ rtlsim compiler). The compatibility helper ``finn.util.basic.launch_process_helper`` uses the
-  same output handling. The C++ rtlsim executable writes only its ``rtlsim_xsi.stdout.log`` and
+  C++ rtlsim compiler). The C++ rtlsim executable writes only its ``rtlsim_xsi.stdout.log`` and
   ``rtlsim_xsi.stderr.log`` transcripts; its progress output is not copied to the console or build log.
   The console shows the step timeline, FINN's warnings and errors, and a count of Python warnings; with
   ``verbose`` it also shows the other INFO records, the tool output and each Python warning (DEBUG
