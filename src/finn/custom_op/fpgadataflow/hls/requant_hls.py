@@ -10,7 +10,7 @@ from qonnx.core.datatype import DataType
 from qonnx.custom_op.general.quant import max_int, min_int
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
-from finn.custom_op.fpgadataflow.requant import Requant
+from finn.custom_op.fpgadataflow.requant import Requant, float32_literal
 from finn.util.data_packing import (
     hls_datatype_str,
     npy_to_rtlsim_input,
@@ -73,13 +73,13 @@ class Requant_hls(Requant, HLSBackend):
             # scales[PE][NF]
             f.write("    .scales = {\n")
             for p in range(pe):
-                vals = ", ".join(f"{scale_nf_pe[n, p]:.10f}f" for n in range(nf))
+                vals = ", ".join(f"{float32_literal(scale_nf_pe[n, p])}f" for n in range(nf))
                 f.write(f"        {{{vals}}},\n")
             f.write("    },\n")
             # biases[PE][NF]
             f.write("    .biases = {\n")
             for p in range(pe):
-                vals = ", ".join(f"{bias_nf_pe[n, p]:.10f}f" for n in range(nf))
+                vals = ", ".join(f"{float32_literal(bias_nf_pe[n, p])}f" for n in range(nf))
                 f.write(f"        {{{vals}}},\n")
             f.write("    }\n")
             f.write("};\n")

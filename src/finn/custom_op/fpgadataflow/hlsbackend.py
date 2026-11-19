@@ -29,7 +29,6 @@
 import glob
 import numpy as np
 import os
-import re
 import subprocess
 import warnings
 from abc import ABC, abstractmethod
@@ -37,7 +36,7 @@ from qonnx.core.datatype import DataType
 
 from finn import xsi
 from finn.custom_op.fpgadataflow import templates
-from finn.util.basic import CppBuilder, make_build_dir
+from finn.util.basic import CppBuilder, get_vivado_version, make_build_dir
 from finn.util.data_packing import (
     hls_datatype_str,
     npy_to_rtlsim_input,
@@ -250,10 +249,9 @@ class HLSBackend(ABC):
         """Builds the bash script for compilation using the CppBuilder from
         finn.util.basic and executes the script to produce the executable."""
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        # Determine HLS include path — prefer VITIS_PATH (2024.2+), fall back to HLS_PATH
-        vivado_path = os.environ.get("XILINX_VIVADO", "")
-        match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
-        if match and (int(match.group(1)), int(match.group(2))) < (2024, 2):
+        # From 2024.2, the HLS headers are in the Vitis installation (VITIS_PATH).
+        vivado_version = get_vivado_version()
+        if vivado_version is not None and vivado_version < (2024, 2):
             hls_path = os.environ["HLS_PATH"]
         elif "VITIS_PATH" in os.environ:
             hls_path = os.environ["VITIS_PATH"]

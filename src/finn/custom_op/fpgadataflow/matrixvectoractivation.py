@@ -1211,27 +1211,9 @@ class MVAU(HWCustomOp):
                         reg_rtllib_dir + "skid.sv",
                         fwg_rtllib_dir + "fetch_weights.sv",
                         fwg_rtllib_dir + "local_weight_buffer.sv",
+                        # the wrapper converts the DMA width to the weight width with vpc
                         dwc_rtllib_dir + "vpc.sv",
-                        dwc_rtllib_dir + "dwc_axi.sv",
                     ] + fifo_rtl_files()
-                    # Create Vivado axis_dwidth_converter IP
-                    wdt = self.get_input_datatype(1)
-                    iwsimd = self.get_fetch_weights_simd()
-                    ds_bits_ba = ((iwsimd * wdt.bitwidth() + 7) // 8) * 8
-                    dwc_ip_name = node_name + "_dwc"
-                    s_bytes = 256 // 8
-                    m_bytes = ds_bits_ba // 8
-                    cmd += [
-                        "create_ip -name axis_dwidth_converter -vendor xilinx.com "
-                        "-library ip -version 1.1 -module_name %s" % dwc_ip_name,
-                        "set_property -dict [list "
-                        "CONFIG.S_TDATA_NUM_BYTES {%d} "
-                        "CONFIG.M_TDATA_NUM_BYTES {%d} "
-                        "CONFIG.HAS_TLAST {1} "
-                        "CONFIG.HAS_TKEEP {1} "
-                        "] [get_ips %s]" % (s_bytes, m_bytes, dwc_ip_name),
-                        "generate_target all [get_ips %s]" % dwc_ip_name,
-                    ]
 
                     # add files from cdma dir
                     for file in os.listdir(dma_rtllib_dir):

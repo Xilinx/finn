@@ -27,6 +27,7 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.transformation.streamline import Streamline
 from finn.util.basic import get_finn_root
 from finn.util.torch_hw_modules import PWPolyFActivation
 
@@ -280,6 +281,53 @@ def test_fpgadataflow_pwpolyf_infer(pattern, expected_func, degree):
     y_produced = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
     y_expected = execute_pwpolyf_reference(expected_func, x, degree=degree)
     assert np.allclose(y_produced, y_expected, atol=1e-6)
+
+
+@pytest.mark.fpgadataflow
+def test_fpgadataflow_pwpolyf_infer_streamlined_erf_gelu():
+    """Streamline rewrites Erf-GELU; InferPWPolyFLayer still recognizes the fixed point."""
+    num_channels = 16
+    model = make_erf_gelu_modelwrapper(num_channels, [1])
+    model = model.transform(Streamline())
+    assert model.get_nodes_by_op_type("Div") == []
+    assert len(model.get_nodes_by_op_type("Erf")) == 1
+
+    model = model.transform(InferPWPolyFLayer())
+
+    assert len(model.graph.node) == 1
+    node = model.graph.node[0]
+    assert node.op_type == "PWPolyF"
+    assert node.domain == "finn.custom_op.fpgadataflow"
+    inst = getCustomOp(node)
+    assert inst.get_nodeattr("func") == "gelu"
+    assert inst.get_nodeattr("NumChannels") == num_channels
+
+    x = np.random.uniform(-5, 5, (1, num_channels)).astype(np.float32)
+    input_dict = {model.get_first_global_in(): x}
+    y_produced = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
+    y_expected = execute_pwpolyf_reference("gelu", x, degree=2)
+    assert np.allclose(y_produced, y_expected, atol=1e-6)
+
+
+# Erf-GELU in export form, and in the form Streamline leaves behind
+@pytest.mark.parametrize("streamlined", [False, True])
+@pytest.mark.fpgadataflow
+def test_fpgadataflow_pwpolyf_infer_erf_gelu_keeps_shared_producer(streamlined):
+    """The match removes the node that feeds the Erf (Div or Mul by sqrt(2)). If its
+    output has another consumer, InferPWPolyFLayer must leave the pattern alone."""
+    model = make_erf_gelu_modelwrapper(16, [1])
+    if streamlined:
+        model = model.transform(Streamline())
+    erf_node = model.get_nodes_by_op_type("Erf")[0]
+    shared = erf_node.input[0]
+    model.graph.node.append(helper.make_node("Identity", [shared], ["extra"]))
+    model.graph.output.append(helper.make_tensor_value_info("extra", TensorProto.FLOAT, [1, 16]))
+    op_types = sorted(node.op_type for node in model.graph.node)
+
+    model = model.transform(InferPWPolyFLayer())
+
+    assert model.get_nodes_by_op_type("PWPolyF") == []
+    assert sorted(node.op_type for node in model.graph.node) == op_types
 
 
 @pytest.mark.fpgadataflow

@@ -43,6 +43,13 @@ from finn.transformation.fpgadataflow.minimize_accumulator_width import (
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 
 
+def float32_floor(x):
+    """The largest float32 not above x: beyond 2^24 the float32 container of a
+    tensor cannot hold every integer, and rounding up would leave the range."""
+    f = np.float32(x)
+    return f if f <= x else np.nextafter(f, np.float32(-np.inf))
+
+
 # Tests the RoundAndClipThresholds transformation under various input, output
 # data type combinations with purely integer inputs. Without proper rounding,
 # this tests only the clipping, range and type-casting behavior of the
@@ -131,6 +138,7 @@ def test_round_and_clip_thresholds_ints(op_type, i_dtype, o_dtype, n_elems):
             outputDataType=o_dtype.name,
             numInputVectors=[1],
             numSteps=n_thresholds,
+            ActVal=int(o_dtype.min()),
         )
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, n_elems])
@@ -142,7 +150,7 @@ def test_round_and_clip_thresholds_ints(op_type, i_dtype, o_dtype, n_elems):
     model = ModelWrapper(helper.make_model(graph))
 
     inp_vals = gen_finn_dt_tensor(i_dtype, [1, n_elems])
-    inp_vals[0][0] = i_dtype.max()
+    inp_vals[0][0] = float32_floor(i_dtype.max())
     thresholds = np.sort(gen_finn_dt_tensor(t_dtype, [n_elems, n_thresholds]))
     model.set_tensor_datatype("inp", i_dtype)
     model.set_tensor_datatype("thresholds", t_dtype)
@@ -253,6 +261,7 @@ def test_round_and_clip_thresholds_floats(op_type, i_dtype, o_dtype, n_elems):
             inputs=["inp", "thresholds"],
             outputs=["out"],
             out_dtype=str(o_dtype),
+            out_bias=float(o_dtype.min()),
         )
     else:  # Thresholding
         node = helper.make_node(
@@ -268,6 +277,7 @@ def test_round_and_clip_thresholds_floats(op_type, i_dtype, o_dtype, n_elems):
             outputDataType=o_dtype.name,
             numInputVectors=[1],
             numSteps=n_thresholds,
+            ActVal=int(o_dtype.min()),
         )
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, n_elems])
@@ -380,6 +390,7 @@ def test_round_and_clip_thresholds_fxp(op_type, i_dtype, o_dtype, n_elems):
             inputs=["inp", "thresholds"],
             outputs=["out"],
             out_dtype=str(o_dtype),
+            out_bias=float(o_dtype.min()),
         )
     else:  # Thresholding
         node = helper.make_node(
@@ -395,6 +406,7 @@ def test_round_and_clip_thresholds_fxp(op_type, i_dtype, o_dtype, n_elems):
             outputDataType=o_dtype.name,
             numInputVectors=[1],
             numSteps=n_thresholds,
+            ActVal=int(o_dtype.min()),
         )
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, n_elems])
@@ -510,6 +522,7 @@ def test_round_and_clip_thresholds_fxp_float(op_type, i_dtype, o_dtype, n_elems)
             inputs=["inp", "thresholds"],
             outputs=["out"],
             out_dtype=str(o_dtype),
+            out_bias=float(o_dtype.min()),
         )
     else:  # Thresholding
         node = helper.make_node(
@@ -525,6 +538,7 @@ def test_round_and_clip_thresholds_fxp_float(op_type, i_dtype, o_dtype, n_elems)
             outputDataType=o_dtype.name,
             numInputVectors=[1],
             numSteps=n_thresholds,
+            ActVal=int(o_dtype.min()),
         )
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, n_elems])
@@ -650,7 +664,7 @@ def test_round_and_clip_thresholds_mvau_vvau(op_type, i_dtype, o_dtype, wdt, n_c
             outputDataType=o_dtype.name,
             weightDataType=wdt.name,
             accDataType="INT32",  # Will be minimized
-            ActVal=0,
+            ActVal=int(o_dtype.min()),
             noActivation=0,
         )
     else:  # VVAU
@@ -677,7 +691,7 @@ def test_round_and_clip_thresholds_mvau_vvau(op_type, i_dtype, o_dtype, wdt, n_c
             outputDataType=o_dtype.name,
             weightDataType=wdt.name,
             accDataType="INT32",  # Will be minimized
-            ActVal=0,
+            ActVal=int(o_dtype.min()),
             noActivation=0,
         )
 

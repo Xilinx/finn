@@ -42,6 +42,7 @@ from typing import Dict, Optional, Tuple
 
 from finn.util.build_log import FILE_ONLY, in_run
 from finn.util.data_packing import finnpy_to_packed_bytearray
+from finn.util.launcher import TOOL_DIR_ENV, ToolUnavailable, xilinx_tool
 
 log = logging.getLogger(__name__)
 
@@ -167,6 +168,15 @@ def fifo_rtl_files(abspath=True, gauge=False):
     return [os.path.join(rtlsrc, n) for n in names]
 
 
+def arith_rtl_files(names, abspath=True):
+    """Return the shared arithmetic RTL sources (finn-rtllib/arith) named in
+    names, referenced in place like the FIFO sources."""
+    if not abspath:
+        return list(names)
+    rtlsrc = os.path.join(get_finn_root(), "finn-rtllib", "arith")
+    return [os.path.join(rtlsrc, n) for n in names]
+
+
 def get_vivado_root():
     "Return the root directory that Vivado is installed into."
 
@@ -185,6 +195,22 @@ def get_vivado_version() -> Optional[Tuple[int, int]]:
     path = os.environ.get("XILINX_VIVADO", "")
     match = re.search(r"\b(20\d{2})\.(1|2)\b", path)
     return (int(match.group(1)), int(match.group(2))) if match else None
+
+
+def require_vivado_version() -> Tuple[int, int]:
+    """Return get_vivado_version(), or raise ToolUnavailable if it is unknown."""
+    version = get_vivado_version()
+    if version is None:
+        path = os.environ.get("XILINX_VIVADO")
+        if not path:
+            raise ToolUnavailable("vivado", "XILINX_VIVADO is not set")
+        raise ToolUnavailable(
+            "vivado",
+            f"XILINX_VIVADO={path} does not name the Vivado release; set it to the "
+            "installation directory (<root>/<release>/Vivado), as the installation's "
+            "settings64.sh does",
+        )
+    return version
 
 
 def get_liveness_threshold_cycles():
@@ -239,7 +265,9 @@ def make_build_dir(prefix=""):
 
 def robust_rmtree(path, retries=6, initial_delay=0.1, backoff=2.0):
     """Remove a directory tree with retries for transient NFS cleanup races.
-    Retries ``ENOTEMPTY``/``EBUSY``. Other errors propagate immediately.
+    Retries ``ENOTEMPTY``/``EBUSY``, and a ``FileNotFoundError`` for an entry
+    that vanished while the tree still exists (``shutil.rmtree`` re-raises it,
+    e.g. for a stale NFS directory listing). Other errors propagate immediately.
     """
     if not path or not os.path.exists(path):
         return
@@ -248,10 +276,10 @@ def robust_rmtree(path, retries=6, initial_delay=0.1, backoff=2.0):
         try:
             shutil.rmtree(path)
             return
-        except FileNotFoundError:
-            return
         except OSError as exc:
-            transient = exc.errno in (errno.ENOTEMPTY, errno.EBUSY)
+            if isinstance(exc, FileNotFoundError) and not os.path.exists(path):
+                return
+            transient = exc.errno in (errno.ENOTEMPTY, errno.EBUSY, errno.ENOENT)
             if not transient or attempt == retries - 1:
                 raise
             time.sleep(delay)
@@ -366,7 +394,7 @@ def which(program):
     return None
 
 
-_XILINX_TOOL_DIR_ENV = "FINN_TOOL_DIR_OVERRIDE"
+_XILINX_TOOL_DIR_ENV = TOOL_DIR_ENV
 
 
 def resolve_xilinx_tool(tool_name):
@@ -387,16 +415,15 @@ def resolve_xilinx_tool(tool_name):
     bsub dispatcher) needs: point it at a shim dir whose filenames match the
     bare tool names. Raises FileNotFoundError when the resolved command is
     not found, so all the default names must have a corresponding shim filename.
+
+    ``finn.util.launcher.run_tool`` resolves these names itself; this function is
+    for commands written into scripts.
     """
-    dir_override = os.environ.get(_XILINX_TOOL_DIR_ENV)
-    tool = os.path.join(dir_override, tool_name) if dir_override else tool_name
-    if which(tool) is None:
-        if dir_override:
-            raise FileNotFoundError(
-                "%s not found (%s=%r)" % (tool, _XILINX_TOOL_DIR_ENV, dir_override)
-            )
-        raise FileNotFoundError("%s not found in PATH" % tool)
-    return tool
+    try:
+        path = xilinx_tool(tool_name)
+    except ToolUnavailable as exc:
+        raise FileNotFoundError(str(exc)) from exc
+    return path if os.environ.get(_XILINX_TOOL_DIR_ENV) else tool_name
 
 
 mem_primitives_versal = {

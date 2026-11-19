@@ -243,14 +243,15 @@ class LabelSelectHlsModel(TreeModel):
     def schedule(self, op):
         """The HLS ``LabelSelect_Batch`` schedule: read the frame, then write K.
 
-        The structure is that of ``finn-hlslib/maxpool.h``: per frame the top-K
-        array is initialised, then one ``II=1`` loop reads ``Labels / PE`` folded
-        words back to back, then a second loop writes the K labels, one per
-        cycle. So a frame is three runs -- wind-up, a solid read run, a solid
-        write run -- and the only part of it that scales with ``Labels`` is the
-        length of the read run. The comparison network is over the K top entries
-        and is unrolled inside the read loop, so it costs no cycles that grow
-        with the label count.
+        ``finn-hlslib/topk.hpp`` is a function-pipelined (``II=1``) two-state
+        machine. In its capture state it reads one of the ``Labels / PE`` folded
+        words per cycle, initialising the top-K buffer with the first, and
+        inserts each word into the ordered buffer. In its emit state it writes
+        the K labels, one per cycle, and then returns to capture. So a frame is
+        three runs -- wind-up, a solid read run, a solid write run -- and the only
+        part of it that scales with ``Labels`` is the length of the read run. The
+        comparison network over the K top entries is unrolled within a cycle, so
+        it costs no cycles that grow with the label count.
 
         As offsets into one frame:
 
@@ -674,6 +675,22 @@ class Pad1DRtlModel(TreeModel):
             right = CharacteristicNode("emit the right pad", [(pad_right * folds, [0, 1])], True)
             phases.append((1, right))
         return CharacteristicNode("pad a sequence", phases, False)
+
+
+@register("StreamingReshape")
+class StreamingReshapeModel(TreeModel):
+    def schedule(self, op):
+        """A word in and the same word out on every cycle, for the whole frame.
+
+        The layer only re-interprets the shape of its stream. ``StreamingReshape_rtl``
+        is a wire (``finn-rtllib/passthru``), so it moves a word whenever its
+        neighbours do and adds no latency; on its own it is the solid run of
+        ``get_exp_cycles`` words.
+        """
+        dim = int(np.prod(op.get_folded_output_shape()[:-1]))
+        if dim < 1:
+            return None
+        return passthrough_characteristic(dim, "pass a word through")
 
 
 @register("StreamingDataWidthConverter")

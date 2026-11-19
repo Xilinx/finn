@@ -39,8 +39,8 @@ from qonnx.util.basic import (
 )
 
 
-def hls_random_mlp_maker(layer_spec):
-    """Create an MLP of given specification using HLSCustomOp instances.
+def hw_random_mlp_maker(layer_spec):
+    """Create an MLP of given specification using generic HWCustomOp (MVAU) instances.
     Generate random weights/thresholds of appropriate size."""
     ret = []
     for lyr in layer_spec:
@@ -78,11 +78,11 @@ def hls_random_mlp_maker(layer_spec):
         lyr["odt"] = odt
         ret.append(lyr)
 
-    return hls_mlp_maker(ret)
+    return hw_mlp_maker(ret)
 
 
-def hls_mlp_maker(layer_spec):
-    """Create an MLP of given specification using HLSCustomOp instances."""
+def hw_mlp_maker(layer_spec):
+    """Create an MLP of given specification using generic HWCustomOp (MVAU) instances."""
 
     current_in_name = ""
     current_out_name = ""

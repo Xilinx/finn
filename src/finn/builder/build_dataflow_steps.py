@@ -71,7 +71,10 @@ from shutil import copy
 
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
-from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
+from finn.analysis.fpgadataflow.dataflow_performance import (
+    dataflow_performance,
+    mlo_dataflow_performance,
+)
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.analysis.fpgadataflow.op_and_param_counts import (
@@ -169,7 +172,7 @@ from finn.transformation.streamline.reorder import (
     MoveTransposePastJoinAdd,
 )
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import get_rtlsim_trace_depth
+from finn.util.basic import get_rtlsim_trace_depth, robust_rmtree
 from finn.util.config import (
     extract_model_config_consolidate_shuffles,
     extract_model_config_to_json,
@@ -179,7 +182,8 @@ from finn.util.fpgadataflow import (
     is_mlo,
     warn_hls_rtl_dsp_conflict,
 )
-from finn.util.rtlsim import annotate_rtlsim_performance
+from finn.util.mlo_performance import measure_mlo_rtlsim_performance
+from finn.util.rtlsim import annotate_rtlsim_performance, run_parallel_mlo_rtlsim
 from finn.util.test import execute_parent
 from finn.util.vivado import parse_ooc_synth_results
 
@@ -243,7 +247,7 @@ def snapshot_fifo_logs(cfg, phase_name, loop_context=None):
     # Drop the previous snapshot of this phase/scope, so a rebuild into the same
     # output_dir with fewer FIFOs doesn't leave stale logs behind.
     if os.path.isdir(dest_dir):
-        shutil.rmtree(dest_dir)
+        robust_rmtree(dest_dir)
     os.makedirs(dest_dir, exist_ok=True)
     if os.path.isdir(live_onnx_dir):
         os.makedirs(dest_onnx_dir, exist_ok=True)
@@ -597,6 +601,14 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
         model, ["MultiThreshold"], to_hw.InferThresholdingLayer(), "threshold layers"
     )
 
+    # Piecewise polynomial activations (GELU, SiLU, Sigmoid, Tanh)
+    model = apply_if_relevant(
+        model,
+        ["PWPolyF", "Gelu", "Sigmoid", "Tanh", "Erf"],
+        to_hw.InferPWPolyFLayer(),
+        "piecewise polynomial activations",
+    )
+
     # Elementwise binary ops (Add/Mul/...). Before InferPool: promoting a preceding
     # integer-valued Add/Mul to an integer ElementwiseAdd/Mul lets the pool's
     # integer-input gate pass (e.g. QuantAvgPool2d).
@@ -674,13 +686,6 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     # Activation functions
     model = apply_if_relevant(model, ["Softmax"], to_hw.InferHWSoftmax(), "softmax layers")
-    # Piecewise polynomial activations (GELU, SiLU, Sigmoid, Tanh)
-    model = apply_if_relevant(
-        model,
-        ["PWPolyF", "Gelu", "Sigmoid", "Tanh", "Erf"],
-        to_hw.InferPWPolyFLayer(),
-        "piecewise polynomial activations",
-    )
 
     # Normalization layers
     model = apply_if_relevant(
@@ -721,6 +726,15 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
             "shuffle/transpose layers",
         )
 
+    # Shape operators left between hardware layers become wires. After
+    # InferShuffle, which absorbs the Reshapes around a Transpose.
+    model = apply_if_relevant(
+        model,
+        to_hw.InferStreamingReshape.SHAPE_OPS,
+        to_hw.InferStreamingReshape(),
+        "reshape layers",
+    )
+
     # Validate that conversion succeeded: all layers must be fpgadataflow layers
     # or form a contiguous dataflow block. This runs here (rather than later) so a
     # failed conversion is reported clearly, before step_create_dataflow_partition
@@ -757,7 +771,10 @@ def step_create_dataflow_partition(model: ModelWrapper, cfg: DataflowBuildConfig
         "preferred_impl_style",
     ]
     extract_model_config_to_json(
-        model, cfg.output_dir + "/template_specialize_layers_config.json", attrs
+        model,
+        cfg.output_dir + "/template_specialize_layers_config.json",
+        attrs,
+        apply_to_subgraphs=True,
     )
 
     return model
@@ -772,7 +789,9 @@ def step_specialize_layers(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     if cfg.specialize_layers_config_file is not None:
         model = model.transform(GiveUniqueNodeNames())
-        model = model.transform(ApplyConfig(cfg.specialize_layers_config_file))
+        model = model.transform(
+            ApplyConfig(cfg.specialize_layers_config_file, apply_to_subgraphs=True)
+        )
     model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(InferShapes())
@@ -846,7 +865,12 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
             "depth_trigger_uram",
             "depth_trigger_bram",
         ]
-        extract_model_config_to_json(model, cfg.output_dir + "/auto_folding_config.json", hw_attrs)
+        extract_model_config_to_json(
+            model,
+            cfg.output_dir + "/auto_folding_config.json",
+            hw_attrs,
+            apply_to_subgraphs=True,
+        )
 
     else:
         log.info("No target_fps provided, skipping step_target_fps_parallelization.")
@@ -866,7 +890,7 @@ def step_apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
         loop_model = loop_model.transform(GiveUniqueNodeNames(prefix=node.name + "_"))
         node_inst.set_nodeattr("body", loop_model.graph)
     if cfg.folding_config_file is not None:
-        model = model.transform(ApplyConfig(cfg.folding_config_file), apply_to_subgraphs=True)
+        model = model.transform(ApplyConfig(cfg.folding_config_file, apply_to_subgraphs=True))
     else:
         log.info("No folding config json provided, skipping step_apply_folding_config.")
 
@@ -922,24 +946,28 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
             ) as f:
                 json.dump(estimate_layer_resources_complete, f, indent=2)
 
-        if not is_mlo(model):
-            # need to call AnnotateCycles before dataflow_performance
-            model = model.transform(AnnotateCycles())
-            estimate_network_performance = model.analysis(dataflow_performance)
-            # add some more metrics to estimated performance
-            n_clock_cycles_per_sec = (10**9) / cfg.synth_clk_period_ns
-            est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
-            estimate_network_performance["estimated_throughput_fps"] = est_fps
-            est_latency_ns = (
-                estimate_network_performance["critical_path_cycles"] * cfg.synth_clk_period_ns
-            )
-            estimate_network_performance["estimated_latency_ns"] = est_latency_ns
-            with open(report_dir + "/estimate_network_performance.json", "w") as f:
-                json.dump(estimate_network_performance, f, indent=2)
+        # need to call AnnotateCycles before dataflow_performance
+        model = model.transform(AnnotateCycles())
+        if is_mlo(model):
+            # throughput: each loop takes L * body max_cycles per frame, assuming the
+            # loop controller keeps the body fully busy (an upper bound); latency:
+            # each FINNLoop's serial-iteration cycles_estimate
+            estimate_network_performance = model.analysis(mlo_dataflow_performance)
+            estimate_network_performance[
+                "performance_interpretation"
+            ] = "upper_bound_body_fully_busy"
         else:
-            log.info(
-                "Model contains MLO, currently network performance can't be estimated for this."
-            )
+            estimate_network_performance = model.analysis(dataflow_performance)
+        # add some more metrics to estimated performance
+        n_clock_cycles_per_sec = (10**9) / cfg.synth_clk_period_ns
+        est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
+        estimate_network_performance["estimated_throughput_fps"] = est_fps
+        est_latency_ns = (
+            estimate_network_performance["critical_path_cycles"] * cfg.synth_clk_period_ns
+        )
+        estimate_network_performance["estimated_latency_ns"] = est_latency_ns
+        with open(report_dir + "/estimate_network_performance.json", "w") as f:
+            json.dump(estimate_network_performance, f, indent=2)
     else:
         log.info(
             """DataflowOutputType.ESTIMATE_REPORTS not in requested outputs,
@@ -1172,7 +1200,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     and getCustomOp(n).get_nodeattr("io_chrc_in") == ""
                 ]
                 if unsized:
-                    print(
+                    log.warning(
                         "Estimate-only build: no tree model for %s, so their FIFOs are "
                         "sized without their token access vectors. A full build "
                         "characterizes them with rtlsim." % ", ".join(unsized)
@@ -1240,7 +1268,9 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(GiveReadableTensorNames())
         if cfg.folding_config_file is not None:
-            model = model.transform(ApplyConfig(cfg.folding_config_file))
+            # the config may carry FIFO depths for FINNLoop bodies as well, as
+            # written to final_hw_config.json with apply_to_subgraphs=True
+            model = model.transform(ApplyConfig(cfg.folding_config_file, apply_to_subgraphs=True))
 
     # extract the final configuration and save it as json
     hw_attrs = [
@@ -1258,14 +1288,11 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         "depth_trigger_bram",
     ]
 
-    if model.get_nodes_by_op_type("InnerShuffle_rtl") or model.get_nodes_by_op_type(
-        "OuterShuffle_hls"
-    ):
-        extract_model_config_consolidate_shuffles(
-            model, cfg.output_dir + "/final_hw_config.json", hw_attrs
-        )
-    else:
-        extract_model_config_to_json(model, cfg.output_dir + "/final_hw_config.json", hw_attrs)
+    # also folds decomposed Shuffles inside FINNLoop bodies back into their
+    # original node; without any Shuffle it is a plain extraction
+    extract_model_config_consolidate_shuffles(
+        model, cfg.output_dir + "/final_hw_config.json", hw_attrs, apply_to_subgraphs=True
+    )
 
     # perform shallow FIFO removal only after the final config json file has been
     # written. otherwise, since this transform removes FIFOs, we get name mismatch
@@ -1358,15 +1385,19 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
                 verify_model.set_metadata_prop("rtlsim_trace", abspath + "/verify_rtlsim.wdb")
             if cfg.verify_rtlsim_behavioral:
                 verify_model.set_metadata_prop("rtlsim_behavioral", "1")
-            # MLO and non-MLO both route through the parent (need_parent=True); the
-            # stitched child self-derives its FINNLoop memory-init pre-hook.
-            verify_step(
-                verify_model,
-                cfg,
-                "stitched_ip_rtlsim",
-                need_parent=True,
-                batched=cfg.verify_batch_size is not None,
-            )
+            if is_mlo(model) and cfg.mlo_parallel_rtlsim:
+                # every loop iteration and boundary region simulated on its own
+                run_parallel_mlo_rtlsim(verify_model, cfg)
+            else:
+                # MLO and non-MLO both route through the parent (need_parent=True); the
+                # stitched child self-derives its FINNLoop memory-init pre-hook.
+                verify_step(
+                    verify_model,
+                    cfg,
+                    "stitched_ip_rtlsim",
+                    need_parent=True,
+                    batched=cfg.verify_batch_size is not None,
+                )
             # loop bodies first, the main snapshot takes whatever is left
             for loop_node in verify_model.get_nodes_by_op_type("FINNLoop"):
                 snapshot_fifo_logs(cfg, "stitched_ip_rtlsim", loop_context=loop_node.name)
@@ -1419,52 +1450,56 @@ def step_export_portable_rtl(model: ModelWrapper, cfg: DataflowBuildConfig):
 def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Measure performance + latency of stitched-IP model in rtlsim (xsi).
     Depends on the DataflowOutputType.STITCHED_IP output product.
+
+    MLO models are measured in parts, the loop bodies and the regions outside the
+    loops, and composed into an upper bound (see finn.util.mlo_performance).
     """
 
-    if DataflowOutputType.RTLSIM_PERFORMANCE in cfg.generate_outputs and not is_mlo(model):
-        assert (
-            DataflowOutputType.STITCHED_IP in cfg.generate_outputs
-        ), "rtlsim_perf needs stitched IP"
-        report_dir = cfg.output_dir + "/report"
-        os.makedirs(report_dir, exist_ok=True)
-        rtlsim_bs = int(cfg.rtlsim_batch_size)
-        orig_rtlsim_trace_depth = get_rtlsim_trace_depth()
-        assert rtlsim_bs > 0, "rtlsim batch size must be >0"
-        if cfg.verify_save_rtlsim_waveforms:
-            # set depth to 3 for layer-by-layer visibility
-            os.environ["RTLSIM_TRACE_DEPTH"] = "3"
-            model.set_metadata_prop(
-                "rtlsim_trace",
-                "%s/rtlsim_perf_batch_%d.wdb" % (os.path.abspath(report_dir), rtlsim_bs),
-            )
-        # use the critical_path_cycles estimate to set the timeout limit for sim
-        model = model.transform(AnnotateCycles())
-        perf = model.analysis(dataflow_performance)
-        latency = perf["critical_path_cycles"]
-        max_iters = latency * 1.1 + 50
+    if DataflowOutputType.RTLSIM_PERFORMANCE not in cfg.generate_outputs:
+        log.info(
+            """DataflowOutputType.RTLSIM_PERFORMANCE not in requested outputs,
+            skipping step_measure_rtlsim_performance."""
+        )
+        return model
+
+    assert DataflowOutputType.STITCHED_IP in cfg.generate_outputs, "rtlsim_perf needs stitched IP"
+    report_dir = cfg.output_dir + "/report"
+    os.makedirs(report_dir, exist_ok=True)
+    rtlsim_bs = int(cfg.rtlsim_batch_size)
+    orig_rtlsim_trace_depth = get_rtlsim_trace_depth()
+    assert rtlsim_bs > 0, "rtlsim batch size must be >0"
+    if cfg.verify_save_rtlsim_waveforms:
+        # set depth to 3 for layer-by-layer visibility
+        os.environ["RTLSIM_TRACE_DEPTH"] = "3"
+        model.set_metadata_prop(
+            "rtlsim_trace",
+            "%s/rtlsim_perf_batch_%d.wdb" % (os.path.abspath(report_dir), rtlsim_bs),
+        )
+    # use the critical_path_cycles estimate to set the timeout limit for sim
+    model = model.transform(AnnotateCycles())
+    perf = model.analysis(dataflow_performance)
+    latency = perf["critical_path_cycles"]
+    max_iters = latency * 1.1 + 50
+    if is_mlo(model):
+        rtlsim_perf_dict = measure_mlo_rtlsim_performance(model, cfg, rtlsim_bs)
+    else:
         # Use behav=False for performance measurement to use real RTL components
         # instead of behavioral models (FINN_SIMULATION affects FIFOs, MVU, LayerNorm,
         # and RTL elementwise ops)
         rtlsim_perf_dict = xsi_fifosim(model, rtlsim_bs, max_iters=max_iters, behav=False)
         # keep keys consistent between the Python and C++-styles
-        for key, val in rtlsim_perf_dict.items():
-            if "max_count" in key:
-                del rtlsim_perf_dict[key]
+        rtlsim_perf_dict = {
+            key: val for key, val in rtlsim_perf_dict.items() if "max_count" not in key
+        }
         rtlsim_perf_dict = annotate_rtlsim_performance(
             rtlsim_perf_dict, rtlsim_bs, cfg.synth_clk_period_ns
         )
 
-        with open(report_dir + "/rtlsim_performance.json", "w") as f:
-            json.dump(rtlsim_perf_dict, f, indent=2)
-        if cfg.verify_save_rtlsim_waveforms:
-            # restore original trace depth
-            os.environ["RTLSIM_TRACE_DEPTH"] = str(orig_rtlsim_trace_depth)
-
-    else:
-        log.info(
-            """DataflowOutputType.RTLSIM_PERFORMANCE not in requested outputs or model is MLO,
-            skipping step_measure_rtlsim_performance."""
-        )
+    with open(report_dir + "/rtlsim_performance.json", "w") as f:
+        json.dump(rtlsim_perf_dict, f, indent=2)
+    if cfg.verify_save_rtlsim_waveforms:
+        # restore original trace depth
+        os.environ["RTLSIM_TRACE_DEPTH"] = str(orig_rtlsim_trace_depth)
 
     return model
 

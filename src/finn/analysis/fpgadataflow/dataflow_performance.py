@@ -29,6 +29,7 @@
 
 from qonnx.custom_op.registry import getCustomOp
 
+from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
@@ -90,4 +91,65 @@ def dataflow_performance(model, use_characterized=False):
         "critical_path_cycles": int(critical_path_cycles),
         "max_cycles": int(max_cycles),
         "max_cycles_node_name": max_node_name,
+    }
+
+
+def mlo_dataflow_performance(model):
+    """Estimate the throughput of a model with FINNLoop (MLO) nodes.
+
+    A FINNLoop runs its body once per iteration on every feature map, with the
+    same folding in every iteration. If the loop controller keeps the body
+    fully busy, a feature map occupies the body for L passes, each limited by
+    the body's slowest node, so the loop needs L * body max_cycles per frame.
+    The nodes outside the loops are timed as in dataflow_performance; the
+    slowest of all determines max_cycles. FINNLoop's own cycles_estimate is a
+    latency model (serial iterations) and is not used for the throughput.
+
+    Preconditions: as for dataflow_performance; the loop bodies are annotated
+    here.
+
+    Returns:
+    - max_cycles, max_cycles_node_name : as for dataflow_performance, with
+      each FINNLoop taking L * body max_cycles
+    - critical_path_cycles : the latency estimate of dataflow_performance,
+      with each FINNLoop taking its (serial-iteration) cycles_estimate
+    - loops : per FINNLoop, iterations (L), body_max_cycles,
+      body_max_cycles_node_name and loop_cycles (L * body_max_cycles)
+    - outer_max_cycles, outer_max_cycles_node_name : slowest node outside
+      the loops, 0 and "" if there is none
+    """
+    loops = {}
+    outer_max_cycles = 0
+    outer_max_node_name = ""
+    for node in model.graph.node:
+        if node.op_type == "FINNLoop":
+            inst = getCustomOp(node)
+            body = inst.get_nodeattr("body").transform(AnnotateCycles())
+            body_perf = dataflow_performance(body)
+            iterations = int(inst.get_nodeattr("iteration"))
+            loops[node.name] = {
+                "iterations": iterations,
+                "body_max_cycles": body_perf["max_cycles"],
+                "body_max_cycles_node_name": body_perf["max_cycles_node_name"],
+                "loop_cycles": iterations * body_perf["max_cycles"],
+            }
+        elif is_hls_node(node) or is_rtl_node(node) or node.op_type == "Shuffle":
+            node_cycles = int(getCustomOp(node).get_nodeattr("cycles_estimate"))
+            if node_cycles > outer_max_cycles:
+                outer_max_cycles = node_cycles
+                outer_max_node_name = node.name
+
+    max_cycles = outer_max_cycles
+    max_node_name = outer_max_node_name
+    for name, loop in loops.items():
+        if loop["loop_cycles"] > max_cycles:
+            max_cycles = loop["loop_cycles"]
+            max_node_name = name
+    return {
+        "critical_path_cycles": dataflow_performance(model)["critical_path_cycles"],
+        "max_cycles": int(max_cycles),
+        "max_cycles_node_name": max_node_name,
+        "loops": loops,
+        "outer_max_cycles": int(outer_max_cycles),
+        "outer_max_cycles_node_name": outer_max_node_name,
     }

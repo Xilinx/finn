@@ -16,6 +16,7 @@ from finn.builder.build_dataflow_config import (
     DataflowBuildConfig,
     DataflowOutputType,
     ShellFlowType,
+    VerificationStepType,
     verify_step_prereqs,
 )
 from finn.util.basic import (
@@ -547,29 +548,47 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
         )
 
     if cfg.mlo and cfg.generate_outputs:
-        if DataflowOutputType.ESTIMATE_REPORTS in cfg.generate_outputs:
+        if (
+            DataflowOutputType.ESTIMATE_REPORTS in cfg.generate_outputs
+            or DataflowOutputType.RTLSIM_PERFORMANCE in cfg.generate_outputs
+        ):
             checks.append(
                 _check(
-                    "mlo_estimates",
-                    Severity.WARNING,
+                    "mlo_performance",
+                    Severity.INFO,
                     False,
-                    "MLO enabled with ESTIMATE_REPORTS: Network performance cannot be "
-                    "estimated for MLO models. Individual layer estimates will still be "
-                    "generated",
+                    "MLO throughput (estimate and RTLSIM_PERFORMANCE) assumes that the loop "
+                    "controller keeps the loop body fully busy, with ideal external memory; "
+                    "it is an upper bound. The RTLSIM_PERFORMANCE latency is not available "
+                    "for MLO models",
                 )
             )
-        if DataflowOutputType.RTLSIM_PERFORMANCE in cfg.generate_outputs:
-            checks.append(
-                _check(
-                    "mlo_rtlsim",
-                    Severity.WARNING,
-                    False,
-                    "MLO enabled with RTLSIM_PERFORMANCE: RTL simulation performance "
-                    "measurement is skipped for MLO models",
-                    "Remove RTLSIM_PERFORMANCE from generate_outputs or disable MLO",
-                )
+    if cfg.mlo_parallel_rtlsim and not cfg.mlo:
+        checks.append(
+            _check(
+                "mlo_parallel_rtlsim",
+                Severity.WARNING,
+                False,
+                "mlo_parallel_rtlsim=True without mlo=True has no effect",
+                "Enable mlo or remove mlo_parallel_rtlsim",
             )
-
+        )
+    if (
+        cfg.mlo
+        and cfg.mlo_parallel_rtlsim
+        and VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps()
+        and not cfg.verify_input_npy
+    ):
+        checks.append(
+            _check(
+                "mlo_parallel_rtlsim_input",
+                Severity.ERROR,
+                False,
+                "mlo_parallel_rtlsim=True needs verify_input_npy: the parallel stitched-IP "
+                "rtlsim derives its per-iteration golden frames from it",
+                "Set verify_input_npy, or disable mlo_parallel_rtlsim",
+            )
+        )
     if cfg.mlo and cfg.verify_save_full_context:
         checks.append(
             _check(

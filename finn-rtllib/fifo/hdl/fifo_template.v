@@ -33,7 +33,11 @@ module $TOP_MODULE_NAME$ #(
 	// Width of the fill-count ports; wide enough to carry fifo_gauge's fixed
 	// 32-bit occupancy counter out to FIFO sizing without truncation. fifo.sv's
 	// own (narrower) counter zero-extends into these ports.
-	parameter COUNT_WIDTH = 32
+	parameter COUNT_WIDTH = 32,
+	// Payload width of the stream. The AXI-Stream ports pad it to whole bytes;
+	// the FIFO stores the payload only and drives the padding with zeros.
+	parameter WIDTH = $WIDTH$,
+	parameter AXI_WIDTH = 8*((WIDTH+7)/8)
 )(
 //- Global Control ------------------
 (* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out0_V, ASSOCIATED_RESET ap_rst_n" *)
@@ -48,34 +52,35 @@ output [COUNT_WIDTH-1:0] maxcount,
 //- AXI Stream - Input --------------
 output   in0_V_TREADY,
 input   in0_V_TVALID,
-input  $IN_RANGE$ in0_V_TDATA,
+input  [AXI_WIDTH-1:0] in0_V_TDATA,
 
 //- AXI Stream - Output --------------
 input   out0_V_TREADY,
 output   out0_V_TVALID,
-output  $OUT_RANGE$ out0_V_TDATA
+output  [AXI_WIDTH-1:0] out0_V_TDATA
 );
 
+	// Only the payload is stored. Leaving the constant padding to Vivado's trimming
+	// breaks URAM-backed FIFOs in Vivado 2025.1/2025.2: the URAM read pipeline
+	// absorption is planned for the untrimmed width, and the trimmed netlist
+	// delivers data ahead of valid.
+	wire [WIDTH-1:0]  fifo_odat;
+	assign	out0_V_TDATA = fifo_odat;	// zero-extends into the padding
+
 `ifdef FINN_SIMULATION
-	fifo_gauge #(.WIDTH($WIDTH$), .DATA_LOGFILE("$DATA_LOGFILE$"), .LOG_VERBOSE($LOG_VERBOSE$), .LOG_FLUSH_CYCLES($LOG_FLUSH_CYCLES$)) fifo (
+	fifo_gauge #(.WIDTH(WIDTH), .DATA_LOGFILE("$DATA_LOGFILE$"), .LOG_VERBOSE($LOG_VERBOSE$), .LOG_FLUSH_CYCLES($LOG_FLUSH_CYCLES$)) fifo (
 		.clk(ap_clk), .rst(!ap_rst_n),
-		.idat(in0_V_TDATA), .ivld(in0_V_TVALID), .irdy(in0_V_TREADY),
-		.odat(out0_V_TDATA), .ovld(out0_V_TVALID), .ordy(out0_V_TREADY),
-		.count(count), .maxcount(maxcount)
-	);
-`else
-	// Store only the $REAL_WIDTH$ payload bits and zero the AXI byte padding on the
-	// output. Leaving the constant padding to Vivado's trimming breaks URAM-backed
-	// FIFOs in Vivado 2025.1/2025.2: the URAM read pipeline absorption is planned
-	// for the untrimmed width, and the trimmed netlist delivers data ahead of valid.
-	wire [$REAL_WIDTH$-1:0]  fifo_odat;
-	fifo #(.DEPTH($DEPTH$), .DATA_WIDTH($REAL_WIDTH$), .RAM_STYLE("$RAM_STYLE$")) fifo (
-		.clk(ap_clk), .rst(!ap_rst_n),
-		.idat(in0_V_TDATA[$REAL_WIDTH$-1:0]), .ivld(in0_V_TVALID), .irdy(in0_V_TREADY),
+		.idat(in0_V_TDATA[WIDTH-1:0]), .ivld(in0_V_TVALID), .irdy(in0_V_TREADY),
 		.odat(fifo_odat), .ovld(out0_V_TVALID), .ordy(out0_V_TREADY),
 		.count(count), .maxcount(maxcount)
 	);
-	assign	out0_V_TDATA = fifo_odat;	// zero-extends into the padding
+`else
+	fifo #(.DEPTH($DEPTH$), .DATA_WIDTH(WIDTH), .RAM_STYLE("$RAM_STYLE$")) fifo (
+		.clk(ap_clk), .rst(!ap_rst_n),
+		.idat(in0_V_TDATA[WIDTH-1:0]), .ivld(in0_V_TVALID), .irdy(in0_V_TREADY),
+		.odat(fifo_odat), .ovld(out0_V_TVALID), .ordy(out0_V_TREADY),
+		.count(count), .maxcount(maxcount)
+	);
 `endif
 
 endmodule

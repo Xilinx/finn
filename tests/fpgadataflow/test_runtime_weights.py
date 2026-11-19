@@ -45,7 +45,7 @@ from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.create import hls_random_mlp_maker
+from finn.util.create import hw_random_mlp_maker
 from finn.util.test import make_runtime_weight_stream
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
@@ -72,7 +72,7 @@ def test_runtime_weights_single_layer():
         "simd": simd,
     }
     layer_spec_list = [layer_spec]
-    model = hls_random_mlp_maker(layer_spec_list)
+    model = hw_random_mlp_maker(layer_spec_list)
     model = model.transform(SpecializeLayers(test_fpga_part))
     fcl = model.get_nodes_by_op_type("MVAU_hls")[0]
     op_inst = getCustomOp(fcl)

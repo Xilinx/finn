@@ -41,7 +41,7 @@ from qonnx.transformation.infer_shapes import InferShapes
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 from finn.core.onnx_exec import execute_onnx
-from finn.util.basic import get_vivado_version, make_build_dir
+from finn.util.basic import get_vivado_version, make_build_dir, robust_rmtree
 from finn.util.test import (
     get_example_input,
     load_test_checkpoint_or_skip,
@@ -173,7 +173,7 @@ def test_end2end_ext_weights_build(topology):
     runtime_weights_dir = output_dir + "/deploy/driver/weights/runtime_weights/"
     verify_runtime_weights(folding_config_file, runtime_weights_dir)
     if os.path.isdir(get_checkpoint_name("build", topology)):
-        shutil.rmtree(get_checkpoint_name("build", topology))
+        robust_rmtree(get_checkpoint_name("build", topology))
     shutil.copytree(output_dir + "/deploy", get_checkpoint_name("build", topology))
     # the board checks the bitfile's output on the same image against y
     stage_hw_deployment(

@@ -416,7 +416,7 @@ def rtlsim_exec_finnxsi(model, execution_context, pre_hook=None, post_hook=None)
             # memblock.dat stores weights byte-aligned per SIMD group
             # (roundup(SIMD*bitwidth, 8) bits per group), the layout fetch_weights
             # expects in external memory (DDR, HBM, ...). Parse it (LSB-first) into a
-            # flat byte image, matching the validated MLO path in mlo_sim.py.
+            # flat byte image, matching the MLO pre-hook in util/rtlsim.py.
             weight_data = dat_file_to_numpy_array(dat_path)
             sim.aximm_ro_image(aximm_name, 0, weight_data.flatten())
 

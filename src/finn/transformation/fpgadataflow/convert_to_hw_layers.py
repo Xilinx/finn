@@ -46,6 +46,7 @@ from qonnx.util.onnx import nchw_to_nhwc
 # Module containing specializations of elementwise binary operations
 import finn.custom_op.fpgadataflow.elementwise_binary as elementwise_binary
 from finn.util.basic import resolve_resize_param_input
+from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
 class InferConvInpGen(Transformation):
@@ -305,9 +306,49 @@ class InferPWPolyFLayer(Transformation):
 
     def _match_erf_gelu(self, model, erf_node):
         """Match Erf-based GELU: Div(x,sqrt(2))→Erf→Add(_,1)→Mul(0.5,_)→Mul(x,_).
-        Returns (pwp_input, pwp_output, nodes_to_remove) or None."""
+
+        Also the Streamline leaves:
+        Mul(x,1/sqrt(2))→Erf→Mul(_,0.5)→Add(_,0.5)→Mul(x,_).
+        Returns (pwp_input, pwp_output, nodes_to_remove) or None.
+        """
+        prod = model.find_producer(erf_node.input[0])
+        # the match removes the producer of the Erf input, so the Erf must be its only consumer
+        if prod is not None and len(model.find_consumers(prod.output[0])) != 1:
+            return None
+        # ConvertDivToMul + MoveAddPastMul: Mul(x, 1/sqrt(2)) → Erf → Mul(_, 0.5) → Add(_, 0.5)
+        if prod is not None and prod.op_type == "Mul":
+            inv_sqrt2 = 1.0 / 1.4142135
+            if self._is_const_scalar(model, prod.input[1], inv_sqrt2):
+                gelu_input = prod.input[0]
+            elif self._is_const_scalar(model, prod.input[0], inv_sqrt2):
+                gelu_input = prod.input[1]
+            else:
+                return None
+            erf_consumers = model.find_consumers(erf_node.output[0])
+            if len(erf_consumers) != 1 or erf_consumers[0].op_type != "Mul":
+                return None
+            mul_half = erf_consumers[0]
+            other_mul_half = [i for i in mul_half.input if i != erf_node.output[0]]
+            if len(other_mul_half) != 1 or not self._is_const_scalar(model, other_mul_half[0], 0.5):
+                return None
+            half_consumers = model.find_consumers(mul_half.output[0])
+            if len(half_consumers) != 1 or half_consumers[0].op_type != "Add":
+                return None
+            add_node = half_consumers[0]
+            other_add = [i for i in add_node.input if i != mul_half.output[0]]
+            if len(other_add) != 1 or not self._is_const_scalar(model, other_add[0], 0.5):
+                return None
+            add_consumers = model.find_consumers(add_node.output[0])
+            if len(add_consumers) != 1 or add_consumers[0].op_type != "Mul":
+                return None
+            mul_x = add_consumers[0]
+            other_mul_x = [i for i in mul_x.input if i != add_node.output[0]]
+            if len(other_mul_x) != 1 or other_mul_x[0] != gelu_input:
+                return None
+            return (gelu_input, mul_x.output[0], [prod, erf_node, mul_half, add_node, mul_x])
+
         # backward: Erf input must come from Div(x, sqrt(2))
-        div_node = model.find_producer(erf_node.input[0])
+        div_node = prod
         if div_node is None or div_node.op_type != "Div":
             return None
         if self._is_const_scalar(model, div_node.input[1], 1.4142135):
@@ -466,8 +507,8 @@ class InferPWPolyFLayer(Transformation):
                     graph.node.remove(nd)
                 graph_modified = True
 
-            # Case 4: Erf-based GELU (dynamo=True / opset < 20)
-            # Div(x, sqrt(2)) → Erf → Add(_, 1) → Mul(0.5, _) → Mul(x, _)
+            # Case 4: Erf-based GELU (dynamo=True / opset < 20), in export form
+            # or the fixed point Streamline leaves behind.
             elif node.op_type == "Erf":
                 match = self._match_erf_gelu(model, node)
                 if match is None:
@@ -872,8 +913,6 @@ class InferUpsample(Transformation):
                     inputDataType=inputDataType,
                     batchSize=batchSize,
                     name="UpsampleNearestNeighbour_" + n.name,
-                    cpp_interface="hls_vector",
-                    hls_style="freerunning",
                 )
 
                 # Remove the old node
@@ -951,8 +990,6 @@ class InferDuplicateStreamsLayer(Transformation):
                 NumOutputStreams=n_outputs,
                 outFIFODepths=[2] * n_outputs,
                 name="DuplicateStreams_" + output_tensor,
-                cpp_interface="hls_vector",
-                hls_style="freerunning",
             )
 
             graph.node.insert(0, dup_node)
@@ -1020,8 +1057,6 @@ class InferDuplicateStreamsLayer(Transformation):
                         NumOutputStreams=n_outputs,
                         outFIFODepths=[2] * n_outputs,
                         name="DuplicateStreams_" + node.name,
-                        cpp_interface="hls_vector",
-                        hls_style="freerunning",
                     )
 
                     graph.node.insert(node_ind, dup_node)
@@ -1365,7 +1400,6 @@ class InferPool(Transformation):
                     AccumBits=accum_bits,
                     Size=pool_size_param,
                     BatchSize=1,
-                    cpp_interface="hls_vector",
                     name="Pool_" + node.name,
                 )
 
@@ -1493,8 +1527,6 @@ class InferConcatLayer(Transformation):
                     inputDataTypes=[model.get_tensor_datatype(x).name for x in node.input],
                     numInputVectors=inp_vec,
                     inFIFODepths=[2] * len(node.input),
-                    cpp_interface="hls_vector",
-                    hls_style="freerunning",
                 )
                 graph.node.insert(node_ind, new_node)
                 # remove old node
@@ -1558,8 +1590,6 @@ class InferSplitLayer(Transformation):
                     backend="fpgadataflow",
                     name="StreamingSplit_" + node.name,
                     SIMD=1,
-                    cpp_interface="hls_vector",
-                    hls_style="freerunning",
                     ChannelsPerStream=channels_per_stream,
                     inputDataType=model.get_tensor_datatype(node.input[0]).name,
                     numInputVectors=inp_vec,
@@ -2988,13 +3018,88 @@ class InferCrop(Transformation):
                     CropWest=crop_west,
                     CropSouth=crop_south,
                     numInputVectors=num_inp_vec,
-                    cpp_interface="hls_vector",
-                    hls_style="freerunning",
                 )
                 graph.node.insert(node_ind, new_node)
                 graph.node.remove(n)
                 graph_modified = True
 
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferStreamingReshape(Transformation):
+    """Convert Reshape, Flatten, Squeeze and Unsqueeze between hardware layers
+    into StreamingReshape layers.
+
+    These operators keep the row-major order of a tensor's elements, which is
+    the order a FINN stream carries them in, so in hardware they are a wire. A
+    chain of consecutive shape operators becomes a single layer.
+
+    Only shape operators with static shapes are converted, and only if their
+    producer and all their consumers are hardware layers. Shape operators at the
+    edge of the dataflow region stay in software as before.
+    """
+
+    SHAPE_OPS = ("Reshape", "Flatten", "Squeeze", "Unsqueeze")
+
+    def _is_static_shape_op(self, model, node):
+        if node is None or node.op_type not in self.SHAPE_OPS or node.domain not in ("", "ai.onnx"):
+            return False
+        # the shape (Reshape) or axes (Squeeze/Unsqueeze from opset 13) input
+        if any(model.get_initializer(name) is None for name in node.input[1:] if name):
+            return False
+        ishape = model.get_tensor_shape(node.input[0])
+        oshape = model.get_tensor_shape(node.output[0])
+        if not ishape or not oshape:
+            return False
+        return np.prod(ishape) == np.prod(oshape)
+
+    def _single_consumer(self, model, tensor):
+        consumers = model.find_consumers(tensor)
+        return consumers[0] if consumers is not None and len(consumers) == 1 else None
+
+    def apply(self, model):
+        graph = model.graph
+        graph_outputs = {x.name for x in graph.output}
+        graph_modified = False
+        for node in list(graph.node):
+            if not self._is_static_shape_op(model, node):
+                continue
+            producer = model.find_producer(node.input[0])
+            # A later member of a chain is converted together with its head. Once
+            # converted, its input tensor has no producer any more.
+            if not is_fpgadataflow_node(producer):
+                continue
+            chain = [node]
+            while chain[-1].output[0] not in graph_outputs:
+                successor = self._single_consumer(model, chain[-1].output[0])
+                if not self._is_static_shape_op(model, successor):
+                    break
+                chain.append(successor)
+            out = chain[-1].output[0]
+            consumers = model.find_consumers(out)
+            if out in graph_outputs or not consumers:
+                continue
+            if not all(is_fpgadataflow_node(x) for x in consumers):
+                continue
+            inp = node.input[0]
+            new_node = helper.make_node(
+                "StreamingReshape",
+                [inp],
+                [out],
+                domain="finn.custom_op.fpgadataflow",
+                backend="fpgadataflow",
+                DataType=model.get_tensor_datatype(inp).name,
+                in_shape=[int(x) for x in model.get_tensor_shape(inp)],
+                out_shape=[int(x) for x in model.get_tensor_shape(out)],
+                name="StreamingReshape_" + node.name,
+            )
+            graph.node.insert(list(graph.node).index(node), new_node)
+            for x in chain:
+                graph.node.remove(x)
+            graph_modified = True
         if graph_modified:
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())

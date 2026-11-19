@@ -11,7 +11,6 @@
 import errno
 import os
 import os.path
-import re
 import xsi
 from finn_xsi.sim_engine import SimEngine
 from finn_xsi.srcutil import order_pkg_first
@@ -22,6 +21,7 @@ from finn.util.basic import (
     launch_process_helper,
     resolve_xilinx_tool,
 )
+from finn.util.launcher import ToolUnavailable
 
 
 def locate_glbl() -> Optional[str]:
@@ -135,15 +135,17 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False, beha
 
 
 def get_simkernel_so():
+    """Return the file name of the XSI simulation kernel library of the Vivado
+    installation in XILINX_VIVADO. Vivado 2024.2 renamed it from
+    librdi_simulator_kernel.so to libxv_simulator_kernel.so."""
     vivado_path = os.environ.get("XILINX_VIVADO")
-    # xsi kernel lib name depends on Vivado version (renamed in 2024.2)
-    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
-    year, minor = int(match.group(1)), int(match.group(2))
-    if (year, minor) > (2024, 1):
-        simkernel_so = "libxv_simulator_kernel.so"
-    else:
-        simkernel_so = "librdi_simulator_kernel.so"
-    return simkernel_so
+    if not vivado_path:
+        raise ToolUnavailable("vivado", "XILINX_VIVADO is not set")
+    lib_dir = os.path.join(vivado_path, "lib", "lnx64.o")
+    for simkernel_so in ("libxv_simulator_kernel.so", "librdi_simulator_kernel.so"):
+        if os.path.isfile(os.path.join(lib_dir, simkernel_so)):
+            return simkernel_so
+    raise ToolUnavailable("vivado", f"no XSI simulation kernel library in {lib_dir}")
 
 
 def load_sim_obj(sim_out_dir, out_so_relative_path, tracefile=None, simkernel_so=None):
@@ -219,6 +221,7 @@ def rtlsim_multi_io(
     sname="_V_V",
     liveness_threshold=10000,
     liveness_estimate=None,
+    output_frame_sizes=None,
 ):
     if len(io_dict["outputs"]) > 1:
         assert isinstance(
@@ -229,6 +232,13 @@ def rtlsim_multi_io(
         # outputs from the single output stream) - make into dict
         oname = list(io_dict["outputs"].keys())[0]
         num_out_values = {oname: num_out_values}
+
+    if output_frame_sizes is not None and not isinstance(output_frame_sizes, dict):
+        assert (
+            len(io_dict["outputs"]) == 1
+        ), "Output frame sizes must be a dict for multiple outputs"
+        oname = list(io_dict["outputs"].keys())[0]
+        output_frame_sizes = {oname: output_frame_sizes}
 
     # FINN XSI expects hex strings, while rtlsim_multi_io uses
     # lists of arbitrary-precision integers, so need to convert
@@ -251,6 +261,7 @@ def rtlsim_multi_io(
             stream_name,
             num_out_values[out],
             watchdog=watchdog,
+            frame_size=None if output_frame_sizes is None else output_frame_sizes[out],
         )
 
     start_ticks = sim.ticks
@@ -274,5 +285,14 @@ def rtlsim_multi_io(
         for watchdog in watchdogs:
             if watchdog in sim.watchdogs:
                 sim.remove_watchdog(watchdog)
+
+    if output_frame_sizes is not None:
+        # cycles (relative to the start of this pass) at which each output
+        # stream completed a frame
+        completion_cycles = {
+            out: [int(tick - start_ticks) for tick in collector.completion_ticks]
+            for out, collector in hex_output_streams.items()
+        }
+        return end_ticks - start_ticks, completion_cycles
 
     return end_ticks - start_ticks

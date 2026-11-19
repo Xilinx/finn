@@ -11,6 +11,15 @@ from qonnx.custom_op.general.quant import max_int, min_int
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
 
+def float32_literal(value):
+    """The shortest decimal literal that converts back to exactly ``value`` as a
+    float32, in scientific notation with at least one digit after the point, so
+    that it is valid in C++ and as a SystemVerilog real literal alike."""
+    value = np.float32(value)
+    assert np.isfinite(value), "Requant parameters must be finite, got %s" % value
+    return np.format_float_scientific(value, unique=True, trim="0")
+
+
 class Requant(HWCustomOp):
     """Abstraction layer for HW implementation of Requantization.
 
@@ -44,7 +53,7 @@ class Requant(HWCustomOp):
             # [1, 4, 4] is four * four vectors (like a conv layer with batch=1)
             "numInputVectors": ("ints", False, [1]),
             # Whether to use narrow range (1) or full range (0)
-            # Note: RTL backend only supports narrow=0 and unsigned output
+            # Note: the RTL backend requires narrow=0 (see _requant_rtl_possible)
             "narrow": ("i", False, 0),
         }
         my_attrs.update(super().get_nodeattr_types())

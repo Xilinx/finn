@@ -49,6 +49,8 @@ from finn_ci.rng_seed import (  # noqa: E402  # (needs to come after ci/ on sys.
     seed_from_nodeid,
 )
 
+from finn.util.launcher import xilinx_tool  # noqa: E402
+
 pytest_plugins = ["finn_ci.plugin"]
 
 
@@ -75,3 +77,12 @@ def _deterministic_random_state(request, finn_test_seed):
         np.random.set_state(numpy_state)
         if torch_state is not None:
             torch.set_rng_state(torch_state)
+
+
+@pytest.fixture(autouse=True)
+def _fresh_xilinx_tools():
+    # xilinx_tool resolves each tool once per process; tests change PATH and
+    # FINN_TOOL_DIR_OVERRIDE between them.
+    xilinx_tool.cache_clear()
+    yield
+    xilinx_tool.cache_clear()
