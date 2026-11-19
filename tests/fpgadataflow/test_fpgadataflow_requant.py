@@ -936,7 +936,8 @@ def test_requant_rtl_python_model_is_exact(part, idt, mem_mode):
     model = model.transform(PrepareIP(part, 5))
     model = model.transform(PrepareRTLSim())
     y_rtlsim = oxe.execute_onnx(model, {"inp": inp})["outp"]
-    model = model.transform(SetExecMode(""))  # the Python model
+    # an empty exec_mode selects the Python model (SetExecMode only accepts sim modes)
+    getCustomOp(model.graph.node[0]).set_nodeattr("exec_mode", "")
     y_python = oxe.execute_onnx(model, {"inp": inp})["outp"]
     assert np.array_equal(y_python, y_rtlsim)
 
