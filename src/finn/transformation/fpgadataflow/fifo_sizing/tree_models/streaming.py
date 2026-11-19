@@ -334,24 +334,63 @@ class PoolHlsModel(TreeModel):
         windows. Input acceptance follows the buffer's free pointer, which is
         exact as ``input_gen`` is sized for stall-free reads.
 
+        A lazy ``pad<>`` (``Eager`` = 0) holds its leading padding until the
+        first input word has passed the input register slice, which delays the
+        whole schedule without changing it. An eager ``pad<>`` emits that
+        padding from cycle 0 and is only held up when it reaches the first data
+        word before the input is visible, so the shift of lazy against eager is
+        ``min(LAZY_PAD_START_LATENCY, leading padding words)`` (see
+        ``lazy_pad_start_latency`` below), 0 without top/left padding.
+
         Checked against node rtlsim (exact tiling, overlap, floor remainders,
-        symmetric/ceil/asymmetric padding, global and 1D pools): exact period
-        and per-period token counts; cumulative error at most 3 input and 1
-        output tokens.
+        symmetric/ceil/asymmetric padding, global and 1D pools, both ``Eager``
+        settings): exact period and per-period token counts; cumulative error
+        at most 3 input and 1 output tokens.
         """
         k_h, k_w = op.get_nodeattr("KernelSize")
         cf = op.get_nodeattr("Channels") // op.get_nodeattr("PE")
         batch = op.get_nodeattr("BatchSize")
+        ifm_dim = tuple(op.get_nodeattr("IFMDim"))
+        pad = tuple(op.get_nodeattr("Padding"))
+        start_latency = (
+            0
+            if op.get_nodeattr("Eager")
+            else self.lazy_pad_start_latency(ifm_dim[1] + pad[1] + pad[3], pad, cf)
+        )
         rd, wr = pool_schedule(
-            tuple(op.get_nodeattr("IFMDim")),
+            ifm_dim,
             (k_h, k_w),
             tuple(op.get_nodeattr("Stride")),
             cf,
-            tuple(op.get_nodeattr("Padding")),
+            pad,
+            start_latency=start_latency,
         )
         if batch > 1:
             rd, wr = np.tile(rd, batch), np.tile(wr, batch)
         return flat_characteristic_leaf(rd, wr, "Pool_hls schedule")
+
+    def lazy_pad_start_latency(self, padded_width, padding, cf):
+        """Shift of the lazy ``pad<>`` inside ``Pool_hls`` against an eager one,
+        with the node input always valid.
+
+        An eager pad emits its leading padding from cycle 0 and only waits for
+        the input when it reaches the first data word, a lazy one starts once
+        the first input word is visible. The shift is therefore capped by the
+        number of padding words ahead of the first data word,
+        ``(top * padded_width + left) * cf``: 0 without top/left padding,
+        ``LAZY_PAD_START_LATENCY`` once there are enough leading words.
+
+        ``padding`` is ``(top, left, bottom, right)``, ``padded_width`` the
+        width of the padded feature map in pixels and ``cf`` the channel fold.
+        """
+        # Cycles the lazy pad waits before the first input word is visible: the
+        # input AXI-stream register slice accepts one cycle after reset and
+        # presents the word one cycle later, and the pad's own pipeline adds one
+        # more.
+        LAZY_PAD_START_LATENCY = 3
+
+        lead_words = (padding[0] * padded_width + padding[1]) * cf
+        return min(LAZY_PAD_START_LATENCY, lead_words)
 
 
 @register("FMPadding")
