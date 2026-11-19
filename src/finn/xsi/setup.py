@@ -23,11 +23,12 @@ Options:
 import argparse
 import os
 import shutil
-import subprocess
 import sys
 import sysconfig
 from pathlib import Path
 from typing import List, Tuple
+
+from finn.util.launcher import ToolFailed, ToolUnavailable, run_tool
 
 
 def get_build_paths() -> Tuple[List[str], str, List[str]]:
@@ -176,14 +177,11 @@ def build_xsi(force: bool = False, verbose: bool = True) -> bool:
         print(f"Build command: {' '.join(cmd)}")
 
     # Run the compilation
-    result = subprocess.run(cmd, cwd=xsi_path, capture_output=True, text=True)
-
-    if result.returncode != 0:
+    try:
+        result = run_tool(cmd, cwd=xsi_path, replay=xsi_path / "compile_xsi.sh")
+    except (ToolFailed, ToolUnavailable) as exc:
         print("Build failed!")
-        if result.stderr:
-            print("Error output:", result.stderr)
-        if result.stdout:
-            print("Build output:", result.stdout)
+        print(exc)
         print("\nBuild command was:")
         print(" ".join(cmd))
         print("\nCommon issues:")
@@ -193,7 +191,7 @@ def build_xsi(force: bool = False, verbose: bool = True) -> bool:
         return False
 
     if verbose and result.stdout:
-        print(result.stdout)
+        print(result.stdout.decode("utf-8", errors="replace"))
 
     if verbose:
         print("Build completed successfully.")
