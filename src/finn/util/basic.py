@@ -33,10 +33,8 @@ import os
 import re
 import shlex
 import shutil
-import subprocess
 import tempfile
 import time
-import warnings
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.util.basic import gen_finn_dt_tensor, roundup_to_integer_multiple
@@ -47,8 +45,6 @@ from finn.util.launcher import (
     TOOL_DIR_ENV,
     StrPath,
     ToolUnavailable,
-    emit_output,
-    run_process,
     run_tool,
     xilinx_tool,
 )
@@ -330,53 +326,6 @@ class CppBuilder:
         # Historically compilation used the caller's CWD, including for relative
         # sources. Retain that behavior and record it in the replay.
         run_tool(command, cwd=os.getcwd(), replay=self.compile_script)
-
-
-def launch_process_helper(
-    args: Union[StrPath, Sequence[StrPath]],
-    proc_env: Optional[Dict[str, str]] = None,
-    cwd: Optional[StrPath] = None,
-    check: bool = False,
-) -> Tuple[str, str]:
-    """Launch a process and capture its output for logging with Python loggers.
-
-    .. deprecated::
-        Use ``finn.util.launcher.run_tool``, which raises ``ToolFailed`` on a
-        nonzero exit and keeps a replay script and transcripts. FINN no longer
-        calls this function.
-
-    Returns ``(cmd_out, cmd_err)`` as UTF-8 strings, with undecodable bytes in
-    tool output replaced and CRLF/CR newlines normalized to LF, as in subprocess
-    text mode. In a ``log_run`` (a build), both
-    streams are also logged at INFO, one record per line, marked ``FILE_ONLY``.
-    Otherwise, or if ``finn.util.basic`` does not log INFO, they are written
-    through to ``sys.stdout``/``sys.stderr``.
-
-    When ``check`` is True and the process exits non-zero, raises
-    ``subprocess.CalledProcessError`` with ``output`` and ``stderr`` set to the
-    captured strings. The write-through happens before the raise, so the tool
-    log is still visible on failure. That is why the return code is checked by
-    hand after emitting the output. A string argument names one executable;
-    command-line strings are not split or interpreted by a shell.
-    """
-    warnings.warn(
-        "launch_process_helper is deprecated; use finn.util.launcher.run_tool",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    if proc_env is None:
-        proc_env = os.environ.copy()
-    command = [args] if isinstance(args, (str, os.PathLike)) else args
-    proc = run_process(command, env=proc_env, cwd=cwd, check=False)
-    # The original text-mode subprocess normalized newlines before emitting
-    # output and returning it. Keep that policy in this compatibility adapter.
-    for stream in ("stdout", "stderr"):
-        text = getattr(proc, stream).decode("utf-8", errors="replace")
-        setattr(proc, stream, text.replace("\r\n", "\n").replace("\r", "\n"))
-    cmd_out, cmd_err = emit_output(proc, log)
-    if check and proc.returncode != 0:
-        raise subprocess.CalledProcessError(proc.returncode, args, cmd_out, cmd_err)
-    return (cmd_out, cmd_err)
 
 
 def which(program):

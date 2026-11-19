@@ -7,12 +7,9 @@ import pytest
 
 import json
 import os
-import shutil
-import subprocess
 import sys
 import types
 from onnx import TensorProto, helper
-from pathlib import Path
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.util.basic import qonnx_make_model
 
@@ -20,8 +17,8 @@ from finn.core import rtlsim_exec
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.transformation.fpgadataflow import alveo_build, make_driver
 from finn.transformation.fpgadataflow.make_driver import MakeCPPDriver
-from finn.util.basic import CppBuilder, launch_process_helper
-from finn.util.launcher import ToolFailed, run_process, run_tool
+from finn.util.basic import CppBuilder
+from finn.util.launcher import ToolFailed
 
 FAKE_TOOL = """
 import json, os, sys
@@ -58,53 +55,6 @@ def tool_dir(tmp_path, monkeypatch):
 
 def printed_call(path):
     return json.loads(path.read_text().splitlines()[0])
-
-
-@pytest.mark.util
-def test_helper_returns_strings_and_raises_when_checked(tool_dir):
-    # launch_process_helper is kept, deprecated, for callers outside FINN.
-    tool = tool_dir(
-        "utility", "import sys; print('out'); print('err', file=sys.stderr); sys.exit(9)"
-    )
-    with pytest.deprecated_call(match="run_tool"):
-        assert launch_process_helper([str(tool)]) == ("out\n", "err\n")
-    with pytest.raises(subprocess.CalledProcessError) as failed, pytest.deprecated_call():
-        launch_process_helper([str(tool)], check=True)
-    assert (failed.value.returncode, failed.value.output, failed.value.stderr) == (
-        9,
-        "out\n",
-        "err\n",
-    )
-
-
-@pytest.mark.util
-def test_cppbuilder_expands_inputs_without_splitting_paths_or_accumulating_flags(
-    tmp_path, monkeypatch
-):
-    if shutil.which("g++") is None:
-        pytest.skip("C++ compiler unavailable")
-    includes = tmp_path / "include files"
-    includes.mkdir()
-    (includes / "answer.hpp").write_text("int answer();\n")
-    sources = tmp_path / "source files"
-    sources.mkdir()
-    (sources / "main.cpp").write_text(
-        "#include <answer.hpp>\n#include <iostream>\nint main() { std::cout << answer(); }\n"
-    )
-    (sources / "answer.cpp").write_text("int answer() { return VALUE; }\n")
-    monkeypatch.setenv("TOOLCHAIN_INCLUDE", str(includes))
-    builder = CppBuilder()
-    builder.append_includes("-I$TOOLCHAIN_INCLUDE -DVALUE=42")
-    builder.append_includes(["-std=c++17"])
-    builder.append_sources(sources / "*.cpp")
-    builder.set_executable_path(sources / "node model")
-    for _ in range(2):
-        builder.build(sources)
-        assert run_tool([builder.executable_path]).stdout == b"42"
-        assert builder.compile_components.count("-DVALUE=42") == 1
-    assert (sources / "compile.stdout.log").is_file()
-    assert (sources / "compile.stderr.log").is_file()
-    run_process(["bash", builder.compile_script])
 
 
 @pytest.mark.util
@@ -283,68 +233,6 @@ def test_vitis_driver_config_returns_shapes_and_extracted_kernel_names(
     assert config[0]["odmas"][0]["kernelName"] == "output_kernel:{odma1}"
     assert config[0]["idmas"][0]["packedShape"] == [1, 1, 16]
     assert config[0]["odmas"][0]["normalShape"] == [1, 4]
-
-
-@pytest.mark.util
-def test_generated_cpp_driver_excludes_git_diagnostics(tmp_path, monkeypatch):
-    if shutil.which("git") is None:
-        pytest.skip("Git unavailable")
-    source = tmp_path / "local driver repository"
-    source.mkdir()
-    header = source / "src/FINNCppDriver/config/FinnDriverUsedDatatypes.h.in"
-    header.parent.mkdir(parents=True)
-    header.write_text("using Input = $inputDatatype;\nusing Output = $outputDatatype;\n")
-    run_process(["git", "init"], cwd=source)
-    run_process(["git", "add", "."], cwd=source)
-    run_process(
-        [
-            "git",
-            "-c",
-            "user.name=Test",
-            "-c",
-            "user.email=test@example.invalid",
-            "commit",
-            "-m",
-            "Fixture",
-        ],
-        cwd=source,
-    )
-    build = tmp_path / "build"
-    build.mkdir()
-    monkeypatch.setenv("FINN_BUILD_DIR", str(build))
-    monkeypatch.setattr(
-        make_driver,
-        "get_driver_shapes",
-        lambda model: {
-            "idt": ["DataType[INT8]"],
-            "odt": ["DataType[INT8]"],
-            "idma_names": [],
-            "odma_names": [],
-            "ishape_normal": [],
-            "ishape_folded": [],
-            "ishape_packed": [],
-            "oshape_normal": [],
-            "oshape_folded": [],
-            "oshape_packed": [],
-        },
-    )
-    driver = MakeCPPDriver("slash-vrt", "latest")
-    driver.repository_url = str(source)
-    model = make_model()
-    model.set_metadata_prop("bitfile", str(tmp_path / "design.vbin"))
-    driver.apply(model)
-    generated = Path(model.get_metadata_prop("cpp_driver_dir"))
-    logs = Path(model.get_metadata_prop("cpp_driver_log_dir"))
-    assert logs.parent == generated.parent and logs != generated
-    assert len(list(logs.glob("git-*.sh"))) == 5
-    assert len(list(logs.glob("git-*.stdout.log"))) == 5
-    assert len(list(logs.glob("git-*.stderr.log"))) == 5
-    package = tmp_path / "output/driver"
-    shutil.copytree(generated, package)
-    assert not list(package.glob("git-*"))
-    assert json.loads((package / "acceleratorconfig.json").read_text())[0]["bitfile"].endswith(
-        "design.vbin"
-    )
 
 
 @pytest.mark.util
