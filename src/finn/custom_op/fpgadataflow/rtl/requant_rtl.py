@@ -839,10 +839,17 @@ class Requant_rtl(Requant, RTLBackend):
         fixed-point parameters from decompose_params for this node's DSP version."""
         node = self.onnx_node
         k = self.get_core_input_bitwidth()
+        if self.get_nodeattr("dsp_block") == "" and k <= 18:
+            # Up to 18 input bits, all DSP generations use the same operand widths
+            # (see _derive_mul_widths), so a node built without SpecializeLayers
+            # (e.g. by hand in a test graph) is still modelled exactly.
+            version = DSP_VERSIONS["DSP48E1"]
+        else:
+            version = self._dsp_version()
         params = self.decompose_params(
             self._flat_param(context.get, 1, 1.0),
             self._flat_param(context.get, 2, 0.0),
-            self._dsp_version(),
+            version,
         )
         # [PE][CF] -> channel cf * PE + pe, the order in which requant.sv rotates
         scale, bias, shift = (
