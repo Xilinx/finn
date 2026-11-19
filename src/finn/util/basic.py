@@ -473,6 +473,39 @@ def get_dsp_block(fpgapart):
         return "DSP48E2"
 
 
+#: VERSION parameter of the DSP-based RTL cores (mvu.sv, requant.sv) per DSP block
+DSP_VERSIONS = {"DSP48E1": 1, "DSP48E2": 2, "DSP58": 3}
+
+
+def resolve_dsp_block(inst, fpgapart=None, record=True):
+    """The DSP block (generation) an RTL node with a ``dsp_block`` attribute targets.
+
+    SpecializeLayers sets the attribute from the part it specializes for. Without
+    a part (Python execution), the attribute is the answer. Given a part (code
+    generation, estimation), it must agree with the attribute, so that a node
+    specialized for one DSP generation is not built for another; an unset
+    attribute is filled in from the part unless ``record`` is False (analyses
+    must not change the model).
+    """
+    block = inst.get_nodeattr("dsp_block")
+    if fpgapart is not None:
+        part_block = get_dsp_block(fpgapart)
+        if block and block != part_block:
+            raise ValueError(
+                f"{inst.onnx_node.name} was specialized for {block}, "
+                f"but is built for {fpgapart} ({part_block})"
+            )
+        if not block and record:
+            inst.set_nodeattr("dsp_block", part_block)
+        block = part_block
+    if not block:
+        raise ValueError(
+            f"{inst.onnx_node.name}: unknown DSP generation, "
+            "specialize with SpecializeLayers(fpgapart) first"
+        )
+    return block
+
+
 def get_dsp_datapath_limits(dsp_block):
     """Return the maximum (activation, weight, accumulator) operand widths in bits
     that fit the datapath of the given DSP block. These correspond to the DSP B, A

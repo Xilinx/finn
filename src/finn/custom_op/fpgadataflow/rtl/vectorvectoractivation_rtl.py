@@ -31,7 +31,7 @@ import os
 
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.custom_op.fpgadataflow.vectorvectoractivation import VVAU
-from finn.util.basic import is_versal
+from finn.util.basic import DSP_VERSIONS, is_versal, resolve_dsp_block
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
@@ -42,7 +42,10 @@ class VVAU_rtl(VVAU, RTLBackend):
         super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
-        my_attrs = {}
+        my_attrs = {
+            # DSP generation of the target part, set by SpecializeLayers
+            "dsp_block": ("s", False, "", {"", "DSP48E1", "DSP48E2", "DSP58"}),
+        }
         my_attrs.update(VVAU.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
@@ -246,12 +249,11 @@ class VVAU_rtl(VVAU, RTLBackend):
         Please change resType for {} to 'dsp' or consider switching to HLS-based VVAU!""".format(
             self.onnx_node.name
         )
-        is_versal_family = is_versal(fpgapart)
+        dsp_block = resolve_dsp_block(self, fpgapart)
         assert (
-            is_versal_family
+            dsp_block == "DSP58"
         ), "DSP-based (RTL) VVU currently only supported on Versal (DSP58) devices"
-
-        return 3
+        return DSP_VERSIONS[dsp_block]
 
     def prepare_codegen_default(self, fpgapart, clk):
         template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mvu/mvu_vvu_axi_wrapper.v"

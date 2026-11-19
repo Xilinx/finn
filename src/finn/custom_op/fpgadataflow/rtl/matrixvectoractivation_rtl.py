@@ -31,7 +31,7 @@ import os
 
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.util.basic import get_dsp_block, get_dsp_datapath_limits
+from finn.util.basic import DSP_VERSIONS, get_dsp_datapath_limits, resolve_dsp_block
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation_rtl:
@@ -51,6 +51,8 @@ class MVAU_rtl(MVAU, RTLBackend):
         my_attrs = {
             # Double-pumped DSPs enabled
             "pumpedCompute": ("i", False, 0, {0, 1}),
+            # DSP generation of the target part, set by SpecializeLayers
+            "dsp_block": ("s", False, "", {"", "DSP48E1", "DSP48E2", "DSP58"}),
         }
         my_attrs.update(MVAU.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
@@ -164,7 +166,7 @@ class MVAU_rtl(MVAU, RTLBackend):
         # multiplication
         P = self.get_nodeattr("PE")
         Q = self.get_nodeattr("SIMD")
-        dsp_block = get_dsp_block(fpgapart)
+        dsp_block = resolve_dsp_block(self, fpgapart, record=False)
         if dsp_block == "DSP58":
             mult_dsp = P * np.ceil(Q / 3)
         else:
@@ -291,13 +293,7 @@ class MVAU_rtl(MVAU, RTLBackend):
             self.onnx_node.name
         )
 
-        match dsp_block:
-            case "DSP58":
-                return 3
-            case "DSP48E2":
-                return 2
-            case _:
-                return 1
+        return DSP_VERSIONS[dsp_block]
 
     def generate_hdl(self, model, fpgapart, clk):
         # Generate params as part of IP preparation
@@ -376,7 +372,7 @@ class MVAU_rtl(MVAU, RTLBackend):
                     % (self.onnx_node.name, theight, num_inp_vec, valid_th)
                 )
 
-        dsp_block = get_dsp_block(fpgapart)
+        dsp_block = resolve_dsp_block(self, fpgapart)
 
         # the operand and accumulator widths must fit the target DSP datapath
         # (activation->B, weight->A, accumulator->P); wider values would be

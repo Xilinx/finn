@@ -7,9 +7,10 @@ import os
 from finn.custom_op.fpgadataflow.requant import Requant, float32_literal
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.util.basic import (
+    DSP_VERSIONS,
     fifo_rtl_files,
-    get_dsp_block,
     make_build_dir,
+    resolve_dsp_block,
     roundup_to_integer_multiple,
 )
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
@@ -113,28 +114,9 @@ class Requant_rtl(Requant, RTLBackend):
         return intf_names
 
     def _dsp_version(self, fpgapart=None):
-        """The DSP version (1: DSP48E1, 2: DSP48E2, 3: DSP58) of requant.sv's VERSION.
-
-        It comes from the ``dsp_block`` attribute, which SpecializeLayers sets from
-        the target part. Given a part (code generation), it must agree with it; an
-        unset attribute is then filled in.
-        """
-        block = self.get_nodeattr("dsp_block")
-        if fpgapart is not None:
-            part_block = get_dsp_block(fpgapart)
-            if block and block != part_block:
-                raise ValueError(
-                    f"{self.onnx_node.name} was specialized for {block}, "
-                    f"but code is generated for {fpgapart} ({part_block})"
-                )
-            block = part_block
-            self.set_nodeattr("dsp_block", block)
-        if not block:
-            raise ValueError(
-                f"{self.onnx_node.name}: unknown DSP generation, "
-                "specialize with SpecializeLayers(fpgapart) first"
-            )
-        return {"DSP48E1": 1, "DSP48E2": 2, "DSP58": 3}[block]
+        """The DSP version (requant.sv's VERSION) of this node's DSP block,
+        see ``resolve_dsp_block``."""
+        return DSP_VERSIONS[resolve_dsp_block(self, fpgapart)]
 
     def _derive_decoupled_widths(self, model, fpgapart):
         """Derive the fixed-point stream layout for decoupled mode.
