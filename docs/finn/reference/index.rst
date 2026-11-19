@@ -11,3 +11,4 @@ This section contains technical reference information for FINN hardware layers, 
 
    folding-constraints
    mem-modes
+   double-pumping
