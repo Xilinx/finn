@@ -702,8 +702,9 @@ class CreateStitchedIP(Transformation):
             )
         if self.clk2x_gen_active and not self.run_synth:
             # ship the clock constraint of the generator with the IP: as an IP-level
-            # XDC, it is scoped to each instance of the IP (with run_synth, the
-            # constraints exported from the synthesized design carry it instead)
+            # XDC, it is scoped to each instance of the IP. (With run_synth, the
+            # constraints exported from the synthesized design hold it, but Vivado
+            # does not read them for Vitis kernels: VitisLink applies it.)
             tcl.append("file mkdir ip/constrs")
             tcl.append("file copy -force clk2x_gen.xdc ip/constrs/clk2x_gen.xdc")
             tcl.append(

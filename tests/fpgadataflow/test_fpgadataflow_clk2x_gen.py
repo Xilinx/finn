@@ -365,7 +365,8 @@ def test_vitis_kernel_clock_hook_link(board):
 
 
 # A stand-in for the kernel clock of an Alveo platform: the UCS MMCM (instance
-# ulp/@UCS@) derives aclk_kernel_00 at 150 MHz from 100 MHz.
+# ulp/@UCS@) derives aclk_kernel_00 at 150 MHz from 100 MHz. It clocks a kernel with
+# an internal clock generator (kernel/clk2x_gen) as by CreateStitchedIP clk2x_gen.
 kernel_clock_toy = """
 module ucs(input clk_in, output aclk_kernel_00);
 	wire  fb, c0;
@@ -378,10 +379,28 @@ endmodule
 module ulp(input clk_in, output aclk_kernel_00);
 	ucs @UCS@ (.clk_in(clk_in), .aclk_kernel_00(aclk_kernel_00));
 endmodule
-module top(input clk_in, input d, output reg q);
+module wiz(input clk_in1, output clk_out1, output clk_out2);
+	wire  fb, c0, c1;
+	MMCME4_ADV #(.CLKIN1_PERIOD(6.667), .CLKFBOUT_MULT_F(8.0), .CLKOUT0_DIVIDE_F(8.0),
+		.CLKOUT1_DIVIDE(4))
+	mmcm (.CLKIN1(clk_in1), .CLKIN2(1'b0), .CLKINSEL(1'b1), .CLKFBIN(fb), .CLKFBOUT(fb),
+		.CLKOUT0(c0), .CLKOUT1(c1), .RST(1'b0), .PWRDWN(1'b0), .DADDR(7'h0), .DCLK(1'b0),
+		.DEN(1'b0), .DI(16'h0), .DWE(1'b0), .PSCLK(1'b0), .PSEN(1'b0), .PSINCDEC(1'b0),
+		.CDDCREQ(1'b0));
+	BUFG buf_1 (.I(c0), .O(clk_out1));
+	BUFG buf_2 (.I(c1), .O(clk_out2));
+endmodule
+module kern(input ap_clk, input d, output reg q);
+	wire  c1, c2;
+	reg  r;
+	wiz clk2x_gen (.clk_in1(ap_clk), .clk_out1(c1), .clk_out2(c2));
+	always @(posedge c2)  r <= d;
+	always @(posedge c1)  q <= r;
+endmodule
+module top(input clk_in, input d, output q);
 	wire  k;
 	ulp ulp (.clk_in(clk_in), .aclk_kernel_00(k));
-	always @(posedge k)  q <= d;
+	kern kernel (.ap_clk(k), .d(d), .q(q));
 endmodule
 """
 
@@ -412,6 +431,8 @@ create_generated_clock -name clk_kernel_00_unbuffered_net -multiply_by %d -divid
     -source [get_pins %s/CLKIN1] [get_pins %s/CLKOUT0]
 source hook.tcl
 puts "KERNEL_PERIOD [get_property PERIOD [get_clocks -of_objects [get_pins ulp/aclk_kernel_00]]]"
+set nets [get_nets -segments [get_nets -of_objects [get_pins kernel/clk2x_gen/clk_out*]]]
+puts "DELAY_GROUPS [lsort -unique [get_property CLOCK_DELAY_GROUP $nets]]"
 """ % (
         ratio + (mmcm, mmcm)
     )
@@ -424,6 +445,10 @@ puts "KERNEL_PERIOD [get_property PERIOD [get_clocks -of_objects [get_pins ulp/a
     period = float(re.search(r"^KERNEL_PERIOD (\S+)", log, re.M).group(1))
     if ucs == "ulp_ucs":
         assert period == pytest.approx(1000 / 150, abs=1e-3)
+    # the delay group of the kernel's clock generator, on any platform
+    assert "clock generator kernel/clk2x_gen: CLOCK_DELAY_GROUP finn_clk2x_1" in log
+    groups = re.search(r"^DELAY_GROUPS (.*)$", log, re.M).group(1).split()
+    assert "finn_clk2x_1" in groups
 
 
 def make_kernel_models(tmp_dir, ifnames_list, f_gen_list):
