@@ -547,10 +547,12 @@ def packed_bytearray_to_finnpy(
     if packed_bytearray.ndim == 0:
         raise Exception("packed_bytearray_to_finnpy expects at least 1D ndarray")
 
-    # fixed point maps to float32 in to_numpy_dt(), so it can't use the byte view
+    # The fast path views the bytes as dtype.to_numpy_dt(), which only works if that
+    # numpy type has exactly the packed width: not for types mapped to float32, such
+    # as fixed point (#1773)
     if (
         (dtype.bitwidth() in [8, 16])
-        and not dtype.is_fixed_point()
+        and dtype.to_numpy_dt().itemsize * 8 == dtype.bitwidth()
         and (reverse_inner and reverse_endian)
     ):
         # Fast mode from the previous implemenation
