@@ -23,6 +23,12 @@ import finn.builder.build_dataflow_config as build_cfg
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.fifo_transaction_counts import fifo_transaction_counts
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.minimize_accumulator_width import (
+    MinimizeAccumulatorWidth,
+)
+from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
+    MinimizeWeightBitWidth,
+)
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.util.basic import (
@@ -58,6 +64,17 @@ def generate_random_threshold_values(data_type, num_input_channels, num_steps):
         return (np.random.randn(num_input_channels, num_steps) * 1000).astype(
             data_type.to_numpy_dt()
         )
+
+
+def narrow_like_the_flow(model):
+    """The datatype-only bit-width minimization the builder applies before
+    specialization (step_minimize_bit_width_datatype_only). References are computed
+    on the narrowed graph: the bit-exact Requant_rtl model depends on the declared
+    input width (a 32-bit input loses low bits in the core), and the flow builds
+    the narrowed design."""
+    model = model.transform(MinimizeWeightBitWidth(datatype_only=True), apply_to_subgraphs=True)
+    model = model.transform(MinimizeAccumulatorWidth(datatype_only=True), apply_to_subgraphs=True)
+    return model.transform(InferDataTypes(), apply_to_subgraphs=True)
 
 
 def create_tensor_info(name, shape, proto=TensorProto.FLOAT):
@@ -872,6 +889,7 @@ def test_finnloop_end2end_mlo(
     # Generate reference output
     input_dtype = DataType["INT8"]
     x = gen_finn_dt_tensor(input_dtype, (1, 3, 3, dim))
+    model = narrow_like_the_flow(model)
     model_ref = model.transform(PrepareCppSim())
     model_ref = model_ref.transform(CompileCppSim())
     model_ref = model_ref.transform(SetExecMode("cppsim"))
@@ -1188,6 +1206,7 @@ def test_finnloop_end2end_mlo_parallel(
 
     input_dtype = DataType["INT7"]
     x = gen_finn_dt_tensor(input_dtype, (1, 3, 3, dim))
+    model = narrow_like_the_flow(model)
     model_ref = model.transform(PrepareCppSim())
     model_ref = model_ref.transform(CompileCppSim())
     model_ref = model_ref.transform(SetExecMode("cppsim"))
@@ -1275,6 +1294,7 @@ def test_finnloop_end2end_mlo_batched_verification():
     model = model.transform(InferShapes()).transform(InferDataTypes())
 
     x = gen_finn_dt_tensor(DataType["INT8"], (5, 3, 3, 16))
+    model = narrow_like_the_flow(model)
     ref = model.transform(PrepareCppSim()).transform(CompileCppSim())
     ref = ref.transform(SetExecMode("cppsim"))
     y_ref = np.concatenate([oxe.execute_onnx(ref, {inp: x[i : i + 1]})[outp] for i in range(5)])
@@ -1536,6 +1556,7 @@ def test_finnloop_end2end_mlo_ddr(
     # Generate reference output
     input_dtype = data_dtype
     x = gen_finn_dt_tensor(input_dtype, (1, 3, 3, dim))
+    model = narrow_like_the_flow(model)
     model_ref = model.transform(PrepareCppSim())
     model_ref = model_ref.transform(CompileCppSim())
     model_ref = model_ref.transform(SetExecMode("cppsim"))
