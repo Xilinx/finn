@@ -26,10 +26,12 @@ from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.util.basic import (
+    get_dsp_block,
     get_pynq_golden_dir,
     get_vivado_version,
     make_build_dir,
     pynq_golden_files,
+    pynq_part_map,
     robust_rmtree,
 )
 from finn.util.rtlsim import check_fifo_log_consistency, read_fifo_log_snapshot
@@ -92,6 +94,7 @@ def make_loop_modelwrapper(
     helper_pe=2,
     weight_bitwidth=None,
     pumped_compute=False,
+    fpgapart=fpga_part,
 ):
     is_float = eltw_param_dtype == "FLOAT32"
 
@@ -344,6 +347,9 @@ def make_loop_modelwrapper(
                 "outputDataType": dtype.name,
                 "narrow": 0,
                 "numInputVectors": [1, 3, 3],
+                # built as an RTL node directly, so record the DSP generation
+                # SpecializeLayers would (its integer model depends on it)
+                "dsp_block": get_dsp_block(fpgapart),
             },
         ),
     )
@@ -531,6 +537,7 @@ def create_chained_loop_bodies(
     helper_pe=2,
     weight_bitwidth=None,
     pumped_compute=False,
+    fpgapart=fpga_part,
 ):
     loop_body_models = []
 
@@ -551,6 +558,7 @@ def create_chained_loop_bodies(
             helper_pe=helper_pe,
             weight_bitwidth=weight_bitwidth,
             pumped_compute=pumped_compute,
+            fpgapart=fpgapart,
         )
         loop_body_models.append(loop_body_model)
 
@@ -1489,6 +1497,7 @@ def test_finnloop_end2end_mlo_ddr(
         mvau_th=mvau_th,
         helper_pe=helper_pe,
         weight_bitwidth=weight_bitwidth,
+        fpgapart=pynq_part_map[board],
     )
     nodes_per_body = len(loop_body_models[0].graph.node)
     model = loop_body_models[0]
