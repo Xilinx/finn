@@ -3,6 +3,8 @@
 
 import numpy as np
 import os
+import warnings
+from types import SimpleNamespace
 
 from finn.custom_op.fpgadataflow.requant import Requant, float32_literal
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
@@ -55,6 +57,8 @@ class Requant_rtl(Requant, RTLBackend):
                     {"internal_embedded", "internal_decoupled"},
                 ),
                 "runtime_writeable_weights": ("i", False, 0, {0, 1}),
+                # DSP version of the target part, set by generate_hdl (0: unknown)
+                "dsp_version": ("i", False, 0, {0, 1, 2, 3}),
             }
         )
         return my_attrs
@@ -327,6 +331,7 @@ class Requant_rtl(Requant, RTLBackend):
             code_gen_dir = make_build_dir("requant_rtl_ipgen_")
             self.set_nodeattr("code_gen_dir_ipgen", code_gen_dir)
 
+        self.set_nodeattr("dsp_version", self._resolve_dsp_version(fpgapart))
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "internal_embedded":
             if self.get_input_datatype(0) == "FLOAT32":
@@ -829,5 +834,39 @@ class Requant_rtl(Requant, RTLBackend):
                 context[node.output[0]].shape == exp_oshape
             ), "Output shape doesn't match expected shape."
         else:
-            # Use base class Python execution
-            Requant.execute_node(self, context, graph)
+            if self.get_input_datatype(0).is_integer():
+                self._execute_node_integer(context, graph)
+            else:
+                # Use base class Python execution
+                Requant.execute_node(self, context, graph)
+
+    def _execute_node_integer(self, context, graph):
+        """Bit-exact model of requant.sv: clip((x * scale + bias) >> shift) on the
+        fixed-point parameters from decompose_params."""
+        node = self.onnx_node
+        k = self.get_core_input_bitwidth()
+        version = self.get_nodeattr("dsp_version")
+        if version == 0:
+            # operand widths only depend on the DSP version above 18 input bits
+            if k > 18:
+                warnings.warn(
+                    f"{node.name}: DSP version unknown before generate_hdl, float model used"
+                )
+                Requant.execute_node(self, context, graph)
+                return
+            version = 1
+        if hasattr(graph, "model"):
+            model = graph.model
+        else:
+            model = SimpleNamespace(get_initializer=context.get)
+        params = self.decompose_params(model, version)
+        scale, bias, shift = (
+            np.asarray(params[key], dtype=np.int64).T.reshape(-1)
+            for key in ("scale", "bias", "shift")
+        )
+        x = context[node.input[0]].astype(np.int64)
+        if k > params["x_width"]:
+            x = x >> (k - params["x_width"])
+        y = (x * scale + bias) >> shift
+        odt = self.get_output_datatype()
+        context[node.output[0]] = np.clip(y, odt.min(), odt.max()).astype(np.float32)

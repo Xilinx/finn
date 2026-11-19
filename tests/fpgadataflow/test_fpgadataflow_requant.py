@@ -873,3 +873,60 @@ def test_requant_adapt_for_loop_body(idt, impl_style):
     else:
         with pytest.raises(Exception, match="RTL Requant"):
             inst.adapt_for_loop_body([])
+
+
+# part: one DSP generation each (DSP58, DSP48E2, DSP48E1)
+# idt: the widest input per part is 2 bits wider than its multiplier input (27 or
+# 25 bits), so the core drops low input bits
+@pytest.mark.parametrize(
+    "part,idt",
+    [
+        (part, idt)
+        for part, widest in [
+            ("xcvc1902-vsva2197-2MP-e-S", "INT29"),
+            ("xczu7ev-ffvc1156-2-e", "INT29"),
+            ("xc7z020clg400-1", "INT27"),
+        ]
+        for idt in ["INT8", "UINT20", widest]
+    ],
+)
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_requant_rtl_python_model_is_exact(part, idt):
+    """The Python execution of Requant_rtl matches its rtlsim bit for bit.
+
+    The core computes x * scale + bias exactly in fixed point. A float32 model
+    rounds twice and can land on the other side of a .5 boundary, so the inputs
+    include, per channel, the ones whose exact result is closest to a boundary.
+    """
+    ishape, num_channels, pe = (1, 256, 8), 8, 2
+    idt, odt = DataType[idt], DataType["INT8"]
+    model = make_requant_modelwrapper(ishape, num_channels, pe, idt, odt, "rtl")
+    rng = np.random.default_rng(0)
+    scale = (rng.uniform(0.5, 1.0, num_channels) * 127 / 2 ** (idt.bitwidth() - 1)).astype(
+        np.float32
+    )
+    bias = rng.uniform(-0.5, 0.5, num_channels).astype(np.float32)
+    model.set_initializer("scale", scale)
+    model.set_initializer("bias", bias)
+    # per channel: half random inputs, half the ones closest to a rounding boundary,
+    # within +-2^24 so that the float32 input tensor holds them exactly
+    lo, hi = max(idt.min(), -(1 << 24)), min(idt.max(), 1 << 24)
+    cand = rng.integers(lo, hi, size=(1 << 16, num_channels), endpoint=True)
+    exact = cand * scale.astype(np.float64) + bias.astype(np.float64)
+    dist = np.abs(exact - np.floor(exact) - 0.5)
+    nearest = np.take_along_axis(cand, np.argsort(dist, axis=0)[: ishape[1] // 2], axis=0)
+    inp = np.concatenate([cand[: ishape[1] // 2], nearest]).reshape(ishape).astype(np.float32)
+
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(GiveUniqueNodeNames())
+    assert model.graph.node[0].op_type == "Requant_rtl"
+    getCustomOp(model.graph.node[0]).set_nodeattr("mem_mode", "internal_embedded")
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareIP(part, 5))
+    model = model.transform(PrepareRTLSim())
+    y_rtlsim = oxe.execute_onnx(model, {"inp": inp})["outp"]
+    model = model.transform(SetExecMode("cppsim"))
+    y_python = oxe.execute_onnx(model, {"inp": inp})["outp"]
+    assert np.array_equal(y_python, y_rtlsim)
