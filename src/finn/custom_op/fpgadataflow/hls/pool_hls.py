@@ -89,6 +89,9 @@ class Pool_hls(Pool, HLSBackend):
                 "static constexpr unsigned PAD_W = {};".format(pad[1]),
                 "static constexpr unsigned PAD_S = {};".format(pad[2]),
                 "static constexpr unsigned PAD_E = {};".format(pad[3]),
+                "static constexpr bool EAGER = {};".format(
+                    "true" if self.get_nodeattr("Eager") else "false"
+                ),
             ]
         self.code_gen_dict["$DEFINES$"] = defines
 
@@ -138,7 +141,7 @@ class Pool_hls(Pool, HLSBackend):
             lines.append("#pragma HLS stream depth=2 variable=feed")
             # Build pad value initializer (broadcasting constructor)
             lines.append(
-                "pad<IFM_H, IFM_W, CF, PAD_N, PAD_E, PAD_S, PAD_W>"
+                "pad<IFM_H, IFM_W, CF, PAD_N, PAD_E, PAD_S, PAD_W, 1, 1, EAGER>"
                 "(in0_V, padded, %s(%s(%d)));" % (i_tensor_dt, hls_datatype_str(idt), pad_val)
             )
             lines.append("%s(padded, feed);" % ig_call)

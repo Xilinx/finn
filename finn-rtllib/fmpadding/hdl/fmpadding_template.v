@@ -85,7 +85,8 @@ fmpadding_axi #(
 .INIT_XEND($INIT_XEND$),
 .INIT_YON($INIT_YON$),
 .INIT_YOFF($INIT_YOFF$),
-.INIT_YEND($INIT_YEND$)
+.INIT_YEND($INIT_YEND$),
+.EAGER($EAGER$)
 )
 impl
 (

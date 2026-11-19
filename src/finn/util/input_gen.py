@@ -92,7 +92,16 @@ def input_gen_buffer_depth(fm_size, dims, coefs):
     return 1 << (required_depth - 1).bit_length()
 
 
-def pool_schedule(ifm_dim, kernel, stride, cf, padding=(0, 0, 0, 0), frames=5, end_latency=7):
+def pool_schedule(
+    ifm_dim,
+    kernel,
+    stride,
+    cf,
+    padding=(0, 0, 0, 0),
+    frames=5,
+    end_latency=7,
+    start_latency=0,
+):
     """Steady-state token schedule of the fused HLS pooling kernel
     ``[pad<>] -> input_gen<> -> pool<F>`` (``Pool_hls``) with input always valid
     and output always ready.
@@ -102,7 +111,8 @@ def pool_schedule(ifm_dim, kernel, stride, cf, padding=(0, 0, 0, 0), frames=5, e
     the read addresses A_k. Input word y is accepted once the free pointer --
     the base address of the current unit of the deepest free-pointer level --
     has passed y - BUF_SIZE. pool<F> emits a window's result when it consumes
-    the window's last element.
+    the window's last element. ``start_latency`` delays the whole schedule, it
+    does not change the steady state, only its phase in the stored window.
 
     Returns ``(rd, wr)``: 0/1 arrays over one steady-state period (the frame
     period, max(input words, reads) per frame), phased like the stored window of
@@ -141,8 +151,8 @@ def pool_schedule(ifm_dim, kernel, stride, cf, padding=(0, 0, 0, 0), frames=5, e
     interior = (
         (row >= padding[0]) & (row < padding[0] + h) & (col >= padding[1]) & (col < padding[1] + w)
     )
-    t_in = write.reshape(frames, fm)[:, interior].ravel()
-    t_out = tau[k % (kh * kw) == kh * kw - 1]
+    t_in = write.reshape(frames, fm)[:, interior].ravel() + start_latency
+    t_out = tau[k % (kh * kw) == kh * kw - 1] + start_latency
 
     n_in = h * w * cf
     period = int(t_in[(frames - 2) * n_in] - t_in[(frames - 3) * n_in])

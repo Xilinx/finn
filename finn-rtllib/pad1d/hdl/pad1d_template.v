@@ -43,7 +43,8 @@ module $TOP_MODULE_NAME$ #(
         .PAD_LEFT_TOKENS($PAD_LEFT$),
         .PAD_RIGHT_TOKENS($PAD_RIGHT$),
         .PAD_LEFT_DATA(PAD_LEFT_DATA),
-        .PAD_RIGHT_DATA(PAD_RIGHT_DATA)
+        .PAD_RIGHT_DATA(PAD_RIGHT_DATA),
+        .EAGER($EAGER$)
     ) impl (
         .clk(ap_clk),
         .rst(!ap_rst_n),

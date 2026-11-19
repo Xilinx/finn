@@ -55,7 +55,7 @@ test_fpga_part = pynq_part_map[test_pynq_board]
 target_clk_ns = 10
 
 
-def make_single_fmpadding_modelwrapper(idim, padding, num_ch, simd, idt):
+def make_single_fmpadding_modelwrapper(idim, padding, num_ch, simd, idt, eager=1):
     pad_h = padding[0] + padding[2]
     pad_w = padding[1] + padding[3]
     idim_h, idim_w = idim
@@ -79,6 +79,7 @@ def make_single_fmpadding_modelwrapper(idim, padding, num_ch, simd, idt):
         inputDataType=str(idt.name),
         numInputVectors=1,
         SIMD=simd,
+        Eager=eager,
     )
 
     graph = helper.make_graph(
@@ -106,12 +107,16 @@ def make_single_fmpadding_modelwrapper(idim, padding, num_ch, simd, idt):
 @pytest.mark.parametrize("idt", [DataType["INT2"], DataType["INT4"]])
 # execution mode
 @pytest.mark.parametrize("mode", ["cppsim", "rtlsim"])
+# emit the leading padding ahead of the first input (1) or only once it is available (0)
+@pytest.mark.parametrize("eager", [1, 0], ids=["eager", "lazy"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode):
+def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode, eager):
     if num_ch % simd != 0:
         pytest.skip(" num_ch % simd != 0, skipping")
+    if mode == "cppsim" and not eager:
+        pytest.skip("cppsim does not model the handshake of the leading padding")
 
     idim_h, idim_w = idim
     pad_h = pad[0] + pad[2]
@@ -126,7 +131,7 @@ def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode):
     y_expected = np.pad(x, ((0, 0), (pad[0], pad[2]), (pad[1], pad[3]), (0, 0)), "constant")
     expected_oshape = (1, odim_h, odim_w, num_ch)
 
-    model = make_single_fmpadding_modelwrapper(idim, pad, num_ch, simd, idt)
+    model = make_single_fmpadding_modelwrapper(idim, pad, num_ch, simd, idt, eager)
 
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     assert y_produced.shape == expected_oshape
@@ -182,17 +187,21 @@ def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode):
 @pytest.mark.parametrize("idim", [[10, 8]])
 @pytest.mark.parametrize("idt", [DataType["INT2"]])
 @pytest.mark.parametrize("mode", ["rtlsim"])
+# emit the leading padding ahead of the first input (1) or only once it is available (0)
+@pytest.mark.parametrize("eager", [1, 0], ids=["eager", "lazy"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.node_tree_modeling
 def test_fpgadataflow_analytical_characterization_fmpadding(
-    idim, pad, num_ch, simd, idt, mode, impl_style
+    idim, pad, num_ch, simd, idt, mode, impl_style, eager
 ):
     if num_ch % simd != 0:
         pytest.skip(" num_ch % simd != 0, skipping")
+    if impl_style == "hls" and not eager:
+        pytest.skip("lazy leading padding is covered by the rtl cases")
 
-    model = make_single_fmpadding_modelwrapper(idim, pad, num_ch, simd, idt)
+    model = make_single_fmpadding_modelwrapper(idim, pad, num_ch, simd, idt, eager)
     model = model.transform(InferShapes())
     model = model.transform(SetExecMode(mode))
 

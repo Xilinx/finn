@@ -44,6 +44,7 @@ module fmpadding_axi #(
 	int unsigned  INIT_YON,
 	int unsigned  INIT_YOFF,
 	int unsigned  INIT_YEND,
+	bit           EAGER = 1,
 
 	localparam int unsigned  STREAM_BITS = 8*(1 + (SIMD*ELEM_BITS-1)/8)
 )(
@@ -110,7 +111,8 @@ module fmpadding_axi #(
 		.NUM_CHANNELS(NUM_CHANNELS), .SIMD(SIMD),
 		.INIT_XON(INIT_XON), .INIT_XOFF(INIT_XOFF), .INIT_XEND(INIT_XEND),
 		.INIT_YON(INIT_YON), .INIT_YOFF(INIT_YOFF), .INIT_YEND(INIT_YEND),
-		.ELEM_BITS(ELEM_BITS)
+		.ELEM_BITS(ELEM_BITS),
+		.EAGER(EAGER)
 	) padding (
 		.ap_clk, .ap_rst_n,
 

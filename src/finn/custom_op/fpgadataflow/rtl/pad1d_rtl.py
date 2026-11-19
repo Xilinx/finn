@@ -15,6 +15,10 @@ def _rtlsrc_dir():
     return os.environ["FINN_ROOT"] + "/finn-rtllib/pad1d/hdl"
 
 
+def _pad_rtlsrc_dir():
+    return os.environ["FINN_ROOT"] + "/finn-rtllib/pad/hdl"
+
+
 class Pad1D_rtl(Pad1D, RTLBackend):
     """RTL implementation of Pad1D."""
 
@@ -124,6 +128,7 @@ class Pad1D_rtl(Pad1D, RTLBackend):
             "PAD_RIGHT_DATA_WIDTH": self._get_pad_data_width(2),
             "PAD_LEFT_DATA": self._pack_pad_data(model, 1),
             "PAD_RIGHT_DATA": self._pack_pad_data(model, 2),
+            "EAGER": int(self.get_nodeattr("Eager")),
         }
 
         for key, value in code_gen_dict.items():
@@ -139,12 +144,13 @@ class Pad1D_rtl(Pad1D, RTLBackend):
         if abspath:
             return [
                 os.path.join(_rtlsrc_dir(), "pad1d.sv"),
+                os.path.join(_pad_rtlsrc_dir(), "pad.sv"),
                 os.path.join(
                     self.get_nodeattr("code_gen_dir_ipgen"),
                     self.get_nodeattr("gen_top_module") + ".v",
                 ),
             ]
-        return ["pad1d.sv", self.get_nodeattr("gen_top_module") + ".v"]
+        return ["pad1d.sv", "pad.sv", self.get_nodeattr("gen_top_module") + ".v"]
 
     def code_generation_ipi(self):
         cmd = []
