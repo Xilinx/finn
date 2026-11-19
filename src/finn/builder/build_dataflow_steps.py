@@ -183,7 +183,7 @@ from finn.util.config import (
     extract_model_config_consolidate_shuffles,
     extract_model_config_to_json,
 )
-from finn.util.fpgadataflow import is_mlo, warn_hls_rtl_dsp_conflict
+from finn.util.fpgadataflow import find_clk2x_nodes, is_mlo, warn_hls_rtl_dsp_conflict
 from finn.util.mlo_performance import measure_mlo_rtlsim_performance
 from finn.util.rtlsim import annotate_rtlsim_performance, run_parallel_mlo_rtlsim
 from finn.util.test import execute_parent
@@ -879,19 +879,45 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
 
 
 def check_shell_clk2x_support(model: ModelWrapper, cfg: DataflowBuildConfig):
-    """Fail early if a bitfile is requested from a shell flow that cannot drive
-    the phase-aligned ap_clk2x of double-pumped nodes (Vitis, SLASH and the
-    Versal golden-reference shell; the Zynq shell derives it from a clock
-    wizard). Runs before any hardware generation."""
+    """Fail early if a bitfile is requested from a shell flow that cannot provide
+    the phase-aligned ap_clk2x of double-pumped nodes. Runs before any hardware
+    generation.
+
+    With the internal clock generator (clk2x_source GENERATOR), the Zynq and the
+    Vitis flows support double-pumped kernels; Vitis needs an integer kernel
+    frequency in MHz. With an ap_clk2x input (EXTERNAL), only Vitis does, mapping
+    it to platform clocks (vitis_clk2x_clock_ids). The Versal golden-reference
+    shell and SLASH support none."""
     if DataflowOutputType.BITFILE not in cfg.generate_outputs:
         return
     shell_flow_type = cfg._resolve_shell_flow_type()
     if shell_flow_type == ShellFlowType.VIVADO_VERSAL:
         check_versal_shell_clk2x(model, cfg.board)
-    elif shell_flow_type == ShellFlowType.VITIS_ALVEO:
-        check_no_clk2x(model, "vitis-xrt")
-    elif shell_flow_type == ShellFlowType.SLASH_ALVEO:
+        return
+    if shell_flow_type == ShellFlowType.SLASH_ALVEO:
         check_no_clk2x(model, "slash-vrt")
+        return
+    clk2x_nodes = find_clk2x_nodes(model)
+    if not clk2x_nodes:
+        return
+    pumped = "These nodes need ap_clk2x (pumpedCompute/pumpedMemory): %s." % ", ".join(clk2x_nodes)
+    if cfg._resolve_clk2x_gen():
+        f_mhz = 1000.0 / cfg.synth_clk_period_ns
+        if shell_flow_type == ShellFlowType.VITIS_ALVEO and abs(f_mhz - round(f_mhz)) > 0.01:
+            raise Exception(
+                "The vitis-xrt flow links at an integer kernel frequency in MHz, but the "
+                "internal ap_clk2x generators would be configured for %.3f MHz (from "
+                "synth_clk_period_ns). %s" % (f_mhz, pumped)
+            )
+    elif shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
+        raise Exception(
+            "The Zynq shell provides no ap_clk2x: use clk2x_source GENERATOR. %s" % pumped
+        )
+    elif shell_flow_type == ShellFlowType.VITIS_ALVEO and cfg.vitis_clk2x_clock_ids is None:
+        raise Exception(
+            "Kernels with an ap_clk2x input (clk2x_source EXTERNAL) need the ids of two "
+            "phase-aligned platform clocks in vitis_clk2x_clock_ids. %s" % pumped
+        )
 
 
 def step_apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
@@ -1332,6 +1358,7 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
                 run_synth=cfg.stitched_ip_gen_dcp or run_pnr,
                 run_pnr=run_pnr,
                 signature=cfg.signature,
+                clk2x_gen=cfg._resolve_clk2x_gen(),
             )
         )
         # If P&R was run, parse the OOC results and store in model metadata + write report
@@ -1438,6 +1465,7 @@ def step_export_portable_rtl(model: ModelWrapper, cfg: DataflowBuildConfig):
                     run_synth=False,
                     run_pnr=False,
                     signature=cfg.signature,
+                    clk2x_gen=cfg._resolve_clk2x_gen(),
                 )
             )
 
@@ -1588,6 +1616,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                     "vitis-xrt",
                     floorplan_file=cfg.vitis_floorplan_file,
                     partition_model_dir=partition_model_dir,
+                    clk2x_gen=cfg._resolve_clk2x_gen(),
                 )
             )
             model = model.transform(
@@ -1596,6 +1625,9 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                     cfg.synth_clk_period_ns,
                     strategy=cfg._resolve_vitis_opt_strategy(),
                     enable_debug=cfg.enable_hw_debug,
+                    clk2x_clock_ids=(
+                        None if cfg._resolve_clk2x_gen() else cfg.vitis_clk2x_clock_ids
+                    ),
                 )
             )
             copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel.xclbin")

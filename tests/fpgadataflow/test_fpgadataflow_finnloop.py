@@ -583,10 +583,12 @@ def create_chained_loop_bodies(
 
 
 def assert_stitched_clk2x(build_dir):
-    """The pumped loop body exposes ap_clk2x, and so do the FINNLoop IP and the
-    top-level stitched IP (the wiring itself is verified by stitched-IP rtlsim)."""
+    """The pumped loop body exposes ap_clk2x, and so does the FINNLoop IP. The
+    top-level stitched IP derives it from ap_clk by its internal clock generator
+    (the wiring itself is verified by stitched-IP rtlsim)."""
     model = ModelWrapper(build_dir + "/intermediate_models/step_create_stitched_ip.onnx")
-    assert json.loads(model.get_metadata_prop("vivado_stitch_ifnames"))["clk2x"] == ["ap_clk2x"]
+    assert "clk2x" not in json.loads(model.get_metadata_prop("vivado_stitch_ifnames"))
+    assert model.get_metadata_prop("clk2x_gen_freq_mhz") is not None
     for loop_node in model.get_nodes_by_op_type("FINNLoop"):
         loop = getCustomOp(loop_node)
         assert loop.get_verilog_top_module_intf_names()["clk2x"] == ["ap_clk2x"]
