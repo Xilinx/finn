@@ -248,9 +248,9 @@ class SetFolding(Transformation):
                     swu_node_inst = getCustomOp(swu_node)
                     swu_node_inst.set_nodeattr("SIMD", pe)
                     # The depthwise SWU replays its buffered window once per channel
-                    # fold, so it can be slower than the VVAU/Pool it feeds (e.g. a
-                    # global pooling window over the whole feature map). Keep raising
-                    # the shared parallelism until the SWU meets the target as well.
+                    # fold, so it can be slower than the VVAU it feeds (e.g. for a
+                    # kernel spanning most of the feature map). Keep raising the
+                    # shared parallelism until the SWU meets the target as well.
                     if swu_node_inst.get_exp_cycles() >= self.target_cycles_per_frame:
                         for val in divisors(max_pe):
                             if val <= pe:
@@ -313,13 +313,12 @@ class SetFolding(Transformation):
                         if cyc < self.target_cycles_per_frame:
                             break
                 elif op_type == "Shuffle":
-                    # SIMD must divide the innermost dimension of the input (for the
-                    # decomposition) and of the output (InnerShuffle folding);
-                    # values without a valid decomposition estimate 0 cycles
+                    # SIMD must divide the innermost dimension of the input and of the
+                    # output and the dimension that every Inner/OuterShuffle stage of
+                    # the decomposition folds. Picking from the common divisors of
+                    # these means no stage has to round the SIMD up later.
                     node_inst.set_nodeattr("SIMD", 1)
-                    in_dim = node_inst.get_normal_input_shape()[-1]
-                    out_dim = node_inst.get_normal_output_shape()[-1]
-                    for simd_val in common_divisors([in_dim, out_dim]):
+                    for simd_val in common_divisors(node_inst.get_simd_dims()):
                         prev_simd = node_inst.get_nodeattr("SIMD")
                         node_inst.set_nodeattr("SIMD", simd_val)
                         cyc = node_inst.get_exp_cycles()

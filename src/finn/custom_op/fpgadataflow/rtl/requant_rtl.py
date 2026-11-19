@@ -79,7 +79,7 @@ class Requant_rtl(Requant, RTLBackend):
         """Byte-padded width of the per-iteration set-select stream.
 
         Must match the FINNLoop stream_tap ``$DATA_WIDTH$``
-        (finn_loop.py:548-550) so that the tap's ``m_axis`` connects cleanly to
+        (``FINNLoop.generate_hdl_stream_tap``) so that the tap's ``m_axis`` connects cleanly to
         the ``in1_V`` set-select slave pin.
         """
         iteration = self.get_nodeattr("mlo_max_iter")

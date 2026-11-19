@@ -24,9 +24,10 @@
  *	term[D-1:0] and odone the per-level exhaustion flags done[D-1:0],
  *	both synchronous with each output beat.
  *
- *	Shared by the MVU/VVU (finn-rtllib/mvu) and Where (finn-rtllib/where)
- *	cores; the buffer sizing is mirrored in Python by
- *	finn.custom_op.fpgadataflow.hwwhere.input_gen_buffer_depth().
+ *	Used by the tiled MVU (finn-rtllib/mvu/mvu_vvu_axi.sv with TH > 1: the
+ *	activation replay and the output reordering) and by Where
+ *	(finn-rtllib/where); the buffer sizing is mirrored in Python by
+ *	finn.util.input_gen.input_gen_buffer_depth().
  ***************************************************************************/
 
 module input_gen #(
@@ -56,6 +57,7 @@ module input_gen #(
 	output	logic [D-1:0]  odone,
 	input	logic  ordy
 );
+`default_nettype none
 
 	//=== Parameter Validation ==============================================
 	initial begin
@@ -483,4 +485,5 @@ module input_gen #(
 	assign	olst  = OLst;
 	assign	odone = ODone;
 
+`default_nettype wire
 endmodule : input_gen

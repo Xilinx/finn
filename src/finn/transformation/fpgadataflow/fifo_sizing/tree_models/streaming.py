@@ -243,14 +243,15 @@ class LabelSelectHlsModel(TreeModel):
     def schedule(self, op):
         """The HLS ``LabelSelect_Batch`` schedule: read the frame, then write K.
 
-        The structure is that of ``finn-hlslib/maxpool.h``: per frame the top-K
-        array is initialised, then one ``II=1`` loop reads ``Labels / PE`` folded
-        words back to back, then a second loop writes the K labels, one per
-        cycle. So a frame is three runs -- wind-up, a solid read run, a solid
-        write run -- and the only part of it that scales with ``Labels`` is the
-        length of the read run. The comparison network is over the K top entries
-        and is unrolled inside the read loop, so it costs no cycles that grow
-        with the label count.
+        ``finn-hlslib/topk.hpp`` is a function-pipelined (``II=1``) two-state
+        machine. In its capture state it reads one of the ``Labels / PE`` folded
+        words per cycle, initialising the top-K buffer with the first, and
+        inserts each word into the ordered buffer. In its emit state it writes
+        the K labels, one per cycle, and then returns to capture. So a frame is
+        three runs -- wind-up, a solid read run, a solid write run -- and the only
+        part of it that scales with ``Labels`` is the length of the read run. The
+        comparison network over the K top entries is unrolled within a cycle, so
+        it costs no cycles that grow with the label count.
 
         As offsets into one frame:
 

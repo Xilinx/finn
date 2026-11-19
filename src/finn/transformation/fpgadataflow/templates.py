@@ -28,15 +28,6 @@
 
 # flake8: noqa
 
-call_pynqshell_makefile_template = """
-#!/bin/bash
-cd %s
-export platform=%s
-export ip_config=%s
-make %s
-cd %s
-"""
-
 custom_zynq_shell_template = """
 set FREQ_MHZ @FREQ_MHZ@
 set NUM_AXILITE @NUM_AXILITE@

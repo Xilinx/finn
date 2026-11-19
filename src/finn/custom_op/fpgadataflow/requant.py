@@ -53,7 +53,7 @@ class Requant(HWCustomOp):
             # [1, 4, 4] is four * four vectors (like a conv layer with batch=1)
             "numInputVectors": ("ints", False, [1]),
             # Whether to use narrow range (1) or full range (0)
-            # Note: RTL backend only supports narrow=0 and unsigned output
+            # Note: the RTL backend requires narrow=0 (see _requant_rtl_possible)
             "narrow": ("i", False, 0),
         }
         my_attrs.update(super().get_nodeattr_types())

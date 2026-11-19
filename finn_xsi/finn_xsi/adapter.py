@@ -221,6 +221,7 @@ def rtlsim_multi_io(
     sname="_V_V",
     liveness_threshold=10000,
     liveness_estimate=None,
+    output_frame_sizes=None,
 ):
     if len(io_dict["outputs"]) > 1:
         assert isinstance(
@@ -231,6 +232,13 @@ def rtlsim_multi_io(
         # outputs from the single output stream) - make into dict
         oname = list(io_dict["outputs"].keys())[0]
         num_out_values = {oname: num_out_values}
+
+    if output_frame_sizes is not None and not isinstance(output_frame_sizes, dict):
+        assert (
+            len(io_dict["outputs"]) == 1
+        ), "Output frame sizes must be a dict for multiple outputs"
+        oname = list(io_dict["outputs"].keys())[0]
+        output_frame_sizes = {oname: output_frame_sizes}
 
     # FINN XSI expects hex strings, while rtlsim_multi_io uses
     # lists of arbitrary-precision integers, so need to convert
@@ -253,6 +261,7 @@ def rtlsim_multi_io(
             stream_name,
             num_out_values[out],
             watchdog=watchdog,
+            frame_size=None if output_frame_sizes is None else output_frame_sizes[out],
         )
 
     start_ticks = sim.ticks
@@ -276,5 +285,14 @@ def rtlsim_multi_io(
         for watchdog in watchdogs:
             if watchdog in sim.watchdogs:
                 sim.remove_watchdog(watchdog)
+
+    if output_frame_sizes is not None:
+        # cycles (relative to the start of this pass) at which each output
+        # stream completed a frame
+        completion_cycles = {
+            out: [int(tick - start_ticks) for tick in collector.completion_ticks]
+            for out, collector in hex_output_streams.items()
+        }
+        return end_ticks - start_ticks, completion_cycles
 
     return end_ticks - start_ticks
