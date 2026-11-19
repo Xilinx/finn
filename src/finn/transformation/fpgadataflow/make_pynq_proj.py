@@ -95,14 +95,17 @@ def check_versal_shell_clk2x(model: ModelWrapper, platform: str):
     """Reject double-pumped designs for the Versal (golden reference) shell.
 
     That shell clocks the whole overlay from pl0_ref_clk and has no phase-aligned
-    2x clock for ap_clk2x, which would be left undriven.
+    2x clock for ap_clk2x. The internal clock generator of the stitched IP
+    (CreateStitchedIP clk2x_gen) is the intended path, but has not been verified
+    with this shell.
     """
     clk2x_nodes = find_clk2x_nodes(model)
     if clk2x_nodes:
         raise Exception(
-            "The Versal shell for %s provides no phase-aligned 2x clock, but these "
-            "nodes need ap_clk2x (pumpedCompute/pumpedMemory): %s. Disable clock "
-            "pumping for this board." % (platform, ", ".join(clk2x_nodes))
+            "The Versal shell for %s does not support double-pumped kernels yet (a "
+            "kernel-internal ap_clk2x generator is the intended path, but unverified), "
+            "but these nodes need ap_clk2x (pumpedCompute/pumpedMemory): %s. Disable "
+            "clock pumping for this board." % (platform, ", ".join(clk2x_nodes))
         )
 
 
@@ -115,9 +118,9 @@ class MakePYNQProject(Transformation):
     it builds on the PYNQ golden reference (requires FINN_VCK190_GOLDEN=1).
     However, this transform requires DMAs in the accelerator design.
 
-    If a kernel has a double-speed clock input ap_clk2x (double-pumped nodes),
-    the Zynq shell derives the PL clock and ap_clk2x from one clock wizard, so
-    the two are phase-aligned. The Versal shell rejects such kernels.
+    The shells provide no double-speed clock ap_clk2x: kernels with
+    double-pumped nodes must derive it internally (CreateStitchedIP clk2x_gen).
+    The Versal shell rejects double-pumped designs altogether.
 
     Outcome if successful: sets the vivado_pynq_proj attribute in the ONNX
     ModelProto's metadata_props field, with the created project dir as the
@@ -158,7 +161,6 @@ class MakePYNQProject(Transformation):
         odma_idx = 0
         aximm_idx = 0
         axilite_idx = 0
-        use_clk2x = False
         instance_names = {}
         for node in model.graph.node:
             assert node.op_type == "StreamingDataflowPartition", "Invalid link graph"
@@ -187,6 +189,11 @@ class MakePYNQProject(Transformation):
             config.append("update_ip_catalog -rebuild -scan_changes")
 
             ifnames = eval(kernel_model.get_metadata_prop("vivado_stitch_ifnames"))
+            if ifnames.get("clk2x"):
+                raise Exception(
+                    "Kernel %s has an ap_clk2x input, which the shell cannot drive: "
+                    "stitch it with the internal clock generator (clk2x_gen)." % node.name
+                )
 
             # gather info on connectivity
             # assume each node connected to outputs/inputs is DMA:
@@ -264,14 +271,6 @@ class MakePYNQProject(Transformation):
                 "connect_bd_net [get_bd_pins %s/ap_rst_n] "
                 "[get_bd_pins %s]" % (instance_names[node.name], rst_pin)
             )
-            # the template's clock wizard drives the PL clock (clk_out1) and its
-            # phase-aligned double (clk_out2)
-            for clk2x_name in ifnames.get("clk2x", []):
-                use_clk2x = True
-                config.append(
-                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins clk_wiz_finn/clk_out2]"
-                    % (instance_names[node.name], clk2x_name)
-                )
             # connect streams
             if producer is not None:
                 for i in range(len(node.input)):
@@ -306,7 +305,6 @@ class MakePYNQProject(Transformation):
             "@FREQ_MHZ@": fclk_mhz,
             "@NUM_AXILITE@": axilite_idx,
             "@NUM_AXIMM@": aximm_idx,
-            "@USE_CLK2X@": int(use_clk2x),
             "@BOARD@": self.platform,
             "@FPGA_PART@": self.fpga_part,
             "@CONFIG@": config,
@@ -368,8 +366,9 @@ class MakePYNQProject(Transformation):
 
 class PYNQBuild(Transformation):
     """Best-effort attempt at building the accelerator for Pynq.
-    It assumes the model has only fpgadataflow nodes
-
+    It assumes the model has only fpgadataflow nodes. Kernels with double-pumped
+    nodes derive their ap_clk2x from the PL clock by an internal clock generator
+    (CreateStitchedIP clk2x_gen); the Versal shell rejects them.
     """
 
     def __init__(
@@ -418,7 +417,9 @@ class PYNQBuild(Transformation):
             kernel_model = kernel_model.transform(PrepareIP(self.fpga_part, self.period_ns))
             kernel_model = kernel_model.transform(HLSSynthIP())
             kernel_model = kernel_model.transform(
-                CreateStitchedIP(self.fpga_part, self.period_ns, sdp_node.onnx_node.name)
+                CreateStitchedIP(
+                    self.fpga_part, self.period_ns, sdp_node.onnx_node.name, clk2x_gen=True
+                )
             )
             kernel_model.set_metadata_prop("platform", "pynq-iodma")
             kernel_model.save(dataflow_model_filename)

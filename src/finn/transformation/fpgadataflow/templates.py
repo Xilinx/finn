@@ -35,7 +35,6 @@ if {$NUM_AXILITE > 9} {
     error "Maximum 10 AXI-Lite interfaces supported"
 }
 set NUM_AXIMM @NUM_AXIMM@
-set USE_CLK2X @USE_CLK2X@
 set BOARD @BOARD@
 set FPGA_PART @FPGA_PART@
 create_project finn_link ./finn_link -part $FPGA_PART
@@ -108,32 +107,12 @@ if {$ZYNQ_TYPE == "zynq_us+"} {
     puts "Unrecognized Zynq type"
 }
 
-#PL clock: the PS clock, or, for double-pumped kernels, the 1x output of a clock
-#wizard fed by it. ap_clk2x must be phase-aligned with ap_clk, so both come from
-#the same MMCM and everything else in the PL runs on the 1x output.
+#PL clock: the PS clock. Double-pumped kernels derive their ap_clk2x from it
+#internally (CreateStitchedIP clk2x_gen).
 if {$ZYNQ_TYPE == "zynq_us+"} {
-    set ps_clk /zynq_ps/pl_clk0
+    set pl_clk /zynq_ps/pl_clk0
 } else {
-    set ps_clk /zynq_ps/FCLK_CLK0
-}
-if {$USE_CLK2X == 1} {
-    set clk_wiz_vlnv [get_property VLNV [get_ipdefs "xilinx.com:ip:clk_wiz:*"]]
-    create_bd_cell -type ip -vlnv $clk_wiz_vlnv clk_wiz_finn
-    set_property -dict [list \
-        CONFIG.PRIM_SOURCE {No_buffer} \
-        CONFIG.USE_RESET {false} \
-        CONFIG.USE_LOCKED {true} \
-        CONFIG.NUM_OUT_CLKS {2} \
-        CONFIG.CLKOUT2_USED {true} \
-        CONFIG.CLKOUT1_REQUESTED_OUT_FREQ $FREQ_MHZ \
-        CONFIG.CLKOUT2_REQUESTED_OUT_FREQ [expr 2*$FREQ_MHZ] \
-        CONFIG.CLKOUT1_REQUESTED_PHASE {0} \
-        CONFIG.CLKOUT2_REQUESTED_PHASE {0} \
-    ] [get_bd_cells clk_wiz_finn]
-    connect_bd_net [get_bd_pins $ps_clk] [get_bd_pins clk_wiz_finn/clk_in1]
-    set pl_clk /clk_wiz_finn/clk_out1
-} else {
-    set pl_clk $ps_clk
+    set pl_clk /zynq_ps/FCLK_CLK0
 }
 
 #instantiate axi interconnect, axi smartconnect
@@ -405,3 +384,4 @@ open_project $VITIS_PROJ_PATH$/_x/link/vivado/vpl/prj/prj.xpr
 open_run impl_1
 report_utilization -hierarchical -hierarchical_depth 5 -file $VITIS_PROJ_PATH$/synth_report.xml -format xml
 """
+
