@@ -385,3 +385,31 @@ open_run impl_1
 report_utilization -hierarchical -hierarchical_depth 5 -file $VITIS_PROJ_PATH$/synth_report.xml -format xml
 """
 
+
+# OPT_DESIGN pre-hook of VitisLink: constrain the kernel clock 0 of an Alveo
+# platform (output of the UCS MMCM) to @F_MHZ@ MHz relative to the MMCM's reference
+# clock, replacing the generated clock that v++ derived. Leaves a correct constraint
+# and platforms without this clock alone.
+vitis_kernel_clk_tcl = """
+proc finn_gcd {a b} { while {$b} { set t $b; set b [expr {$a % $b}]; set a $t }; return $a }
+set kpin [get_pins -quiet -hierarchical -filter {NAME =~ */ulp_ucs/aclk_kernel_00}]
+set kclk [get_clocks -quiet -of_objects $kpin]
+set target_ns [expr {1000.0 / @F_MHZ@}]
+if {[llength $kclk] != 1 || ![get_property IS_GENERATED $kclk]} {
+    puts "INFO: \\[FINN\\] no generated Alveo kernel clock 0 found: constraints unchanged"
+} elseif {abs([get_property PERIOD $kclk] - $target_ns) < 0.001} {
+    puts "INFO: \\[FINN\\] kernel clock $kclk already constrained to $target_ns ns"
+} else {
+    set period [get_property PERIOD $kclk]
+    set src [get_property SOURCE $kclk]
+    set out [get_property SOURCE_PINS $kclk]
+    set ref_ns [get_property PERIOD [get_clocks -of_objects [get_pins $src]]]
+    set ref_khz [expr {round(1e6 / $ref_ns)}]
+    set f_khz [expr {round(@F_MHZ@ * 1000)}]
+    set g [finn_gcd $f_khz $ref_khz]
+    set ratio [list -multiply_by [expr {$f_khz / $g}] -divide_by [expr {$ref_khz / $g}]]
+    create_generated_clock -name [get_property NAME $kclk] {*}$ratio -source [get_pins $src] [get_pins $out]
+    set kclk [get_clocks -of_objects $kpin]
+    puts "INFO: \\[FINN\\] kernel clock $kclk re-constrained from $period ns to [get_property PERIOD $kclk] ns"
+}
+"""
