@@ -62,7 +62,7 @@ from finn.transformation.qonnx.quant_act_to_multithreshold import (
     default_filter_function_generator,
 )
 from finn.transformation.streamline.absorb import AbsorbScalarBiasIntoMultiThreshold
-from finn.util.basic import make_build_dir, pynq_part_map
+from finn.util.basic import get_dsp_block, make_build_dir, pynq_part_map
 from finn.util.test import tree_model_test
 
 test_pynq_board = "ZCU104"
@@ -878,22 +878,28 @@ def test_requant_adapt_for_loop_body(idt, impl_style):
 # part: one DSP generation each (DSP58, DSP48E2, DSP48E1)
 # idt: the widest input per part is 2 bits wider than its multiplier input (27 or
 # 25 bits), so the core drops low input bits
+# mem_mode: embedded parameters for all inputs, the decoupled memstream for the widest
 @pytest.mark.parametrize(
-    "part,idt",
+    "part,idt,mem_mode",
     [
-        (part, idt)
+        (part, idt, mem_mode)
         for part, widest in [
             ("xcvc1902-vsva2197-2MP-e-S", "INT29"),
             ("xczu7ev-ffvc1156-2-e", "INT29"),
             ("xc7z020clg400-1", "INT27"),
         ]
-        for idt in ["INT8", "UINT20", widest]
+        for idt, mem_mode in [
+            ("INT8", "internal_embedded"),
+            ("UINT20", "internal_embedded"),
+            (widest, "internal_embedded"),
+            (widest, "internal_decoupled"),
+        ]
     ],
 )
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_requant_rtl_python_model_is_exact(part, idt):
+def test_requant_rtl_python_model_is_exact(part, idt, mem_mode):
     """The Python execution of Requant_rtl matches its rtlsim bit for bit.
 
     The core computes x * scale + bias exactly in fixed point. A float32 model
@@ -922,11 +928,28 @@ def test_requant_rtl_python_model_is_exact(part, idt):
     model = model.transform(SpecializeLayers(part))
     model = model.transform(GiveUniqueNodeNames())
     assert model.graph.node[0].op_type == "Requant_rtl"
-    getCustomOp(model.graph.node[0]).set_nodeattr("mem_mode", "internal_embedded")
+    inst = getCustomOp(model.graph.node[0])
+    inst.set_nodeattr("mem_mode", mem_mode)
+    # SpecializeLayers records the DSP generation the Python model needs
+    assert inst.get_nodeattr("dsp_block") == get_dsp_block(part)
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(PrepareIP(part, 5))
     model = model.transform(PrepareRTLSim())
     y_rtlsim = oxe.execute_onnx(model, {"inp": inp})["outp"]
-    model = model.transform(SetExecMode("cppsim"))
+    model = model.transform(SetExecMode(""))  # the Python model
     y_python = oxe.execute_onnx(model, {"inp": inp})["outp"]
     assert np.array_equal(y_python, y_rtlsim)
+
+
+@pytest.mark.fpgadataflow
+def test_requant_rtl_dsp_block_must_match_the_part():
+    """Code generation for another DSP generation than the node was specialized
+    for is refused: its Python model would no longer describe the hardware."""
+    idt, odt = DataType["INT8"], DataType["INT8"]
+    model = make_requant_modelwrapper((1, 4, 8), 8, 2, idt, odt, "rtl")
+    model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
+    inst = getCustomOp(model.graph.node[0])
+    assert inst.get_nodeattr("dsp_block") == "DSP48E2"
+    assert inst._dsp_version() == 2
+    with pytest.raises(ValueError, match="specialized for DSP48E2"):
+        inst._dsp_version("xcvc1902-vsva2197-2MP-e-S")

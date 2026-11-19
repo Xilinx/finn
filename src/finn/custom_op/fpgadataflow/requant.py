@@ -77,23 +77,22 @@ class Requant(HWCustomOp):
                 "node was specialized to %s." % (self.onnx_node.name, self.onnx_node.op_type)
             )
 
+    def _flat_param(self, lookup, ind, default):
+        """Input ``ind`` (scale: 1, bias: 2) flattened, as returned by ``lookup``
+        (an initializer or execution-context getter), or ``default`` if absent."""
+        if len(self.onnx_node.input) > ind:
+            value = lookup(self.onnx_node.input[ind])
+            if value is not None:
+                return np.asarray(value).flatten()
+        return np.array([default], dtype=np.float32)
+
     def get_scale(self, model):
-        """Get scale tensor from model initializer (input[1])."""
-        if len(self.onnx_node.input) > 1:
-            scale = model.get_initializer(self.onnx_node.input[1])
-            if scale is not None:
-                return scale.flatten()
-        # Default: scale = 1.0
-        return np.array([1.0], dtype=np.float32)
+        """Get scale tensor from model initializer (input[1]), default 1.0."""
+        return self._flat_param(model.get_initializer, 1, 1.0)
 
     def get_bias(self, model):
-        """Get bias tensor from model initializer (input[2])."""
-        if len(self.onnx_node.input) > 2:
-            bias = model.get_initializer(self.onnx_node.input[2])
-            if bias is not None:
-                return bias.flatten()
-        # Default: bias = 0.0
-        return np.array([0.0], dtype=np.float32)
+        """Get bias tensor from model initializer (input[2]), default 0.0."""
+        return self._flat_param(model.get_initializer, 2, 0.0)
 
     def is_per_channel(self, model):
         """Check if scale/bias are per-channel (vs per-tensor)."""
@@ -127,7 +126,7 @@ class Requant(HWCustomOp):
         idt = self.get_input_datatype(0)
         return idt.bitwidth() + (0 if idt.signed() else 1)
 
-    def decompose_params(self, model, version):
+    def decompose_params(self, scale, bias, version):
         """Port of ``derive_PARAMS`` in finn-rtllib/requant/hdl/requant.sv.
 
         Decomposes the float32 scale/bias per channel into the fixed-point
@@ -153,8 +152,7 @@ class Requant(HWCustomOp):
 
         s_width, x_width = self._derive_mul_widths(version, k)
 
-        scale = self.get_scale(model)
-        bias = self.get_bias(model)
+        # scale and bias: flat per-channel or scalar arrays (see get_scale/get_bias)
         if scale.size == 1:
             scale = np.full(num_channels, scale.item(), dtype=np.float32)
         if bias.size == 1:

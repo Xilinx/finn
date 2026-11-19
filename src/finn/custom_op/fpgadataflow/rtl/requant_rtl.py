@@ -3,8 +3,6 @@
 
 import numpy as np
 import os
-import warnings
-from types import SimpleNamespace
 
 from finn.custom_op.fpgadataflow.requant import Requant, float32_literal
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
@@ -57,8 +55,9 @@ class Requant_rtl(Requant, RTLBackend):
                     {"internal_embedded", "internal_decoupled"},
                 ),
                 "runtime_writeable_weights": ("i", False, 0, {0, 1}),
-                # DSP version of the target part, set by generate_hdl (0: unknown)
-                "dsp_version": ("i", False, 0, {0, 1, 2, 3}),
+                # DSP generation of the target part, which fixes the core's operand
+                # widths. Set by SpecializeLayers from the part ("": not specialized).
+                "dsp_block": ("s", False, "", {"", "DSP48E1", "DSP48E2", "DSP58"}),
             }
         )
         return my_attrs
@@ -113,16 +112,29 @@ class Requant_rtl(Requant, RTLBackend):
         intf_names["ap_none"] = []
         return intf_names
 
-    def _resolve_dsp_version(self, fpgapart):
-        """Determine DSP version based on FPGA part."""
-        dsp_block = get_dsp_block(fpgapart)
-        match dsp_block:
-            case "DSP58":
-                return 3
-            case "DSP48E2":
-                return 2
-            case _:
-                return 1
+    def _dsp_version(self, fpgapart=None):
+        """The DSP version (1: DSP48E1, 2: DSP48E2, 3: DSP58) of requant.sv's VERSION.
+
+        It comes from the ``dsp_block`` attribute, which SpecializeLayers sets from
+        the target part. Given a part (code generation), it must agree with it; an
+        unset attribute is then filled in.
+        """
+        block = self.get_nodeattr("dsp_block")
+        if fpgapart is not None:
+            part_block = get_dsp_block(fpgapart)
+            if block and block != part_block:
+                raise ValueError(
+                    f"{self.onnx_node.name} was specialized for {block}, "
+                    f"but code is generated for {fpgapart} ({part_block})"
+                )
+            block = part_block
+            self.set_nodeattr("dsp_block", block)
+        if not block:
+            raise ValueError(
+                f"{self.onnx_node.name}: unknown DSP generation, "
+                "specialize with SpecializeLayers(fpgapart) first"
+            )
+        return {"DSP48E1": 1, "DSP48E2": 2, "DSP58": 3}[block]
 
     def _derive_decoupled_widths(self, model, fpgapart):
         """Derive the fixed-point stream layout for decoupled mode.
@@ -140,8 +152,8 @@ class Requant_rtl(Requant, RTLBackend):
         if self.get_input_datatype(0) == "FLOAT32":
             return self._derive_decoupled_widths_float(model)
 
-        version = self._resolve_dsp_version(fpgapart)
-        params = self.decompose_params(model, version)
+        version = self._dsp_version(fpgapart)
+        params = self.decompose_params(self.get_scale(model), self.get_bias(model), version)
         s_width = params["s_width"]
         x_width = params["x_width"]
         shift_min = params["shift_min"]
@@ -331,7 +343,7 @@ class Requant_rtl(Requant, RTLBackend):
             code_gen_dir = make_build_dir("requant_rtl_ipgen_")
             self.set_nodeattr("code_gen_dir_ipgen", code_gen_dir)
 
-        self.set_nodeattr("dsp_version", self._resolve_dsp_version(fpgapart))
+        self._dsp_version(fpgapart)  # check against, or record, the target part
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "internal_embedded":
             if self.get_input_datatype(0) == "FLOAT32":
@@ -360,7 +372,7 @@ class Requant_rtl(Requant, RTLBackend):
         k = idt.bitwidth()  # Input precision
         n = odt.bitwidth()  # Output precision
 
-        version = self._resolve_dsp_version(fpgapart)
+        version = self._dsp_version(fpgapart)
 
         # Get scale and bias from model
         scale = self.get_scale(model)
@@ -835,37 +847,29 @@ class Requant_rtl(Requant, RTLBackend):
             ), "Output shape doesn't match expected shape."
         else:
             if self.get_input_datatype(0).is_integer():
-                self._execute_node_integer(context, graph)
+                self._execute_node_integer(context)
             else:
                 # Use base class Python execution
                 Requant.execute_node(self, context, graph)
 
-    def _execute_node_integer(self, context, graph):
+    def _execute_node_integer(self, context):
         """Bit-exact model of requant.sv: clip((x * scale + bias) >> shift) on the
-        fixed-point parameters from decompose_params."""
+        fixed-point parameters from decompose_params for this node's DSP version."""
         node = self.onnx_node
         k = self.get_core_input_bitwidth()
-        version = self.get_nodeattr("dsp_version")
-        if version == 0:
-            # operand widths only depend on the DSP version above 18 input bits
-            if k > 18:
-                warnings.warn(
-                    f"{node.name}: DSP version unknown before generate_hdl, float model used"
-                )
-                Requant.execute_node(self, context, graph)
-                return
-            version = 1
-        if hasattr(graph, "model"):
-            model = graph.model
-        else:
-            model = SimpleNamespace(get_initializer=context.get)
-        params = self.decompose_params(model, version)
+        params = self.decompose_params(
+            self._flat_param(context.get, 1, 1.0),
+            self._flat_param(context.get, 2, 0.0),
+            self._dsp_version(),
+        )
+        # [PE][CF] -> channel cf * PE + pe, the order in which requant.sv rotates
         scale, bias, shift = (
             np.asarray(params[key], dtype=np.int64).T.reshape(-1)
             for key in ("scale", "bias", "shift")
         )
         x = context[node.input[0]].astype(np.int64)
         if k > params["x_width"]:
+            # the core drops the low input bits that exceed its multiplier port
             x = x >> (k - params["x_width"])
         y = (x * scale + bias) >> shift
         odt = self.get_output_datatype()
