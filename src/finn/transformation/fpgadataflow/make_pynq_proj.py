@@ -56,6 +56,7 @@ from finn.util.basic import (
     pynq_native_port_width,
     pynq_part_map,
 )
+from finn.util.fpgadataflow import find_clk2x_nodes
 from finn.util.launcher import run_tool
 
 from . import templates
@@ -90,6 +91,21 @@ def collect_ip_dirs(model, ipstitch_path):
     return ip_dirs
 
 
+def check_versal_shell_clk2x(model: ModelWrapper, platform: str):
+    """Reject double-pumped designs for the Versal (golden reference) shell.
+
+    That shell clocks the whole overlay from pl0_ref_clk and has no phase-aligned
+    2x clock for ap_clk2x, which would be left undriven.
+    """
+    clk2x_nodes = find_clk2x_nodes(model)
+    if clk2x_nodes:
+        raise Exception(
+            "The Versal shell for %s provides no phase-aligned 2x clock, but these "
+            "nodes need ap_clk2x (pumpedCompute/pumpedMemory): %s. Disable clock "
+            "pumping for this board." % (platform, ", ".join(clk2x_nodes))
+        )
+
+
 class MakePYNQProject(Transformation):
     """Create a Vivado overlay project (including the shell infrastructure)
     from the already-stitched IP block for this graph.
@@ -98,6 +114,10 @@ class MakePYNQProject(Transformation):
     the graph. For Zynq this creates a fully custom block design. For Versal
     it builds on the PYNQ golden reference (requires FINN_VCK190_GOLDEN=1).
     However, this transform requires DMAs in the accelerator design.
+
+    If a kernel has a double-speed clock input ap_clk2x (double-pumped nodes),
+    the Zynq shell derives the PL clock and ap_clk2x from one clock wizard, so
+    the two are phase-aligned. The Versal shell rejects such kernels.
 
     Outcome if successful: sets the vivado_pynq_proj attribute in the ONNX
     ModelProto's metadata_props field, with the created project dir as the
@@ -126,6 +146,7 @@ class MakePYNQProject(Transformation):
                     "Golden reference files missing from %s: %s." % (golden_dir, ", ".join(missing))
                 )
             template = templates.custom_versal_shell_template
+            check_versal_shell_clk2x(model, self.platform)
         else:
             clk_pin = "smartconnect_0/aclk"
             rst_pin = "smartconnect_0/aresetn"
@@ -137,6 +158,7 @@ class MakePYNQProject(Transformation):
         odma_idx = 0
         aximm_idx = 0
         axilite_idx = 0
+        use_clk2x = False
         instance_names = {}
         for node in model.graph.node:
             assert node.op_type == "StreamingDataflowPartition", "Invalid link graph"
@@ -242,6 +264,14 @@ class MakePYNQProject(Transformation):
                 "connect_bd_net [get_bd_pins %s/ap_rst_n] "
                 "[get_bd_pins %s]" % (instance_names[node.name], rst_pin)
             )
+            # the template's clock wizard drives the PL clock (clk_out1) and its
+            # phase-aligned double (clk_out2)
+            for clk2x_name in ifnames.get("clk2x", []):
+                use_clk2x = True
+                config.append(
+                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins clk_wiz_finn/clk_out2]"
+                    % (instance_names[node.name], clk2x_name)
+                )
             # connect streams
             if producer is not None:
                 for i in range(len(node.input)):
@@ -276,6 +306,7 @@ class MakePYNQProject(Transformation):
             "@FREQ_MHZ@": fclk_mhz,
             "@NUM_AXILITE@": axilite_idx,
             "@NUM_AXIMM@": aximm_idx,
+            "@USE_CLK2X@": int(use_clk2x),
             "@BOARD@": self.platform,
             "@FPGA_PART@": self.fpga_part,
             "@CONFIG@": config,
@@ -357,6 +388,8 @@ class PYNQBuild(Transformation):
         self.partition_model_dir = partition_model_dir
 
     def apply(self, model):
+        if is_versal(self.fpga_part):
+            check_versal_shell_clk2x(model, self.platform)
         # first infer layouts
         model = model.transform(InferDataLayouts())
         # prepare at global level, then break up into kernels

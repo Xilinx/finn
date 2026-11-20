@@ -14,6 +14,13 @@ from finn.util.data_packing import hls_datatype_str
 
 
 class LayerNorm_hls(LayerNorm, HLSBackend):
+    """HLS backend of LayerNorm.
+
+    The reciprocal square root is hls::rsqrt rather than the Newton-refined fast
+    inverse square root of the RTL backend, so ``numRsqrtRefinements`` does not
+    apply and is ignored.
+    """
+
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
 

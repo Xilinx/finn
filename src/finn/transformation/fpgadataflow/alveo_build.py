@@ -29,7 +29,6 @@
 
 import json
 import os
-import subprocess
 from enum import Enum
 from pathlib import Path
 from qonnx.core.modelwrapper import ModelWrapper
@@ -52,7 +51,9 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.basic import make_build_dir, resolve_xilinx_tool
+from finn.util.basic import make_build_dir
+from finn.util.fpgadataflow import find_clk2x_nodes
+from finn.util.launcher import run_tool
 
 from . import templates
 
@@ -63,6 +64,23 @@ def _check_vitis_envvars():
     assert (
         "XILINX_XRT" in os.environ
     ), "XILINX_XRT must be set for Vitis, ensure the XRT env is sourced"
+
+
+def check_no_clk2x(model: ModelWrapper, flow: str):
+    """Reject double-pumped designs for the Vitis and SLASH link flows.
+
+    A kernel's ap_clk2x must be phase-aligned with its ap_clk. The platforms
+    only offer kernel clocks that are not guaranteed to be (the second Vitis
+    kernel clock ap_clk_2 is independent), and FINN has no in-kernel clock
+    generation, so ap_clk2x would be left undriven.
+    """
+    clk2x_nodes = find_clk2x_nodes(model)
+    if clk2x_nodes:
+        raise Exception(
+            "The %s flow provides no phase-aligned 2x kernel clock, but these "
+            "nodes need ap_clk2x (pumpedCompute/pumpedMemory): %s. Disable clock "
+            "pumping for this flow." % (flow, ", ".join(clk2x_nodes))
+        )
 
 
 _SLASH_ALLOWED_AXILITE_STEMS = {"s_axi_control"}
@@ -179,18 +197,12 @@ class CreateVitisXO(Transformation):
         with open(vivado_proj_dir + "/gen_xo.tcl", "w") as f:
             f.write(package_xo_string)
 
-        # create a shell script and call Vivado
         package_xo_sh = vivado_proj_dir + "/gen_xo.sh"
-        working_dir = os.environ["PWD"]
-        vivado_cmd = resolve_xilinx_tool("vivado")
-        with open(package_xo_sh, "w") as f:
-            f.write("#!/bin/bash \n")
-            f.write("cd {}\n".format(vivado_proj_dir))
-            f.write("{} -mode batch -source gen_xo.tcl\n".format(vivado_cmd))
-            f.write("cd {}\n".format(working_dir))
-        bash_command = ["bash", package_xo_sh]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
+        run_tool(
+            ["vivado", "-mode", "batch", "-source", "gen_xo.tcl"],
+            cwd=vivado_proj_dir,
+            replay=package_xo_sh,
+        )
         assert os.path.isfile(xo_path), (
             "Vitis .xo file not created, check logs under %s" % vivado_proj_dir
         )
@@ -228,6 +240,7 @@ class PrepareForLinking(Transformation):
     def apply(self, model):
         if self.platform not in ["vitis-xrt", "slash-vrt"]:
             raise Exception(f"Unknown platform {self.platform}")
+        check_no_clk2x(model, self.platform)
 
         # prepare at global level, then break up into kernels
         prep_transforms = [InsertIODMA(512), InsertDWC(), SpecializeLayers(self.fpga_part)]
@@ -295,6 +308,7 @@ class VitisLink(Transformation):
 
     def apply(self, model):
         _check_vitis_envvars()
+        check_no_clk2x(model, "vitis-xrt")
         # create a config file and empty list of xo files
         config = ["[connectivity]"]
         object_files = []
@@ -410,32 +424,25 @@ class VitisLink(Transformation):
         debug_commands = []
         if self.enable_debug:
             for inst in list(instance_names.values()):
-                debug_commands.append("--dk chipscope:%s" % inst)
+                debug_commands.extend(["--dk", "chipscope:%s" % inst])
 
-        # create a shell script and call Vitis
         script = link_dir + "/run_vitis_link.sh"
-        working_dir = os.environ["PWD"]
-        vxx_cmd = resolve_xilinx_tool("v++")
-        with open(script, "w") as f:
-            f.write("#!/bin/bash \n")
-            f.write("cd {}\n".format(link_dir))
-            f.write(
-                "%s -t hw --platform %s --link %s"
-                " --kernel_frequency %d --config config.txt --optimize %s"
-                " --save-temps -R2 %s\n"
-                % (
-                    vxx_cmd,
-                    self.vitis_platform,
-                    " ".join(object_files),
-                    self.f_mhz,
-                    self.strategy.value,
-                    " ".join(debug_commands),
-                )
-            )
-            f.write("cd {}\n".format(working_dir))
-        bash_command = ["bash", script]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
+        command = ["v++", "-t", "hw", "--platform", self.vitis_platform, "--link"]
+        command.extend(object_files)
+        command.extend(
+            [
+                "--kernel_frequency",
+                str(self.f_mhz),
+                "--config",
+                "config.txt",
+                "--optimize",
+                str(self.strategy.value),
+                "--save-temps",
+                "-R2",
+            ]
+        )
+        command.extend(debug_commands)
+        run_tool(command, cwd=link_dir, replay=script)
         # TODO rename xclbin appropriately here?
         xclbin = link_dir + "/a.xclbin"
         assert os.path.isfile(xclbin), (
@@ -445,18 +452,16 @@ class VitisLink(Transformation):
 
         # run Vivado to gen xml report
         gen_rep_xml_sh = link_dir + "/gen_report_xml.sh"
-        working_dir = os.environ["PWD"]
-        vivado_cmd = resolve_xilinx_tool("vivado")
-        with open(gen_rep_xml_sh, "w") as f:
-            f.write("#!/bin/bash \n")
-            f.write("cd {}\n".format(link_dir))
-            f.write("%s -mode batch -source %s\n" % (vivado_cmd, link_dir + "/gen_report_xml.tcl"))
-            f.write("cd {}\n".format(working_dir))
-        bash_command = ["bash", gen_rep_xml_sh]
-        process_genxml = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_genxml.communicate()
+        run_tool(
+            ["vivado", "-mode", "batch", "-source", "gen_report_xml.tcl"],
+            cwd=link_dir,
+            replay=gen_rep_xml_sh,
+        )
         # filename for the synth utilization report
         synth_report_filename = link_dir + "/synth_report.xml"
+        assert os.path.isfile(synth_report_filename), (
+            "Vivado synthesis report not created, check logs under %s" % link_dir
+        )
         model.set_metadata_prop("vivado_synth_rpt", synth_report_filename)
         return (model, False)
 
@@ -485,9 +490,8 @@ def _slash_link_command(tool, config_path, vbin_path, component_xml_paths, build
 
 
 def _slash_link_argv(config_path, vbin_path, component_xml_paths, build_hardware):
-    slash_linker = resolve_xilinx_tool("slashkit")
     return _slash_link_command(
-        slash_linker, config_path, vbin_path, component_xml_paths, build_hardware
+        "slashkit", config_path, vbin_path, component_xml_paths, build_hardware
     )
 
 
@@ -508,6 +512,7 @@ class SlashLink(Transformation):
         self.build_hardware = build_hardware
 
     def apply(self, model):
+        check_no_clk2x(model, "slash-vrt")
         # create a temporary folder for the project and check out SLASH
         link_dir = Path(make_build_dir(prefix="slash_link_proj_"))
         model.set_metadata_prop("slash_link_proj", str(link_dir))
@@ -593,10 +598,8 @@ class SlashLink(Transformation):
         vbin_path = link_dir / "finn.vbin"
         command = _slash_link_argv(config_path, vbin_path, component_xml_paths, self.build_hardware)
 
-        # Run the linker
-        log_path = link_dir / "slash.log"
-        with open(log_path, "w") as log_file:
-            subprocess.run(command, check=True, stdout=log_file, stderr=log_file)
+        run_tool(command, cwd=link_dir, replay=link_dir / "run_slash_link.sh")
+        log_path = link_dir / "run_slash_link.stdout.log"
 
         assert (
             vbin_path.is_file()

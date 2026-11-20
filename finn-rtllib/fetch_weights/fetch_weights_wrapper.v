@@ -45,7 +45,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter  N_LAYERS = $N_LAYERS$,
 
 	parameter  ADDR_BITS = 64,
-	parameter  DATA_BITS = 256,
+	parameter  DATA_BITS = $DATA_BITS$,
 	parameter  LEN_BITS = 32,
 	parameter  IDX_BITS = 16,
 

@@ -44,11 +44,6 @@ class ApplyConfig(Transformation):
     would look up nodes with the wrong (flat) keys.
     """
 
-    # Marker: this transform manages its own subgraph traversal (via the
-    # apply_to_subgraphs constructor argument). A guard in ModelWrapper.transform
-    # can check this marker to reject the generic apply_to_subgraphs=True path.
-    handles_subgraphs_internally = True
-
     def __init__(self, config, node_filter=lambda x: True, apply_to_subgraphs=False):
         super().__init__()
         self.config = config

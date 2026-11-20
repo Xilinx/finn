@@ -45,7 +45,7 @@ trap 'rm -f "$list"' EXIT
 # those subtrees. The leading-slash anchor stops 'myvitis_proj' matching
 # 'vitis_proj'; trailing '/' marks a fixed dir name, trailing '_' a
 # '<name>_<hash>' prefix.
-build_subdirs='/(project_|finn_zynqbuild_|vitis_proj/|vivado_stitch_proj_|vitis_link_proj_)'
+build_subdirs='/(project_|finn_zynqbuild_|vitis_proj/|vivado_stitch_proj_|vitis_link_proj_|vivado_pynq_proj_|code_gen_|rtlsim_|slash_link_proj_|cpp_driver_logs_|finn_xsi/)'
 {
   find "$abs_bd" -type f \( \
       -name 'vitis_hls.log' -o \
@@ -59,9 +59,24 @@ build_subdirs='/(project_|finn_zynqbuild_|vitis_proj/|vivado_stitch_proj_|vitis_
   find "$abs_bd" -type f \( \
       -name 'config.txt' -o \
       -name 'run_vitis_link.sh' -o \
+      -name '*.stdout.log' -o \
+      -name '*.stderr.log' -o \
       -name '*.fcnmap.xml' -o \
       -name 'xd_ip_index.xml' \
     \) -print0 2>/dev/null | grep -zE "$build_subdirs"
+  # Standalone XSI setup builds in the source tree rather than the build dir.
+  # Restrict that extra scan to its own diagnostic files and the shard marker.
+  if [ -n "${FINN_ROOT:-}" ] && [ -d "$FINN_ROOT/finn_xsi" ]; then
+    xsi_newer=()
+    if [ -n "$newer_ref" ]; then
+      xsi_newer=(-newer "$newer_ref")
+    fi
+    find "$FINN_ROOT/finn_xsi" -maxdepth 1 -type f "${xsi_newer[@]}" \( \
+        -name 'compile_xsi.stdout.log' -o \
+        -name 'compile_xsi.stderr.log' -o \
+        -name 'compile_xsi.sh' \
+      \) -print0 2>/dev/null
+  fi
   if [ -n "$newer_ref" ] && [ -d "$lsf_staging" ]; then
     find "$lsf_staging" -mindepth 2 -maxdepth 3 -type f -newer "$newer_ref" \( \
         -name 'lsf.stdout' -o \

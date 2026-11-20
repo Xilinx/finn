@@ -23,13 +23,21 @@ import finn.builder.build_dataflow_config as build_cfg
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.fifo_transaction_counts import fifo_transaction_counts
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.minimize_accumulator_width import (
+    MinimizeAccumulatorWidth,
+)
+from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
+    MinimizeWeightBitWidth,
+)
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.util.basic import (
+    get_dsp_block,
     get_pynq_golden_dir,
     get_vivado_version,
     make_build_dir,
     pynq_golden_files,
+    pynq_part_map,
     robust_rmtree,
 )
 from finn.util.rtlsim import check_fifo_log_consistency, read_fifo_log_snapshot
@@ -56,6 +64,17 @@ def generate_random_threshold_values(data_type, num_input_channels, num_steps):
         return (np.random.randn(num_input_channels, num_steps) * 1000).astype(
             data_type.to_numpy_dt()
         )
+
+
+def narrow_like_the_flow(model):
+    """The datatype-only bit-width minimization the builder applies before
+    specialization (step_minimize_bit_width_datatype_only). References are computed
+    on the narrowed graph: the bit-exact Requant_rtl model depends on the declared
+    input width (a 32-bit input loses low bits in the core), and the flow builds
+    the narrowed design."""
+    model = model.transform(MinimizeWeightBitWidth(datatype_only=True), apply_to_subgraphs=True)
+    model = model.transform(MinimizeAccumulatorWidth(datatype_only=True), apply_to_subgraphs=True)
+    return model.transform(InferDataTypes(), apply_to_subgraphs=True)
 
 
 def create_tensor_info(name, shape, proto=TensorProto.FLOAT):
@@ -91,6 +110,8 @@ def make_loop_modelwrapper(
     mvau_th=1,
     helper_pe=2,
     weight_bitwidth=None,
+    pumped_compute=False,
+    fpgapart=fpga_part,
 ):
     is_float = eltw_param_dtype == "FLOAT32"
 
@@ -182,6 +203,7 @@ def make_loop_modelwrapper(
                 "outputDataType": "INT32",
                 "ActVal": 0,
                 "noActivation": 1,
+                "pumpedCompute": int(pumped_compute),
             },
         ),
         create_node(
@@ -215,6 +237,7 @@ def make_loop_modelwrapper(
                 "outputDataType": "INT32",
                 "ActVal": 0,
                 "noActivation": 1,
+                "pumpedCompute": int(pumped_compute),
             },
         ),
         create_node(
@@ -248,6 +271,7 @@ def make_loop_modelwrapper(
                 "outputDataType": "INT32",
                 "ActVal": 0,
                 "noActivation": 1,
+                "pumpedCompute": int(pumped_compute),
             },
         ),
         create_node(
@@ -340,6 +364,9 @@ def make_loop_modelwrapper(
                 "outputDataType": dtype.name,
                 "narrow": 0,
                 "numInputVectors": [1, 3, 3],
+                # built as an RTL node directly, so record the DSP generation
+                # SpecializeLayers would (its integer model depends on it)
+                "dsp_block": get_dsp_block(fpgapart),
             },
         ),
     )
@@ -526,6 +553,8 @@ def create_chained_loop_bodies(
     mvau_th=1,
     helper_pe=2,
     weight_bitwidth=None,
+    pumped_compute=False,
+    fpgapart=fpga_part,
 ):
     loop_body_models = []
 
@@ -545,10 +574,24 @@ def create_chained_loop_bodies(
             mvau_th=mvau_th,
             helper_pe=helper_pe,
             weight_bitwidth=weight_bitwidth,
+            pumped_compute=pumped_compute,
+            fpgapart=fpgapart,
         )
         loop_body_models.append(loop_body_model)
 
     return loop_body_models
+
+
+def assert_stitched_clk2x(build_dir):
+    """The pumped loop body exposes ap_clk2x, and so do the FINNLoop IP and the
+    top-level stitched IP (the wiring itself is verified by stitched-IP rtlsim)."""
+    model = ModelWrapper(build_dir + "/intermediate_models/step_create_stitched_ip.onnx")
+    assert json.loads(model.get_metadata_prop("vivado_stitch_ifnames"))["clk2x"] == ["ap_clk2x"]
+    for loop_node in model.get_nodes_by_op_type("FINNLoop"):
+        loop = getCustomOp(loop_node)
+        assert loop.get_verilog_top_module_intf_names()["clk2x"] == ["ap_clk2x"]
+        body = loop.get_nodeattr("body")
+        assert json.loads(body.get_metadata_prop("vivado_stitch_ifnames"))["clk2x"] == ["ap_clk2x"]
 
 
 def assert_finnloop_cycle_estimate(build_dir, x, max_ratio=3):
@@ -681,6 +724,11 @@ def _assert_logs_cover_fifos(logs, expected_counts, scope):
 # and TH must divide the number of input vectors, so pe/simd/th cannot be stacked
 # independently. TH need not divide PE*SIMD: the weight stream then carries WSIMD,
 # the smallest divisor of PE*SIMD with NW = PE*SIMD/WSIMD <= TH.
+# An optional sixth entry "pumpedCompute" double-pumps the DSPs of the loop body's
+# MVAUs: their weights come from external memory via fetch_weights (pumpedMemory
+# has no on-chip weight memory to pump there and is rejected), so this verifies
+# fetch-weights + pumpedCompute MVAUs inside a FINNLoop and the ap_clk2x path
+# through the loop IP to the top-level stitched IP.
 @pytest.mark.parametrize(
     "mvau_cfg",
     [
@@ -688,6 +736,7 @@ def _assert_logs_cover_fifos(logs, expected_counts, scope):
         (12, 6, 3, 3, 6),
         (12, 4, 4, 3, 4),  # PE*SIMD=16, TH=3: WSIMD=8, NW=2 < TH
         (12, 2, 2, 9, 2),  # TH > PE*SIMD=4: WSIMD=1, NW=4 < TH
+        (16, 2, 2, 1, 2, "pumpedCompute"),
     ],
 )
 # iteration count, number of models chained together
@@ -706,7 +755,14 @@ def _assert_logs_cover_fifos(logs, expected_counts, scope):
 def test_finnloop_end2end_mlo(
     mvau_cfg, iteration, elemwise_optype, rhs_shape, eltw_param_dtype, non_mlo_nodes
 ):
-    dim, mvau_pe, mvau_simd, mvau_th, helper_pe = mvau_cfg
+    dim, mvau_pe, mvau_simd, mvau_th, helper_pe = mvau_cfg[:5]
+    pumped_compute = "pumpedCompute" in mvau_cfg[5:]
+    # The pumped config runs on the canonical elementwise config only, with and
+    # without the outer nodes (i.e. with both heuristic FIFO sizing strategies).
+    if pumped_compute and not (
+        elemwise_optype == "ElementwiseMul_hls" and rhs_shape == [1] and eltw_param_dtype == "INT8"
+    ):
+        pytest.skip("Pumped MVAUs only exercised on the canonical elementwise config")
     # The tiled MVAU (TH>1) is only exercised on selected elementwise configs to
     # avoid a combinatorial explosion of long Vivado builds. rhs_shape is pinned to
     # [1] since [16] is incompatible with the tiled config's dim. Within that, we
@@ -733,6 +789,7 @@ def test_finnloop_end2end_mlo(
         mvau_simd=mvau_simd,
         mvau_th=mvau_th,
         helper_pe=helper_pe,
+        pumped_compute=pumped_compute,
     )
     nodes_per_body = len(loop_body_models[0].graph.node)
     model = loop_body_models[0]
@@ -799,7 +856,7 @@ def test_finnloop_end2end_mlo(
     # keeps (1, 3, 3, dim) but permutes values, so the hardware must reproduce it.
     insert_parent_node = (
         non_mlo_nodes
-        and mvau_cfg == (16, 2, 2, 1, 2)
+        and mvau_cfg[:5] == (16, 2, 2, 1, 2)
         and elemwise_optype == "ElementwiseMul_hls"
         and rhs_shape == [1]
         and eltw_param_dtype == "INT8"
@@ -832,6 +889,7 @@ def test_finnloop_end2end_mlo(
     # Generate reference output
     input_dtype = DataType["INT8"]
     x = gen_finn_dt_tensor(input_dtype, (1, 3, 3, dim))
+    model = narrow_like_the_flow(model)
     model_ref = model.transform(PrepareCppSim())
     model_ref = model_ref.transform(CompileCppSim())
     model_ref = model_ref.transform(SetExecMode("cppsim"))
@@ -858,9 +916,10 @@ def test_finnloop_end2end_mlo(
     ]
 
     # The single canonical parameter combination, used to gate the two expensive
-    # extra checks below so they each run exactly once per non_mlo_nodes value.
+    # extra checks below so they each run exactly once per non_mlo_nodes value
+    # (and once more with the pumped MVAUs, whose simulations need ap_clk2x).
     canonical_cfg = (
-        mvau_cfg == (16, 2, 2, 1, 2)
+        mvau_cfg[:5] == (16, 2, 2, 1, 2)
         and elemwise_optype == "ElementwiseMul_hls"
         and rhs_shape == [1]
         and eltw_param_dtype == "INT8"
@@ -901,6 +960,10 @@ def test_finnloop_end2end_mlo(
         verify_save_full_context=True,  # Enable per-iteration context saving
         debug_fifo=run_fifo_debug,  # snapshot per-FIFO sizing logs (tagged per loop body)
         fifo_log_verbose=True,
+        # both heuristic strategies, one per non_mlo_nodes value: with the outer
+        # nodes, heuristic_analytical takes their schedules from the tree models
+        # and characterizes only the FINNLoop with rtlsim
+        auto_fifo_strategy="heuristic_analytical" if non_mlo_nodes else "heuristic_rtlsim",
         # MLO pins folding via mvau_pe/mvau_simd on the nodes at creation time, so the
         # folding_missing check (which assumes creation-time PE=1/SIMD=1) is a false
         # positive here; target_fps would instead override the deliberate folding.
@@ -918,6 +981,9 @@ def test_finnloop_end2end_mlo(
             n for n in parent_model.graph.node if n.op_type != "StreamingDataflowPartition"
         ]
         assert len(non_sdp_nodes) > 0, "Parent model has no non-SDP node to run"
+
+    if pumped_compute:
+        assert_stitched_clk2x(tmp_output_dir)
 
     # check if expected files are there
     assert os.path.isfile(tmp_output_dir + "/loop-body-template.onnx")
@@ -1030,7 +1096,9 @@ def test_finnloop_end2end_mlo(
     robust_rmtree(tmp_output_dir)
 
 
-@pytest.mark.parametrize("mvau_cfg", [(16, 2, 2, 1, 2)])
+# the second config double-pumps the loop body MVAUs (see test_finnloop_end2end_mlo):
+# the parallel "stream tap + body" IP then carries ap_clk2x
+@pytest.mark.parametrize("mvau_cfg", [(16, 2, 2, 1, 2), (16, 2, 2, 1, 2, "pumpedCompute")])
 @pytest.mark.parametrize("iteration", [3])
 @pytest.mark.parametrize("elemwise_optype", ["ElementwiseAdd_hls"])
 @pytest.mark.parametrize("rhs_shape", [[1]])
@@ -1041,7 +1109,8 @@ def test_finnloop_end2end_mlo(
 def test_finnloop_end2end_mlo_parallel(
     mvau_cfg, iteration, elemwise_optype, rhs_shape, eltw_param_dtype
 ):
-    dim, mvau_pe, mvau_simd, mvau_th, helper_pe = mvau_cfg
+    dim, mvau_pe, mvau_simd, mvau_th, helper_pe = mvau_cfg[:5]
+    pumped_compute = "pumpedCompute" in mvau_cfg[5:]
     # Check vivado version
     vivado_path = os.environ.get("XILINX_VIVADO")
     match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
@@ -1059,6 +1128,7 @@ def test_finnloop_end2end_mlo_parallel(
         mvau_simd=mvau_simd,
         mvau_th=mvau_th,
         helper_pe=helper_pe,
+        pumped_compute=pumped_compute,
     )
     nodes_per_body = len(loop_body_models[0].graph.node)
     model = loop_body_models[0]
@@ -1136,6 +1206,7 @@ def test_finnloop_end2end_mlo_parallel(
 
     input_dtype = DataType["INT7"]
     x = gen_finn_dt_tensor(input_dtype, (1, 3, 3, dim))
+    model = narrow_like_the_flow(model)
     model_ref = model.transform(PrepareCppSim())
     model_ref = model_ref.transform(CompileCppSim())
     model_ref = model_ref.transform(SetExecMode("cppsim"))
@@ -1166,6 +1237,7 @@ def test_finnloop_end2end_mlo_parallel(
         standalone_thresholds=True,
         mlo=True,
         mlo_parallel_rtlsim=True,
+        auto_fifo_strategy="heuristic_analytical",
         # folding is pinned on the nodes at creation time (see test_finnloop_end2end_mlo)
         mute_config_assertions=True,
         loop_body_hierarchy=[["", "layers.0"]],
@@ -1185,6 +1257,9 @@ def test_finnloop_end2end_mlo_parallel(
         ],
     )
     build.build_dataflow_cfg(tmp_output_dir + "/mlo_model.onnx", cfg)
+
+    if pumped_compute:
+        assert_stitched_clk2x(tmp_output_dir)
 
     # the parallel path writes one SUCCESS/FAIL file per iteration; assert every
     # iteration matched its golden frame (no FAIL files, one SUCCESS file each).
@@ -1219,6 +1294,7 @@ def test_finnloop_end2end_mlo_batched_verification():
     model = model.transform(InferShapes()).transform(InferDataTypes())
 
     x = gen_finn_dt_tensor(DataType["INT8"], (5, 3, 3, 16))
+    model = narrow_like_the_flow(model)
     ref = model.transform(PrepareCppSim()).transform(CompileCppSim())
     ref = ref.transform(SetExecMode("cppsim"))
     y_ref = np.concatenate([oxe.execute_onnx(ref, {inp: x[i : i + 1]})[outp] for i in range(5)])
@@ -1233,6 +1309,7 @@ def test_finnloop_end2end_mlo_batched_verification():
         synth_clk_period_ns=10.0,
         board="V80",
         mlo=True,
+        auto_fifo_strategy="heuristic_analytical",
         loop_body_hierarchy=[["", "layers.0"]],
         loop_body_range=(model.graph.node[1], model.graph.node[nodes_per_body]),
         verify_steps=["stitched_ip_rtlsim"],
@@ -1440,6 +1517,7 @@ def test_finnloop_end2end_mlo_ddr(
         mvau_th=mvau_th,
         helper_pe=helper_pe,
         weight_bitwidth=weight_bitwidth,
+        fpgapart=pynq_part_map[board],
     )
     nodes_per_body = len(loop_body_models[0].graph.node)
     model = loop_body_models[0]
@@ -1478,6 +1556,7 @@ def test_finnloop_end2end_mlo_ddr(
     # Generate reference output
     input_dtype = data_dtype
     x = gen_finn_dt_tensor(input_dtype, (1, 3, 3, dim))
+    model = narrow_like_the_flow(model)
     model_ref = model.transform(PrepareCppSim())
     model_ref = model_ref.transform(CompileCppSim())
     model_ref = model_ref.transform(SetExecMode("cppsim"))
@@ -1511,6 +1590,7 @@ def test_finnloop_end2end_mlo_ddr(
         rtlsim_batch_size=100,
         standalone_thresholds=True,
         mlo=True,
+        auto_fifo_strategy="heuristic_rtlsim",
         fifosim_save_waveform=True,
         loop_body_hierarchy=[["", "layers.0"]],
         loop_body_range=(model.graph.node[0], model.graph.node[nodes_per_body - 1]),

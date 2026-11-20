@@ -7,26 +7,7 @@ import pytest
 
 from pathlib import Path
 
-import finn.transformation.fpgadataflow.alveo_build as alveo_build
-from finn.transformation.fpgadataflow.alveo_build import (
-    _slash_link_argv,
-    _slash_link_command,
-)
-
-
-@pytest.mark.util
-def test_slash_link_argv_resolves_slashkit_via_shim(monkeypatch):
-    shim_path = "/ci/shims/slashkit"
-    resolved = []
-
-    def fake_resolve(tool_name):
-        resolved.append(tool_name)
-        return shim_path
-
-    monkeypatch.setattr(alveo_build, "resolve_xilinx_tool", fake_resolve)
-    cmd = _slash_link_argv(Path("config.cfg"), Path("finn.vbin"), [], True)
-    assert resolved == ["slashkit"]
-    assert cmd[0] == shim_path
+from finn.transformation.fpgadataflow.alveo_build import _slash_link_command
 
 
 @pytest.mark.util

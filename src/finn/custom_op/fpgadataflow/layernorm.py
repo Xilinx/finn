@@ -30,6 +30,10 @@ class LayerNorm(HWCustomOp):
         my_attrs.update(
             {
                 "SIMD": ("i", True, 0),
+                # Newton-Raphson iterations refining the fast inverse square root of
+                # the variance in the RTL backend: 1 (max. rel. error 1.75e-3) or
+                # 2 (4.7e-6). The HLS backend computes hls::rsqrt and ignores it.
+                "numRsqrtRefinements": ("i", False, 1, {1, 2}),
                 "ifm_dim": ("ints", True, []),
                 "epsilon": ("f", True, 1e-5),
                 # FINN DataTypes for inputs, outputs

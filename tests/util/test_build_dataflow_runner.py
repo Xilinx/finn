@@ -12,8 +12,9 @@ from onnx import TensorProto, helper
 
 import finn.builder.build_dataflow as build
 from finn.builder.build_dataflow_config import DataflowBuildConfig, DataflowOutputType
-from finn.util.basic import launch_process_helper, make_build_dir
+from finn.util.basic import make_build_dir
 from finn.util.build_log import log_run
+from finn.util.launcher import run_tool
 
 
 def make_test_model(build_dir, op_type="Relu", domain=""):
@@ -155,7 +156,7 @@ def talking_step(model, cfg):
     with warnings.catch_warnings():
         warnings.simplefilter("always")
         warnings.warn("a warning from the step", UserWarning)
-    launch_process_helper(["echo", "a line of tool output"])
+    run_tool(["echo", "a line of tool output"], log_output=True)
     return model
 
 
@@ -180,7 +181,7 @@ def test_a_step_writes_to_the_real_stdout_and_its_records_reach_the_build_log(ca
     assert "INFO talking_step finn.transformation.test: a record from the step" in log
     assert "WARNING talking_step py.warnings: " in log
     assert "UserWarning: a warning from the step" in log
-    assert "INFO talking_step finn.util.basic: a line of tool output" in log
+    assert "INFO talking_step finn.util.launcher: a line of tool output" in log
     assert "(Pdb)" not in log
     assert "No folding config json provided" in log
     assert "No folding config json provided" not in printed.out + printed.err
@@ -194,10 +195,10 @@ TOOL = ["sh", "-c", "printf 'stdout tail'; printf 'stderr tail' >&2"]
 def test_tool_output_is_logged_per_stream_in_a_run(tmp_path):
     path = tmp_path / "run.log"
     with log_run(str(path), runner="finn.builder.build_dataflow"):
-        launch_process_helper(TOOL)
+        run_tool(TOOL, log_output=True)
     log = path.read_text()
-    assert "finn.util.basic: stdout tail\n" in log
-    assert "finn.util.basic: stderr tail\n" in log
+    assert "finn.util.launcher: stdout tail\n" in log
+    assert "finn.util.launcher: stderr tail\n" in log
 
 
 @pytest.mark.util
@@ -208,7 +209,7 @@ def test_tool_output_outside_a_run_is_written_through(capfd, monkeypatch):
     handler = logging.NullHandler()
     root.addHandler(handler)
     try:
-        launch_process_helper(TOOL)
+        run_tool(TOOL, log_output=True)
     finally:
         root.removeHandler(handler)
     printed = capfd.readouterr()

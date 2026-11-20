@@ -27,22 +27,27 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import errno
+import glob
 import logging
 import os
 import re
+import shlex
 import shutil
-import subprocess
-import sys
 import tempfile
 import time
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.util.basic import gen_finn_dt_tensor, roundup_to_integer_multiple
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Sequence, Tuple, Union
 
-from finn.util.build_log import FILE_ONLY, in_run
 from finn.util.data_packing import finnpy_to_packed_bytearray
-from finn.util.launcher import TOOL_DIR_ENV, ToolUnavailable, xilinx_tool
+from finn.util.launcher import (
+    TOOL_DIR_ENV,
+    StrPath,
+    ToolUnavailable,
+    run_tool,
+    xilinx_tool,
+)
 
 log = logging.getLogger(__name__)
 
@@ -287,8 +292,7 @@ def robust_rmtree(path, retries=6, initial_delay=0.1, backoff=2.0):
 
 
 class CppBuilder:
-    """Builds the g++ compiler command to produces the executable of the c++ code
-    in code_gen_dir which is passed to the function build() of this class."""
+    """Compile C++ sources with g++, retaining a replay and output transcripts."""
 
     def __init__(self):
         self.include_paths = []
@@ -298,79 +302,39 @@ class CppBuilder:
         self.compile_components = []
         self.compile_script = ""
 
-    def append_includes(self, library_path):
-        """Adds given library path to include_paths list."""
+    def append_includes(self, library_path: Union[str, Sequence[StrPath]]) -> None:
+        """Append compiler arguments, as tokens or a legacy shell-quoted fragment."""
         self.include_paths.append(library_path)
 
-    def append_sources(self, cpp_file):
-        """Adds given c++ file to cpp_files list."""
+    def append_sources(self, cpp_file: StrPath) -> None:
+        """Append a source path or glob, with environment variables expanded at build."""
         self.cpp_files.append(cpp_file)
 
-    def set_executable_path(self, path):
+    def set_executable_path(self, path: StrPath) -> None:
         """Sets member variable "executable_path" to given path."""
         self.executable_path = path
 
-    def build(self, code_gen_dir):
-        """Builds the g++ compiler command according to entries in include_paths
-        and cpp_files lists. Saves it in bash script in given folder and
-        executes it."""
-        # raise error if includes are empty
+    def build(self, code_gen_dir: StrPath) -> None:
+        """Compile directly, saving a replay and transcripts in ``code_gen_dir``."""
         self.code_gen_dir = code_gen_dir
-        self.compile_components.append("g++ -o " + str(self.executable_path))
+        command = ["g++", "-o", os.path.expandvars(os.fspath(self.executable_path))]
         for cpp_file in self.cpp_files:
-            self.compile_components.append(cpp_file)
+            source = os.path.expandvars(os.fspath(cpp_file))
+            if glob.has_magic(source):
+                matches = sorted(glob.glob(source))
+                if not matches:
+                    raise FileNotFoundError(f"No C++ sources match {source}")
+                command.extend(matches)
+            else:
+                command.append(source)
         for lib in self.include_paths:
-            self.compile_components.append(lib)
-        bash_compile = ""
-        for component in self.compile_components:
-            bash_compile += str(component) + " "
-        self.compile_script = str(self.code_gen_dir) + "/compile.sh"
-        with open(self.compile_script, "w") as f:
-            f.write("#!/bin/bash \n")
-            f.write(bash_compile + "\n")
-        bash_command = ["bash", self.compile_script]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
-
-
-def launch_process_helper(args, proc_env=None, cwd=None, check=False):
-    """Launch a process and capture its output for logging with Python loggers.
-
-    Returns ``(cmd_out, cmd_err)`` as UTF-8 strings, with undecodable bytes in
-    tool output replaced rather than raised. In a ``log_run`` (a build), both
-    streams are also logged at INFO, one record per line, marked ``FILE_ONLY``.
-    Otherwise, or if ``finn.util.basic`` does not log INFO, they are written
-    through to ``sys.stdout``/``sys.stderr``.
-
-    When ``check`` is True and the process exits non-zero, raises
-    ``subprocess.CalledProcessError`` with ``output`` and ``stderr`` set to the
-    captured strings. The write-through happens before the raise, so the tool
-    log is still visible on failure. That is why the return code is checked by
-    hand rather than relying on ``subprocess.run(check=True)``.
-    """
-    if proc_env is None:
-        proc_env = os.environ.copy()
-    proc = subprocess.run(
-        args,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env=proc_env,
-        cwd=cwd,
-        encoding="utf-8",
-        errors="replace",
-    )
-    cmd_out = proc.stdout
-    cmd_err = proc.stderr
-    if in_run() and log.isEnabledFor(logging.INFO):
-        for stream in (cmd_out, cmd_err):
-            for line in stream.splitlines():
-                log.info(line, extra=FILE_ONLY)
-    else:
-        sys.stdout.write(cmd_out)
-        sys.stderr.write(cmd_err)
-    if check and proc.returncode != 0:
-        raise subprocess.CalledProcessError(proc.returncode, args, cmd_out, cmd_err)
-    return (cmd_out, cmd_err)
+            tokens = shlex.split(lib) if isinstance(lib, str) else lib
+            command.extend(os.path.expandvars(os.fspath(token)) for token in tokens)
+        self.compile_components = command
+        self.compile_script = os.path.join(code_gen_dir, "compile.sh")
+        # Historically compilation used the caller's CWD, including for relative
+        # sources. Retain that behavior and record it in the replay.
+        run_tool(command, cwd=os.getcwd(), replay=self.compile_script)
 
 
 def which(program):
@@ -507,6 +471,39 @@ def get_dsp_block(fpgapart):
         return "DSP48E1"
     else:
         return "DSP48E2"
+
+
+#: VERSION parameter of the DSP-based RTL cores (mvu.sv, requant.sv) per DSP block
+DSP_VERSIONS = {"DSP48E1": 1, "DSP48E2": 2, "DSP58": 3}
+
+
+def resolve_dsp_block(inst, fpgapart=None, record=True):
+    """The DSP block (generation) an RTL node with a ``dsp_block`` attribute targets.
+
+    SpecializeLayers sets the attribute from the part it specializes for. Without
+    a part (Python execution), the attribute is the answer. Given a part (code
+    generation, estimation), it must agree with the attribute, so that a node
+    specialized for one DSP generation is not built for another; an unset
+    attribute is filled in from the part unless ``record`` is False (analyses
+    must not change the model).
+    """
+    block = inst.get_nodeattr("dsp_block")
+    if fpgapart is not None:
+        part_block = get_dsp_block(fpgapart)
+        if block and block != part_block:
+            raise ValueError(
+                f"{inst.onnx_node.name} was specialized for {block}, "
+                f"but is built for {fpgapart} ({part_block})"
+            )
+        if not block and record:
+            inst.set_nodeattr("dsp_block", part_block)
+        block = part_block
+    if not block:
+        raise ValueError(
+            f"{inst.onnx_node.name}: unknown DSP generation, "
+            "specialize with SpecializeLayers(fpgapart) first"
+        )
+    return block
 
 
 def get_dsp_datapath_limits(dsp_block):
