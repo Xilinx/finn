@@ -42,22 +42,22 @@ class FMPadding_Pixel_hls(FMPadding_Pixel, HLSBackend):
         return my_attrs
 
     def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "deconv.hpp"']
+        self.code_gen_dict["$GLOBALS$"] = ['#include "tensor.hpp"', '#include "pad.hpp"']
 
     def defines(self, var):
-        odim_h, odim_w = self.get_padded_odim()
+        idim_h, idim_w = self.get_nodeattr("ImgDim")
         stride_h, stride_w = self.get_nodeattr("Stride")
         self.code_gen_dict["$DEFINES$"] = [
             """
-            static constexpr unsigned OutputDim_x = {};
-            static constexpr unsigned OutputDim_y = {};
+            static constexpr unsigned ImgDim_x = {};
+            static constexpr unsigned ImgDim_y = {};
             static constexpr unsigned Stride_x = {};
             static constexpr unsigned Stride_y = {};
             static constexpr unsigned NumChannels = {};
             static constexpr unsigned SIMD = {};
             """.format(
-                odim_w,
-                odim_h,
+                idim_w,
+                idim_h,
                 stride_w,
                 stride_h,
                 self.get_nodeattr("NumChannels"),
@@ -66,15 +66,11 @@ class FMPadding_Pixel_hls(FMPadding_Pixel, HLSBackend):
         ]
 
     def docompute(self):
-        in_t = hls_datatype_str(self.get_input_datatype())
-        odim_h, odim_w = self.get_padded_odim()
-        stride_h, stride_w = self.get_nodeattr("Stride")
-        hls_call = "FMPadding_Pixel_Nonsquare"
+        # Pixel padding is the interior spacing of the generic pad<>: the pixels of the
+        # input feature map are spaced by the stride, there is no padding at the edges.
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """{}<OutputDim_x, OutputDim_y, Stride_x, Stride_y, NumChannels,
-            SIMD, {}> (in0_V, out0_V);""".format(
-                hls_call, in_t
-            )
+            """pad<ImgDim_y, ImgDim_x, NumChannels/SIMD, 0, 0, 0, 0, Stride_y, Stride_x>
+            (in0_V, out0_V);"""
         ]
 
     def pragmas(self):
