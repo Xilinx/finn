@@ -15,10 +15,12 @@ between both domains are timed as synchronous paths.
 Internal clock generator
 ========================
 
-By default, the stitched IP that is delivered (``DataflowOutputType.STITCHED_IP``)
-or integrated into a shell derives ``ap_clk2x`` itself
-(``DataflowBuildConfig.clk2x_source = Clk2xSource.GENERATOR``). If one of its
-nodes needs ``ap_clk2x``,
+By default, the kernels integrated into a shell derive ``ap_clk2x`` themselves.
+The stitched IP that is delivered (``DataflowOutputType.STITCHED_IP``,
+``PORTABLE_RTL``) does so with
+``DataflowBuildConfig.clk2x_source = Clk2xSource.GENERATOR``; by default it has
+an ``ap_clk2x`` input (see `External ap_clk2x`_). If one of its nodes needs
+``ap_clk2x``,
 :py:mod:`finn.transformation.fpgadataflow.create_stitched_ip.CreateStitchedIP`
 (``clk2x_gen=True``) instantiates a clock generator fed by ``ap_clk``, and the IP
 exposes only ``ap_clk`` and ``ap_rst_n`` (see ``finn-rtllib/clk2x_gen``):
@@ -63,9 +65,11 @@ Shell flows
 External ap_clk2x
 =================
 
-With ``clk2x_source = Clk2xSource.EXTERNAL``, the stitched IP has an ``ap_clk2x``
-input instead, which the integrating system must drive. Of the shell flows, only
-Vitis supports this, for platforms that provide a phase-aligned clock pair: set
-``vitis_clk2x_clock_ids`` to the platform clock ids for ``ap_clk`` and
-``ap_clk2x``, e.g. ``[2, 1]`` (156.25 and 312.5 MHz) on the VCK190 Vitis base
-platform. The kernels then run on these clocks instead of kernel clock 0.
+The delivered stitched IP has an ``ap_clk2x`` input by default, which the
+integrating system must drive. With ``clk2x_source = Clk2xSource.EXTERNAL``, so
+do the shell kernels. Of the shell flows, only Vitis supports this, for
+platforms that provide a phase-aligned clock pair: set ``vitis_clk2x_clock_ids``
+to the two platform clock ids for ``ap_clk`` and ``ap_clk2x``. The kernels then
+run on these clocks instead of kernel clock 0. For example, the VCK190 Vitis
+base platform lists such a pair as ids ``[2, 1]`` (156.25 and 312.5 MHz); this
+has not been verified with a link.

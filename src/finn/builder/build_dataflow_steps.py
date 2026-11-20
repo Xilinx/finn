@@ -901,7 +901,24 @@ def check_shell_clk2x_support(model: ModelWrapper, cfg: DataflowBuildConfig):
     if not clk2x_nodes:
         return
     pumped = "These nodes need ap_clk2x (pumpedCompute/pumpedMemory): %s." % ", ".join(clk2x_nodes)
-    if cfg._resolve_clk2x_gen():
+    clk2x_gen = cfg._resolve_clk2x_gen(shell_kernel=True)
+    clock_ids = cfg.vitis_clk2x_clock_ids
+    if shell_flow_type == ShellFlowType.VITIS_ALVEO and clock_ids is not None:
+        if clk2x_gen:
+            log.warning(
+                "vitis_clk2x_clock_ids is ignored: the kernels derive ap_clk2x by the "
+                "internal clock generator (set clk2x_source EXTERNAL to use platform clocks)."
+            )
+        elif (
+            len(clock_ids) != 2
+            or not all(isinstance(i, int) and i >= 0 for i in clock_ids)
+            or clock_ids[0] == clock_ids[1]
+        ):
+            raise Exception(
+                "vitis_clk2x_clock_ids must be two distinct platform clock ids "
+                "[id_ap_clk, id_ap_clk2x], got %s. %s" % (clock_ids, pumped)
+            )
+    if clk2x_gen:
         f_mhz = 1000.0 / cfg.synth_clk_period_ns
         if shell_flow_type == ShellFlowType.VITIS_ALVEO and abs(f_mhz - round(f_mhz)) > 0.01:
             raise Exception(
@@ -1358,7 +1375,7 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
                 run_synth=cfg.stitched_ip_gen_dcp or run_pnr,
                 run_pnr=run_pnr,
                 signature=cfg.signature,
-                clk2x_gen=cfg._resolve_clk2x_gen(),
+                clk2x_gen=cfg._resolve_clk2x_gen(shell_kernel=False),
             )
         )
         # If P&R was run, parse the OOC results and store in model metadata + write report
@@ -1465,7 +1482,7 @@ def step_export_portable_rtl(model: ModelWrapper, cfg: DataflowBuildConfig):
                     run_synth=False,
                     run_pnr=False,
                     signature=cfg.signature,
-                    clk2x_gen=cfg._resolve_clk2x_gen(),
+                    clk2x_gen=cfg._resolve_clk2x_gen(shell_kernel=False),
                 )
             )
 
@@ -1616,7 +1633,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                     "vitis-xrt",
                     floorplan_file=cfg.vitis_floorplan_file,
                     partition_model_dir=partition_model_dir,
-                    clk2x_gen=cfg._resolve_clk2x_gen(),
+                    clk2x_gen=cfg._resolve_clk2x_gen(shell_kernel=True),
                 )
             )
             model = model.transform(
@@ -1626,7 +1643,9 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                     strategy=cfg._resolve_vitis_opt_strategy(),
                     enable_debug=cfg.enable_hw_debug,
                     clk2x_clock_ids=(
-                        None if cfg._resolve_clk2x_gen() else cfg.vitis_clk2x_clock_ids
+                        None
+                        if cfg._resolve_clk2x_gen(shell_kernel=True)
+                        else cfg.vitis_clk2x_clock_ids
                     ),
                 )
             )

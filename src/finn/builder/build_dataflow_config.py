@@ -388,15 +388,19 @@ class DataflowBuildConfig:
     vitis_opt_strategy: Optional[VitisOptStrategyCfg] = VitisOptStrategyCfg.DEFAULT
 
     #: Source of the double-speed clock ap_clk2x of double-pumped nodes in the
-    #: stitched IP and in the shell kernels, see :class:`Clk2xSource`. Inner IPs
-    #: (FINNLoop bodies, IPs stitched for FIFO sizing or simulation) always get
-    #: an ap_clk2x input, which the enclosing IP drives.
-    clk2x_source: Optional[Clk2xSource] = Clk2xSource.GENERATOR
+    #: stitched IP and in the shell kernels, see :class:`Clk2xSource`. If unset,
+    #: the shell kernels derive ap_clk2x by the internal clock generator and the
+    #: delivered stitched IP (STITCHED_IP, PORTABLE_RTL) has an ap_clk2x input
+    #: for the integrating system to drive. A set value applies to both. Inner
+    #: IPs (FINNLoop bodies, IPs stitched for FIFO sizing or simulation) always
+    #: get an ap_clk2x input, which the enclosing IP drives.
+    clk2x_source: Optional[Clk2xSource] = None
 
     #: Vitis platform clock ids [id_ap_clk, id_ap_clk2x] for kernels with an
     #: ap_clk2x input (clk2x_source = EXTERNAL). The platform must provide the
-    #: two clocks phase-aligned, at 1000/synth_clk_period_ns MHz and twice that,
-    #: e.g. [2, 1] (156.25 and 312.5 MHz) on the VCK190 Vitis base platform.
+    #: two clocks phase-aligned, at 1000/synth_clk_period_ns MHz and twice that.
+    #: For example, the VCK190 Vitis base platform lists such a pair as ids
+    #: [2, 1] (156.25 and 312.5 MHz); this has not been verified with a link.
     #: Only relevant when `shell_flow_type = ShellFlowType.VITIS_ALVEO`.
     vitis_clk2x_clock_ids: Optional[List[int]] = None
 
@@ -556,10 +560,13 @@ class DataflowBuildConfig:
         unknown strategy."""
         return AutoFIFOSizingMethod(self.auto_fifo_strategy)
 
-    def _resolve_clk2x_gen(self):
-        """Whether the delivered stitched IP and the shell kernels derive ap_clk2x
-        by an internal clock generator (CreateStitchedIP clk2x_gen)."""
-        return Clk2xSource(self.clk2x_source or Clk2xSource.GENERATOR) == Clk2xSource.GENERATOR
+    def _resolve_clk2x_gen(self, shell_kernel):
+        """Whether an IP derives ap_clk2x by an internal clock generator
+        (CreateStitchedIP clk2x_gen): a shell kernel if `shell_kernel`, else the
+        delivered stitched IP. Without a clk2x_source, only shell kernels do."""
+        if self.clk2x_source is None:
+            return shell_kernel
+        return Clk2xSource(self.clk2x_source) == Clk2xSource.GENERATOR
 
     def _resolve_vitis_opt_strategy(self):
         # convert human-readable enum to value expected by v++
