@@ -292,10 +292,6 @@ class CreateStitchedIP(Transformation):
                 )
             self.intf_names["axilite"].append(ext_if_name)
 
-        is_mlo = node_inst.get_nodeattr("mlo_max_iter")
-        if is_mlo:
-            self.is_mlo = True
-
         for mm_intf_name in aximm_intf_name:
             # Address range for the external segment; overridden per interface below.
             addr_range = "256M"
