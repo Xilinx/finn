@@ -179,12 +179,14 @@ Titles must be unique per board within a row, because a duplicate fails the zip 
 
 Each shard runs safely as a parallel branch on whatever `finn-build` executor picks it up, so adding capacity is as simple as adding more machines and agents under that label. For this reason, integration with an LSF cluster is not required to run FINN's CI.
 
-However, the intended long-term operational model for FINN CI is a single FINN build machine running several shards at once, delegating any heavy tasks to a compute farm. A tool interception hook has been provided for this reason at `finn.util.basic.resolve_xilinx_tool()`. The agent still drives the FINN flow and pytest, but each `vivado` / `v++` / `vitis_hls` / `xelab` invocation is wrapped with a deployment-specific shim that can delegate heavy subprocesses. The interception hook is generic and can be adapted for a variety of HPC models.
+However, the intended long-term operational model for FINN CI is a single FINN build machine running several shards at once, delegating heavy tasks to a compute farm. `finn.util.launcher.xilinx_tool()` resolves AMD tool names through the `FINN_TOOL_DIR_OVERRIDE` shim directory, once per process. The agent still drives the FINN flow and pytest, while deployment-specific wrappers for `vivado`, `v++`, `vitis_hls` / `vitis-run`, `xelab` and `slashkit` can delegate their work. The directory override is generic and can be adapted for a variety of HPC models; `finn.util.basic.resolve_xilinx_tool()` remains a compatibility interface for generated scripts.
+
+On a shard failure, `archive_failure_logs.sh` includes launcher `*.stdout.log` and `*.stderr.log` transcripts from the known build-directory families, including compiler, simulator, SLASH and separate C++ driver Git-log directories. If `FINN_ROOT` is set, it also collects the standalone XSI setup diagnostics from `finn_xsi`, scoped by the shard start marker when supplied.
 
 If using IBM's LSF, the pipeline cooperates with such a wrapper through one env var, `FINN_LSF_NFS_STAGING`. When it is set:
 
 - The Jenkinsfile reaps orphaned `bsub` jobs left by an aborted build, both on this build's completion and at the next build's Validate. The site's wrapper must tag every job name `finn_ci_<jobScope>_<TOOL>_<JOB_TAG>` so the reaper can find them and `bkill` only the jobs whose submitting build is no longer running.
-- `archive_failure_logs.sh` tails the LSF staging-dir logs into a failed shard's bundle, so a farm-side tool failure is visible in Jenkins without opening the cluster.
+- `archive_failure_logs.sh` includes the LSF staging-dir logs in a failed shard's bundle, so a farm-side tool failure is visible in Jenkins without opening the cluster.
 
 When `FINN_LSF_NFS_STAGING` is unset (the default) both behaviours are skipped.
 

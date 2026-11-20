@@ -242,16 +242,7 @@ class AbsorbSignBiasIntoMultiThreshold(AbsorbScalarBiasIntoMultiThreshold):
 
 class AbsorbAddIntoMultiThreshold(Transformation):
     """Absorb preceding Add ops into MultiThreshold by updating the threshold
-    values. Only scalar/1D add vectors can be absorbed.
-
-    If preserve_thresh_shape is True, a channelwise Add is not merged into a
-    per-tensor MultiThreshold, as this would change the first dim of the threshold
-    array from 1 to the number of channels (e.g. (1, 255) to (C, 255) for int8).
-    The Add then remains as a standalone operation."""
-
-    def __init__(self, preserve_thresh_shape=False):
-        super().__init__()
-        self.preserve_thresh_shape = preserve_thresh_shape
+    values. Only scalar/1D add vectors can be absorbed."""
 
     def apply(self, model):
         graph = model.graph
@@ -270,15 +261,6 @@ class AbsorbAddIntoMultiThreshold(Transformation):
                     assert T is not None, "Initializer for thresholds is not set."
                     start_name = n.input[0]
                     is_scalar = A.ndim == 0 or all(x == 1 for x in A.shape)
-                    if self.preserve_thresh_shape and T.shape[0] == 1 and not is_scalar:
-                        warnings.warn(
-                            "preserve_thresh_shape is set to True "
-                            f"and merging {n.name} into {consumer.name} "
-                            "would change the threshold array shape. "
-                            "If you would like the merge to still happen, "
-                            "set preserve_thresh_shape to False."
-                        )
-                        continue
 
                     # Get the shape of the parameter tensor of the add
                     shape = A.shape
@@ -327,14 +309,7 @@ class AbsorbAddIntoMultiThreshold(Transformation):
 
 class AbsorbMulIntoMultiThreshold(Transformation):
     """Absorb preceding Mul ops into MultiThreshold by updating the threshold
-    values. Only *positive* scalar/1D mul vectors can be absorbed.
-
-    If preserve_thresh_shape is True, a channelwise Mul is not merged into a
-    per-tensor MultiThreshold, see AbsorbAddIntoMultiThreshold."""
-
-    def __init__(self, preserve_thresh_shape=False):
-        super().__init__()
-        self.preserve_thresh_shape = preserve_thresh_shape
+    values. Only *positive* scalar/1D mul vectors can be absorbed."""
 
     def apply(self, model):
         graph = model.graph
@@ -356,15 +331,6 @@ class AbsorbMulIntoMultiThreshold(Transformation):
                         threshold_name = consumer.input[1]
                         T = model.get_initializer(threshold_name)
                         assert T is not None, "Initializer for thresholds is not set."
-                        if self.preserve_thresh_shape and T.shape[0] == 1 and not is_scalar:
-                            warnings.warn(
-                                "preserve_thresh_shape is set to True "
-                                f"and merging {n.name} into {consumer.name} "
-                                "would change the threshold array shape. "
-                                "If you would like the merge to still happen, "
-                                "set preserve_thresh_shape to False."
-                            )
-                            continue
                         start_name = n.input[0]
                         # compute new thresholds and set initializer
                         A_col = A.reshape(-1, 1)

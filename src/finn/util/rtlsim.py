@@ -40,7 +40,7 @@ from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.core.onnx_exec import execute_onnx
 from qonnx.custom_op.registry import getCustomOp
-from qonnx.util.basic import get_num_default_workers, roundup_to_integer_multiple
+from qonnx.util.basic import get_num_default_workers
 from typing import Any, Callable, Dict, Tuple
 
 from finn import xsi
@@ -50,6 +50,7 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.util.basic import get_liveness_threshold_cycles, make_build_dir
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from finn.util.mlo import mlo_set_select_bits
 
 log = logging.getLogger(__name__)
 
@@ -509,9 +510,7 @@ def _simulate_finnloop_iterations(finnloop_node, cfg, golden_frames, trace_base)
     out_w = op.get_outstream_width(0)
     out_folded = op.get_folded_output_shape(0)
     num_out_values = op.get_number_output_values()
-    idx_w = roundup_to_integer_multiple(
-        DataType.get_smallest_possible(op.get_nodeattr("iteration")).bitwidth(), 8
-    )
+    idx_w = mlo_set_select_bits(op.get_nodeattr("iteration"))
     idx_dt = DataType["UINT%d" % idx_w]
     liveness = get_liveness_threshold_cycles()
     weights = gather_mlo_weight_images(finnloop_node)

@@ -366,20 +366,6 @@ class VVAU_hls(VVAU, HLSBackend):
                 currently no other parameter value is supported!"""
             )
 
-    def dataoutstrm(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        npy_type = "float"
-        npy_out = "%s/output_0.npy" % code_gen_dir
-        shape = self.get_folded_output_shape()
-        shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")
-
-        self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'tensorstream2npy<%s>(strm0, %s, "%s");' % (npy_type, shape_cpp_str, npy_out)
-        ]
-
-    def save_as_npy(self):
-        self.code_gen_dict["$SAVEASCNPY$"] = []
-
     def blackboxfunction(self):
         mem_mode = self.get_nodeattr("mem_mode")
         pe = self.get_nodeattr("PE")

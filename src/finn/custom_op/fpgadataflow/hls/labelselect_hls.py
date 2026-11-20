@@ -90,20 +90,6 @@ class LabelSelect_hls(LabelSelect, HLSBackend):
     def defines(self, var):
         self.code_gen_dict["$DEFINES$"] = []
 
-    def read_npy_data(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        npy_type = "float"
-        npy_in = "%s/input_0.npy" % code_gen_dir
-        self.code_gen_dict["$READNPYDATA$"] = []
-
-        self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2tensorstream<%s>("%s", in0_V);'
-            % (
-                npy_type,
-                npy_in,
-            )
-        )
-
     def docompute(self):
         # PE and the input/output element types are inferred from the stream
         # types tensor<TI, PE> / tensor<TO, 1> declared by strm_decl/blackboxfunction

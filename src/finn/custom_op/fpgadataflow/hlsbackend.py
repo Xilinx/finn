@@ -29,7 +29,6 @@
 import glob
 import numpy as np
 import os
-import subprocess
 import warnings
 from abc import ABC, abstractmethod
 from qonnx.core.datatype import DataType
@@ -43,6 +42,7 @@ from finn.util.data_packing import (
     rtlsim_output_to_npy,
 )
 from finn.util.hls import CallHLS
+from finn.util.launcher import run_tool
 
 finnxsi = xsi if xsi.is_available() else None
 
@@ -223,11 +223,7 @@ class HLSBackend(ABC):
         self.docompute()
         self.dataoutstrm()
         self.save_as_npy()
-
-        self.timeout_value()
-        self.timeout_condition()
-        self.timeout_read_stream()
-        template = templates.docompute_template_timeout
+        template = self.get_cppsim_template()
 
         for key in self.code_gen_dict:
             # transform list into long string separated by '\n'
@@ -239,6 +235,17 @@ class HLSBackend(ABC):
         f.close()
         self.code_gen_dict.clear()
 
+    def get_cppsim_template(self):
+        """The C++ template of the cppsim executable. The default runs the
+        free-running layer function until its output stays empty for a timeout,
+        and fills the timeout entries of code_gen_dict it needs. Ops whose layer
+        function terminates by itself can return the blocking
+        templates.docompute_template instead."""
+        self.timeout_value()
+        self.timeout_condition()
+        self.timeout_read_stream()
+        return templates.docompute_template_timeout
+
     def code_generation_ipi(self):
         """Constructs and returns the TCL for node instantiation in Vivado IPI."""
         vlnv = self.get_nodeattr("ip_vlnv")
@@ -246,8 +253,7 @@ class HLSBackend(ABC):
         return cmd
 
     def compile_singlenode_code(self):
-        """Builds the bash script for compilation using the CppBuilder from
-        finn.util.basic and executes the script to produce the executable."""
+        """Compile the cppsim executable, retaining a replay and transcripts."""
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         # From 2024.2, the HLS headers are in the Vitis installation (VITIS_PATH).
         vivado_version = get_vivado_version()
@@ -260,20 +266,20 @@ class HLSBackend(ABC):
         builder = CppBuilder()
         # to enable additional debug features please uncommand the next line
         # builder.append_includes("-DDEBUG")
-        builder.append_includes("-I$FINN_ROOT/src/finn/qnn-data/cpp")
-        builder.append_includes("-I$FINN_ROOT/deps/finn-hlslib")
-        builder.append_includes("-I$FINN_ROOT/custom_hls")
-        builder.append_includes(f"-I{hls_path}/include")
+        builder.append_includes(["-I", "$FINN_ROOT/src/finn/qnn-data/cpp"])
+        builder.append_includes(["-I", "$FINN_ROOT/deps/finn-hlslib"])
+        builder.append_includes(["-I", "$FINN_ROOT/custom_hls"])
+        builder.append_includes(["-I", os.path.join(hls_path, "include")])
         builder.append_includes("--std=c++17")
         builder.append_includes("-O3")
         builder.append_sources(code_gen_dir + "/*.cpp")
         builder.append_sources("$FINN_ROOT/src/finn/qnn-data/cpp/cnpy.cpp")
         builder.append_includes("-lz")
-        builder.append_includes("-fno-builtin -fno-inline")
-        builder.append_includes(f'-Wl,-rpath,"{hls_path}/lnx64/lib/csim"')
-        builder.append_includes(f"-L{hls_path}/lnx64/lib/csim -lhlsmc++-GCC46")
-        builder.append_includes(f'-Wl,-rpath,"{hls_path}/lnx64/tools/fpo_v7_1"')
-        builder.append_includes(f"-L{hls_path}/lnx64/tools/fpo_v7_1 -lgmp -lmpfr")
+        builder.append_includes(["-fno-builtin", "-fno-inline"])
+        builder.append_includes([f"-Wl,-rpath,{hls_path}/lnx64/lib/csim"])
+        builder.append_includes(["-L", f"{hls_path}/lnx64/lib/csim", "-lhlsmc++-GCC46"])
+        builder.append_includes([f"-Wl,-rpath,{hls_path}/lnx64/tools/fpo_v7_1"])
+        builder.append_includes(["-L", f"{hls_path}/lnx64/tools/fpo_v7_1", "-lgmp", "-lmpfr"])
         builder.append_includes("-lIp_floating_point_v7_1_bitacc_cmodel")
         builder.set_executable_path(code_gen_dir + "/node_model")
         builder.build(code_gen_dir)
@@ -299,8 +305,11 @@ Found no executable for this node, did you run the codegen and
 compilation transformations?
             """
             )
-        process_execute = subprocess.Popen(executable_path, stdout=subprocess.PIPE)
-        process_execute.communicate()
+        run_tool(
+            [executable_path],
+            cwd=os.getcwd(),
+            replay=os.path.join(self.get_nodeattr("code_gen_dir_cppsim"), "execute.sh"),
+        )
 
     def fold_input_for_npy(self, inp_val, ind):
         """Lay an input tensor out into the folded shape written to the npy that

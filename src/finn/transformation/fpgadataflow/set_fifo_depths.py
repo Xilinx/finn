@@ -67,6 +67,17 @@ def reset_implementation(node):
     node.set_nodeattr("ip_path", "")
 
 
+def set_fifo_debug_log(node, log_path, verbose, flush_cycles):
+    """Make the fifo_gauge of the StreamingFIFO_rtl instance ``node`` log to
+    ``log_path``, in the verbose format if ``verbose``, flushing every
+    ``flush_cycles`` simulated cycles (0: only at the end). The settings are
+    baked into the generated RTL, so they only take effect with code generated
+    after this call."""
+    node.set_nodeattr("debug_log_path", log_path)
+    node.set_nodeattr("fifo_log_verbose", int(verbose))
+    node.set_nodeattr("fifo_log_flush_cycles", int(flush_cycles))
+
+
 def set_signal(sim, keyw, value):
     for i in range(len(sim.inputs)):
         input_name = sim.inputs[i][0]
@@ -441,10 +452,9 @@ class InsertAndSetFIFODepths(Transformation):
                 log_path = os.path.abspath(
                     os.path.join(self.debug_log_dir, self.debug_log_prefix + node.name + ".log")
                 )
-                node_inst = getCustomOp(node)
-                node_inst.set_nodeattr("debug_log_path", log_path)
-                node_inst.set_nodeattr("fifo_log_verbose", int(self.fifo_log_verbose))
-                node_inst.set_nodeattr("fifo_log_flush_cycles", int(self.fifo_log_flush_cycles))
+                set_fifo_debug_log(
+                    getCustomOp(node), log_path, self.fifo_log_verbose, self.fifo_log_flush_cycles
+                )
 
         # insert FIFOs and do all transformations for RTLsim
         model = model.transform(AnnotateCycles())

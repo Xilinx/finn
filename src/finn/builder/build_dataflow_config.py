@@ -29,7 +29,6 @@
 
 import numpy as np
 import os
-import warnings
 from dataclasses import dataclass, field
 from dataclasses_json import dataclass_json
 from enum import Enum
@@ -70,13 +69,9 @@ class AutoFIFOSizingMethod(str, Enum):
 
     @classmethod
     def _missing_(cls, value):
+        # the deprecation is reported once, by the auto_fifo_strategy_deprecated
+        # config check
         if value == "characterize":
-            warnings.warn(
-                "auto_fifo_strategy 'characterize' has been replaced by 'heuristic_rtlsim' "
-                "and will be removed in a future release; use 'heuristic_rtlsim' "
-                "(or 'heuristic_analytical') instead.",
-                DeprecationWarning,
-            )
             return cls.HEURISTIC_RTLSIM
         return None
 
@@ -336,9 +331,9 @@ class DataflowBuildConfig:
 
     #: Enable saving waveforms from simulation-based FIFO sizing.
     #: Applies to the LARGEFIFO_RTLSIM strategy (including the FIFO sizing of
-    #: MLO/FINNLoop loop bodies) and, for MLO models sized with a heuristic
-    #: strategy, to the per-node characterization simulations that derive the
-    #: token access vectors (HEURISTIC_RTLSIM, or nodes without a tree model).
+    #: MLO/FINNLoop loop bodies) and, for the heuristic strategies, to the
+    #: per-node characterization simulations that derive the token access
+    #: vectors (HEURISTIC_RTLSIM, or nodes without a tree model).
     fifosim_save_waveform: Optional[bool] = False
 
     #: Enable FIFOs to output log files documenting what they witness.
@@ -394,7 +389,7 @@ class DataflowBuildConfig:
     enable_build_pdb_debug: Optional[bool] = True
 
     #: When True, the console also shows FINN's INFO records, the output of tools
-    #: launched through launch_process_helper and each Python warning. Otherwise
+    #: run with run_tool(..., log_output=True) and each Python warning. Otherwise
     #: these only appear in build_dataflow.log, while the console shows the step
     #: timeline, FINN's warnings and errors and a count of Python warnings.
     verbose: Optional[bool] = False

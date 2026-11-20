@@ -5,4 +5,21 @@ exclude = [
 ]
 
 [lint]
-select = ["E", "F", "PLC"]
+select = ["E", "F", "PLC", "TID251"]
+
+# FINN starts external processes only through finn.util.launcher (run_tool), which
+# checks the exit status and keeps a replay script and transcripts.
+[lint.flake8-tidy-imports.banned-api]
+"subprocess.run".msg = "use finn.util.launcher.run_tool"
+"subprocess.Popen".msg = "use finn.util.launcher.run_tool"
+"subprocess.call".msg = "use finn.util.launcher.run_tool"
+"subprocess.check_call".msg = "use finn.util.launcher.run_tool"
+"subprocess.check_output".msg = "use finn.util.launcher.run_tool"
+"os.system".msg = "use finn.util.launcher.run_tool"
+"os.popen".msg = "use finn.util.launcher.run_tool"
+
+[lint.per-file-ignores]
+"src/finn/util/launcher.py" = ["TID251"]
+# Tests drive processes themselves; the CI harness runs without FINN installed.
+"tests/**" = ["TID251"]
+"ci/**" = ["TID251"]

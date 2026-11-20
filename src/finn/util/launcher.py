@@ -1,4 +1,4 @@
-# Copyright Advanced Micro Devices, Inc.
+# Copyright (C) Advanced Micro Devices, Inc.
 # SPDX-License-Identifier: BSD-3-Clause
 
 """Running external tools: check the exit status, keep a transcript, quote the errors.
@@ -23,12 +23,14 @@ import shlex
 import shutil
 import signal
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
 from typing import Mapping, Optional, Sequence, Tuple, Union
 
 from finn.util import vivado
+from finn.util.build_log import FILE_ONLY, in_run
 
 StrPath = Union[str, os.PathLike]
 
@@ -37,7 +39,10 @@ log = logging.getLogger(__name__)
 # How many error lines a ToolFailed quotes.
 ERROR_LINES = 5
 # An error line of a tool that does not print Vivado's messages (a compiler, a script).
-_ERROR_LINE = re.compile(r"\berror:|^Error\b")
+_ERROR_LINE = re.compile(
+    r"\berror:|\berror while loading shared libraries:|\bcannot find -l|"
+    r"\bundefined reference to\b|^Error\b"
+)
 # Vivado echoes each line of a sourced Tcl script with this prefix.
 _ECHOED_TCL = "# "
 # Tcl prints the message of an uncaught error, then this line, then the trace.
@@ -215,6 +220,9 @@ def run_process(
     FINN holds the tool. The exception carries the output so far in ``output`` and
     ``stderr``. This does not cover a SIGKILL of this process, or descendants that
     leave the process group of the tool (a new process group or session).
+    In a non-main thread, terminal Ctrl-C does not directly reach the tool's
+    separate process group, and no termination signal handlers are installed.
+    Timeouts and exceptions in the waiting thread still clean up its group.
     """
     command = [os.fspath(arg) for arg in argv]
     if not command:
@@ -304,6 +312,23 @@ def _text(stream):
     if isinstance(stream, bytes):
         return stream.decode(errors="replace")
     return stream or ""
+
+
+def emit_output(result: subprocess.CompletedProcess, logger: logging.Logger) -> Tuple[str, str]:
+    """Decode captured output, log it in a build or write it through outside one.
+
+    Output is emitted before the caller checks the status, so failed runs retain
+    their diagnostics. Return both streams as UTF-8 strings with replacement.
+    """
+    out, err = _text(result.stdout), _text(result.stderr)
+    if in_run() and logger.isEnabledFor(logging.INFO):
+        for stream in (out, err):
+            for line in stream.splitlines():
+                logger.info(line, extra=FILE_ONLY)
+    else:
+        sys.stdout.write(out)
+        sys.stderr.write(err)
+    return out, err
 
 
 class ToolUnavailable(LookupError):
@@ -416,12 +441,17 @@ class ToolFailed(RuntimeError):
     @classmethod
     def of_run(cls, tool: str, result: subprocess.CompletedProcess) -> "ToolFailed":
         """The failure of a run of ``tool`` that exited with a nonzero status."""
+        transcript = getattr(result, "transcript", None)
+        if transcript is not None and not result.stdout and result.stderr:
+            path = Path(transcript)
+            if path.name.endswith(".stdout.log"):
+                transcript = path.with_name(path.name[: -len(".stdout.log")] + ".stderr.log")
         return cls.of(
             tool,
             # One line break between the streams, so that their lines stay apart.
             "\n".join(_text(stream) for stream in (result.stdout, result.stderr)),
             status=result.returncode,
-            transcript=getattr(result, "transcript", None),
+            transcript=transcript,
             command=result.args,
         )
 
@@ -434,6 +464,8 @@ def run_tool(
     timeout: Optional[float] = None,
     replay: Optional[StrPath] = None,
     transcript: Optional[StrPath] = None,
+    env_overrides: Optional[Mapping[str, str]] = None,
+    log_output: bool = False,
 ) -> ToolRun:
     """Run an external tool with ``run_process``, and raise ``ToolFailed`` if it exits
     with a nonzero status.
@@ -446,28 +478,56 @@ def run_tool(
             environment.
         timeout: the seconds after which the tool is killed.
         replay: a bash script to write before the run, which repeats the run by hand.
-            It runs the same executable as the run. It does not record ``env``: run it
-            in the same environment.
+            It runs the same executable and exports ``env_overrides``. It does not
+            record the rest of ``env``: run it in the same environment.
         transcript: the stem of the transcript files. By default, the replay path
             without its suffix. Without either, the output is kept in memory only.
+        env_overrides: variables to override in ``env`` (or this process's
+            environment) and export in the replay. Other variables are not saved.
+        log_output: also emit captured output with ``emit_output`` before checking
+            the exit status. Defaults to transcript-only output.
     """
     command = [os.fspath(arg) for arg in command]
     if not command:
         raise ValueError("Empty command")
+    if env_overrides:
+        for name in env_overrides:
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) is None:
+                raise ValueError(f"Invalid environment variable name: {name!r}")
+        env = {**(os.environ if env is None else env), **env_overrides}
+    # Preserve working-directory errors instead of blaming a missing tool.
+    if cwd is not None:
+        os.stat(cwd)
+        if not os.path.isdir(cwd):
+            raise NotADirectoryError(errno.ENOTDIR, os.strerror(errno.ENOTDIR), os.fspath(cwd))
     if command[0] in XILINX_TOOLS:
         command[0] = xilinx_tool(command[0])
-    command[0] = resolve_executable(command[0], cwd, env) or command[0]
+    executable = resolve_executable(command[0], cwd, env)
+    if executable is None:
+        raise ToolUnavailable(command[0], "not found in PATH")
+    if not (os.path.isfile(executable) and os.access(executable, os.X_OK)):
+        raise ToolUnavailable(command[0], f"no executable {executable}")
+    command[0] = executable
     if replay is not None:
         lines = ["#!/bin/bash", "set -e"]
         if cwd is not None:
             lines.append("cd -- " + shlex.quote(os.fspath(cwd)))
+        for name, value in (env_overrides or {}).items():
+            lines.append("export " + name + "=" + shlex.quote(value))
         lines.append("exec " + shlex.join(command))
         Path(replay).write_text("\n".join(lines) + "\n")
         if transcript is None:
             transcript = os.path.splitext(os.fspath(replay))[0]
-    result = run_process(
-        command, env=env, cwd=cwd, timeout=timeout, check=False, transcript=transcript
-    )
+    try:
+        result = run_process(
+            command, env=env, cwd=cwd, timeout=timeout, check=False, transcript=transcript
+        )
+    except OSError as exc:
+        if exc.filename == command[0] and exc.errno in (errno.ENOENT, errno.EACCES, errno.ENOEXEC):
+            raise ToolUnavailable(os.path.basename(command[0]), str(exc)) from exc
+        raise
+    if log_output:
+        emit_output(result, log)
     if result.returncode != 0:
         raise ToolFailed.of_run(os.path.basename(command[0]), result)
     return result

@@ -431,6 +431,11 @@ class SpecializeLayers(Transformation):
             for attribute in node.attribute:
                 if attribute.name != "preferred_impl_style":
                     new_node.attribute.append(attribute)
+            # layers whose arithmetic depends on the DSP generation record it here,
+            # where the target part is known (e.g. Requant_rtl's operand widths)
+            new_inst = getCustomOp(new_node)
+            if "dsp_block" in new_inst.get_nodeattr_types():
+                new_inst.set_nodeattr("dsp_block", get_dsp_block(self.fpgapart))
             graph.node.insert(node_ind, new_node)
             # remove old nodes
             graph.node.remove(node)

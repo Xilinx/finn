@@ -1,4 +1,4 @@
-# Copyright Advanced Micro Devices, Inc.
+# Copyright (C) Advanced Micro Devices, Inc.
 # SPDX-License-Identifier: BSD-3-Clause
 
 import pytest

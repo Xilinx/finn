@@ -25,13 +25,14 @@ import numpy as np
 from copy import deepcopy
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp
-from qonnx.util.basic import gen_finn_dt_tensor, roundup_to_integer_multiple
+from qonnx.util.basic import gen_finn_dt_tensor
 
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.set_fifo_depths import xsi_fifosim
 from finn.util.basic import get_liveness_threshold_cycles
 from finn.util.data_packing import npy_to_rtlsim_input
+from finn.util.mlo import mlo_set_select_bits
 from finn.util.rtlsim import (
     annotate_rtlsim_performance,
     extract_boundary_submodels,
@@ -99,7 +100,7 @@ def measure_body_ii(finnloop_node, cfg, n_frames=BODY_II_FRAMES):
     iterations = op.get_nodeattr("iteration")
     in_dt = op.get_input_datatype(0)
     in_w = op.get_instream_width(0)
-    idx_w = roundup_to_integer_multiple(DataType.get_smallest_possible(iterations).bitwidth(), 8)
+    idx_w = mlo_set_select_bits(iterations)
     idx_dt = DataType["UINT%d" % idx_w]
     in_words = []
     idx_words = []

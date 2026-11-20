@@ -129,6 +129,10 @@ def test_robust_rmtree_retries_when_an_entry_vanishes(monkeypatch):
     real_rmtree = shutil.rmtree
 
     def entry_vanishes(path, *a, **kw):
+        # count only the removal of this tree: other code in the process (e.g. a
+        # TemporaryDirectory finalizer) may call shutil.rmtree meanwhile
+        if os.fspath(path) != target:
+            return real_rmtree(path, *a, **kw)
         state["calls"] += 1
         if state["calls"] == 1:
             raise FileNotFoundError(errno.ENOENT, "fake", os.path.join(str(path), "g"))
@@ -139,5 +143,7 @@ def test_robust_rmtree_retries_when_an_entry_vanishes(monkeypatch):
 
     robust_rmtree(target)
 
-    assert state["calls"] == 2
+    # retried after the vanished entry; on NFS, the real removal may itself need
+    # another (transient ENOTEMPTY/EBUSY) attempt
+    assert state["calls"] >= 2
     assert not os.path.exists(target)

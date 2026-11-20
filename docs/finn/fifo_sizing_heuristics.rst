@@ -14,7 +14,9 @@ In short
 
 * ``largefifo_rtlsim`` (the default) simulates the whole accelerator with
   oversized FIFOs and trims every FIFO to the occupancy it reached. It needs
-  every node synthesized and one long rtlsim of the stitched design.
+  every node synthesized and one long rtlsim of the stitched design. It cannot
+  simulate a ``FINNLoop``, so MLO builds have to use a heuristic strategy; the
+  FIFOs inside the loop bodies are sized by simulating each body.
 * ``heuristic_rtlsim`` simulates every node on its own to get its schedule, then
   sizes the FIFOs analytically from those schedules. It needs every node
   synthesized, but no rtlsim of the full design.
