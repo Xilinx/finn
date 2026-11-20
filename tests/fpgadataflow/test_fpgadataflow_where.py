@@ -17,6 +17,7 @@ from finn.analysis.fpgadataflow.res_estimation import res_estimation
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferWhereLayer
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.fifo_sizing.tav import load_tav_npy
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
@@ -197,3 +198,30 @@ def test_where_stitched_ip_synth_ooc():
     synthesized_bram = ret.get("BRAM_18K", 0) + 2 * ret.get("BRAM_36K", 0)
     assert synthesized_bram == expected_bram
     assert ret["WNS"] >= 0
+
+
+@pytest.mark.parametrize(
+    "cond_shape,x_shape,y_shape,out_shape",
+    [
+        pytest.param(DEFAULT_SHAPE, DEFAULT_SHAPE, DEFAULT_SHAPE, DEFAULT_SHAPE, id="full"),
+        pytest.param((1, 1, 8), (1, 4, 8), (1, 4, 1), (1, 4, 8), id="broadcast"),
+    ],
+)
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+def test_where_rtlsim_characterization(cond_shape, x_shape, y_shape, out_shape):
+    """rtlsim characterization feeds all three operands: the selection waits for
+    every one of them, so with only the condition fed it would never emit."""
+    model = make_where_modelwrapper(DataType["INT8"], cond_shape, x_shape, y_shape, out_shape)
+    model = model.transform(InferWhereLayer())
+    model = _run_sim_style(model, "node_by_node")
+    inst = getCustomOp(model.graph.node[0])
+
+    inst.derive_token_access_vectors("rtlsim")
+
+    n_out = int(np.prod(inst.get_folded_output_shape()[:-1]))
+    # The stored window is two rtlsim periods. Each is a frame plus its share of
+    # the pipeline fill, so the window holds two frames and a few words more.
+    assert inst.get_nodeattr("io_chrc_period") >= n_out
+    n_written = load_tav_npy(inst.get_nodeattr("io_chrc_out"))[0][-1]
+    assert 2 * n_out <= n_written < 3 * n_out
