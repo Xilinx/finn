@@ -191,6 +191,16 @@ class HWWhere(HWCustomOp):
         output_cycles = self.get_number_output_values()
         return input_cycles + output_cycles + 4
 
+    def get_tav_io_dict(self):
+        # rtlsim has to feed every input: the selection waits on all three
+        return {
+            "inputs": {
+                "in%d" % i: [0] * int(np.prod(self.get_folded_input_shape(i)[:-1]))
+                for i in range(3)
+            },
+            "outputs": {"out0": []},
+        }
+
     def execute_node(self, context, graph):
         node = self.onnx_node
         cond = context[node.input[0]]
