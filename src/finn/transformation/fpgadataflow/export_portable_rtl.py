@@ -16,7 +16,7 @@ class ExportPortableRTL(Transformation):
 
     This transformation copies all Verilog source files and memory initialization
     files (.dat) to a single directory structure with relative paths, suitable for
-    use in external simulators (QuestaSim, ModelSim, Verilator) or non-IPI Vivado
+    use in external simulators (QuestaSim, ModelSim) or non-IPI Vivado
     projects.
 
     The export is the synthesizable design. If the stitched IP has an internal
@@ -229,13 +229,12 @@ class ExportPortableRTL(Transformation):
                             file.write(content)
 
     def _generate_filelist_f(self, rtl_files):
-        """Generate filelist.f for Verilator/QuestaSim/ModelSim."""
+        """Generate filelist.f for QuestaSim/ModelSim."""
         filelist_path = os.path.join(self.export_dir, "filelist.f")
         with open(filelist_path, "w") as f:
             f.write("// FINN Portable RTL Export - File List\n")
-            f.write("// For use with Verilator, QuestaSim, ModelSim\n")
-            f.write("// Usage: verilator -f filelist.f --top-module finn_design_wrapper\n")
-            f.write("//        vlog -f filelist.f\n\n")
+            f.write("// For use with QuestaSim, ModelSim\n")
+            f.write("// Usage: vlog -f filelist.f\n\n")
 
             # Add include directories
             f.write("// Include directories\n")
@@ -292,10 +291,6 @@ class ExportPortableRTL(Transformation):
             f.write("└── README.md       # This file\n")
             f.write("```\n\n")
             f.write("## Usage\n\n")
-            f.write("### Verilator\n")
-            f.write("```bash\n")
-            f.write("verilator -f filelist.f --top-module finn_design_wrapper\n")
-            f.write("```\n\n")
             f.write("### QuestaSim / ModelSim\n")
             f.write("```bash\n")
             f.write("vlog -f filelist.f\n")

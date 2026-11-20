@@ -1465,7 +1465,7 @@ def step_export_portable_rtl(model: ModelWrapper, cfg: DataflowBuildConfig):
     The export contains:
     - All Verilog/SystemVerilog source files with relative paths
     - All .dat memory initialization files
-    - A filelist.f for simulator tools (Verilator, QuestaSim, ModelSim)
+    - A filelist.f for simulator tools (QuestaSim, ModelSim)
     - A sources.tcl for Vivado non-IPI projects
     """
 
