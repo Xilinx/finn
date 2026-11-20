@@ -63,12 +63,6 @@ module mvu_vvu_8sx9_dsp58 #(
 	output  logic vld,
     output  logic [PE-1:0][ACCU_WIDTH-1:0] p
   );
-	// for verilator always use behavioral code
-	localparam bit  BEHAVIORAL =
-`ifdef VERILATOR
-		1 ||
-`endif
-		FORCE_BEHAVIORAL;
 
 	//-----------------------------------------------------------------------
 	// Startup Recovery Watchdog
@@ -95,7 +89,7 @@ module mvu_vvu_8sx9_dsp58 #(
 	localparam int unsigned PE_ACTIVATION = IS_MVU ? 1 : PE;
 	uwire [26:0] a_in_i [PE_ACTIVATION * CHAINLEN];
 	uwire [23:0] b_in_i [PE][CHAINLEN];
-	uwire [PE-1:0][CHAINLEN-1:0][57:0] pcout; // Array with packed dimension > 256 (with a loop-carried dependency) cannot be handled out-of-the-box with PyVerilator
+	uwire [PE-1:0][CHAINLEN-1:0][57:0] pcout;
 
 //-------------------- Shift register for opmode select signal --------------------\\
 	localparam int unsigned MAX_PIPELINE_STAGES = (CHAINLEN + SEGLEN-1)/SEGLEN; // >=1 (== number of pipeline registers + 1 (A/B inputs always have 1 register))
@@ -264,7 +258,7 @@ module mvu_vvu_8sx9_dsp58 #(
 				end : genTHDeep
 			end : genCSR
 
-			if(BEHAVIORAL) begin : genBehav
+			if(FORCE_BEHAVIORAL) begin : genBehav
 				// Behavioral DSP58 model — stage-indexed register naming
 
 				// Stage #1: A1/B1 (AREG, BREG), Zero1 (INMODEREG)
@@ -327,7 +321,6 @@ module mvu_vvu_8sx9_dsp58 #(
 				end
 				assign  pcout[i][j] = pp;
 			end : genBehav
-`ifndef VERILATOR
 			else begin: genDSP
 				DSP58 #(
 					// Feature Control Attributes: Data Path Selection
@@ -471,7 +464,6 @@ module mvu_vvu_8sx9_dsp58 #(
 					.RSTP(PREG && rst)                  // 1-bit input: Reset for PREG
 				);
 			end : genDSP
-`endif
 		end : genDSPChain
 	end : genDSPPE
 
