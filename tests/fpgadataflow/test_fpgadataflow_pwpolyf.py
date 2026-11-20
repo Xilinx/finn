@@ -29,6 +29,7 @@ from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODep
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.streamline import Streamline
 from finn.util.basic import get_finn_root
+from finn.util.test import tree_model_test
 from finn.util.torch_hw_modules import PWPolyFActivation
 
 TEST_FPGA_PART = "xcvc1902-vsva2197-2MP-e-S"
@@ -356,3 +357,38 @@ def test_fpgadataflow_pwpolyf_rtl_constants_match():
 
     # Check NUM_OCTAVES is used consistently
     assert NUM_OCTAVES == 5, f"NUM_OCTAVES should be 5, got {NUM_OCTAVES}"
+
+
+@pytest.mark.parametrize(
+    "num_channels,num_input_vecs,pe,degree",
+    [
+        pytest.param(16, [1, 8], 1, 2, id="pe1-deg2"),
+        pytest.param(16, [1, 8, 8], 4, 2, id="pe4-deg2"),
+        pytest.param(8, [1, 32], 2, 4, id="pe2-deg4"),
+        # pipeline deeper than TAV_PIPELINE_LATENCY (extra_latency > 0)
+        pytest.param(32, [1, 16], 8, 8, id="pe8-deg8"),
+    ],
+)
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_pwpolyf(num_channels, num_input_vecs, pe, degree):
+    model = make_pwpolyf_modelwrapper("gelu", 3, num_channels, num_input_vecs, pe=pe, degree=degree)
+    model = model.transform(SpecializeLayers(TEST_FPGA_PART))
+    # The model is exact: one word per cycle with no gaps. rtlsim's period
+    # carries a fifth of the pipeline fill (five frames, one fill) and its
+    # cycle count two cycles past the last output, so its stored window is
+    # 2 * ((latency + 2) // 5) cycles longer; within the overlap the token
+    # counts agree exactly.
+    latency = 4 * degree + 2
+    assert tree_model_test(
+        model,
+        ("PWPolyF", num_channels, num_input_vecs, pe, degree),
+        TEST_FPGA_PART,
+        TARGET_CLK_NS,
+        0,
+        0,
+        volume_const=0,
+        length_const=2 * ((latency + 2) // 5),
+    ), "characterized TAV does not match RTLsim'd one!"

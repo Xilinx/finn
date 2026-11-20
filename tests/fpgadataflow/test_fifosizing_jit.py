@@ -20,7 +20,11 @@ from qonnx.util.basic import qonnx_make_model
 
 import finn.transformation.fpgadataflow.derive_characteristic as derive_characteristic
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
-from finn.transformation.fpgadataflow.derive_characteristic import JustInTimeSynthesize
+from finn.transformation.fpgadataflow.derive_characteristic import (
+    DeriveTokenAccessVectors,
+    JustInTimeSynthesize,
+    needs_rtlsim_characterization,
+)
 from finn.util.basic import make_build_dir
 
 DT = DataType["INT4"]
@@ -164,3 +168,47 @@ def test_jit_synthesizes_only_what_is_needed(recorders, ip_state):
             assert inst.get_nodeattr("rtlsim_so") != ""
         else:
             assert inst.get_nodeattr("rtlsim_so") == ""
+
+
+def make_pwpolyf_model(ch=16, pe=2, n_vec=8):
+    """``inp -> PWPolyF -> outp``: an RTL node whose tree model replaces rtlsim
+    characterization."""
+    shape = [1, n_vec, ch]
+    fp32 = DataType["FLOAT32"].name
+    node = helper.make_node(
+        "PWPolyF_rtl",
+        ["inp"],
+        ["outp"],
+        domain="finn.custom_op.fpgadataflow.rtl",
+        backend="fpgadataflow",
+        func="gelu",
+        NumChannels=ch,
+        PE=pe,
+        inputDataType=fp32,
+        outputDataType=fp32,
+        numInputVectors=[1, n_vec],
+    )
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape)
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, shape)
+    graph = helper.make_graph([node], "pwpolyf", [inp], [outp])
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="pwpolyf"))
+    for t in ["inp", "outp"]:
+        model.set_tensor_datatype(t, DataType["FLOAT32"])
+    return model.transform(GiveUniqueNodeNames())
+
+
+@pytest.mark.fpgadataflow
+def test_jit_skips_pwpolyf(recorders):
+    """PWPolyF has a tree model: heuristic_analytical neither synthesizes nor
+    simulates it, and the tree model characterizes it without rtlsim."""
+    model = make_pwpolyf_model()
+    (node,) = model.graph.node
+    assert not needs_rtlsim_characterization(node, only_without_tree_model=True)
+
+    model = model.transform(JustInTimeSynthesize("xcvc1902-vsva2197-2MP-e-S", 5.0, True))
+    assert recorders == {"codegen": [], "ipgen": [], "rtlsim": []}
+
+    model = model.transform(DeriveTokenAccessVectors("tree_model", rtlsim_fallback=False))
+    inst = getCustomOp(model.graph.node[0])
+    assert inst.get_nodeattr("io_chrc_in") != ""
+    assert inst.get_nodeattr("rtlsim_so") == ""
