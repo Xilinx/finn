@@ -308,7 +308,8 @@ class InferPWPolyFLayer(Transformation):
         return init.size == 1 and abs(float(init.flat[0]) - value) < tol
 
     def _match_erf_gelu(self, model, erf_node):
-        """Match Erf-based GELU: Div(x,sqrt(2))→Erf→Add(_,1)→Mul(0.5,_)→Mul(x,_).
+        """Match Erf-based GELU: Div(x,sqrt(2))→Erf→Add(_,1)→Mul(0.5,_)→Mul(x,_),
+        or with the final multiplications swapped: …→Add(_,1)→Mul(x,_)→Mul(0.5,_).
 
         Also the Streamline leaves:
         Mul(x,1/sqrt(2))→Erf→Mul(_,0.5)→Add(_,0.5)→Mul(x,_).
