@@ -370,26 +370,38 @@ class InferPWPolyFLayer(Transformation):
         if len(other_add) != 1 or not self._is_const_scalar(model, other_add[0], 1.0):
             return None
 
-        # Add → Mul(0.5, _)
+        # Multiplication is associative, and both export orders occur in practice.
         add_consumers = model.find_consumers(add_node.output[0])
         if len(add_consumers) != 1 or add_consumers[0].op_type != "Mul":
             return None
-        mul_half = add_consumers[0]
-        other_mul_half = [i for i in mul_half.input if i != add_node.output[0]]
-        if len(other_mul_half) != 1 or not self._is_const_scalar(model, other_mul_half[0], 0.5):
+        first_mul = add_consumers[0]
+        other_first_mul = [i for i in first_mul.input if i != add_node.output[0]]
+        if len(other_first_mul) != 1:
+            return None
+        other_first_mul = other_first_mul[0]
+
+        first_mul_consumers = model.find_consumers(first_mul.output[0])
+        if len(first_mul_consumers) != 1 or first_mul_consumers[0].op_type != "Mul":
+            return None
+        second_mul = first_mul_consumers[0]
+        other_second_mul = [i for i in second_mul.input if i != first_mul.output[0]]
+        if len(other_second_mul) != 1:
+            return None
+        other_second_mul = other_second_mul[0]
+
+        # Variant A: Add → Mul(0.5, _) → Mul(x, _)
+        if self._is_const_scalar(model, other_first_mul, 0.5):
+            if other_second_mul != gelu_input:
+                return None
+        # Variant B: Add → Mul(x, _) → Mul(0.5, _)
+        elif other_first_mul == gelu_input:
+            if not self._is_const_scalar(model, other_second_mul, 0.5):
+                return None
+        else:
             return None
 
-        # Mul(0.5,_) → Mul(x, _)
-        half_consumers = model.find_consumers(mul_half.output[0])
-        if len(half_consumers) != 1 or half_consumers[0].op_type != "Mul":
-            return None
-        mul_x = half_consumers[0]
-        other_mul_x = [i for i in mul_x.input if i != mul_half.output[0]]
-        if len(other_mul_x) != 1 or other_mul_x[0] != gelu_input:
-            return None
-
-        nodes_to_remove = [div_node, erf_node, add_node, mul_half, mul_x]
-        return (gelu_input, mul_x.output[0], nodes_to_remove)
+        nodes_to_remove = [div_node, erf_node, add_node, first_mul, second_mul]
+        return (gelu_input, second_mul.output[0], nodes_to_remove)
 
     @staticmethod
     def _make_pwpolyf_node(pwp_input, pwp_output, func, in_shape, idt, name, K=3, degree=2):
