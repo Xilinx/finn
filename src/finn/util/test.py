@@ -31,6 +31,7 @@ import pytest
 
 import copy
 import importlib_resources as importlib
+import json
 import numpy as np
 import onnx
 import onnx.numpy_helper as nph
@@ -40,20 +41,26 @@ import torchvision.transforms.functional as torchvision_util
 import warnings
 import xml.etree.ElementTree as ET
 from brevitas_examples import bnn_pynq, imagenet_classification
+from onnx import TensorProto, helper
 from pkgutil import get_data
+from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.alveo_build import VitisLink, VitisOptStrategy
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.derive_characteristic import (
     DeriveTokenAccessVectors,
     JustInTimeSynthesize,
 )
 from finn.transformation.fpgadataflow.fifo_sizing.tav import load_tav_npy
 from finn.transformation.fpgadataflow.make_pynq_proj import PYNQBuild
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import (
     make_build_dir,
@@ -556,3 +563,146 @@ def tree_model_test_up_to_rotation(
         length_const,
     )
     return ok
+
+
+def make_mvau_node(name, inputs, output, impl, mw, mh, idt, wdt, odt, **attrs):
+    """MVAU_hls/MVAU_rtl node (`impl`) on a 1x3x3 input with the given shapes and types."""
+    return helper.make_node(
+        "MVAU_" + impl,
+        inputs,
+        [output],
+        name=name,
+        domain="finn.custom_op.fpgadataflow." + impl,
+        backend="fpgadataflow",
+        MW=mw,
+        MH=mh,
+        inputDataType=idt.name,
+        weightDataType=wdt.name,
+        outputDataType=odt.name,
+        numInputVectors=[1, 3, 3],
+        **attrs,
+    )
+
+
+def make_pumped_chain_model(mw=16, mh=16, pe=4, simd=4):
+    """MVAU chain with all pumping variants next to non-pumped nodes:
+    MVAU_rtl (pumpedCompute) -> Thresholding_rtl (not pumped) -> MVAU_hls
+    (pumpedMemory, fused activation) -> MVAU_rtl (pumpedCompute and pumpedMemory).
+    All weights are internal_decoupled (on-chip memstream)."""
+    idt = wdt = adt = DataType["INT4"]
+    acc = DataType["INT32"]
+    n_steps = adt.get_num_possible_values() - 1
+    shape_in = [1, 3, 3, mw]
+    shape_out = [1, 3, 3, mh]
+    common = {"PE": pe, "SIMD": simd, "mem_mode": "internal_decoupled"}
+    nodes = [
+        make_mvau_node(
+            "mvau0",
+            ["inp", "w0"],
+            "mm0",
+            "rtl",
+            mw,
+            mh,
+            idt,
+            wdt,
+            acc,
+            noActivation=1,
+            pumpedCompute=1,
+            **common,
+        ),
+        helper.make_node(
+            "Thresholding_rtl",
+            ["mm0", "thr0"],
+            ["act0"],
+            name="thr0",
+            domain="finn.custom_op.fpgadataflow.rtl",
+            backend="fpgadataflow",
+            NumChannels=mh,
+            PE=pe,
+            inputDataType=acc.name,
+            weightDataType="INT33",
+            outputDataType=adt.name,
+            ActVal=int(adt.min()),
+            numSteps=n_steps,
+            numInputVectors=[1, 3, 3],
+        ),
+        make_mvau_node(
+            "mvau1",
+            ["act0", "w1", "thr1"],
+            "act1",
+            "hls",
+            mh,
+            mh,
+            adt,
+            wdt,
+            adt,
+            noActivation=0,
+            ActVal=int(adt.min()),
+            pumpedMemory=1,
+            **common,
+        ),
+        make_mvau_node(
+            "mvau2",
+            ["act1", "w2"],
+            "outp",
+            "rtl",
+            mh,
+            mh,
+            adt,
+            wdt,
+            acc,
+            noActivation=1,
+            pumpedCompute=1,
+            pumpedMemory=1,
+            **common,
+        ),
+    ]
+    graph = helper.make_graph(
+        nodes=nodes,
+        name="pumped_chain",
+        inputs=[helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape_in)],
+        outputs=[helper.make_tensor_value_info("outp", TensorProto.FLOAT, shape_out)],
+        value_info=[
+            helper.make_tensor_value_info(t, TensorProto.FLOAT, shape_out)
+            for t in ["mm0", "act0", "act1"]
+        ],
+    )
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="pumped-chain"))
+    model.set_initializer("w0", gen_finn_dt_tensor(wdt, (mw, mh)))
+    model.set_initializer("w1", gen_finn_dt_tensor(wdt, (mh, mh)))
+    model.set_initializer("w2", gen_finn_dt_tensor(wdt, (mh, mh)))
+    # thresholds within the accumulator range, so that the activations vary
+    acc_max = mw * 64
+    thr0 = np.sort(np.random.randint(-acc_max // 4, acc_max // 4, (1, n_steps)), axis=1)
+    thr1 = np.sort(np.random.randint(-acc_max // 4, acc_max // 4, (mh, n_steps)), axis=1)
+    model.set_initializer("thr0", thr0.astype(np.float32))
+    model.set_initializer("thr1", thr1.astype(np.float32))
+    for t, dt in [
+        ("inp", idt),
+        ("w0", wdt),
+        ("w1", wdt),
+        ("w2", wdt),
+        ("mm0", acc),
+        ("thr0", acc),
+        ("act0", adt),
+        ("thr1", acc),
+        ("act1", adt),
+        ("outp", acc),
+    ]:
+        model.set_tensor_datatype(t, dt)
+    return model
+
+
+def cppsim_reference(model, x):
+    """Output of the (single-input, single-output) model in cppsim."""
+    model = model.transform(SetExecMode("cppsim"))
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
+    return execute_onnx(model, {model.graph.input[0].name: x})[model.graph.output[0].name]
+
+
+def bd_nets(bd_file):
+    """Map each net of a block design file to the set of pins/ports it connects."""
+    with open(bd_file) as f:
+        design = json.load(f)["design"]
+    return {name: set(net["ports"]) for name, net in design.get("nets", {}).items()}

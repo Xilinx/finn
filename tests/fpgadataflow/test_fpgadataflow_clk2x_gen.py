@@ -31,7 +31,6 @@ from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.util.basic import gen_finn_dt_tensor
-from test_fpgadataflow_clk2x import _bd_nets, cppsim_reference, make_pumped_chain_model
 from unittest.mock import patch
 
 import finn.builder.build_dataflow_config as build_cfg
@@ -61,6 +60,7 @@ from finn.util.basic import (
 )
 from finn.util.fpgadataflow import find_clk2x_nodes
 from finn.util.launcher import run_tool
+from finn.util.test import bd_nets, cppsim_reference, make_pumped_chain_model
 
 parts = {"versal": "xcvc1902-vsva2197-2MP-e-S", "zu3": "xczu3eg-sfvc784-2-e"}
 CLK2X_GEN_TCL = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/clk2x_gen/clk2x_gen.tcl")
@@ -287,7 +287,7 @@ def test_clk2x_gen_zynq_bitfile(board):
     with open(proj_dir + "/ip_config.tcl") as f:
         assert "clk_wiz" not in f.read()
     bd_file = proj_dir + "/finn_link/finn_link.srcs/sources_1/bd/finn_link/finn_link.bd"
-    nets = _bd_nets(bd_file)
+    nets = bd_nets(bd_file)
     assert not any("clk2x" in p for n in nets.values() for p in n)
     with open(model.get_metadata_prop("vivado_timing_rpt")) as f:
         assert "All user specified timing constraints are met." in f.read()
@@ -529,9 +529,10 @@ def test_vitis_link_kernel_clocks():
 
 @pytest.mark.fpgadataflow
 def test_clk2x_gen_only_for_outer_ips():
-    """The builder gives the delivered stitched IP and the shell kernels the clock
-    generator (unless clk2x_source is EXTERNAL); inner IPs keep an ap_clk2x input:
-    FINNLoop bodies, IPs stitched for FIFO sizing and for simulation regions."""
+    """By default, the builder gives only the shell kernels the clock generator;
+    the delivered stitched IP gets it with clk2x_source GENERATOR, and EXTERNAL
+    takes it from both. Inner IPs keep an ap_clk2x input: FINNLoop bodies, IPs
+    stitched for FIFO sizing and for simulation regions."""
     seen = []
 
     class Stitched(Exception):
@@ -571,12 +572,18 @@ def test_clk2x_gen_only_for_outer_ips():
                 fn()
         return seen[0]
 
-    # outer IPs
-    assert stitch_with(build_steps, lambda: build_steps.step_create_stitched_ip(model, cfg()))
-    ext = build_cfg.Clk2xSource.EXTERNAL
+    # outer IPs: the delivered stitched IP and the shell kernels
+    gen, ext = build_cfg.Clk2xSource.GENERATOR, build_cfg.Clk2xSource.EXTERNAL
+    assert not stitch_with(build_steps, lambda: build_steps.step_create_stitched_ip(model, cfg()))
+    assert stitch_with(
+        build_steps, lambda: build_steps.step_create_stitched_ip(model, cfg(clk2x_source=gen))
+    )
     assert not stitch_with(
         build_steps, lambda: build_steps.step_create_stitched_ip(model, cfg(clk2x_source=ext))
     )
+    assert cfg()._resolve_clk2x_gen(shell_kernel=True)
+    assert cfg(clk2x_source=gen)._resolve_clk2x_gen(shell_kernel=True)
+    assert not cfg(clk2x_source=ext)._resolve_clk2x_gen(shell_kernel=True)
     # inner IPs
     with patch.object(build_steps, "HLSSynthIP", NoSynth):
         assert not stitch_with(

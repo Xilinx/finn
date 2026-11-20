@@ -37,7 +37,6 @@ import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn.builder.build_dataflow_steps import check_shell_clk2x_support
 from finn.custom_op.fpgadataflow.rtl.finn_loop import FINNLoop
 from finn.transformation.fpgadataflow.alveo_build import PrepareForLinking, SlashLink
-from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
@@ -53,14 +52,13 @@ from finn.transformation.fpgadataflow.minimize_accumulator_width import (
 from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
     MinimizeWeightBitWidth,
 )
-from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.general import ApplyConfig
 from finn.util.basic import make_build_dir, robust_rmtree
 from finn.util.fpgadataflow import find_clk2x_nodes
+from finn.util.test import cppsim_reference, make_mvau_node, make_pumped_chain_model
 
 # DSP58 compute pumping needs a Versal part
 versal_part = "xcvc1902-vsva2197-2MP-e-S"
@@ -68,140 +66,6 @@ clk_ns = 5
 
 RTL_DOMAIN = "finn.custom_op.fpgadataflow.rtl"
 HLS_DOMAIN = "finn.custom_op.fpgadataflow.hls"
-
-
-def make_mvau_node(name, inputs, output, impl, mw, mh, idt, wdt, odt, **attrs):
-    return helper.make_node(
-        "MVAU_" + impl,
-        inputs,
-        [output],
-        name=name,
-        domain=RTL_DOMAIN if impl == "rtl" else HLS_DOMAIN,
-        backend="fpgadataflow",
-        MW=mw,
-        MH=mh,
-        inputDataType=idt.name,
-        weightDataType=wdt.name,
-        outputDataType=odt.name,
-        numInputVectors=[1, 3, 3],
-        **attrs,
-    )
-
-
-def make_pumped_chain_model(mw=16, mh=16, pe=4, simd=4):
-    """MVAU chain with all pumping variants next to non-pumped nodes:
-    MVAU_rtl (pumpedCompute) -> Thresholding_rtl (not pumped) -> MVAU_hls
-    (pumpedMemory, fused activation) -> MVAU_rtl (pumpedCompute and pumpedMemory).
-    All weights are internal_decoupled (on-chip memstream)."""
-    idt = wdt = adt = DataType["INT4"]
-    acc = DataType["INT32"]
-    n_steps = adt.get_num_possible_values() - 1
-    shape_in = [1, 3, 3, mw]
-    shape_out = [1, 3, 3, mh]
-    common = {"PE": pe, "SIMD": simd, "mem_mode": "internal_decoupled"}
-    nodes = [
-        make_mvau_node(
-            "mvau0",
-            ["inp", "w0"],
-            "mm0",
-            "rtl",
-            mw,
-            mh,
-            idt,
-            wdt,
-            acc,
-            noActivation=1,
-            pumpedCompute=1,
-            **common,
-        ),
-        helper.make_node(
-            "Thresholding_rtl",
-            ["mm0", "thr0"],
-            ["act0"],
-            name="thr0",
-            domain=RTL_DOMAIN,
-            backend="fpgadataflow",
-            NumChannels=mh,
-            PE=pe,
-            inputDataType=acc.name,
-            weightDataType="INT33",
-            outputDataType=adt.name,
-            ActVal=int(adt.min()),
-            numSteps=n_steps,
-            numInputVectors=[1, 3, 3],
-        ),
-        make_mvau_node(
-            "mvau1",
-            ["act0", "w1", "thr1"],
-            "act1",
-            "hls",
-            mh,
-            mh,
-            adt,
-            wdt,
-            adt,
-            noActivation=0,
-            ActVal=int(adt.min()),
-            pumpedMemory=1,
-            **common,
-        ),
-        make_mvau_node(
-            "mvau2",
-            ["act1", "w2"],
-            "outp",
-            "rtl",
-            mh,
-            mh,
-            adt,
-            wdt,
-            acc,
-            noActivation=1,
-            pumpedCompute=1,
-            pumpedMemory=1,
-            **common,
-        ),
-    ]
-    graph = helper.make_graph(
-        nodes=nodes,
-        name="pumped_chain",
-        inputs=[helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape_in)],
-        outputs=[helper.make_tensor_value_info("outp", TensorProto.FLOAT, shape_out)],
-        value_info=[
-            helper.make_tensor_value_info(t, TensorProto.FLOAT, shape_out)
-            for t in ["mm0", "act0", "act1"]
-        ],
-    )
-    model = ModelWrapper(qonnx_make_model(graph, producer_name="pumped-chain"))
-    model.set_initializer("w0", gen_finn_dt_tensor(wdt, (mw, mh)))
-    model.set_initializer("w1", gen_finn_dt_tensor(wdt, (mh, mh)))
-    model.set_initializer("w2", gen_finn_dt_tensor(wdt, (mh, mh)))
-    # thresholds within the accumulator range, so that the activations vary
-    acc_max = mw * 64
-    thr0 = np.sort(np.random.randint(-acc_max // 4, acc_max // 4, (1, n_steps)), axis=1)
-    thr1 = np.sort(np.random.randint(-acc_max // 4, acc_max // 4, (mh, n_steps)), axis=1)
-    model.set_initializer("thr0", thr0.astype(np.float32))
-    model.set_initializer("thr1", thr1.astype(np.float32))
-    for t, dt in [
-        ("inp", idt),
-        ("w0", wdt),
-        ("w1", wdt),
-        ("w2", wdt),
-        ("mm0", acc),
-        ("thr0", acc),
-        ("act0", adt),
-        ("thr1", acc),
-        ("act1", adt),
-        ("outp", acc),
-    ]:
-        model.set_tensor_datatype(t, dt)
-    return model
-
-
-def cppsim_reference(model, x):
-    model = model.transform(SetExecMode("cppsim"))
-    model = model.transform(PrepareCppSim())
-    model = model.transform(CompileCppSim())
-    return oxe.execute_onnx(model, {model.graph.input[0].name: x})[model.graph.output[0].name]
 
 
 def stitch_and_rtlsim(model, inputs, part):
@@ -297,13 +161,6 @@ def test_fpgadataflow_clk2x_stitched_dynamic_mvau():
     model, y = stitch_and_rtlsim(model, [x, w], versal_part)
     assert_stitched_clk2x(model)
     assert (y == y_ref).all(), "stitched-IP rtlsim of the pumped dynamic MVAU failed"
-
-
-def _bd_nets(bd_file):
-    """Map each net of a block design file to the set of pins/ports it connects."""
-    with open(bd_file) as f:
-        design = json.load(f)["design"]
-    return {name: set(net["ports"]) for name, net in design.get("nets", {}).items()}
 
 
 @pytest.mark.parametrize("body_clk2x", [[], ["ap_clk2x"]])
@@ -502,12 +359,17 @@ def test_shell_flows_reject_clk2x():
     check_versal_shell_clk2x(plain, "VCK190")
 
     # the builder check, per board and ap_clk2x source: with the internal clock
-    # generator, the Zynq and Vitis flows support double pumping (Vitis at an
-    # integer frequency in MHz); with an ap_clk2x input only Vitis does, given
-    # the platform clocks
+    # generator (also the default for shell kernels), the Zynq and Vitis flows
+    # support double pumping (Vitis at an integer frequency in MHz); with an
+    # ap_clk2x input only Vitis does, given two distinct platform clocks
     gen, ext = build_cfg.Clk2xSource.GENERATOR, build_cfg.Clk2xSource.EXTERNAL
     out_dir = make_build_dir("test_clk2x_shell_")
     for board, period, source, ids, supported in [
+        ("AUP-ZU3_8GB", 10.0, None, None, True),
+        ("U55C", 10.0, None, None, True),
+        ("U55C", 10.0, gen, [2, 1], True),
+        ("U55C", 10.0, ext, [2], False),
+        ("U55C", 10.0, ext, [1, 1], False),
         ("AUP-ZU3_8GB", 10.0, gen, None, True),
         ("AUP-ZU3_8GB", 3.0, gen, None, True),
         ("AUP-ZU3_8GB", 10.0, ext, None, False),
