@@ -104,7 +104,7 @@ def make_silu_pattern_modelwrapper(num_channels, num_input_vecs, reverse_mul_inp
     return model
 
 
-def make_erf_gelu_modelwrapper(num_channels, num_input_vecs):
+def make_erf_gelu_modelwrapper(num_channels, num_input_vecs, muls_x_first=False):
     shape = num_input_vecs + [num_channels]
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape)
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, shape)
@@ -116,8 +116,13 @@ def make_erf_gelu_modelwrapper(num_channels, num_input_vecs):
     div_node = helper.make_node("Div", ["inp", "sqrt2"], ["div_out"], name="Div_0")
     erf_node = helper.make_node("Erf", ["div_out"], ["erf_out"], name="Erf_0")
     add_node = helper.make_node("Add", ["erf_out", "one"], ["add_out"], name="Add_0")
-    mul_half_node = helper.make_node("Mul", ["half", "add_out"], ["mul_half_out"], name="Mul_0")
-    mul_x_node = helper.make_node("Mul", ["inp", "mul_half_out"], ["outp"], name="Mul_1")
+    # Both export orders of the two final Muls occur
+    if muls_x_first:
+        mul_x_node = helper.make_node("Mul", ["inp", "add_out"], ["mul_x_out"], name="Mul_0")
+        mul_half_node = helper.make_node("Mul", ["half", "mul_x_out"], ["outp"], name="Mul_1")
+    else:
+        mul_half_node = helper.make_node("Mul", ["half", "add_out"], ["mul_half_out"], name="Mul_0")
+        mul_x_node = helper.make_node("Mul", ["inp", "mul_half_out"], ["outp"], name="Mul_1")
 
     graph = helper.make_graph(
         [div_node, erf_node, add_node, mul_half_node, mul_x_node],
@@ -242,6 +247,7 @@ def test_fpgadataflow_pwpolyf_stitched_ip(func):
         pytest.param("silu", "silu", 2, id="onnx-silu"),
         pytest.param("silu_reversed", "silu", 2, id="onnx-silu-reversed"),
         pytest.param("erf_gelu", "gelu", 2, id="onnx-erf-gelu"),
+        pytest.param("erf_gelu_x_first", "gelu", 2, id="onnx-erf-gelu-x-first"),
     ],
 )
 @pytest.mark.fpgadataflow
@@ -262,6 +268,8 @@ def test_fpgadataflow_pwpolyf_infer(pattern, expected_func, degree):
         model = make_silu_pattern_modelwrapper(num_channels, [1], reverse_mul_inputs=True)
     elif pattern == "erf_gelu":
         model = make_erf_gelu_modelwrapper(num_channels, [1])
+    elif pattern == "erf_gelu_x_first":
+        model = make_erf_gelu_modelwrapper(num_channels, [1], muls_x_first=True)
     else:
         raise ValueError(f"Unknown pattern {pattern}")
 
