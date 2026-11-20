@@ -177,6 +177,7 @@ def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode, eager):
         ("rtl", [1, 1, 2, 2], 4, 2),
         ("rtl", [7, 0, 8, 0], 4, 2),
         ("rtl", [1, 1, 1, 1], 2, 2),
+        ("rtl", [0, 0, 2, 1], 4, 2),
         ("hls", [1, 1, 1, 1], 4, 1),
         ("hls", [1, 1, 1, 1], 4, 2),
         ("hls", [1, 1, 2, 2], 4, 2),
@@ -209,16 +210,12 @@ def test_fpgadataflow_analytical_characterization_fmpadding(
     part = "xc7z020clg400-1"
     target_clk_ns = 4
 
-    # TAV tolerances are fractions -- of the tokens moved and of the frame
-    # length -- with a floor for the fixed part of the error (wind-up, adder
-    # tree depth, the cycle rtlsim's period rounds away). The floors are the
-    # flat budgets this test used before the split, so nothing that passed
-    # then fails now; the fractions are what govern once the frame is long
-    # enough to exceed them.
-    max_allowed_volume_frac = 0.01
-    volume_const = 2
-    max_allowed_length_frac = 0.01
-    length_const = 2
+    # The schedule is exact for both Eager settings, including the read-ahead of
+    # the sidestep register and the phase of the stored window, so no tolerance.
+    max_allowed_volume_frac = 0
+    volume_const = 0
+    max_allowed_length_frac = 0
+    length_const = 0
 
     assert tree_model_test(
         model,
