@@ -977,7 +977,8 @@ def test_check_uniform_thresholds():
     assert np.allclose(step_sizes, step32, rtol=1e-6)
     assert np.allclose(first_thresholds, first32, rtol=1e-6)
 
-    # rounded to integers with a non-integer step: not uniform
+    # rounded to integers with a non-integer step: not uniform (InferRequantLayer
+    # sees the float thresholds, it runs before RoundAndClipThresholds)
     assert not to_hw._check_uniform_thresholds(np.ceil(thresholds))[0]
     # one gap 0.5 % wider: not uniform
     uneven = thresholds.copy()
@@ -985,5 +986,10 @@ def test_check_uniform_thresholds():
     assert not to_hw._check_uniform_thresholds(uneven)[0]
     # a single threshold is trivially uniform
     assert to_hw._check_uniform_thresholds(thresholds[:, :1])[0]
-    # equal thresholds have no step to derive a scale from
-    assert not to_hw._check_uniform_thresholds(np.repeat(first32[:, None], 4, axis=1))[0]
+    # equal thresholds have no step to derive a scale from, also as the only such
+    # channel next to uniform ones; np.polyfit returns a tiny step of either sign
+    for ch in range(num_channels):
+        dead = thresholds.copy()
+        dead[ch] = first32[ch]
+        assert not to_hw._check_uniform_thresholds(dead)[0]
+        assert not to_hw._check_uniform_thresholds(dead[ch : ch + 1])[0]

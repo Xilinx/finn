@@ -545,6 +545,14 @@ def _check_uniform_thresholds(thresholds, ulp_tol=4):
 
     For requant conversion, thresholds must be uniform (equal step sizes)
     within each channel. Different channels may have different step sizes.
+    A channel is uniform if all its thresholds lie within ``ulp_tol`` float32
+    ulp of their least-squares line and that line rises by more than this
+    tolerance over the channel; equal thresholds have no step to derive a
+    scale from.
+
+    The check expects the float thresholds of streamlining: the builder runs
+    InferRequantLayer before RoundAndClipThresholds. Thresholds already rounded
+    to integers are only recognised if the step itself is an integer.
 
     Args:
         thresholds: numpy array of shape (num_channels, num_thresholds)
@@ -578,7 +586,9 @@ def _check_uniform_thresholds(thresholds, ulp_tol=4):
         first_thresholds.append(first_threshold)
         residual = np.abs(ch_thresholds - (first_threshold + idx * step_size))
         tol = ulp_tol * np.spacing(np.float32(np.abs(ch_thresholds).max()))
-        if step_size <= 0 or residual.max() > tol:
+        # the rise over the channel must exceed the noise, or the step is rounding
+        # noise of equal thresholds (np.polyfit does not return exactly 0 for them)
+        if step_size * (num_thresholds - 1) <= tol or residual.max() > tol:
             is_uniform = False
 
     return is_uniform, np.array(step_sizes), np.array(first_thresholds)
