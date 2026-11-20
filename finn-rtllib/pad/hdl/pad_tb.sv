@@ -32,7 +32,7 @@ module pad_test #(
 	output	logic  done,
 	output	int unsigned  errors
 );
-	`default_nettype none
+`default_nettype none
 
 	localparam int unsigned  SF = NUM_CHANNELS/SIMD;
 	localparam int unsigned  XON  = PAD_W;
@@ -207,12 +207,12 @@ module pad_test #(
 		done = 1;
 	end
 
-	`default_nettype wire
+`default_nettype wire
 endmodule : pad_test
 
 
 module pad_tb;
-	`default_nettype none
+`default_nettype none
 
 	// Clock and reset
 	logic  clk = 0;
@@ -276,5 +276,5 @@ module pad_tb;
 		$finish;
 	end
 
-	`default_nettype wire
+`default_nettype wire
 endmodule : pad_tb

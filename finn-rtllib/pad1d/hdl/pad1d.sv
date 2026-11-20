@@ -44,7 +44,7 @@ module pad1d #(
 	output	logic  ovld,
 	output	logic [SIMD-1:0][ELEM_WIDTH-1:0]  odat
 );
-	`default_nettype none
+`default_nettype none
 
 	//=== Parameter Validation ==============================================
 	initial begin
@@ -103,5 +103,5 @@ module pad1d #(
 		);
 	end : genPad
 
-	`default_nettype wire
+`default_nettype wire
 endmodule : pad1d

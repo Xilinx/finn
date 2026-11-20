@@ -94,30 +94,29 @@ module clk2x_gate_tb;
 
 	//-----------------------------------------------------------------------
 	// Checker: no handshake while the design is in reset
-	int unsigned  ErrCnt = 0;
+	int unsigned  ErrCnt = 0;	// stimulus and final checks
+	int unsigned  GateErrCnt = 0;	// this checker
 	int unsigned  GatedCycles = 0;
-	initial forever @(posedge clk) begin
-		if(!design_rst_n) begin
-			if(ap_rst_n)  GatedCycles++;
-			if({
-				ctl0.awready, ctl0.wready, ctl0.arready, ctl0.bvalid, ctl0.rvalid,
-				ctl1.awready, ctl1.wready, ctl1.arready, ctl1.bvalid, ctl1.rvalid,
-				info.awready, info.wready, info.arready, info.bvalid, info.rvalid,
-				gmem0.arvalid, gmem0.rready, gmem0.awvalid, gmem0.wvalid, gmem0.bready,
-				gmem1.arvalid, gmem1.rready, gmem1.awvalid, gmem1.wvalid, gmem1.bready
-			} !== '0) begin
-				$error("Handshake signal asserted while the design is in reset.");
-				ErrCnt++;
-			end
-			if({
-				dut.finn_design_i.clk2x_gate_s_axi_control_0.inner_awvalid,
-				dut.finn_design_i.clk2x_gate_s_axi_control_0.inner_arvalid,
-				dut.finn_design_i.clk2x_gate_m_axi_gmem0.inner_rvalid,
-				dut.finn_design_i.clk2x_gate_m_axi_gmem1.inner_bvalid
-			} !== '0) begin
-				$error("Transfer reaches the design while it is in reset.");
-				ErrCnt++;
-			end
+	always_ff @(posedge clk iff !design_rst_n) begin
+		if(ap_rst_n)  GatedCycles++;
+		if({
+			ctl0.awready, ctl0.wready, ctl0.arready, ctl0.bvalid, ctl0.rvalid,
+			ctl1.awready, ctl1.wready, ctl1.arready, ctl1.bvalid, ctl1.rvalid,
+			info.awready, info.wready, info.arready, info.bvalid, info.rvalid,
+			gmem0.arvalid, gmem0.rready, gmem0.awvalid, gmem0.wvalid, gmem0.bready,
+			gmem1.arvalid, gmem1.rready, gmem1.awvalid, gmem1.wvalid, gmem1.bready
+		} !== '0) begin
+			$error("Handshake signal asserted while the design is in reset.");
+			GateErrCnt++;
+		end
+		if({
+			dut.finn_design_i.clk2x_gate_s_axi_control_0.inner_awvalid,
+			dut.finn_design_i.clk2x_gate_s_axi_control_0.inner_arvalid,
+			dut.finn_design_i.clk2x_gate_m_axi_gmem0.inner_rvalid,
+			dut.finn_design_i.clk2x_gate_m_axi_gmem1.inner_bvalid
+		} !== '0) begin
+			$error("Transfer reaches the design while it is in reset.");
+			GateErrCnt++;
 		end
 	end
 
@@ -187,11 +186,11 @@ module clk2x_gate_tb;
 		{gmem0.rvalid, gmem0.bvalid, gmem1.rvalid, gmem1.bvalid} = '1;
 
 		// First reset and lock: transfers offered while ap_rst_n is still asserted
-		repeat(8) @(posedge clk);
+		@(posedge clk iff !ap_rst_n);
 		fork
 			axil_write(ctl0, ADDR, 32'hCAFE_0000);
 			begin
-				logic [31:0]  sig;
+				automatic logic [31:0]  sig;
 				axil_read(info, 0, sig);
 			end
 			begin
@@ -225,6 +224,7 @@ module clk2x_gate_tb;
 			ErrCnt++;
 		end
 		$display("Observed %0d cycles with gated interfaces.", GatedCycles);
+		ErrCnt += GateErrCnt;
 		if(ErrCnt == 0)  $display("clk2x_gate_tb PASSED");
 		else             $display("clk2x_gate_tb FAILED: %0d errors", ErrCnt);
 		$finish;

@@ -67,7 +67,7 @@ module fmpadding #(
 	output	logic  m_axis_tvalid,
 	output	logic [STREAM_BITS-1:0]  m_axis_tdata
 );
-	`default_nettype none
+`default_nettype none
 
 	uwire  clk = ap_clk;
 	uwire  rst = !ap_rst_n;
@@ -156,7 +156,7 @@ module fmpadding #(
 		.irdy(s_axis_tready), .ivld(s_axis_tvalid), .idat(s_axis_tdata[DATA_BITS-1:0]),
 		.ordy(m_axis_tready), .ovld(m_axis_tvalid), .odat
 	);
-	assign	m_axis_tdata = STREAM_BITS'(odat);
+	assign	m_axis_tdata = odat;
 
-	`default_nettype wire
+`default_nettype wire
 endmodule : fmpadding
