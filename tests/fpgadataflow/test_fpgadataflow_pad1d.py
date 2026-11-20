@@ -162,6 +162,14 @@ def expected_resources(pad_left, pad_right):
             ),
             id="FLOAT32-fractional",
         ),
+        pytest.param(
+            (
+                DataType["FLOAT16"],
+                np.asarray([[[0.5, -1.5, 2.25, -0.125]]], dtype=np.float32),
+                np.asarray([[[3.5, -4.0, 0.75, 1.125]]], dtype=np.float32),
+            ),
+            id="FLOAT16-fractional",
+        ),
     ],
 )
 # execution mode
@@ -323,17 +331,12 @@ def test_fpgadataflow_analytical_characterization_pad1d(config, eager):
         num_tokens, num_channels, simd, pad_left, pad_right, DataType["INT8"], eager
     )
 
-    # The schedule is exact: same period, same token counts, same phase. What is
-    # left is the output register between reading a word and writing it, worth at
-    # most one token of cumulative divergence. That is a fixed cost, not a
-    # proportional one -- the last config's frame is two orders of magnitude
-    # longer than the first's and diverges by no more -- so the budget is a
-    # single-digit floor with a fraction that only matters if the error ever
-    # starts scaling.
-    max_allowed_volume_frac = 0.005
-    volume_const = 2
-    max_allowed_length_frac = 0.005
-    length_const = 2
+    # The schedule is exact for both Eager settings, including the read-ahead of
+    # the sidestep register and the phase of the stored window, so no tolerance.
+    max_allowed_volume_frac = 0
+    volume_const = 0
+    max_allowed_length_frac = 0
+    length_const = 0
 
     assert tree_model_test(
         model,
@@ -459,43 +462,42 @@ def test_pad1d_finnloop(eager, restore_eager):
         return model
 
     output_dir = make_build_dir("build_pad1d_finnloop_")
-    try:
-        np.save(output_dir + "/input.npy", x)
-        np.save(output_dir + "/expected_output.npy", y)
-        model.save(output_dir + "/model.onnx")
-        cfg = build_cfg.DataflowBuildConfig(
-            output_dir=output_dir,
-            steps=[
-                "phase_convert_to_hardware",
-                *([step_restore_pad_eager] if restore_eager else []),
-                "phase_optimize_hardware",
-                "phase_build_hardware",
-                "phase_generate_outputs",
-            ],
-            synth_clk_period_ns=10.0,
-            board="V80",
-            mlo=True,
-            loop_body_hierarchy=[["", "layers.0"]],
-            loop_body_range=(model.graph.node[1], model.graph.node[2]),
-            auto_fifo_depths=False,
-            mute_config_assertions=True,
-            verify_steps=["stitched_ip_rtlsim"],
-            verify_input_npy=output_dir + "/input.npy",
-            verify_expected_output_npy=output_dir + "/expected_output.npy",
-            verify_batch_size=batch,
-            enable_build_pdb_debug=False,
-            generate_outputs=[build_cfg.DataflowOutputType.STITCHED_IP],
-        )
-        assert build.build_dataflow_cfg(output_dir + "/model.onnx", cfg) == 0
-        # a SUCCESS file only exists if all sequences matched in one stitched-IP rtlsim run
-        assert os.listdir(output_dir + "/verification_output") == [
-            "verify_stitched_ip_rtlsim_0_SUCCESS.npy"
-        ]
-        if not restore_eager:
-            # the pad in front of the loop was built lazy, whatever it was configured to
-            built = ModelWrapper(output_dir + "/intermediate_models/phase_generate_outputs.onnx")
-            pads = built.get_nodes_by_op_type("Pad1D_rtl")
-            assert len(pads) == 1
-            assert getCustomOp(pads[0]).get_nodeattr("Eager") == 0
-    finally:
-        robust_rmtree(output_dir)
+    np.save(output_dir + "/input.npy", x)
+    np.save(output_dir + "/expected_output.npy", y)
+    model.save(output_dir + "/model.onnx")
+    cfg = build_cfg.DataflowBuildConfig(
+        output_dir=output_dir,
+        steps=[
+            "phase_convert_to_hardware",
+            *([step_restore_pad_eager] if restore_eager else []),
+            "phase_optimize_hardware",
+            "phase_build_hardware",
+            "phase_generate_outputs",
+        ],
+        synth_clk_period_ns=10.0,
+        board="V80",
+        mlo=True,
+        loop_body_hierarchy=[["", "layers.0"]],
+        loop_body_range=(model.graph.node[1], model.graph.node[2]),
+        auto_fifo_depths=False,
+        mute_config_assertions=True,
+        verify_steps=["stitched_ip_rtlsim"],
+        verify_input_npy=output_dir + "/input.npy",
+        verify_expected_output_npy=output_dir + "/expected_output.npy",
+        verify_batch_size=batch,
+        enable_build_pdb_debug=False,
+        generate_outputs=[build_cfg.DataflowOutputType.STITCHED_IP],
+    )
+    assert build.build_dataflow_cfg(output_dir + "/model.onnx", cfg) == 0
+    # a SUCCESS file only exists if all sequences matched in one stitched-IP rtlsim run
+    assert os.listdir(output_dir + "/verification_output") == [
+        "verify_stitched_ip_rtlsim_0_SUCCESS.npy"
+    ]
+    if not restore_eager:
+        # the pad in front of the loop was built lazy, whatever it was configured to
+        built = ModelWrapper(output_dir + "/intermediate_models/phase_generate_outputs.onnx")
+        pads = built.get_nodes_by_op_type("Pad1D_rtl")
+        assert len(pads) == 1
+        assert getCustomOp(pads[0]).get_nodeattr("Eager") == 0
+    # kept on failure for diagnosis
+    robust_rmtree(output_dir)
