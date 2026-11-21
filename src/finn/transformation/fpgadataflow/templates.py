@@ -35,7 +35,6 @@ if {$NUM_AXILITE > 9} {
     error "Maximum 10 AXI-Lite interfaces supported"
 }
 set NUM_AXIMM @NUM_AXIMM@
-set USE_CLK2X @USE_CLK2X@
 set BOARD @BOARD@
 set FPGA_PART @FPGA_PART@
 create_project finn_link ./finn_link -part $FPGA_PART
@@ -108,32 +107,12 @@ if {$ZYNQ_TYPE == "zynq_us+"} {
     puts "Unrecognized Zynq type"
 }
 
-#PL clock: the PS clock, or, for double-pumped kernels, the 1x output of a clock
-#wizard fed by it. ap_clk2x must be phase-aligned with ap_clk, so both come from
-#the same MMCM and everything else in the PL runs on the 1x output.
+#PL clock: the PS clock. Double-pumped kernels derive their ap_clk2x from it
+#internally (CreateStitchedIP clk2x_gen).
 if {$ZYNQ_TYPE == "zynq_us+"} {
-    set ps_clk /zynq_ps/pl_clk0
+    set pl_clk /zynq_ps/pl_clk0
 } else {
-    set ps_clk /zynq_ps/FCLK_CLK0
-}
-if {$USE_CLK2X == 1} {
-    set clk_wiz_vlnv [get_property VLNV [get_ipdefs "xilinx.com:ip:clk_wiz:*"]]
-    create_bd_cell -type ip -vlnv $clk_wiz_vlnv clk_wiz_finn
-    set_property -dict [list \
-        CONFIG.PRIM_SOURCE {No_buffer} \
-        CONFIG.USE_RESET {false} \
-        CONFIG.USE_LOCKED {true} \
-        CONFIG.NUM_OUT_CLKS {2} \
-        CONFIG.CLKOUT2_USED {true} \
-        CONFIG.CLKOUT1_REQUESTED_OUT_FREQ $FREQ_MHZ \
-        CONFIG.CLKOUT2_REQUESTED_OUT_FREQ [expr 2*$FREQ_MHZ] \
-        CONFIG.CLKOUT1_REQUESTED_PHASE {0} \
-        CONFIG.CLKOUT2_REQUESTED_PHASE {0} \
-    ] [get_bd_cells clk_wiz_finn]
-    connect_bd_net [get_bd_pins $ps_clk] [get_bd_pins clk_wiz_finn/clk_in1]
-    set pl_clk /clk_wiz_finn/clk_out1
-} else {
-    set pl_clk $ps_clk
+    set pl_clk /zynq_ps/FCLK_CLK0
 }
 
 #instantiate axi interconnect, axi smartconnect
@@ -404,4 +383,47 @@ vitis_gen_xml_report_tcl_template = """
 open_project $VITIS_PROJ_PATH$/_x/link/vivado/vpl/prj/prj.xpr
 open_run impl_1
 report_utilization -hierarchical -hierarchical_depth 5 -file $VITIS_PROJ_PATH$/synth_report.xml -format xml
+"""
+
+
+# OPT_DESIGN pre-hook of VitisLink:
+# - constrain the kernel clock 0 of an Alveo platform (output of the UCS MMCM) to
+#   @F_MHZ@ MHz relative to the MMCM's reference clock, replacing the generated clock
+#   that v++ derived. Leaves a correct constraint and platforms without this clock
+#   alone.
+# - put the 1x and 2x clocks of each kernel-internal clock generator (CreateStitchedIP
+#   clk2x_gen) into a CLOCK_DELAY_GROUP of their own. The kernels carry this
+#   constraint, but Vivado does not read the implementation XDC of kernels packaged as
+#   synthesized checkpoints ("[Designutils 20-1275] Could not find cell 'inst'") and
+#   uses it instead of the constraints in their checkpoints.
+vitis_kernel_clk_tcl = """
+proc finn_gcd {a b} { while {$b} { set t $b; set b [expr {$a % $b}]; set a $t }; return $a }
+set kpin [get_pins -quiet -hierarchical -filter {NAME =~ */ulp_ucs/aclk_kernel_00}]
+set kclk [get_clocks -quiet -of_objects $kpin]
+set target_ns [expr {1000.0 / @F_MHZ@}]
+if {[llength $kclk] != 1 || ![get_property IS_GENERATED $kclk]} {
+    puts "INFO: \\[FINN\\] no generated Alveo kernel clock 0 found: constraints unchanged"
+} elseif {abs([get_property PERIOD $kclk] - $target_ns) < 0.001} {
+    puts "INFO: \\[FINN\\] kernel clock $kclk already constrained to $target_ns ns"
+} else {
+    set period [get_property PERIOD $kclk]
+    set src [get_property SOURCE $kclk]
+    set out [get_property SOURCE_PINS $kclk]
+    set ref_ns [get_property PERIOD [get_clocks -of_objects [get_pins $src]]]
+    set ref_khz [expr {round(1e6 / $ref_ns)}]
+    set f_khz [expr {round(@F_MHZ@ * 1000)}]
+    set g [finn_gcd $f_khz $ref_khz]
+    set ratio [list -multiply_by [expr {$f_khz / $g}] -divide_by [expr {$ref_khz / $g}]]
+    create_generated_clock -name [get_property NAME $kclk] {*}$ratio -source [get_pins $src] [get_pins $out]
+    set kclk [get_clocks -of_objects $kpin]
+    puts "INFO: \\[FINN\\] kernel clock $kclk re-constrained from $period ns to [get_property PERIOD $kclk] ns"
+}
+set n 0
+foreach gen [get_cells -quiet -hierarchical -filter {NAME =~ */clk2x_gen && IS_PRIMITIVE == 0}] {
+    set nets [get_nets -quiet -of_objects [get_pins -quiet $gen/clk_out*]]
+    if {[llength $nets] == 2} {
+        set_property CLOCK_DELAY_GROUP finn_clk2x_[incr n] $nets
+        puts "INFO: \\[FINN\\] clock generator $gen: CLOCK_DELAY_GROUP finn_clk2x_$n"
+    }
+}
 """

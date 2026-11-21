@@ -3,13 +3,15 @@
 
 """Double-pumped designs: propagation of the phase-aligned 2x clock ap_clk2x.
 
-Covered here, at the top level of a stitched IP and in the Zynq shell:
+Covered here, for a stitched IP with an ap_clk2x input:
 - the generic detection of nodes needing ap_clk2x (their "clk2x" interface),
 - stitched-IP rtlsim of MVAUs with pumpedCompute and/or pumpedMemory next to
   non-pumped nodes (internal_decoupled and dynamic weights),
-- the clock wizard of the Zynq shell (full bitfile),
-- the early rejection of configurations and shell flows that cannot drive
+- the early rejection of configurations and shell flows that cannot provide
   ap_clk2x.
+
+The internal ap_clk2x generator of the stitched IP and the shell flows built on
+it are covered by test_fpgadataflow_clk2x_gen.py.
 
 Pumped MVAUs inside FINNLoop bodies (fetch-weights MVAU with pumpedCompute) are
 covered by the MLO end-to-end tests in test_fpgadataflow_finnloop.py.
@@ -19,7 +21,6 @@ import pytest
 
 import json
 import numpy as np
-import os
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -305,36 +306,6 @@ def _bd_nets(bd_file):
     return {name: set(net["ports"]) for name, net in design.get("nets", {}).items()}
 
 
-@pytest.mark.parametrize("board", ["AUP-ZU3_8GB"])
-@pytest.mark.fpgadataflow
-@pytest.mark.vivado
-@pytest.mark.slow
-def test_fpgadataflow_clk2x_zynq_bitfile(board):
-    """Full Zynq bitfile of the pumped MVAU chain: the shell derives the PL clock
-    and ap_clk2x from one clock wizard and the design meets timing."""
-    model = make_pumped_chain_model()
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(PYNQBuild(board, 10))
-    proj_dir = model.get_metadata_prop("vivado_pynq_proj")
-    assert os.path.isfile(model.get_metadata_prop("bitfile"))
-
-    with open(proj_dir + "/ip_config.tcl") as f:
-        assert "set USE_CLK2X 1" in f.read()
-    bd_file = proj_dir + "/finn_link/finn_link.srcs/sources_1/bd/finn_link/finn_link.bd"
-    nets = _bd_nets(bd_file)
-    clk_x1 = [n for n in nets.values() if "clk_wiz_finn/clk_out1" in n]
-    clk_x2 = [n for n in nets.values() if "clk_wiz_finn/clk_out2" in n]
-    locked = [n for n in nets.values() if "clk_wiz_finn/locked" in n]
-    assert len(clk_x1) == 1 and len(clk_x2) == 1, nets
-    # all kernels on clk_out1, the pumped one's ap_clk2x on clk_out2
-    assert any(p.endswith("/ap_clk") for p in clk_x1[0])
-    assert any(p.endswith("/ap_clk2x") for p in clk_x2[0]), clk_x2
-    # the PL reset is held until the MMCM has locked
-    assert locked and any("dcm_locked" in p for p in locked[0]), locked
-    with open(model.get_metadata_prop("vivado_timing_rpt")) as f:
-        assert "All user specified timing constraints are met." in f.read()
-
-
 @pytest.mark.parametrize("body_clk2x", [[], ["ap_clk2x"]])
 @pytest.mark.fpgadataflow
 def test_finnloop_propagates_optional_clk2x(body_clk2x):
@@ -393,6 +364,31 @@ def test_stitcher_detects_clk2x_by_interface():
     assert "make_bd_pins_external [get_bd_pins B/ap_clk2x]" in cmds
     assert "connect_bd_net [get_bd_ports ap_clk2x] [get_bd_pins C/ap_clk2x]" in cmds
     assert stitcher.intf_names["clk2x"] == ["ap_clk2x"]
+
+    # with the internal clock generator, its clock domain drives all clocks
+    stitcher = CreateStitchedIP(versal_part, clk_ns, clk2x_gen=True)
+    stitcher.clk2x_gen_active = True
+    with patch(
+        "finn.transformation.fpgadataflow.create_stitched_ip.getCustomOp",
+        side_effect=get_custom_op,
+    ):
+        for node in nodes:
+            stitcher.connect_clk_rst(node)
+    cmds = stitcher.connect_cmds
+    assert not [c for c in cmds if "get_bd_ports" in c or "external" in c]
+    for name in "ABC":
+        assert (
+            "connect_bd_net [get_bd_pins clk2x_domain/clk] [get_bd_pins %s/ap_clk]" % name in cmds
+        )
+        assert (
+            "connect_bd_net [get_bd_pins clk2x_domain/rst_n] [get_bd_pins %s/ap_rst_n]" % name
+            in cmds
+        )
+    assert [c for c in cmds if "clk2x_domain/clk2x" in c] == [
+        "connect_bd_net [get_bd_pins clk2x_domain/clk2x] [get_bd_pins %s/ap_clk2x]" % name
+        for name in "BC"
+    ]
+    assert "clk2x" not in stitcher.intf_names
 
 
 def make_single_mvau_model(name="mvau", **attrs):
@@ -494,8 +490,9 @@ def test_shell_flows_reject_clk2x():
     pumped = make_single_mvau_model(pumpedCompute=1, mem_mode="internal_decoupled")
     plain = make_single_mvau_model(mem_mode="internal_decoupled")
 
-    with pytest.raises(Exception, match="vitis-xrt.*mvau"):
-        PrepareForLinking(versal_part, clk_ns, "vitis-xrt").apply(pumped)
+    # SLASH and the Versal golden-reference shell support no double pumping
+    with pytest.raises(Exception, match="slash-vrt.*mvau"):
+        PrepareForLinking(versal_part, clk_ns, "slash-vrt").apply(pumped)
     with pytest.raises(Exception, match="slash-vrt.*mvau"):
         SlashLink().apply(pumped.transform(CreateDataflowPartition()))
     with pytest.raises(Exception, match="Versal shell.*mvau"):
@@ -504,18 +501,34 @@ def test_shell_flows_reject_clk2x():
         PYNQBuild("VCK190", 10).apply(pumped)
     check_versal_shell_clk2x(plain, "VCK190")
 
-    # the builder check, per board: only the Zynq shell drives ap_clk2x
+    # the builder check, per board and ap_clk2x source: with the internal clock
+    # generator, the Zynq and Vitis flows support double pumping (Vitis at an
+    # integer frequency in MHz); with an ap_clk2x input only Vitis does, given
+    # the platform clocks
+    gen, ext = build_cfg.Clk2xSource.GENERATOR, build_cfg.Clk2xSource.EXTERNAL
     out_dir = make_build_dir("test_clk2x_shell_")
-    for board, supported in [("AUP-ZU3_8GB", True), ("VCK190", False), ("U55C", False)]:
+    for board, period, source, ids, supported in [
+        ("AUP-ZU3_8GB", 10.0, gen, None, True),
+        ("AUP-ZU3_8GB", 3.0, gen, None, True),
+        ("AUP-ZU3_8GB", 10.0, ext, None, False),
+        ("U55C", 10.0, gen, None, True),
+        ("U55C", 3.0, gen, None, False),
+        ("U55C", 10.0, ext, None, False),
+        ("U55C", 10.0, ext, [2, 1], True),
+        ("VCK190", 10.0, gen, None, False),
+        ("V80", 10.0, gen, None, False),
+    ]:
         for outputs, requested in [
             ([build_cfg.DataflowOutputType.BITFILE], True),
             ([build_cfg.DataflowOutputType.STITCHED_IP], False),
         ]:
             cfg = build_cfg.DataflowBuildConfig(
                 output_dir=out_dir,
-                synth_clk_period_ns=10.0,
+                synth_clk_period_ns=period,
                 board=board,
                 generate_outputs=outputs,
+                clk2x_source=source,
+                vitis_clk2x_clock_ids=ids,
             )
             check_shell_clk2x_support(plain, cfg)
             if supported or not requested:

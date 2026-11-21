@@ -67,17 +67,19 @@ def _check_vitis_envvars():
 
 
 def check_no_clk2x(model: ModelWrapper, flow: str):
-    """Reject double-pumped designs for the Vitis and SLASH link flows.
+    """Reject double-pumped designs for a link flow that does not support them
+    (SLASH).
 
-    A kernel's ap_clk2x must be phase-aligned with its ap_clk. The platforms
-    only offer kernel clocks that are not guaranteed to be (the second Vitis
-    kernel clock ap_clk_2 is independent), and FINN has no in-kernel clock
-    generation, so ap_clk2x would be left undriven.
+    A kernel's ap_clk2x must be phase-aligned with its ap_clk. The SLASH
+    platform offers no such clock pair. The internal clock generator of the
+    stitched IP (CreateStitchedIP clk2x_gen) is the intended path, but has not
+    been verified with this flow.
     """
     clk2x_nodes = find_clk2x_nodes(model)
     if clk2x_nodes:
         raise Exception(
-            "The %s flow provides no phase-aligned 2x kernel clock, but these "
+            "The %s flow does not support double-pumped kernels yet (a kernel-internal "
+            "ap_clk2x generator is the intended path, but unverified), but these "
             "nodes need ap_clk2x (pumpedCompute/pumpedMemory): %s. Disable clock "
             "pumping for this flow." % (flow, ", ".join(clk2x_nodes))
         )
@@ -220,6 +222,10 @@ class PrepareForLinking(Transformation):
     :parameter floorplan_file: path to a JSON containing a dictionary with
         SLR assignments for each node in the ONNX graph.
         Must be parse-able by the ApplyConfig transform.
+    :parameter clk2x_gen: whether kernels with double-pumped nodes derive their
+        ap_clk2x from ap_clk by an internal clock generator (see CreateStitchedIP).
+        Otherwise, such kernels have an ap_clk2x input, which VitisLink maps to a
+        platform clock (clk2x_clock_ids). SLASH supports no double-pumped kernels.
     """
 
     def __init__(
@@ -229,6 +235,7 @@ class PrepareForLinking(Transformation):
         platform,
         floorplan_file=None,
         partition_model_dir=None,
+        clk2x_gen=True,
     ):
         super().__init__()
         self.fpga_part = fpga_part
@@ -236,11 +243,13 @@ class PrepareForLinking(Transformation):
         self.platform = platform
         self.floorplan_file = floorplan_file
         self.partition_model_dir = partition_model_dir
+        self.clk2x_gen = clk2x_gen
 
     def apply(self, model):
         if self.platform not in ["vitis-xrt", "slash-vrt"]:
             raise Exception(f"Unknown platform {self.platform}")
-        check_no_clk2x(model, self.platform)
+        if self.platform == "slash-vrt":
+            check_no_clk2x(model, self.platform)
 
         # prepare at global level, then break up into kernels
         prep_transforms = [InsertIODMA(512), InsertDWC(), SpecializeLayers(self.fpga_part)]
@@ -273,7 +282,11 @@ class PrepareForLinking(Transformation):
             kernel_model = kernel_model.transform(HLSSynthIP())
             kernel_model = kernel_model.transform(
                 CreateStitchedIP(
-                    self.fpga_part, self.period_ns, sdp_node.onnx_node.name, run_synth=True
+                    self.fpga_part,
+                    self.period_ns,
+                    sdp_node.onnx_node.name,
+                    run_synth=True,
+                    clk2x_gen=self.clk2x_gen,
                 )
             )
             if self.platform == "vitis-xrt":
@@ -288,6 +301,12 @@ class PrepareForLinking(Transformation):
 class VitisLink(Transformation):
     """Create an XCLBIN with Vitis.
 
+    All kernels run on kernel clock 0 at round(1000 / period_ns) MHz. Kernels with
+    an internal clock generator (CreateStitchedIP clk2x_gen) must have been stitched
+    for this frequency. Kernels with an ap_clk2x input need clk2x_clock_ids: the ids
+    of two phase-aligned platform clocks for ap_clk and ap_clk2x, which then replace
+    kernel clock 0 for all kernels.
+
     Outcome if successful: sets the "bitfile" and "vivado_synth_rpt" attribute in the ONNX
     ModelProto's metadata_props field with the XCLBIN's and Vivado synthesis report's
     full path as value.
@@ -299,18 +318,51 @@ class VitisLink(Transformation):
         period_ns,
         strategy=VitisOptStrategy.PERFORMANCE,
         enable_debug=False,
+        clk2x_clock_ids=None,
     ):
         super().__init__()
         self.vitis_platform = vitis_platform
         self.f_mhz = round(1000 / period_ns)
         self.strategy = strategy
         self.enable_debug = enable_debug
+        self.clk2x_clock_ids = clk2x_clock_ids
+
+    def check_kernel_clocks(self, model: ModelWrapper) -> bool:
+        """Check, before the (hours-long) link, that the kernels' clocks can be
+        provided. Returns whether some kernel has an internal clock generator."""
+        has_clkgen = False
+        for node in model.graph.node:
+            kernel = ModelWrapper(getCustomOp(node).get_nodeattr("model"))
+            ifnames = json.loads(kernel.get_metadata_prop("vivado_stitch_ifnames") or "{}")
+            if ifnames.get("clk2x") and self.clk2x_clock_ids is None:
+                raise Exception(
+                    "Kernel %s has an ap_clk2x input, which needs a phase-aligned pair of "
+                    "platform clocks (clk2x_clock_ids). Otherwise, stitch it with the "
+                    "internal clock generator (clk2x_gen)." % node.name
+                )
+            f_gen = kernel.get_metadata_prop("clk2x_gen_freq_mhz")
+            if f_gen is not None:
+                has_clkgen = True
+                # v++ takes the kernel frequency in integer MHz
+                if abs(float(f_gen) - self.f_mhz) > 0.01:
+                    raise Exception(
+                        "Kernel %s derives ap_clk2x from an ap_clk of %s MHz, but the "
+                        "link targets %d MHz: choose a clock period with an integer "
+                        "frequency in MHz." % (node.name, f_gen, self.f_mhz)
+                    )
+        if has_clkgen and self.clk2x_clock_ids is not None:
+            raise Exception(
+                "Kernels with an internal clock generator run on kernel clock 0, "
+                "not on the platform clocks clk2x_clock_ids."
+            )
+        return has_clkgen
 
     def apply(self, model):
         _check_vitis_envvars()
-        check_no_clk2x(model, "vitis-xrt")
+        has_clkgen = self.check_kernel_clocks(model)
         # create a config file and empty list of xo files
         config = ["[connectivity]"]
+        clock_config = []
         object_files = []
         idma_idx = 0
         odma_idx = 0
@@ -350,6 +402,12 @@ class VitisLink(Transformation):
                 instance_names[node.name] = node.name
                 config.append("nk=%s:1:%s" % (node.name, instance_names[node.name]))
             sdp_node.set_nodeattr("instance_name", instance_names[node.name])
+            if self.clk2x_clock_ids is not None:
+                ifnames = json.loads(kernel_model.get_metadata_prop("vivado_stitch_ifnames"))
+                clk_id, clk2x_id = self.clk2x_clock_ids
+                clock_config.append("id=%d:%s.ap_clk" % (clk_id, instance_names[node.name]))
+                if ifnames.get("clk2x"):
+                    clock_config.append("id=%d:%s.ap_clk2x" % (clk2x_id, instance_names[node.name]))
             # explicitly assign SLRs if the slr attribute is not -1
             node_slr = sdp_node.get_nodeattr("slr")
             if node_slr != -1:
@@ -402,14 +460,36 @@ class VitisLink(Transformation):
         link_dir = make_build_dir(prefix="vitis_link_proj_")
         model.set_metadata_prop("vitis_link_proj", link_dir)
 
+        if clock_config:
+            config += ["[clock]"] + clock_config
+
+        vivado_props = []
+        if self.clk2x_clock_ids is None:
+            # Vitis (2024.2 to 2026.1 at least) fails to derive the constraint of the
+            # kernel clock on (non-Versal) Alveo platforms: its clock wizard helper
+            # gets the project instead of the part ("[Ip 78-110] Invalid part string
+            # Project") and the kernel clock is constrained to the 100 MHz reference
+            # of its MMCM. Re-constrain it to f_mhz before opt_design.
+            clk_hook = link_dir + "/finn_kernel_clk.tcl"
+            with open(clk_hook, "w") as f:
+                f.write(templates.vitis_kernel_clk_tcl.replace("@F_MHZ@", str(self.f_mhz)))
+            vivado_props.append("run.impl_1.STEPS.OPT_DESIGN.TCL.PRE=%s" % clk_hook)
         # add Vivado physopt directives if desired
         if self.strategy == VitisOptStrategy.PERFORMANCE_BEST:
-            config.append("[vivado]")
-            config.append("prop=run.impl_1.STEPS.OPT_DESIGN.ARGS.DIRECTIVE=ExploreWithRemap")
-            config.append("prop=run.impl_1.STEPS.PLACE_DESIGN.ARGS.DIRECTIVE=Explore")
-            config.append("prop=run.impl_1.STEPS.PHYS_OPT_DESIGN.IS_ENABLED=true")
-            config.append("prop=run.impl_1.STEPS.PHYS_OPT_DESIGN.ARGS.DIRECTIVE=Explore")
-            config.append("prop=run.impl_1.STEPS.ROUTE_DESIGN.ARGS.DIRECTIVE=Explore")
+            vivado_props += [
+                "run.impl_1.STEPS.OPT_DESIGN.ARGS.DIRECTIVE=ExploreWithRemap",
+                "run.impl_1.STEPS.PLACE_DESIGN.ARGS.DIRECTIVE=Explore",
+                "run.impl_1.STEPS.PHYS_OPT_DESIGN.IS_ENABLED=true",
+                "run.impl_1.STEPS.PHYS_OPT_DESIGN.ARGS.DIRECTIVE=Explore",
+                "run.impl_1.STEPS.ROUTE_DESIGN.ARGS.DIRECTIVE=Explore",
+            ]
+        if vivado_props:
+            config += ["[vivado]"] + ["prop=" + prop for prop in vivado_props]
+        if has_clkgen:
+            # the clock generators are configured for f_mhz: let v++ fail rather
+            # than lower the kernel clock if timing fails
+            config.append("[advanced]")
+            config.append("param=compiler.enableAutoFrequencyScaling=false")
 
         config = "\n".join(config) + "\n"
         with open(link_dir + "/config.txt", "w") as f:
@@ -429,10 +509,10 @@ class VitisLink(Transformation):
         script = link_dir + "/run_vitis_link.sh"
         command = ["v++", "-t", "hw", "--platform", self.vitis_platform, "--link"]
         command.extend(object_files)
+        if self.clk2x_clock_ids is None:
+            command.extend(["--kernel_frequency", str(self.f_mhz)])
         command.extend(
             [
-                "--kernel_frequency",
-                str(self.f_mhz),
                 "--config",
                 "config.txt",
                 "--optimize",
