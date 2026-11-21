@@ -25,8 +25,10 @@ an ``ap_clk2x`` input (see `External ap_clk2x`_). If one of its nodes needs
 (``clk2x_gen=True``) instantiates a clock generator fed by ``ap_clk``, and the IP
 exposes only ``ap_clk`` and ``ap_rst_n`` (see ``finn-rtllib/clk2x_gen``):
 
-* A Clocking Wizard MMCM (``clk_wiz`` on 7-series and UltraScale(+),
-  ``clk_wizard`` on Versal) generates the 1x and the 2x clock. The whole design
+* An MMCM generates the 1x and the 2x clock. ``clk2x_domain.v`` instantiates the
+  primitive of the device family directly (``MMCME2_ADV``, ``MMCME3_ADV``,
+  ``MMCME4_ADV`` or ``MMCME5``), without the Clocking Wizard IP, so the generator
+  does not depend on the IP versions of a Vivado installation. The whole design
   logic runs on the 1x output, which reproduces ``ap_clk`` (same frequency and
   phase), the pumped parts on the 2x output.
 * The MMCM is configured for an ``ap_clk`` of ``1000/synth_clk_period_ns`` MHz.
