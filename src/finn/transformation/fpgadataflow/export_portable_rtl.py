@@ -16,8 +16,14 @@ class ExportPortableRTL(Transformation):
 
     This transformation copies all Verilog source files and memory initialization
     files (.dat) to a single directory structure with relative paths, suitable for
-    use in external simulators (QuestaSim, ModelSim, Verilator) or non-IPI Vivado
+    use in external simulators (QuestaSim, ModelSim) or non-IPI Vivado
     projects.
+
+    The export is the synthesizable design. If the stitched IP has an internal
+    ap_clk2x generator (CreateStitchedIP clk2x_gen), its clock domain module
+    (clk2x_domain.v) also holds the ideal clock model used in simulation, selected
+    by the SYNTHESIS macro, and the generator's clock constraint is exported to
+    constraints/clk2x_gen.xdc. The README describes both.
 
     Parameters
     ----------
@@ -145,10 +151,17 @@ class ExportPortableRTL(Transformation):
         # 3. Rewrite absolute paths in all src Verilog files
         self._rewrite_verilog_paths(src_dir, dat_mapping)
 
-        # 4. Generate file lists
+        # 4. Constraints of an internal ap_clk2x generator
+        clk2x_gen_xdc = os.path.join(vivado_stitch_proj, "clk2x_gen.xdc")
+        has_clk2x_gen = os.path.isfile(clk2x_gen_xdc)
+        if has_clk2x_gen:
+            os.makedirs(os.path.join(self.export_dir, "constraints"), exist_ok=True)
+            shutil.copy2(clk2x_gen_xdc, os.path.join(self.export_dir, "constraints"))
+
+        # 5. Generate file lists
         self._generate_filelist_f(all_rtl_files)
         self._generate_sources_tcl(all_rtl_files)
-        self._generate_readme()
+        self._generate_readme(has_clk2x_gen)
 
         return (model, False)
 
@@ -216,13 +229,12 @@ class ExportPortableRTL(Transformation):
                             file.write(content)
 
     def _generate_filelist_f(self, rtl_files):
-        """Generate filelist.f for Verilator/QuestaSim/ModelSim."""
+        """Generate filelist.f for QuestaSim/ModelSim."""
         filelist_path = os.path.join(self.export_dir, "filelist.f")
         with open(filelist_path, "w") as f:
             f.write("// FINN Portable RTL Export - File List\n")
-            f.write("// For use with Verilator, QuestaSim, ModelSim\n")
-            f.write("// Usage: verilator -f filelist.f --top-module finn_design_wrapper\n")
-            f.write("//        vlog -f filelist.f\n\n")
+            f.write("// For use with QuestaSim, ModelSim\n")
+            f.write("// Usage: vlog -f filelist.f\n\n")
 
             # Add include directories
             f.write("// Include directories\n")
@@ -261,7 +273,7 @@ class ExportPortableRTL(Transformation):
             f.write('    "${script_dir}/rtl/src" \\\n')
             f.write("] [current_fileset]\n")
 
-    def _generate_readme(self):
+    def _generate_readme(self, has_clk2x_gen=False):
         """Generate README with usage instructions."""
         readme_path = os.path.join(self.export_dir, "README.md")
         with open(readme_path, "w") as f:
@@ -279,10 +291,6 @@ class ExportPortableRTL(Transformation):
             f.write("└── README.md       # This file\n")
             f.write("```\n\n")
             f.write("## Usage\n\n")
-            f.write("### Verilator\n")
-            f.write("```bash\n")
-            f.write("verilator -f filelist.f --top-module finn_design_wrapper\n")
-            f.write("```\n\n")
             f.write("### QuestaSim / ModelSim\n")
             f.write("```bash\n")
             f.write("vlog -f filelist.f\n")
@@ -297,3 +305,16 @@ class ExportPortableRTL(Transformation):
             f.write("- All `$readmemh` paths have been converted to relative paths\n")
             f.write("- Memory initialization files (.dat) are in the data/ directory\n")
             f.write("- The design uses FINN's streaming dataflow architecture\n")
+            if has_clk2x_gen:
+                f.write(
+                    "\n## Internal ap_clk2x generator\n\n"
+                    "The design derives the clocks of its logic from ap_clk by a Clocking "
+                    "Wizard (MMCM, unisim primitives). `clk2x_domain.v` selects them by "
+                    "the `SYNTHESIS` macro:\n\n"
+                    "- defined (synthesis): the MMCM clocks.\n"
+                    "- undefined (simulation): ideal clocks derived from ap_clk, with the "
+                    "MMCM held in reset. Simulators still need the unisim library to "
+                    "compile the MMCM.\n\n"
+                    "For implementation, add `constraints/clk2x_gen.xdc`: it balances the "
+                    "clock trees of the 1x and 2x clocks.\n"
+                )

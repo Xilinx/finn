@@ -954,3 +954,42 @@ def test_requant_rtl_dsp_block_must_match_the_part():
     assert inst._dsp_version() == 2
     with pytest.raises(ValueError, match="specialized for DSP48E2"):
         inst._dsp_version("xcvc1902-vsva2197-2MP-e-S")
+
+
+@pytest.mark.fpgadataflow
+def test_check_uniform_thresholds():
+    """Uniform thresholds are recognised through their float32 noise, others are not.
+
+    The first gap carries the rounding of two thresholds, so a step taken from it
+    drifts over 255 steps. The least-squares step stays within float32 noise.
+    """
+    rng = np.random.default_rng(0)
+    num_channels, num_thresholds = 4, 255
+    step = rng.uniform(1000, 2000, num_channels)
+    first = rng.uniform(1e5, 2e5, num_channels)
+    idx = np.arange(num_thresholds)
+    # computed in float32, as streamlining does
+    first32, step32 = first.astype(np.float32), step.astype(np.float32)
+    thresholds = first32[:, None] + idx.astype(np.float32) * step32[:, None]
+
+    is_uniform, step_sizes, first_thresholds = to_hw._check_uniform_thresholds(thresholds)
+    assert is_uniform
+    assert np.allclose(step_sizes, step32, rtol=1e-6)
+    assert np.allclose(first_thresholds, first32, rtol=1e-6)
+
+    # rounded to integers with a non-integer step: not uniform (InferRequantLayer
+    # sees the float thresholds, it runs before RoundAndClipThresholds)
+    assert not to_hw._check_uniform_thresholds(np.ceil(thresholds))[0]
+    # one gap 0.5 % wider: not uniform
+    uneven = thresholds.copy()
+    uneven[:, 128:] += np.float32(0.005) * step32[:, None]
+    assert not to_hw._check_uniform_thresholds(uneven)[0]
+    # a single threshold is trivially uniform
+    assert to_hw._check_uniform_thresholds(thresholds[:, :1])[0]
+    # equal thresholds have no step to derive a scale from, also as the only such
+    # channel next to uniform ones; np.polyfit returns a tiny step of either sign
+    for ch in range(num_channels):
+        dead = thresholds.copy()
+        dead[ch] = first32[ch]
+        assert not to_hw._check_uniform_thresholds(dead)[0]
+        assert not to_hw._check_uniform_thresholds(dead[ch : ch + 1])[0]

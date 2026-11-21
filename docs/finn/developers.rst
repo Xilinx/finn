@@ -69,7 +69,7 @@ The finn.dev image is built and launched as follows:
 2. run-docker.sh launches the build of the Docker image with `docker build` (unless ``FINN_DOCKER_PREBUILT=1``). Docker image is built from docker/Dockerfile.finn using the following steps:
 
   * Base: Ubuntu 22.04 LTS image
-  * Set up apt dependencies: apt-get install a few packages for verilator and
+  * Set up apt dependencies: apt-get install the system packages FINN needs
   * Set up pip dependencies: Python packages FINN depends on are listed in requirements.txt, which is copied into the container and pip-installed. Some additional packages (such as Jupyter and Netron) are also installed.
   * Install XRT deps, if needed: For Vitis builds we need to install the extra dependencies for XRT. This is only triggered if the image is built with the INSTALL_XRT_DEPS=1 argument.
 

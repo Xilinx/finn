@@ -582,11 +582,20 @@ def create_chained_loop_bodies(
     return loop_body_models
 
 
-def assert_stitched_clk2x(build_dir):
-    """The pumped loop body exposes ap_clk2x, and so do the FINNLoop IP and the
-    top-level stitched IP (the wiring itself is verified by stitched-IP rtlsim)."""
+def assert_stitched_clk2x(build_dir, clk2x_gen):
+    """The pumped loop body exposes ap_clk2x, and so does the FINNLoop IP. The
+    top-level stitched IP derives it from ap_clk by its internal clock generator
+    if `clk2x_gen` (clk2x_source GENERATOR), else exposes an ap_clk2x input (the
+    default for the delivered stitched IP). The wiring itself is verified by
+    stitched-IP rtlsim."""
     model = ModelWrapper(build_dir + "/intermediate_models/step_create_stitched_ip.onnx")
-    assert json.loads(model.get_metadata_prop("vivado_stitch_ifnames"))["clk2x"] == ["ap_clk2x"]
+    ifnames = json.loads(model.get_metadata_prop("vivado_stitch_ifnames"))
+    if clk2x_gen:
+        assert "clk2x" not in ifnames
+        assert model.get_metadata_prop("clk2x_gen_freq_mhz") is not None
+    else:
+        assert ifnames["clk2x"] == ["ap_clk2x"]
+        assert model.get_metadata_prop("clk2x_gen_freq_mhz") is None
     for loop_node in model.get_nodes_by_op_type("FINNLoop"):
         loop = getCustomOp(loop_node)
         assert loop.get_verilog_top_module_intf_names()["clk2x"] == ["ap_clk2x"]
@@ -969,6 +978,9 @@ def test_finnloop_end2end_mlo(
         # positive here; target_fps would instead override the deliberate folding.
         mute_config_assertions=True,
         generate_outputs=generate_outputs,
+        # the stitched IP derives ap_clk2x by the internal clock generator, also
+        # covering its AXI-MM gating; the parallel MLO test keeps the default input
+        clk2x_source=build_cfg.Clk2xSource.GENERATOR,
     )
     build.build_dataflow_cfg(tmp_output_dir + "/mlo_model.onnx", cfg)
 
@@ -983,7 +995,7 @@ def test_finnloop_end2end_mlo(
         assert len(non_sdp_nodes) > 0, "Parent model has no non-SDP node to run"
 
     if pumped_compute:
-        assert_stitched_clk2x(tmp_output_dir)
+        assert_stitched_clk2x(tmp_output_dir, clk2x_gen=True)
 
     # check if expected files are there
     assert os.path.isfile(tmp_output_dir + "/loop-body-template.onnx")
@@ -1259,7 +1271,7 @@ def test_finnloop_end2end_mlo_parallel(
     build.build_dataflow_cfg(tmp_output_dir + "/mlo_model.onnx", cfg)
 
     if pumped_compute:
-        assert_stitched_clk2x(tmp_output_dir)
+        assert_stitched_clk2x(tmp_output_dir, clk2x_gen=False)
 
     # the parallel path writes one SUCCESS/FAIL file per iteration; assert every
     # iteration matched its golden frame (no FAIL files, one SUCCESS file each).

@@ -309,11 +309,15 @@ nonsquare_configs = [
 # scalar vs broadcasting tensor<> pad value construction
 @pytest.mark.parametrize("idt_pe", [(DataType["UINT4"], 2), (DataType["INT4"], 1)])
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+# emit the leading padding ahead of the first input (1) or only once it is available (0)
+@pytest.mark.parametrize("eager", [1, 0], ids=["eager", "lazy"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_convert_to_hw_maxpool_nonsquare(nonsquare_config, idt_pe, exec_mode):
+def test_convert_to_hw_maxpool_nonsquare(nonsquare_config, idt_pe, exec_mode, eager):
     ifm_h, ifm_w, kh, kw, sh, sw, pads = nonsquare_config
+    if not eager and not any(pads):
+        pytest.skip("Eager only applies to the padded kernel")
     idt, pe = idt_pe
     ifm_ch = 4
     ofm_h = (ifm_h + pads[0] + pads[2] - kh) // sh + 1
@@ -348,6 +352,7 @@ def test_convert_to_hw_maxpool_nonsquare(nonsquare_config, idt_pe, exec_mode):
     for n in new_model.graph.node:
         if n.op_type.startswith("Pool"):
             getCustomOp(n).set_nodeattr("PE", pe)
+            getCustomOp(n).set_nodeattr("Eager", eager)
 
     if exec_mode == "cppsim":
         new_model = new_model.transform(SetExecMode("cppsim"))
@@ -387,11 +392,15 @@ multiframe_configs = [
 
 @pytest.mark.parametrize("multiframe_config", multiframe_configs)
 @pytest.mark.parametrize("n_frames", [3])
+# emit the leading padding ahead of the first input (1) or only once it is available (0)
+@pytest.mark.parametrize("eager", [1, 0], ids=["eager", "lazy"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_pool_multiframe_rtlsim(multiframe_config, n_frames):
+def test_pool_multiframe_rtlsim(multiframe_config, n_frames, eager):
     ifm_h, ifm_w, kh, kw, sh, sw, pads, idt, pe = multiframe_config
+    if not eager and not any(pads):
+        pytest.skip("Eager only applies to the padded kernel")
     ifm_ch = 4
     fpga_part, clk_ns = "xc7z020clg400-1", 5
     ofm_h = (ifm_h + pads[0] + pads[2] - kh) // sh + 1
@@ -420,6 +429,7 @@ def test_pool_multiframe_rtlsim(multiframe_config, n_frames):
     model = model.transform(SpecializeLayers(fpga_part))
     inst = getCustomOp(model.get_nodes_by_op_type("Pool_hls")[0])
     inst.set_nodeattr("PE", pe)
+    inst.set_nodeattr("Eager", eager)
     inst.set_nodeattr("BatchSize", n_frames)
     # stream all frames through one IP instance: batch every tensor in the graph
     for vi in list(model.graph.input) + list(model.graph.value_info) + list(model.graph.output):
@@ -576,18 +586,24 @@ tree_model_pool_configs = [
     (7, 7, 4, 2, 2, 2, 2, [0, 0, 0, 0], 1),  # floor remainder (input-bound)
     (5, 5, 4, 3, 3, 2, 2, [1, 1, 1, 1], 2),  # padding
     (7, 5, 4, 3, 2, 2, 1, [1, 0, 1, 1], 2),  # asymmetric padding
+    (5, 5, 4, 3, 3, 2, 2, [0, 1, 0, 1], 4),  # left padding only, CF=1: lazy shift 1
+    (5, 5, 4, 3, 3, 2, 2, [0, 1, 0, 1], 2),  # left padding only, CF=2: lazy shift 2
     (7, 7, 16, 7, 7, 7, 7, [0, 0, 0, 0], 4),  # global
     (12, 9, 3, 5, 3, 2, 1, [0, 0, 0, 0], 3),  # overlap + remainder
 ]
 
 
 @pytest.mark.parametrize("config", tree_model_pool_configs)
+# emit the leading padding ahead of the first input (1) or only once it is available (0)
+@pytest.mark.parametrize("eager", [1, 0], ids=["eager", "lazy"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.node_tree_modeling
-def test_analytical_characterization_pool_fused(config):
+def test_analytical_characterization_pool_fused(config, eager):
     ifm_h, ifm_w, ch, kh, kw, sh, sw, pads, pe = config
+    if not eager and not any(pads):
+        pytest.skip("Eager only applies to the padded kernel")
     idt = DataType["UINT4"]
     part, target_clk_ns = "xczu7ev-ffvc1156-2-e", 5.0
     ofm_h = (ifm_h + pads[0] + pads[2] - kh) // sh + 1
@@ -607,6 +623,7 @@ def test_analytical_characterization_pool_fused(config):
     # single-node model around the (NHWC) Pool node
     pool = model.get_nodes_by_op_type("Pool")[0]
     getCustomOp(pool).set_nodeattr("PE", pe)
+    getCustomOp(pool).set_nodeattr("Eager", eager)
     i = helper.make_tensor_value_info(
         pool.input[0], TensorProto.FLOAT, model.get_tensor_shape(pool.input[0])
     )
@@ -620,7 +637,7 @@ def test_analytical_characterization_pool_fused(config):
 
     assert tree_model_test(
         single,
-        ("Pool fused",) + tuple(map(str, config)),
+        ("Pool fused",) + tuple(map(str, config)) + ("eager" if eager else "lazy",),
         part,
         target_clk_ns,
         max_allowed_volume_frac=0.0,

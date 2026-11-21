@@ -86,6 +86,8 @@ stitched IP kernels are first prepared by `PrepareForLinking` and then linked us
 `VitisLink` transformation (for UltraScale+-based Alveo cards) or the `SlashLink` transformation
 (for Versal-based Alveo cards such as the V80).
 
+.. note:: Kernels with double-pumped nodes derive their double-speed clock ``ap_clk2x`` from ``ap_clk`` by an internal clock generator. For Vitis, all kernels run on kernel clock 0 at the frequency of ``synth_clk_period_ns``. See :ref:`double_pumping`.
+
 .. note:: For embedded Versal, the block design is built on top of the PYNQ golden reference design. Currently only the VCK190 is supported, build its golden reference once by launching the container with ``FINN_VCK190_GOLDEN=1 ./run-docker.sh`` (requires Vivado).
 
 
