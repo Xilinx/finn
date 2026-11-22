@@ -32,6 +32,7 @@ import warnings
 from onnx import helper as oh
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
+from typing import ClassVar
 
 from finn.custom_op.fpgadataflow import register_custom_op
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
@@ -42,8 +43,10 @@ from finn.util.data_packing import hls_datatype_str
 # Generic implementation for elementwise binary operations
 class ElementwiseBinaryOperation(HWCustomOp):
     # Specifies the elementwise operation to be implemented
-    #   Format: (Identifier, Python, C++, RTL)
-    _operation: tuple[str, np.ufunc, str, str] | None = None
+    #   Format: (Identifier, Python, C++, RTL), RTL is None if there is no RTL
+    #   implementation. Set by each specialization which does not override
+    #   the properties below.
+    _operation: ClassVar[tuple[str, np.ufunc, str, str | None]]
 
     # Numpy operation available as property
     @property
@@ -57,7 +60,7 @@ class ElementwiseBinaryOperation(HWCustomOp):
 
     # RTL operation template available as property
     @property
-    def rtl_op(self) -> str:
+    def rtl_op(self) -> str | None:
         return self._operation[3]
 
     # Initializes the operator given an onnx graph node
@@ -555,7 +558,7 @@ class ElementwiseBinaryOperation(HWCustomOp):
 class ElementwiseAdd(ElementwiseBinaryOperation):
     # Specialize to implement the addition operation of left hand side and right
     # hand side input
-    _operation = "Add", np.add, "({0} + {1})", None
+    _operation = "Add", np.add, "({0} + {1})", '"ADD"'
 
     # Derives the output data type according to UG1399
     def _derive_out_dtype(self, model: ModelWrapper):
@@ -595,7 +598,7 @@ class ElementwiseAdd(ElementwiseBinaryOperation):
 class ElementwiseSub(ElementwiseBinaryOperation):
     # Specialize to implement the subtraction operation of left hand side and
     # right hand side input
-    _operation = "Sub", np.subtract, "({0} - {1})", None
+    _operation = "Sub", np.subtract, "({0} - {1})", '"SUB"'
 
     # Derives the output data type according to UG1399
     def _derive_out_dtype(self, model: ModelWrapper):
@@ -643,7 +646,7 @@ class ElementwiseAbsDiff(ElementwiseBinaryOperation):
 
     # RTL operation template available as property
     @property
-    def rtl_op(self) -> str:
+    def rtl_op(self) -> str | None:
         return None
 
     # Derives the output data type - AbsDiff result is always unsigned for integers
@@ -669,7 +672,7 @@ class ElementwiseAbsDiff(ElementwiseBinaryOperation):
 class ElementwiseMul(ElementwiseBinaryOperation):
     # Specialize to implement the multiplication operation of left hand side and
     # right hand side input
-    _operation = "Mul", np.multiply, "({0} * {1})", None
+    _operation = "Mul", np.multiply, "({0} * {1})", '"MUL"'
 
     # Derives the output data type according to UG1399
     def _derive_out_dtype(self, model: ModelWrapper):
@@ -918,7 +921,7 @@ class ElementwiseBitShift(ElementwiseBinaryOperation):
 
     # RTL operation template available as property
     @property
-    def rtl_op(self) -> str:
+    def rtl_op(self) -> str | None:
         return None
 
     # Derives the output data type just as annotated...
@@ -952,7 +955,7 @@ class ElementwiseMax(ElementwiseBinaryOperation):
 
     # RTL operation template available as property
     @property
-    def rtl_op(self) -> str:
+    def rtl_op(self) -> str | None:
         return None
 
     # Override minimize_weight_bit_width to prevent type incompatibility
