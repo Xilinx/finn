@@ -93,7 +93,16 @@ def test_fpgadataflow_input_gen_rtl(geometry, read_ahead, full_rate, finn_test_s
     cmd = ["xelab", "-relax", "-prj", "tb.prj", "work.input_gen_tb", "-s", "tb", "-R"]
     for name, value in generics.items():
         cmd += ["-generic_top", f"{name}={value}"]
-    run = run_tool(cmd, cwd=sim_dir, replay=os.path.join(sim_dir, "sim.sh"))
+    # The transcript goes outside sim_dir: a tool dispatcher may run xelab in a
+    # copy of its working directory and copy that back afterwards, which would
+    # replace the transcript written meanwhile by its stale copy (finn-lsf).
+    log_dir = make_build_dir("input_gen_tb_log_")
+    run = run_tool(
+        cmd,
+        cwd=sim_dir,
+        replay=os.path.join(sim_dir, "sim.sh"),
+        transcript=os.path.join(log_dir, "sim"),
+    )
     with open(run.transcript) as f:
         log = f.read()
 
@@ -102,3 +111,4 @@ def test_fpgadataflow_input_gen_rtl(geometry, read_ahead, full_rate, finn_test_s
     assert results[0] == ("PASS", str(buf_size)), log[-3000:]
     assert re.search(r"^(Error|Fatal):", log, re.MULTILINE) is None, log[-3000:]
     robust_rmtree(sim_dir)
+    robust_rmtree(log_dir)
