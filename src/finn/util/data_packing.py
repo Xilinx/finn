@@ -32,6 +32,7 @@ import numpy as np
 import os
 import sys
 from bitstring import BitArray
+from numpy.typing import ArrayLike
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import roundup_to_integer_multiple
 from typing import Any, Sequence
@@ -53,7 +54,7 @@ def hls_datatype_str(dtype):
 
 
 def array2hexstring(
-    array: np.ndarray | list[Any],
+    array: ArrayLike,
     dtype: DataType,
     pad_to_nbits: int,
     prefix: str = "0x",
@@ -147,7 +148,7 @@ def npbytearray2hexstring(npbytearray: np.ndarray, prefix: str = "0x") -> str:
 
 
 def pack_innermost_dim_as_hex_string(
-    ndarray: np.ndarray | list[Any],
+    ndarray: ArrayLike,
     dtype: DataType,
     pad_to_nbits: int,
     reverse_inner: bool = False,
@@ -265,7 +266,7 @@ def unpack_innermost_dim_from_hex_string(
 
 
 def numpy_to_hls_code(
-    ndarray: np.ndarray | list[Any],
+    ndarray: ArrayLike,
     dtype: DataType,
     hls_var_name: str,
     pack_innermost_dim: bool = True,
@@ -334,7 +335,7 @@ def npy_to_rtlsim_input(
     packing works. If reverse_inner is set, the innermost dimension will be
     reversed prior to packing."""
     pad_to_nbits = roundup_to_integer_multiple(pad_to_nbits, 4)
-    if issubclass(type(input_file), np.ndarray):
+    if isinstance(input_file, np.ndarray):
         inp = input_file
     elif os.path.isfile(input_file):
         inp = np.load(input_file)
