@@ -312,7 +312,7 @@ def dat_file_to_numpy_array(file_path):
     return byte_array
 
 
-def mlo_prehook_func_factory(node) -> Callable[[SimEngine], None]:
+def mlo_prehook_func_factory(node) -> Callable[[xsi.SimEngine], None]:
     """Factory that will construct a prehook function to
     setup the axi memory mapped interfaces for MLO validation.
     """

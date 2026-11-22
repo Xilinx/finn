@@ -27,7 +27,7 @@ import numpy as np
 #: ElementwiseMul 11, Split 16, Thresholding_rtl 18, MVAU_rtl 22 to 69).
 TAV_PIPELINE_LATENCY = 32
 
-_REGISTRY = {}
+_REGISTRY: dict[str, "TreeModel"] = {}
 
 
 def register(*class_names):

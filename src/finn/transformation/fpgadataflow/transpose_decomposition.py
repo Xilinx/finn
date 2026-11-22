@@ -81,7 +81,7 @@ def get_all_possible_moves(
     operation_type is either 'inner_shuffle' or 'outer_shuffle'
     operation_params is None for inner_shuffle, (i, j) for outer_shuffle
     """
-    moves = []
+    moves: List[Tuple[List[int], str, Optional[Tuple[int, int]]]] = []
     n = len(perm)
 
     # Try inner_shuffle operation
@@ -92,9 +92,9 @@ def get_all_possible_moves(
     # Try all valid outer_shuffle operations
     for i in range(n):
         for j in range(i + 1, n):
-            new_perm = apply_outer_shuffle_operation(perm, i, j)
-            if new_perm is not None and new_perm != perm:
-                moves.append((new_perm, "outer_shuffle", (i, j)))
+            swapped_perm = apply_outer_shuffle_operation(perm, i, j)
+            if swapped_perm is not None and swapped_perm != perm:
+                moves.append((swapped_perm, "outer_shuffle", (i, j)))
 
     return moves
 
@@ -150,7 +150,9 @@ def find_minimal_operation_sequence(
     if start_perm == target_perm:
         return []
 
-    queue = deque([(start_perm, [])])
+    queue: deque[Tuple[List[int], List[Tuple[str, Optional[Tuple[int, int]]]]]] = deque(
+        [(start_perm, [])]
+    )
     visited = {tuple(start_perm)}
 
     while queue:
@@ -188,6 +190,7 @@ def convert_operations_to_permutations(
     permutations = []
 
     for op_type, op_params in operations:
+        new_perm: Optional[List[int]]
         if op_type == "inner_shuffle":
             new_perm = apply_inner_shuffle_operation(current_perm)
         elif op_type == "outer_shuffle" and op_params is not None:

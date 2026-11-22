@@ -91,7 +91,7 @@ def collect_ip_dirs(model, ipstitch_path):
     return ip_dirs
 
 
-def check_versal_shell_clk2x(model: ModelWrapper, platform: str):
+def check_versal_shell_clk2x(model: ModelWrapper, platform: str | None):
     """Reject double-pumped designs for the Versal (golden reference) shell.
 
     That shell clocks the whole overlay from pl0_ref_clk and has no phase-aligned

@@ -555,7 +555,7 @@ class FMPaddingPixelHlsModel(TreeModel):
 
 class CropModel(TreeModel):
     #: cycles from reading a kept fold to writing it, per backend (see below)
-    latency = None
+    latency: int | None = None
 
     def schedule(self, op):
         """Every input fold is read; the ones inside the crop are written on.
