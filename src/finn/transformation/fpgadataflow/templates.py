@@ -31,8 +31,8 @@
 custom_zynq_shell_template = """
 set FREQ_MHZ @FREQ_MHZ@
 set NUM_AXILITE @NUM_AXILITE@
-if {$NUM_AXILITE > 9} {
-    error "Maximum 10 AXI-Lite interfaces supported"
+if {$NUM_AXILITE > 64} {
+    error "Maximum 64 AXI-Lite interfaces supported"
 }
 set NUM_AXIMM @NUM_AXIMM@
 set USE_CLK2X @USE_CLK2X@

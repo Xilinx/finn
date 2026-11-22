@@ -106,6 +106,25 @@ def check_versal_shell_clk2x(model: ModelWrapper, platform: str):
         )
 
 
+# Maximum number of AXI-Lite interfaces of the kernels, that is master interfaces
+# (NUM_MI) of the control interconnect of each shell. The Zynq shell uses an AXI
+# Interconnect, whose NUM_MI ranges up to 64 (PG059; Vivado rejects 65). The Versal
+# shell template allows 16 on its SmartConnect.
+ZYNQ_SHELL_MAX_AXILITE = 64
+VERSAL_SHELL_MAX_AXILITE = 16
+
+
+def check_shell_axilite_count(num_axilite: int, versal: bool, platform: str):
+    """Raise a ValueError if the shell cannot connect num_axilite AXI-Lite interfaces."""
+    max_axilite = VERSAL_SHELL_MAX_AXILITE if versal else ZYNQ_SHELL_MAX_AXILITE
+    if num_axilite > max_axilite:
+        raise ValueError(
+            f"The shell for {platform} connects at most {max_axilite} AXI-Lite interfaces, "
+            f"but the design has {num_axilite} (IODMAs and runtime-writable layers). "
+            "Reduce the number of runtime-writable layers or of dataflow partitions."
+        )
+
+
 class MakePYNQProject(Transformation):
     """Create a Vivado overlay project (including the shell infrastructure)
     from the already-stitched IP block for this graph.
@@ -288,6 +307,8 @@ class MakePYNQProject(Transformation):
                                 j,
                             )
                         )
+
+        check_shell_axilite_count(axilite_idx, versal, self.platform)
 
         # create a temporary folder for the project
         vivado_pynq_proj_dir = make_build_dir(prefix="vivado_pynq_proj_")
