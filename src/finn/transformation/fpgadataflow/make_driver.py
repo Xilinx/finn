@@ -385,6 +385,11 @@ class MakePYNQDriver(Transformation):
     ModelProto's metadata_props field, with the created driver dir as the
     value. If any layers use runtime-writable parameters, those will be gathered
     under the runtime_weights/ subfolder of the pynq_driver_dir.
+
+    Layers with mem_mode="external" get their weights from a weight IODMA; their
+    initial weights are written to runtime_weights/<idma>.npy and can be replaced
+    there at runtime. runtime_writeable_weights does not apply to them (they have
+    no AXI-lite weight interface), so no .dat file is generated for them.
     """
 
     def __init__(self, platform):
@@ -627,7 +632,13 @@ class MakePYNQDriver(Transformation):
                 if node.op_type.startswith("MVAU") or node.op_type.startswith("Thresholding"):
                     node_inst = getCustomOp(node)
                     is_rt_weights = node_inst.get_nodeattr("runtime_writeable_weights")
-                    if is_rt_weights == 1:
+                    # external weights were rewired to a weight IODMA by InsertIODMA and
+                    # are delivered from runtime_weights/<idma>.npy (see above)
+                    is_ext_weights = (
+                        node.op_type.startswith("MVAU")
+                        and node_inst.get_nodeattr("mem_mode") == "external"
+                    )
+                    if is_rt_weights == 1 and not is_ext_weights:
                         fcl_w = dataflow_model.get_initializer(node.input[1])
                         os.makedirs(runtime_weights_dir, exist_ok=True)
                         w_filename = runtime_weights_dir + "/%d_%d_%s.dat" % (
