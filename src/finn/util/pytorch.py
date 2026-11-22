@@ -27,10 +27,10 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import torch
 from torch.nn import Module, Sequential
-from typing import Sequence, cast
+from typing import Sequence
 
 
-class Normalize(Module):  # type: ignore[misc]
+class Normalize(Module):
     def __init__(self, mean: Sequence[float], std: float, channels: int) -> None:
         super(Normalize, self).__init__()
 
@@ -44,7 +44,7 @@ class Normalize(Module):  # type: ignore[misc]
         return x
 
 
-class ToTensor(Module):  # type: ignore[misc]
+class ToTensor(Module):
     def __init__(self) -> None:
         super(ToTensor, self).__init__()
 
@@ -53,7 +53,7 @@ class ToTensor(Module):  # type: ignore[misc]
         return x
 
 
-class NormalizePreProc(Module):  # type: ignore[misc]
+class NormalizePreProc(Module):
     def __init__(self, mean: Sequence[float], std: float, channels: int) -> None:
         super(NormalizePreProc, self).__init__()
         self.features = Sequential()
@@ -63,4 +63,4 @@ class NormalizePreProc(Module):  # type: ignore[misc]
         self.features.add_module("normalize", normalize)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return cast(torch.Tensor, self.features(x))
+        return self.features(x)
