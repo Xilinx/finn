@@ -66,3 +66,11 @@ repos:
   rev: v0.15.10
   hooks:
     - id: ruff-check
+
+- repo: https://github.com/pre-commit/mirrors-mypy
+  rev: v1.19.1
+  hooks:
+  - id: mypy
+    args: [--config-file=mypy.ini]
+    files: ^src/finn/util/.*\.py$  # Only check util. directory for now
+    exclude: qnn-data              # python doesnt allow hyphens in package names

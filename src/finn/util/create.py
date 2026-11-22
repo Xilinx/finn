@@ -37,12 +37,13 @@ from qonnx.util.basic import (
     gen_finn_dt_tensor,
     qonnx_make_model,
 )
+from typing import Any
 
 
-def hw_random_mlp_maker(layer_spec):
+def hw_random_mlp_maker(layer_spec: list[dict[str, Any]]) -> ModelWrapper:
     """Create an MLP of given specification using generic HWCustomOp (MVAU) instances.
     Generate random weights/thresholds of appropriate size."""
-    ret = []
+    ret: list[dict[str, Any]] = []
     for lyr in layer_spec:
         idt = lyr["idt"]
         wdt = lyr["wdt"]
@@ -52,7 +53,7 @@ def hw_random_mlp_maker(layer_spec):
         lyr["W"] = gen_finn_dt_tensor(wdt, (mw, mh))
         if act is None:
             # no activation, produce accumulators
-            T = None
+            T: np.ndarray | None = None
             tdt = None
             if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
                 odt = DataType["UINT32"]
@@ -81,7 +82,7 @@ def hw_random_mlp_maker(layer_spec):
     return hw_mlp_maker(ret)
 
 
-def hw_mlp_maker(layer_spec):
+def hw_mlp_maker(layer_spec: list[dict[str, Any]]) -> ModelWrapper:
     """Create an MLP of given specification using generic HWCustomOp (MVAU) instances."""
 
     current_in_name = ""
