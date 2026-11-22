@@ -36,6 +36,7 @@ from qonnx.transformation.base import Transformation
 from qonnx.util.basic import get_num_default_workers
 from shutil import copytree
 
+from finn.analysis.fpgadataflow.stream_compatibility import stream_compatibility
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
@@ -405,6 +406,14 @@ class CreateStitchedIP(Transformation):
         self.connect_cmds.append("set_property name sim_finish [get_bd_ports sim_finish_0]")
 
     def apply(self, model):
+        # Vivado connects streams of different widths with a critical warning at most,
+        # and the design silently truncates or pads the data
+        mismatches = model.analysis(stream_compatibility)["mismatches"]
+        if mismatches:
+            raise ValueError(
+                "CreateStitchedIP: incompatible stream widths or datatypes between "
+                "connected nodes:\n  " + "\n  ".join(mismatches)
+            )
         # ensure non-relative readmemh .dat files
         model = model.transform(ReplaceVerilogRelPaths())
         ip_dirs = ["list"]
