@@ -174,7 +174,7 @@ def test_clk2x_gen_stitched_rtlsim(part):
         srcs = f.read().split()
     assert any(s.endswith("/clk2x_domain.v") for s in srcs)
     assert len([s for s in srcs if re.search(r"/clk2x_gate_[sm]_axis_0\.v$", s)]) == 2
-    assert any("_clk2x_gen_0" in s for s in srcs), "the Clocking Wizard is synthesized"
+    assert not any("clk_wiz" in s for s in srcs), "no Clocking Wizard IP, the MMCM is a primitive"
 
     model.set_metadata_prop("exec_mode", "rtlsim")
     y = oxe.execute_onnx(model, {model.graph.input[0].name: x})[model.graph.output[0].name]
@@ -186,7 +186,7 @@ def test_clk2x_gen_stitched_rtlsim(part):
 # clock skew of the paths between both clocks.
 check_routed_tcl = """
 open_checkpoint {@DCP@}
-set mmcm [get_cells -hierarchical -filter {REF_NAME =~ MMCM* && NAME =~ *clk2x_gen/*}]
+set mmcm [get_cells -hierarchical -filter {REF_NAME =~ MMCM* && NAME =~ *clk2x_domain/*}]
 set res [dict create n_mmcm [llength $mmcm]]
 if {[string match *MMCME5* [get_property REF_NAME $mmcm]]} {
     dict set res M [get_property CLKFBOUT_MULT $mmcm]
@@ -203,7 +203,8 @@ set rst [get_pins -of_objects $mmcm -filter {REF_PIN_NAME == RST}]
 dict set res rst_fanin [llength [all_fanin -quiet -flat -startpoints_only $rst]]
 set groups [list]
 set clks [list]
-foreach pin [get_pins -hierarchical -filter {NAME =~ *clk2x_gen/clk_out*}] {
+foreach pin [get_pins -hierarchical -filter {NAME =~ *clk2x_domain/*clk_buf/O ||
+        NAME =~ *clk2x_domain/*clk2x_buf/O}] {
     set g ""
     foreach n [get_nets -quiet -segments [get_nets -of_objects $pin]] {
         if {[get_property CLOCK_DELAY_GROUP $n] ne ""} {
@@ -379,21 +380,21 @@ endmodule
 module ulp(input clk_in, output aclk_kernel_00);
 	ucs @UCS@ (.clk_in(clk_in), .aclk_kernel_00(aclk_kernel_00));
 endmodule
-module wiz(input clk_in1, output clk_out1, output clk_out2);
+module dom(input ap_clk, output clk, output clk2x);
 	wire  fb, c0, c1;
 	MMCME4_ADV #(.CLKIN1_PERIOD(6.667), .CLKFBOUT_MULT_F(8.0), .CLKOUT0_DIVIDE_F(8.0),
 		.CLKOUT1_DIVIDE(4))
-	mmcm (.CLKIN1(clk_in1), .CLKIN2(1'b0), .CLKINSEL(1'b1), .CLKFBIN(fb), .CLKFBOUT(fb),
+	mmcm (.CLKIN1(ap_clk), .CLKIN2(1'b0), .CLKINSEL(1'b1), .CLKFBIN(fb), .CLKFBOUT(fb),
 		.CLKOUT0(c0), .CLKOUT1(c1), .RST(1'b0), .PWRDWN(1'b0), .DADDR(7'h0), .DCLK(1'b0),
 		.DEN(1'b0), .DI(16'h0), .DWE(1'b0), .PSCLK(1'b0), .PSEN(1'b0), .PSINCDEC(1'b0),
 		.CDDCREQ(1'b0));
-	BUFG buf_1 (.I(c0), .O(clk_out1));
-	BUFG buf_2 (.I(c1), .O(clk_out2));
+	BUFG clk_buf (.I(c0), .O(clk));
+	BUFG clk2x_buf (.I(c1), .O(clk2x));
 endmodule
 module kern(input ap_clk, input d, output reg q);
 	wire  c1, c2;
 	reg  r;
-	wiz clk2x_gen (.clk_in1(ap_clk), .clk_out1(c1), .clk_out2(c2));
+	dom clk2x_domain (.ap_clk(ap_clk), .clk(c1), .clk2x(c2));
 	always @(posedge c2)  r <= d;
 	always @(posedge c1)  q <= r;
 endmodule
@@ -431,7 +432,8 @@ create_generated_clock -name clk_kernel_00_unbuffered_net -multiply_by %d -divid
     -source [get_pins %s/CLKIN1] [get_pins %s/CLKOUT0]
 source hook.tcl
 puts "KERNEL_PERIOD [get_property PERIOD [get_clocks -of_objects [get_pins ulp/aclk_kernel_00]]]"
-set nets [get_nets -segments [get_nets -of_objects [get_pins kernel/clk2x_gen/clk_out*]]]
+set nets [get_nets -segments [get_nets -of_objects [get_pins {kernel/clk2x_domain/clk_buf/O
+    kernel/clk2x_domain/clk2x_buf/O}]]]
 puts "DELAY_GROUPS [lsort -unique [get_property CLOCK_DELAY_GROUP $nets]]"
 """ % (
         ratio + (mmcm, mmcm)
@@ -446,7 +448,7 @@ puts "DELAY_GROUPS [lsort -unique [get_property CLOCK_DELAY_GROUP $nets]]"
     if ucs == "ulp_ucs":
         assert period == pytest.approx(1000 / 150, abs=1e-3)
     # the delay group of the kernel's clock generator, on any platform
-    assert "clock generator kernel/clk2x_gen: CLOCK_DELAY_GROUP finn_clk2x_1" in log
+    assert "clock generator kernel/clk2x_domain: CLOCK_DELAY_GROUP finn_clk2x_1" in log
     groups = re.search(r"^DELAY_GROUPS (.*)$", log, re.M).group(1).split()
     assert "finn_clk2x_1" in groups
 
@@ -640,11 +642,16 @@ def test_clk2x_gen_gates_axi_lite_and_mm():
     glbl = os.path.join(os.environ["XILINX_VIVADO"], "data/verilog/src/glbl.v")
     with open(sim_dir + "/tb.prj", "a") as f:
         f.write("verilog work %s\n" % glbl)
+    # The transcript goes outside sim_dir: a tool dispatcher may run xelab in a
+    # copy of its working directory and copy that back afterwards, which would
+    # replace the transcript written meanwhile by its stale copy (finn-lsf).
+    log_dir = make_build_dir("clk2x_gate_tb_log_")
     run = run_tool(
         ["xelab", "-relax", "-prj", "tb.prj", "-L", "unisims_ver", "-L", "xpm"]
         + ["work.clk2x_gate_tb", "work.glbl", "-s", "tb", "-R"],
         cwd=sim_dir,
         replay=sim_dir + "/sim.sh",
+        transcript=log_dir + "/sim",
     )
     with open(run.transcript) as f:
         log = f.read()

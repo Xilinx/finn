@@ -171,9 +171,9 @@ class CreateStitchedIP(Transformation):
         return "[get_bd_ports ap_rst_n]"
 
     def create_clk2x_gen(self, block_name):
-        """Instantiate the clock generator: the ports ap_clk and ap_rst_n, a
-        Clocking Wizard deriving the 1x and 2x clocks from ap_clk, and the
-        clk2x_domain that provides them and the design reset (see
+        """Instantiate the clock generator: the ports ap_clk and ap_rst_n and
+        clk2x_domain, whose MMCM primitive derives the 1x and 2x clocks from
+        ap_clk and which provides them and the design reset (see
         finn-rtllib/clk2x_gen/clk2x_gen.tcl)."""
         rtllib = "$::env(FINN_ROOT)/finn-rtllib/clk2x_gen"
         self.create_cmds += [

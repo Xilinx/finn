@@ -419,8 +419,9 @@ if {[llength $kclk] != 1 || ![get_property IS_GENERATED $kclk]} {
     puts "INFO: \\[FINN\\] kernel clock $kclk re-constrained from $period ns to [get_property PERIOD $kclk] ns"
 }
 set n 0
-foreach gen [get_cells -quiet -hierarchical -filter {NAME =~ */clk2x_gen && IS_PRIMITIVE == 0}] {
-    set nets [get_nets -quiet -of_objects [get_pins -quiet $gen/clk_out*]]
+foreach gen [get_cells -quiet -hierarchical -filter {NAME =~ */clk2x_domain && IS_PRIMITIVE == 0}] {
+    set pins [get_pins -quiet -hierarchical -filter "NAME =~ $gen/*clk_buf/O || NAME =~ $gen/*clk2x_buf/O"]
+    set nets [get_nets -quiet -of_objects $pins]
     if {[llength $nets] == 2} {
         set_property CLOCK_DELAY_GROUP finn_clk2x_[incr n] $nets
         puts "INFO: \\[FINN\\] clock generator $gen: CLOCK_DELAY_GROUP finn_clk2x_$n"

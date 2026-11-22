@@ -6,12 +6,13 @@
 # 1x and 2x clocks of the design logic from ap_clk, so that the IP needs no
 # ap_clk2x input:
 #
-#   ap_clk ──► Clocking Wizard (MMCM) ──► clk2x_domain ──► clk, clk2x, rst_n
-#   ap_rst_n ─────────────────────────────────┘
+#   ap_clk ───► clk2x_domain (MMCM primitive) ───► clk, clk2x, rst_n
+#   ap_rst_n ──┘
 #
-# clk2x_domain (hdl/clk2x_domain.v) forwards the clocks, holds the design
-# reset rst_n until the MMCM has locked, and replaces the MMCM by ideal
-# clocks in simulation. Every external AXI interface passes a gate
+# clk2x_domain (hdl/clk2x_domain.v) instantiates the MMCM primitive of the
+# device family directly (no Clocking Wizard IP, so nothing depends on the
+# IP versions of a Vivado installation), holds the design reset rst_n until
+# the MMCM has locked, and replaces the MMCM by ideal clocks in simulation. Every external AXI interface passes a gate
 # (clk2x_gate) that blocks its handshakes while rst_n is asserted.
 
 # Returns the MMCM settings deriving f_mhz (O1) and 2*f_mhz (O2) from an input
@@ -73,9 +74,25 @@ proc clk2x_mmcm_params {part f_mhz} {
         FIN_MIN [expr {$vco_min / $o1}] FIN_MAX [expr {$vco_max / $o1}]]
 }
 
-# Creates the ports ap_clk and ap_rst_n, the Clocking Wizard clk2x_gen and
-# clk2x_domain (whose source must have been added to the project) for an
-# input clock of f_mhz. The design logic connects to clk2x_domain/clk, clk2x
+# Returns the MMCM primitive family of part as the FAMILY parameter of
+# clk2x_domain: VERSAL (MMCME5), ULTRASCALE_PLUS (MMCME4_ADV), ULTRASCALE
+# (MMCME3_ADV) or 7SERIES (MMCME2_ADV). Same classification as
+# clk2x_mmcm_params.
+proc clk2x_mmcm_family {part} {
+    set arch [get_property ARCHITECTURE [get_parts $part]]
+    if {[string match versal* $arch]} {
+        return VERSAL
+    } elseif {[string match *uplus* $arch]} {
+        return ULTRASCALE_PLUS
+    } elseif {[regexp {u$} $arch]} {
+        return ULTRASCALE
+    }
+    return 7SERIES
+}
+
+# Creates the ports ap_clk and ap_rst_n and the clock generator clk2x_domain
+# (whose source must have been added to the project) with the MMCM settings
+# for an input clock of f_mhz. The design logic connects to clk2x_domain/clk, clk2x
 # and rst_n. Writes the MMCM settings as JSON to json_file and the clock
 # constraint of the generator to xdc_file, see clk2x_gen_xdc, and adds it to the
 # project scoped to the current block design. (The IP packager does not pick it
@@ -90,45 +107,17 @@ proc clk2x_gen_create {f_mhz json_file xdc_file group} {
     create_bd_port -dir I -type rst ap_rst_n
     set_property CONFIG.POLARITY ACTIVE_LOW [get_bd_ports ap_rst_n]
 
-    # Request the frequencies first, then override the wizard's choice of
-    # M/D/O by the centered one.
-    if {[string match versal* [get_property ARCHITECTURE [get_parts $part]]]} {
-        set gen [create_bd_cell -type ip -vlnv [get_ipdefs -all xilinx.com:ip:clk_wizard:*] clk2x_gen]
-        set_property -dict [list CONFIG.PRIM_IN_FREQ $f1 CONFIG.PRIM_SOURCE {No_buffer} \
-            CONFIG.PRIMITIVE_TYPE {MMCM} \
-            CONFIG.CLKOUT_USED {true,true,false,false,false,false,false} \
-            CONFIG.CLKOUT_REQUESTED_OUT_FREQUENCY "$f1,$f2,100.000,100.000,100.000,100.000,100.000" \
-            CONFIG.CLKOUT_REQUESTED_PHASE {0,0,0,0,0,0,0} \
-            CONFIG.USE_PHASE_ALIGNMENT {true} CONFIG.USE_LOCKED {true} \
-            CONFIG.USE_RESET {true} CONFIG.RESET_TYPE {ACTIVE_LOW}] $gen
-        set_property -dict [list CONFIG.OVERRIDE_PRIMITIVE {true} \
-            CONFIG.CLKFBOUT_MULT [dict get $p M] CONFIG.DIVCLK_DIVIDE [dict get $p D] \
-            CONFIG.CLKOUT1_DIVIDE [dict get $p O1] CONFIG.CLKOUT2_DIVIDE [dict get $p O2]] $gen
-    } else {
-        set gen [create_bd_cell -type ip -vlnv [get_ipdefs -all xilinx.com:ip:clk_wiz:*] clk2x_gen]
-        set_property -dict [list CONFIG.PRIM_IN_FREQ $f1 CONFIG.PRIM_SOURCE {No_buffer} \
-            CONFIG.NUM_OUT_CLKS {2} CONFIG.CLKOUT2_USED {true} \
-            CONFIG.CLKOUT1_REQUESTED_OUT_FREQ $f1 CONFIG.CLKOUT2_REQUESTED_OUT_FREQ $f2 \
-            CONFIG.CLKOUT1_REQUESTED_PHASE {0} CONFIG.CLKOUT2_REQUESTED_PHASE {0} \
-            CONFIG.USE_PHASE_ALIGNMENT {true} CONFIG.USE_LOCKED {true} \
-            CONFIG.USE_RESET {true} CONFIG.RESET_TYPE {ACTIVE_LOW}] $gen
-        set_property -dict [list CONFIG.OVERRIDE_MMCM {true} \
-            CONFIG.MMCM_CLKFBOUT_MULT_F [dict get $p M] \
-            CONFIG.MMCM_DIVCLK_DIVIDE [dict get $p D] \
-            CONFIG.MMCM_CLKOUT0_DIVIDE_F [dict get $p O1] \
-            CONFIG.MMCM_CLKOUT1_DIVIDE [dict get $p O2]] $gen
-    }
     # The output clocks of clk2x_domain get their FREQ_HZ below: a FREQ_HZ in its
     # source would be read-only, so that the IP packager misses it.
     set_msg_config -id {[IP_Flow 19-4751]} -string {FREQ_HZ bus parameter is missing} \
         -new_severity INFO
     set dom [create_bd_cell -type module -reference clk2x_domain clk2x_domain]
-    connect_bd_net [get_bd_ports ap_clk] [get_bd_pins $gen/clk_in1] [get_bd_pins $dom/ap_clk]
+    set_property -dict [list CONFIG.FAMILY [clk2x_mmcm_family $part] \
+        CONFIG.CLKIN_PERIOD_PS [expr {round(1e6 / $f_mhz)}] \
+        CONFIG.M [dict get $p M] CONFIG.D [dict get $p D] \
+        CONFIG.O1 [dict get $p O1] CONFIG.O2 [dict get $p O2]] $dom
+    connect_bd_net [get_bd_ports ap_clk] [get_bd_pins $dom/ap_clk]
     connect_bd_net [get_bd_ports ap_rst_n] [get_bd_pins $dom/ap_rst_n]
-    connect_bd_net [get_bd_pins $dom/gen_resetn] [get_bd_pins $gen/resetn]
-    connect_bd_net [get_bd_pins $gen/clk_out1] [get_bd_pins $dom/gen_clk]
-    connect_bd_net [get_bd_pins $gen/clk_out2] [get_bd_pins $dom/gen_clk2x]
-    connect_bd_net [get_bd_pins $gen/locked] [get_bd_pins $dom/gen_locked]
     # clk reproduces ap_clk (same frequency, phase-aligned): one clock domain,
     # so that the external interfaces, which are clocked by clk, can be
     # associated with ap_clk
@@ -164,7 +153,8 @@ proc clk2x_gen_xdc {xdc_file group} {
     set fp [open $xdc_file w]
     puts $fp "# FINN clk2x_gen: balance the clock trees of the 1x and 2x clocks."
     puts $fp "set_property CLOCK_DELAY_GROUP $group \[get_nets -of_objects\
-        \[get_pins -hierarchical -filter {NAME =~ *clk2x_gen/clk_out*}\]\]"
+        \[get_pins -hierarchical -filter {NAME =~ *clk2x_domain/*clk_buf/O ||\
+        NAME =~ *clk2x_domain/*clk2x_buf/O}\]\]"
     close $fp
 }
 
