@@ -37,6 +37,8 @@ class CompileCppSim(NodeLocalTransformation):
     """For every node: compile C++ code in node attribute "code_gen_dir_cppsim"
     and save path to executables in node attribute "executable_path".
     All nodes in the graph must have the fpgadataflow backend attribute.
+    A node whose executable was built from the same command line, sources and
+    headers is not compiled again.
 
     To use these executables, exec_mode must be set to "cppsim" (using transformation
     SetExecMode) and the model has to be executed using execute_onnx() from
