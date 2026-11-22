@@ -642,11 +642,16 @@ def test_clk2x_gen_gates_axi_lite_and_mm():
     glbl = os.path.join(os.environ["XILINX_VIVADO"], "data/verilog/src/glbl.v")
     with open(sim_dir + "/tb.prj", "a") as f:
         f.write("verilog work %s\n" % glbl)
+    # The transcript goes outside sim_dir: a tool dispatcher may run xelab in a
+    # copy of its working directory and copy that back afterwards, which would
+    # replace the transcript written meanwhile by its stale copy (finn-lsf).
+    log_dir = make_build_dir("clk2x_gate_tb_log_")
     run = run_tool(
         ["xelab", "-relax", "-prj", "tb.prj", "-L", "unisims_ver", "-L", "xpm"]
         + ["work.clk2x_gate_tb", "work.glbl", "-s", "tb", "-R"],
         cwd=sim_dir,
         replay=sim_dir + "/sim.sh",
+        transcript=log_dir + "/sim",
     )
     with open(run.transcript) as f:
         log = f.read()
