@@ -490,7 +490,11 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                 "or 0 to only flush the logs when the simulation ends",
             )
         )
-    elif cfg.debug_fifo and cfg.fifo_log_flush_cycles < 0:
+    elif (
+        cfg.debug_fifo
+        and isinstance(cfg.fifo_log_flush_cycles, int)
+        and cfg.fifo_log_flush_cycles < 0
+    ):
         checks.append(
             _check(
                 "fifo_log_flush_cycles",

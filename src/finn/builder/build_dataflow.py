@@ -192,7 +192,9 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
     # create the output dir if it doesn't exist
     if not os.path.exists(cfg.output_dir):
         os.makedirs(cfg.output_dir)
-    with log_run(cfg.output_dir + "/build_dataflow.log", runner=log.name, verbose=cfg.verbose):
+    with log_run(
+        cfg.output_dir + "/build_dataflow.log", runner=log.name, verbose=bool(cfg.verbose)
+    ):
         return _build_dataflow_cfg(model_filename, cfg)
 
 
