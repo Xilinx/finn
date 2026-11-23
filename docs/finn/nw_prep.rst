@@ -66,7 +66,6 @@ The backend selection follows this logic:
 - **ElementwiseBinary**: Versal only, FLOAT32 only
 - **MVAU**: 2-8 bit signed weights/activations, no embedded threshold
 - **VVAU**: Versal only, ≤8 bit signed weights
-- **StreamingDataWidthConverter**: Integer width ratio only
 
 Setting Backend Preference
 ---------------------------
@@ -89,6 +88,8 @@ Edit this template to set your preferences:
 Then pass this configuration file to the build flow using ``DataflowBuildConfig.specialize_layers_config_file``.
 
 If the preferred backend is not available or constraints are not met, FINN will fall back to the available backend and issue a warning.
+
+Some layers have a single backend. ``StreamingDataWidthConverter``, for instance, is always implemented in RTL (``StreamingDataWidthConverter_rtl``, built on finn-rtllib's ``vpc``), which converts between any two stream widths at full rate; ``"preferred_impl_style": "hls"`` on a DWC falls back to RTL with a warning.
 
 For implementation details on adding new HLS or RTL variants, see :doc:`/implementation/specialization-rules`.
 
