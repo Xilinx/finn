@@ -528,6 +528,36 @@ compilation transformations?
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS DATAFLOW disable_start_propagation")
 
+    def threshold_memory_pragmas(self, tmem: int, ram_style: str = "auto") -> list[str]:
+        """Return the pragmas for the embedded threshold memory threshs.m_thresholds.
+
+        The array is TA [PE][TMEM][N_THRES] and is read at a dynamic TMEM index.
+        Each PE gets its own ROM (dim 1 partitioned), TMEM deep with all N_THRES
+        thresholds of a channel packed into one word (dim 3 reshaped), mirroring
+        the embedded weight memory. Do not partition dim 3 completely instead:
+        Vitis HLS then expands every dynamically indexed access over all
+        PE*N_THRES partitions, so instruction count and front-end memory grow
+        with (PE*N_THRES)**2 (issue #1214: >40 GB for PE=80, N_THRES=127).
+
+        ram_style selects the ROM implementation: "distributed" (LUTRAM),
+        "block" (BRAM) or "auto". HLS left to itself maps the wide reshaped words
+        to BRAM even when TMEM is tiny, so "auto" binds LUTRAM up to a depth of
+        64 (one LUT per bit) and leaves deeper memories to HLS.
+        """
+        pragmas = [
+            "#pragma HLS array_partition variable=threshs.m_thresholds complete dim=1",
+            "#pragma HLS array_reshape variable=threshs.m_thresholds complete dim=3",
+        ]
+        # ram_style values are restricted by the node attribute definition
+        impl = {"distributed": "lutram", "block": "bram", "auto": None}[ram_style]
+        if ram_style == "auto" and tmem <= 64:
+            impl = "lutram"
+        if impl is not None:
+            pragmas.append(
+                f"#pragma HLS bind_storage variable=threshs.m_thresholds type=rom_1p impl={impl}"
+            )
+        return pragmas
+
     def get_ap_int_max_w(self):
         """Return the maximum width of any ap_int used in this module. Used to set the
         AP_INT_MAX_W definition for HLS."""
