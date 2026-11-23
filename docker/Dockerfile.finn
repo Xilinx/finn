@@ -163,6 +163,10 @@ ARG USERNAME
 ARG USER_UID
 ARG GROUP_ID
 ARG GROUPNAME
+# Ubuntu >= 23.04 base images ship a default "ubuntu" user and group with UID/GID 1000,
+# which collides with the host user on most single-user systems (and with hosts where
+# the user is itself named "ubuntu"). Remove it so the host user can be recreated below.
+RUN if id -u ubuntu > /dev/null 2>&1; then userdel -r ubuntu; fi
 RUN useradd $USERNAME -u $USER_UID
 # Check and add group if it doesn't exist
 RUN if ! getent group "$GROUP_ID" > /dev/null 2>&1 && ! getent group "$GROUPNAME" > /dev/null 2>&1; then \
