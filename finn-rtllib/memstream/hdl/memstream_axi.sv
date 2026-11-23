@@ -77,7 +77,7 @@ module memstream_axi #(
 	// Set selector stream (ignored for SETS = 1)
 	output	logic  s_axis_0_tready,
 	input	logic  s_axis_0_tvalid,
-	input	logic [SET_BITS-1:0]  s_axis_0_tdata,
+	input	logic [((SET_BITS+7)/8)*8-1:0]  s_axis_0_tdata,
 
 	// Continuous output stream
 	input	logic  m_axis_0_tready,
@@ -133,7 +133,7 @@ module memstream_axi #(
 	uwire [WIDTH_EFF-1:0]  mem_q0;
 	uwire  set_rdy;
 	uwire  set_vld;
-	uwire [WIDTH_EFF-1:0]  set_dat;
+	uwire [SET_BITS-1:0]  set_dat;
 	uwire  mem_rdy;
 	uwire  mem_vld;
 	uwire [WIDTH_EFF-1:0]  mem_dat;
@@ -147,11 +147,11 @@ module memstream_axi #(
 
 		assign	s_axis_0_tready = set_rdy;
 		assign	set_vld = s_axis_0_tvalid;
-		assign	set_dat = s_axis_0_tdata;
+		assign	set_dat = s_axis_0_tdata[SET_BITS-1:0];
 
 		assign	mem_rdy = m_axis_0_tready;
 		assign	m_axis_0_tvalid = mem_vld;
-		assign	m_axis_0_tdata  = mem_dat;
+		assign	m_axis_0_tdata[WIDTH-1:0] = mem_dat;
 
 		memstream #(
 			.SETS(SETS),
@@ -234,7 +234,7 @@ module memstream_axi #(
 			always_ff @(posedge clk2x) begin
 				if(IVld)  IVld <= !set_rdy;
 				else if(Active) begin
-					IBuf <= s_axis_0_tdata;
+					IBuf <= s_axis_0_tdata[SET_BITS-1:0];
 					IVld <= s_axis_0_tvalid;
 				end
 			end
@@ -273,7 +273,7 @@ module memstream_axi #(
 			end
 			assign	mem_rdy = !SCnt[2];
 			assign	m_axis_0_tvalid = SVld;
-			assign	m_axis_0_tdata  = { SBuf[1][0+:WIDTH-WIDTH_EFF], SBuf[0] };
+			assign	m_axis_0_tdata[WIDTH-1:0] = { SBuf[1][0+:WIDTH-WIDTH_EFF], SBuf[0] };
 		end : blkStreamOut
 
 		memstream #(

@@ -80,7 +80,7 @@ module $MODULE_NAME$_memstream_wrapper #(
 	// Set selector stream (ignored for SETS = 1)
 	output	s_axis_0_tready,
 	input	s_axis_0_tvalid,
-	input	[SET_BITS-1:0]  s_axis_0_tdata,
+	input	[((SET_BITS+7)/8)*8-1:0]  s_axis_0_tdata,
 
 	// Continuous output stream
 	input	m_axis_0_tready,

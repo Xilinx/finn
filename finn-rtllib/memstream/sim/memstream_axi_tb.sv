@@ -81,6 +81,7 @@ module memstream_axi_tb #(
 	uwire  srdy;
 	logic  svld;
 	logic [SET_BITS-1:0]  sidx;
+	uwire [((SET_BITS+7)/8)*8-1:0]  sidx_ba = sidx;
 
 	// Streamed Output
 	logic  ordy;
@@ -106,7 +107,7 @@ module memstream_axi_tb #(
 		.rready,  .rvalid,  .rdata,  .rresp,
 
 		// Set selector stream (ignored for SETS = 1)
-		.s_axis_0_tready(srdy), .s_axis_0_tvalid(svld), .s_axis_0_tdata(sidx),
+		.s_axis_0_tready(srdy), .s_axis_0_tvalid(svld), .s_axis_0_tdata(sidx_ba),
 
 		// Continuous output stream
 		.m_axis_0_tready(ordy), .m_axis_0_tvalid(ovld), .m_axis_0_tdata(odat)
