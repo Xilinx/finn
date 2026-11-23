@@ -191,11 +191,14 @@ def test_end2end_cybsec_mlp_build(build_board):
         assert est_cycles_dict["MVAU_hls_1"] == 64
     with open(est_res_report, "r") as f:
         est_res_dict = json.load(f)
-        # Since the builder-phases reorg, the estimate report is generated after
-        # InsertDWC/InsertFIFO, so these totals now also include the
-        # StreamingFIFO and StreamingDataWidthConverter nodes, not just the
-        # compute layers.
-        assert est_res_dict["total"]["LUT"] == 8215.0
+        # The estimate report is generated after InsertDWC/InsertFIFO, so it
+        # also lists the StreamingFIFO and StreamingDataWidthConverter nodes.
+        # Their LUT models are owned and tested by those ops, so pin the LUTs
+        # of the compute layers only, and check that the total sums all nodes.
+        nodes = {k: v for k, v in est_res_dict.items() if k != "total"}
+        mvau_luts = sum(v["LUT"] for k, v in nodes.items() if k.startswith("MVAU_"))
+        assert mvau_luts == 7899
+        assert est_res_dict["total"]["LUT"] == sum(v["LUT"] for v in nodes.values())
         assert est_res_dict["total"]["BRAM_18K"] == 36.0
     assert os.path.isfile(output_dir + "/deploy/bitfile/finn-accel.bit")
     assert os.path.isfile(output_dir + "/deploy/driver/driver.py")
