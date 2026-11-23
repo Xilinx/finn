@@ -37,6 +37,11 @@ module memstream #(
 
 	parameter  INIT_FILE = "",
 	parameter  RAM_STYLE = "auto",
+	// Implementation of the memory pipeline:
+	//	0 - lean: stream data stalls within the memory, ~0 LUTs per bit
+	//	1 - high performance: credit-based output buffer, best Fmax at the
+	//	    cost of a full-width SRL (~1 LUT per bit)
+	bit  HIGH_PERFORMANCE = 0,
 
 	localparam int unsigned  ADDR_WIDTH0 = $clog2(SETS*DEPTH),
 	localparam int unsigned  ADDR_WIDTH = ADDR_WIDTH0? ADDR_WIDTH0 : 1,
@@ -140,129 +145,263 @@ module memstream #(
 
 	//-----------------------------------------------------------------------
 	// Memory Pipeline
-	//	- free-running pipeline
-	//	- credit-based feed of reads for streaming output
-	//	- config interface always takes precedence
-	localparam int unsigned  FULL_CREDIT = 8;
 	typedef logic [WIDTH-1:0]  data_t;
+	if(HIGH_PERFORMANCE) begin : genCreditBuffer
+		// High Performance
+		//	- free-running pipeline
+		//	- credit-based feed of reads for streaming output
+		//	- config interface always takes precedence
+		localparam int unsigned  FULL_CREDIT = 8;
 
-	//- Stage #1: Command Arbitration
-	uwire  ogot = ovld && ordy;
+		//- Stage #1: Command Arbitration
+		uwire  ogot = ovld && ordy;
 
-	logic  Wr1 = 0;
-	logic  Rb1 = 0;
-	logic  Rs1 = 0;
-	addr_t  Ptr1 = 'x;
-	data_t  Dat1 = 'x;
-	if(1) begin : blkFeed
+		logic  Wr1 = 0;
+		logic  Rb1 = 0;
+		logic  Rs1 = 0;
+		addr_t  Ptr1 = 'x;
+		data_t  Dat1 = 'x;
+		if(1) begin : blkFeed
 
-		logic signed [$clog2(FULL_CREDIT):0]  Credit = -FULL_CREDIT;
+			logic signed [$clog2(FULL_CREDIT):0]  Credit = -FULL_CREDIT;
 
-		assign	got0 = vld0 && Credit[$left(Credit)] && !config_ce;
-		always_ff @(posedge clk) begin
-			if(rst) begin
-				Credit <= -FULL_CREDIT;
+			assign	got0 = vld0 && Credit[$left(Credit)] && !config_ce;
+			always_ff @(posedge clk) begin
+				if(rst) begin
+					Credit <= -FULL_CREDIT;
 
-				Wr1 <= 0;
-				Rb1 <= 0;
-				Rs1 <= 0;
-				Ptr1 <= 'x;
-				Dat1 <= 'x;
+					Wr1 <= 0;
+					Rb1 <= 0;
+					Rs1 <= 0;
+					Ptr1 <= 'x;
+					Dat1 <= 'x;
+				end
+				else begin
+					Credit <= Credit + (ogot == got0? 0 : got0? 1 : -1);
+
+					Wr1 <= config_ce &&  config_we;
+					Rb1 <= config_ce && !config_we;
+					Rs1 <= got0;
+					Ptr1 <= config_ce? config_address : ptr0;
+					Dat1 <= config_d0;
+				end
 			end
-			else begin
-				Credit <= Credit + (ogot == got0? 0 : got0? 1 : -1);
+		end : blkFeed
 
-				Wr1 <= config_ce &&  config_we;
-				Rb1 <= config_ce && !config_we;
-				Rs1 <= got0;
-				Ptr1 <= config_ce? config_address : ptr0;
-				Dat1 <= config_d0;
+		// Stage #2+3: Memory Readout
+		logic  Rb3 = 0;
+		logic  Rs3 = 0;
+		data_t  Dat3 = 'x; /* absorbed register */
+		if(1) begin : blkMem
+			(* RAM_STYLE = RAM_STYLE *)
+			// Vivado maps a single-word memory to registers and drops its $readmemh
+			// initialization in the process. Therefore, the memory is forced to be at least two deep.
+			data_t  Mem[(SETS*DEPTH < 2)? 2 : SETS*DEPTH];
+
+			// Optional Memory Initialization
+			if(INIT_FILE != "")  initial $readmemh(INIT_FILE, Mem);
+
+			// Execute Memory Operation
+			logic  Rb2 = 0;
+			logic  Rs2 = 0;
+			data_t  Dat2 = 'x; /* absorbed register */
+			always_ff @(posedge clk) begin // Memory datapath without reset
+				if(Wr1)  Mem[Ptr1] <= Dat1;
+				Dat2 <= Mem[Ptr1];
+				Dat3 <= Dat2;
 			end
-		end
-	end : blkFeed
+			always_ff @(posedge clk) begin
+				if(rst) begin
+					Rb2 <= 0;
+					Rs2 <= 0;
+					Rb3 <= 0;
+					Rs3 <= 0;
+				end
+				else begin
+					Rb2 <= Rb1;
+					Rs2 <= Rs1;
+					Rb3 <= Rb2;
+					Rs3 <= Rs2;
+				end
+			end
+		end : blkMem
 
-	// Stage #2+3: Memory Readout
-	logic  Rb3 = 0;
-	logic  Rs3 = 0;
-	data_t  Dat3 = 'x; /* absorbed register */
-	if(1) begin : blkMem
-		(* RAM_STYLE = RAM_STYLE *)
-		// Vivado maps a single-word memory to registers and drops its $readmemh
-		// initialization in the process. Therefore, the memory is forced to be at least two deep.
-		data_t  Mem[(SETS*DEPTH < 2)? 2 : SETS*DEPTH];
+		// Complete Readbacks
+		assign	config_rack = Rb3;
+		assign	config_q0   = Dat3;
 
-		// Optional Memory Initialization
-		if(INIT_FILE != "")  initial $readmemh(INIT_FILE, Mem);
+		// Stage #4+5: Output Credit Buffer
+		if(1) begin : blkStreamOut
 
-		// Execute Memory Operation
-		logic  Rb2 = 0;
-		logic  Rs2 = 0;
+			uwire  oload;
+
+			// Stream Output SRL backing Credit Grant for Stream Reads in Flight
+			(* SHREG_EXTRACT = "yes" *)
+			data_t  OSrl[FULL_CREDIT-1];
+			logic [$clog2(FULL_CREDIT):0]  OPtr = -1;
+			always_ff @(posedge clk) begin
+				if(Rs3)  OSrl <= { Dat3, OSrl[0:FULL_CREDIT-3] };
+			end
+			always_ff @(posedge clk) begin
+				if(rst)  OPtr <= -1;
+				else begin
+					automatic logic  up = Rs3;
+					automatic logic  dn = oload && !OPtr[$left(OPtr)];
+					OPtr <= OPtr + (up == dn? 0 : up? 1 : -1);
+				end
+			end
+
+			// Final Output Register
+			(* EXTRACT_ENABLE = "yes" *)
+			data_t  ODat = 'x;
+			logic   OVld =  0;
+			always_ff @(posedge clk) begin
+				if(rst) begin
+					OVld <= 0;
+					ODat <= 'x;
+				end
+				else if(oload) begin
+					OVld <= !OPtr[$left(OPtr)];
+					ODat <= OSrl[OPtr];
+				end
+			end
+			assign	oload = ordy || !OVld;
+
+			assign	odat = ODat;
+			assign	ovld = OVld;
+
+		end : blkStreamOut
+
+	end : genCreditBuffer
+	else begin : genReplayQueue
+		// Lean
+		//	- The stream data stalls in place within the memory: the BRAM address
+		//	  and output registers are enabled (ENB/REGCEB) only as far as there
+		//	  is space downstream. No data buffer of the full WIDTH is needed.
+		//	- The address generation is decoupled from the output backpressure by
+		//	  a small address replay queue. It retains the addresses of stream
+		//	  reads until their data is committed to the final output register.
+		//	- Config accesses take precedence. They flush the uncommitted stream
+		//	  reads from the pipeline, which are then replayed from the queue.
+		localparam int unsigned  AQ_DEPTH = 8;
+		typedef logic [$clog2(AQ_DEPTH):0]  aqptr_t;
+
+		//- Stage Valids and Enables
+		//	Stream data advances as far as there is space downstream. The late
+		//	backpressure input ordy is combined last so that it passes a single
+		//	LUT level towards the wide fanout of the memory enables. The keep
+		//	attributes stop Vivado from merging ordy deeper into the enable logic.
+		logic  Rb1  = 0;
+		logic  Rs1  = 0;
+		logic  Rb2  = 0;
+		logic  Rs2  = 0;
+		logic  OVld = 0;
+		(* keep = "true" *) uwire  free2 = !(OVld && Rs2);
+		(* keep = "true" *) uwire  free1 = !(OVld && Rs2 && Rs1);
+		(* keep = "true" *) uwire  free0 = !(OVld && Rs2 && Rs1 && !config_ce);
+		uwire  ce3 = ordy || !OVld;
+		uwire  ce2 = ordy || free2;
+		uwire  ce1 = ordy || free1;
+		uwire  en1 = ordy || free0;  // memory access
+
+		//- Address Replay Queue
+		uwire  commit;  // stream read committed to the output register
+		uwire  iss;     // stream read issued to the memory
+		uwire addr_t  aq_head;
+		if(1) begin : blkReplayQueue
+			addr_t  AQ[AQ_DEPTH];
+			aqptr_t  WrP = 0;  // enqueue position
+			aqptr_t  IsP = 0;  // next read to issue
+			aqptr_t  CmP = 0;  // oldest uncommitted read
+			uwire aqptr_t  cmp_nxt = CmP + commit;
+			uwire aqptr_t  fill = WrP - CmP;
+			assign	got0 = vld0 && !fill[$left(fill)];
+			always_ff @(posedge clk) begin
+				if(got0)  AQ[WrP[$left(WrP)-1:0]] <= ptr0;
+			end
+			always_ff @(posedge clk) begin
+				if(rst) begin
+					WrP <= 0;
+					IsP <= 0;
+					CmP <= 0;
+				end
+				else begin
+					WrP <= WrP + got0;
+					IsP <= config_ce? cmp_nxt : IsP + iss;
+					CmP <= cmp_nxt;
+				end
+			end
+			assign	iss = !config_ce && (IsP != WrP) && ce1;
+			assign	aq_head = AQ[IsP[$left(IsP)-1:0]];
+		end : blkReplayQueue
+
+		//- Stage #1+2: Memory Access and Readout
 		data_t  Dat2 = 'x; /* absorbed register */
-		always_ff @(posedge clk) begin // Memory datapath without reset
-			if(Wr1)  Mem[Ptr1] <= Dat1;
-			Dat2 <= Mem[Ptr1];
-			Dat3 <= Dat2;
-		end
-		always_ff @(posedge clk) begin
-			if(rst) begin
-				Rb2 <= 0;
-				Rs2 <= 0;
-				Rb3 <= 0;
-				Rs3 <= 0;
+		if(1) begin : blkMem
+			(* RAM_STYLE = RAM_STYLE *)
+			// Vivado maps a single-word memory to registers and drops its $readmemh
+			// initialization in the process. Therefore, the memory is forced to be at least two deep.
+			data_t  Mem[(SETS*DEPTH < 2)? 2 : SETS*DEPTH];
+
+			// Optional Memory Initialization
+			if(INIT_FILE != "")  initial $readmemh(INIT_FILE, Mem);
+
+			// Execute Memory Operation
+			//	- The memory port registers the address, the write data and the
+			//	  read result (Dat1) internally, hence no fabric registers here.
+			//	- A config access flushes all uncommitted stream reads so that
+			//	  it never needs to stall.
+			uwire addr_t  addr1 = config_ce? config_address : aq_head;
+			// Deviation: no initializer as it would keep Vivado from absorbing
+			// the BRAM output register (Dat2), adding a fabric register per bit.
+			data_t  Dat1; /* memory read latch */
+			always_ff @(posedge clk) begin // Memory datapath without reset
+				if(en1) begin
+					if(config_ce && config_we)  Mem[addr1] <= config_d0;
+					Dat1 <= Mem[addr1];
+				end
+				if(ce2)  Dat2 <= Dat1;
 			end
-			else begin
-				Rb2 <= Rb1;
-				Rs2 <= Rs1;
-				Rb3 <= Rb2;
-				Rs3 <= Rs2;
+			always_ff @(posedge clk) begin
+				if(rst) begin
+					Rb1 <= 0;
+					Rs1 <= 0;
+					Rb2 <= 0;
+					Rs2 <= 0;
+				end
+				else begin
+					Rb1 <= config_ce && !config_we;
+					Rb2 <= Rb1;
+					Rs1 <= !config_ce && (ce1? iss : Rs1);
+					Rs2 <= !config_ce && (ce2? Rs1 : Rs2);
+				end
 			end
-		end
-	end : blkMem
+		end : blkMem
 
-	// Complete Readbacks
-	assign	config_rack = Rb3;
-	assign	config_q0   = Dat3;
+		// Complete Readbacks
+		assign	config_rack = Rb2;
+		assign	config_q0   = Dat2;
 
-	// Stage #4+5: Output Credit Buffer
-	if(1) begin : blkStreamOut
-
-		uwire  oload;
-
-		// Stream Output SRL backing Credit Grant for Stream Reads in Flight
-		(* SHREG_EXTRACT = "yes" *)
-		data_t  OSrl[FULL_CREDIT-1];
-		logic [$clog2(FULL_CREDIT):0]  OPtr = -1;
-		always_ff @(posedge clk) begin
-			if(Rs3)  OSrl <= { Dat3, OSrl[0:FULL_CREDIT-3] };
-		end
-		always_ff @(posedge clk) begin
-			if(rst)  OPtr <= -1;
-			else begin
-				automatic logic  up = Rs3;
-				automatic logic  dn = oload && !OPtr[$left(OPtr)];
-				OPtr <= OPtr + (up == dn? 0 : up? 1 : -1);
+		//- Stage #3: Final Output Register
+		if(1) begin : blkStreamOut
+			(* EXTRACT_ENABLE = "yes" *)
+			data_t  ODat = 'x;
+			always_ff @(posedge clk) begin
+				if(rst) begin
+					OVld <= 0;
+					ODat <= 'x;
+				end
+				else if(ce3) begin
+					OVld <= Rs2;
+					ODat <= Dat2;
+				end
 			end
-		end
+			assign	commit = ce3 && Rs2;
 
-		// Final Output Register
-		(* EXTRACT_ENABLE = "yes" *)
-		data_t  ODat = 'x;
-		logic   OVld =  0;
-		always_ff @(posedge clk) begin
-			if(rst) begin
-				OVld <= 0;
-				ODat <= 'x;
-			end
-			else if(oload) begin
-				OVld <= !OPtr[$left(OPtr)];
-				ODat <= OSrl[OPtr];
-			end
-		end
-		assign	oload = ordy || !OVld;
+			assign	odat = ODat;
+			assign	ovld = OVld;
+		end : blkStreamOut
 
-		assign	odat = ODat;
-		assign	ovld = OVld;
-
-	end : blkStreamOut
+	end : genReplayQueue
 
 endmodule : memstream
