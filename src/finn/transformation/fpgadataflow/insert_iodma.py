@@ -119,8 +119,8 @@ class InsertIODMA(Transformation):
         conversion.
 
         Floorplan assigns these DWCs to the partition of their IODMA, so the
-        DMA and its DWC end up in the same kernel (as separate IPs, since the
-        free-running DWC cannot live inside the ap_ctrl_hs DMA function).
+        DMA and its DWC end up in the same kernel (as separate IPs: the DWC is
+        the free-running RTL converter, the DMA an ap_ctrl_hs HLS function).
         """
         dma_inst = getCustomOp(dma_node)
         intfw = dma_inst.get_nodeattr("intfWidth")
