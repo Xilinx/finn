@@ -412,9 +412,9 @@ module mvu_vvu_8sx9_dsp58 #(
 					.CARRYINSEL('0),                    // 3-bit input: Carry select
 					.CLK(clk),                          // 1-bit input: Clock
 					.INMODE({
-						2'b00,
-						inmode_zero[TOTAL_PREGS],
-						2'b00
+						3'b000,
+						inmode_zero[TOTAL_PREGS],       // INMODE[1]: force multiplier A input to zero
+						1'b0
 					}),                                 // 5-bit input: INMODE control
 					.NEGATE('0),                        // 3-bit input: Negates the input of the multiplier
 					.OPMODE({
