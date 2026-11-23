@@ -32,9 +32,10 @@ log = logging.getLogger(__name__)
 
 
 def make_upstream_lazy(model_wrapper, loop_node):
-    """Set Eager=0 on every relevant op (see LAZY_BEFORE_LOOP_OPS) that is
-    upstream of the given loop node, i.e. every op from which a dataflow path
-    leads into the loop.
+    """Set Eager=0 on every op that has the Eager attribute and is upstream of
+    the given loop node, i.e. every op from which a dataflow path leads into
+    the loop. Ops declare the attribute if they can emit output before their
+    input arrives (today FMPadding, Pad1D and Pool, with their backends).
 
     Why: an eager padding op emits its leading padding without waiting for any
     input. The FINNLoop selects between its external input (first iteration)
@@ -47,7 +48,6 @@ def make_upstream_lazy(model_wrapper, loop_node):
     Only ops upstream of the loop are affected. Ops on side branches that never
     reach the loop, and ops behind the loop, keep their configured Eager value.
     """
-    LAZY_BEFORE_LOOP_OPS = {"Pad1D", "FMPadding", "Pool"}
     seen = set()
     todo = list(loop_node.input)
     while todo:
@@ -55,7 +55,7 @@ def make_upstream_lazy(model_wrapper, loop_node):
         if producer is None or producer.name in seen:
             continue
         seen.add(producer.name)
-        if producer.op_type.split("_")[0] in LAZY_BEFORE_LOOP_OPS and is_custom_op(producer.domain):
+        if is_custom_op(producer.domain):
             inst = getCustomOp(producer)
             if "Eager" in inst.get_nodeattr_types():
                 inst.set_nodeattr("Eager", 0)
