@@ -143,7 +143,7 @@ class MVAU_hls(MVAU, HLSBackend):
         """Generates c++ code and tcl script for ip generation."""
         super().code_generation_ipgen(model, fpgapart, clk)
         # generate the weight-infrastructure HDL (shared MVAU helper)
-        self.generate_infra_hdl(fpgapart)
+        self.generate_infra_hdl(fpgapart, clk)
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "activations.hpp"', '#include "mvau.hpp"']

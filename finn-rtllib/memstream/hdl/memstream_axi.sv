@@ -38,6 +38,7 @@ module memstream_axi #(
 	parameter  INIT_FILE = "",
 	parameter  RAM_STYLE = "auto",
 	bit  PUMPED_MEMORY = 0,
+	bit  HIGH_PERFORMANCE = 0,	// see memstream
 
 	localparam int unsigned  AXILITE_ADDR_WIDTH = $clog2(SETS * DEPTH * (2**$clog2((WIDTH+31)/32))) + 2,
 	localparam int unsigned  SET_BITS = SETS > 2? $clog2(SETS) : 1
@@ -157,7 +158,8 @@ module memstream_axi #(
 			.DEPTH(DEPTH_EFF),
 			.WIDTH(WIDTH_EFF),
 			.INIT_FILE(INIT_FILE),
-			.RAM_STYLE(RAM_STYLE)
+			.RAM_STYLE(RAM_STYLE),
+			.HIGH_PERFORMANCE(HIGH_PERFORMANCE)
 		) mem (
 			.clk(clk), .rst,
 
@@ -279,7 +281,8 @@ module memstream_axi #(
 			.DEPTH(DEPTH_EFF),
 			.WIDTH(WIDTH_EFF),
 			.INIT_FILE(INIT_FILE),
-			.RAM_STYLE(RAM_STYLE)
+			.RAM_STYLE(RAM_STYLE),
+			.HIGH_PERFORMANCE(HIGH_PERFORMANCE)
 		) mem (
 			.clk(clk2x), .rst,
 

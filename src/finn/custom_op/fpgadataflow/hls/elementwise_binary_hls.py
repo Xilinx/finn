@@ -118,7 +118,7 @@ class ElementwiseBinaryOperation_hls(
         super().code_generation_ipgen(model, fpgapart, clk)
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "internal_decoupled" or self.get_nodeattr("mlo_max_iter"):
-            self.generate_hdl_memstream(fpgapart)
+            self.generate_hdl_memstream(fpgapart, clk)
 
     # Generates list of C++ includes to be placed at the top of the generated
     # code

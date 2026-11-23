@@ -567,6 +567,7 @@ class Requant_rtl(Requant, RTLBackend):
         node_name = self.onnx_node.name
         self.generate_hdl_memstream(
             fpgapart,
+            clk,
             name=node_name + "_params",
             depth=cf,
             width=info["params_stream_width"],

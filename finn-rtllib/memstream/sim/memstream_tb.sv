@@ -30,10 +30,12 @@
  * @author	Thomas B. Preußer <thomas.preusser@amd.com>
  */
 
-module memstream_tb;
-	localparam int unsigned  SETS = 3;
-	localparam int unsigned  DEPTH = 256;
-	localparam int unsigned  DATA_WIDTH = 32;
+module memstream_tb #(
+	int unsigned  SETS = 3,
+	int unsigned  DEPTH = 256,
+	int unsigned  DATA_WIDTH = 32,
+	bit  HIGH_PERFORMANCE = 0
+);
 
 	localparam int unsigned  SET_BITS = SETS < 2? 1 : $clog2(SETS);
 
@@ -58,6 +60,27 @@ module memstream_tb;
 	logic  ordy;
 	uwire  ovld;
 	uwire [DATA_WIDTH-1:0]  odat;
+
+	// Cycle Counter
+	int unsigned  Cycle = 0;
+	always_ff @(posedge clk)  Cycle <= Cycle + 1;
+
+	// AXI-Stream Protocol Check: a pending output must remain stable
+	logic  Pend = 0;
+	logic [DATA_WIDTH-1:0]  PDat = 'x;
+	always_ff @(posedge clk) begin
+		if(rst)  Pend <= 0;
+		else begin
+			if(Pend) begin
+				assert(ovld && (odat == PDat)) else begin
+					$error("Pending stream output withdrawn or modified.");
+					$stop;
+				end
+			end
+			Pend <= ovld && !ordy;
+			PDat <= odat;
+		end
+	end
 
 	initial begin
 		config_address = 'x;
@@ -104,10 +127,20 @@ module memstream_tb;
 			sidx <= 'x;
 			svld <= 0;
 		end join_none
-		for(int unsigned  i = 0; i < SETS*DEPTH; i++) begin
-			@(posedge clk iff ovld);
-			assert(odat == i) else begin
-				$error("Unexpected output: %0d instead of %0d", odat, i);
+		begin
+			automatic int unsigned  t0;
+			for(int unsigned  i = 0; i < SETS*DEPTH; i++) begin
+				@(posedge clk iff ovld);
+				if(i == 0)  t0 = Cycle;
+				assert(odat == i) else begin
+					$error("Unexpected output: %0d instead of %0d", odat, i);
+					$stop;
+				end
+			end
+			// Without backpressure, the stream must be delivered at full rate.
+			$display("Unthrottled stream: %0d outputs in %0d cycles.", SETS*DEPTH, Cycle-t0+1);
+			assert(Cycle-t0+1 == SETS*DEPTH) else begin
+				$error("Stream not delivered at full rate.");
 				$stop;
 			end
 		end
@@ -237,7 +270,8 @@ module memstream_tb;
 	memstream #(
 		.SETS(SETS),
 		.DEPTH(DEPTH),
-		.WIDTH(DATA_WIDTH)
+		.WIDTH(DATA_WIDTH),
+		.HIGH_PERFORMANCE(HIGH_PERFORMANCE)
 	) dut (
 		.clk, .rst,
 

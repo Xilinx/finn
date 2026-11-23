@@ -179,7 +179,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
                     ), """Layer with URAM thresholds must have runtime_writeable_weights=1
                         if Ultrascale device is targeted."""
         if mem_mode == "internal_decoupled":
-            self.generate_hdl_memstream(fpgapart)
+            self.generate_hdl_memstream(fpgapart, clk)
 
     def get_template_param_values(self):
         """Returns the template parameter values according to input, output and weight
