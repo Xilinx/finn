@@ -818,7 +818,7 @@ out0_V.write(out_t);
                 # Convert inputs to RTL simulation format
                 io_dict["inputs"]["in1"] = npy_to_rtlsim_input(rhs_filename, rhs_dtype, rhs_width)
 
-            # Setup PyVerilator simulation of the node
+            # Set up the RTL simulation of the node
             sim = self.get_rtlsim()
             # Reset the RTL simulation; finnxsi toggles the clock
             super().reset_rtlsim(sim)

@@ -174,6 +174,7 @@ build configuration), and are detailed below.
 
   * ``stitched_ip/finn_vivado_stitch_proj.xpr`` -- Vivado project (including Vivado IP Integrator block design) to generate the stitched IP
   * ``stitched_ip/ip`` -- exported Vivado IP for the stitched design
+  * if the design has double-pumped nodes, the stitched IP exposes an ``ap_clk2x`` input for their double-speed clock, or derives it from ``ap_clk`` by an internal clock generator with ``clk2x_source = Clk2xSource.GENERATOR`` (see :ref:`double_pumping`)
 
 * :py:mod:`finn.builder.build_dataflow_config.DataflowOutputType.RTLSIM_PERFORMANCE`: measure latency and performance for the stitched IP in RTL simulation, using XSI
 
@@ -191,6 +192,7 @@ build configuration), and are detailed below.
 * :py:mod:`finn.builder.build_dataflow_config.DataflowOutputType.BITFILE` will run Vivado (for Zynq), Vitis, or Slash to insert the FINN accelerator inside a shell, with DMA engines instantiated to move data to/from main memory:
 
   * ``bitfile/finn-accel.(bit|xclbin|vbin)`` -- generated bitfile depending on platform
+  * double-pumped designs are supported by the Zynq and Vitis flows (see :ref:`double_pumping`)
   * ``report/post_synth_resources.xml`` -- FPGA resource utilization after synthesis
   * ``report/post_route_timing.rpt`` -- post-route timing report
 

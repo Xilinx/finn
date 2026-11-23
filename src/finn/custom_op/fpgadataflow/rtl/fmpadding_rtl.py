@@ -81,6 +81,7 @@ class FMPadding_rtl(FMPadding, RTLBackend):
             "INIT_YOFF": int(padT + dimY),
             "INIT_YEND": int(padT + dimY + padB - 1),
             "STREAM_BITS": int(stream_bits),
+            "EAGER": int(self.get_nodeattr("Eager")),
         }
         return code_gen_dict
 
@@ -142,14 +143,17 @@ class FMPadding_rtl(FMPadding, RTLBackend):
         if abspath:
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen") + "/"
             rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/fmpadding/hdl/")
+            pad_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/pad/hdl/")
         else:
             code_gen_dir = ""
             rtllib_dir = ""
+            pad_dir = ""
 
         verilog_files = [
             rtllib_dir + "fmpadding_axi.sv",
             rtllib_dir + "fmpadding.sv",
             rtllib_dir + "axi2we.sv",
+            pad_dir + "pad.sv",
             code_gen_dir + self.get_nodeattr("gen_top_module") + ".v",
         ]
         return verilog_files

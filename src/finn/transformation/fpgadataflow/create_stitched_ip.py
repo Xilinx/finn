@@ -84,10 +84,33 @@ class CreateStitchedIP(Transformation):
     value. A make_project.tcl script is also placed under the same folder,
     which is called to instantiate the per-layer IPs and stitch them together.
     The packaged block design IP can be found under the ip subdirectory.
+
+    Nodes with a "clk2x" interface (double-pumped nodes) need the phase-aligned
+    double-speed clock ap_clk2x. By default, the stitched IP gets an ap_clk2x
+    input for it, which the integrating system must drive. With clk2x_gen, the
+    stitched IP derives ap_clk2x from ap_clk itself by a clock generator (MMCM,
+    see finn-rtllib/clk2x_gen) configured for an ap_clk of 1000/clk_ns MHz and
+    exposes no ap_clk2x input. Its design logic then runs on the generator's
+    phase-aligned 1x clock and leaves reset after the generator has locked.
+    Meanwhile, the handshakes of all external AXI interfaces are blocked. Use
+    clk2x_gen for the outermost IP, which becomes a shell kernel or is
+    delivered, but not for inner IPs (FINNLoop bodies, IPs stitched for FIFO
+    sizing or simulation), which get their ap_clk2x from the enclosing IP.
     """
 
+    # cells of the clock generator (clk2x_gen)
+    CLK2X_GEN = "clk2x_gen"
+    CLK2X_DOMAIN = "clk2x_domain"
+
     def __init__(
-        self, fpgapart, clk_ns, ip_name="finn_design", run_synth=False, run_pnr=False, signature=[]
+        self,
+        fpgapart,
+        clk_ns,
+        ip_name="finn_design",
+        run_synth=False,
+        run_pnr=False,
+        signature=[],
+        clk2x_gen=False,
     ):
         super().__init__()
         self.fpgapart = fpgapart
@@ -100,6 +123,9 @@ class CreateStitchedIP(Transformation):
         if self.run_pnr and not self.run_synth:
             self.run_synth = True
         self.signature = signature
+        self.clk2x_gen = clk2x_gen
+        # whether this IP has a clock generator: clk2x_gen and some node needs ap_clk2x
+        self.clk2x_gen_active = False
         self.has_aximm = False
         self.aximm_weight_files = {}
         self.aximm_idx = 0
@@ -132,11 +158,79 @@ class CreateStitchedIP(Transformation):
         a 2x clock."""
         return bool(getCustomOp(node).get_verilog_top_module_intf_names().get("clk2x"))
 
+    def clk_src(self):
+        "The block design object driving the (1x) clock of the design logic."
+        if self.clk2x_gen_active:
+            return "[get_bd_pins %s/clk]" % self.CLK2X_DOMAIN
+        return "[get_bd_ports ap_clk]"
+
+    def rst_src(self):
+        "The block design object driving the (active-low) reset of the design logic."
+        if self.clk2x_gen_active:
+            return "[get_bd_pins %s/rst_n]" % self.CLK2X_DOMAIN
+        return "[get_bd_ports ap_rst_n]"
+
+    def create_clk2x_gen(self, block_name):
+        """Instantiate the clock generator: the ports ap_clk and ap_rst_n and
+        clk2x_domain, whose MMCM primitive derives the 1x and 2x clocks from
+        ap_clk and which provides them and the design reset (see
+        finn-rtllib/clk2x_gen/clk2x_gen.tcl)."""
+        rtllib = "$::env(FINN_ROOT)/finn-rtllib/clk2x_gen"
+        self.create_cmds += [
+            "add_files -norecurse %s/hdl/clk2x_domain.v" % rtllib,
+            "source %s/clk2x_gen.tcl" % rtllib,
+            "clk2x_gen_create %r %s/clk2x_gen.json %s/clk2x_gen.xdc finn_clk2x_%s"
+            % (1000.0 / self.clk_ns, self.proj_dir, self.proj_dir, block_name),
+        ]
+        self.clock_reset_are_external = True
+        self.intf_names["clk"] = ["ap_clk"]
+        self.intf_names["rst"] = ["ap_rst_n"]
+
+    def make_intf_external(self, inst_name, intf_name, port_name):
+        """Make the interface pin intf_name of a cell external as port_name.
+
+        With the clock generator, the interface passes a gate that blocks its
+        handshakes while the design is in reset (see clk2x_gate in
+        finn-rtllib/clk2x_gen/clk2x_gen.tcl)."""
+        if self.clk2x_gen_active:
+            self.connect_cmds.append(
+                "clk2x_gate [get_bd_intf_pins %s/%s] %s %s"
+                % (inst_name, intf_name, port_name, self.proj_dir)
+            )
+            return
+        self.connect_cmds.append(
+            "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]" % (inst_name, intf_name)
+        )
+        # the external port is auto-named <pin>_0
+        if port_name != intf_name + "_0":
+            self.connect_cmds.append(
+                "set_property name %s [get_bd_intf_ports %s_0]" % (port_name, intf_name)
+            )
+
     def connect_clk_rst(self, node):
         inst_name = node.name
         node_inst = getCustomOp(node)
         clock_intf_name = node_inst.get_verilog_top_module_intf_names()["clk"][0]
         reset_intf_name = node_inst.get_verilog_top_module_intf_names()["rst"][0]
+        if self.clk2x_gen_active:
+            self.connect_cmds.append(
+                "connect_bd_net %s [get_bd_pins %s/%s]"
+                % (self.clk_src(), inst_name, clock_intf_name)
+            )
+            self.connect_cmds.append(
+                "connect_bd_net %s [get_bd_pins %s/%s]"
+                % (self.rst_src(), inst_name, reset_intf_name)
+            )
+            if self.is_double_pumped(node):
+                self.connect_cmds.append(
+                    "connect_bd_net [get_bd_pins %s/clk2x] [get_bd_pins %s/%s]"
+                    % (
+                        self.CLK2X_DOMAIN,
+                        inst_name,
+                        node_inst.get_verilog_top_module_intf_names()["clk2x"][0],
+                    )
+                )
+            return
         # make clock and reset external, if they aren't already
         if not self.clock_reset_are_external:
             self.connect_cmds.append(
@@ -184,34 +278,27 @@ class CreateStitchedIP(Transformation):
         axilite_intf_name = node_inst.get_verilog_top_module_intf_names()["axilite"]
         aximm_intf_name = node_inst.get_verilog_top_module_intf_names()["aximm"]
         if len(axilite_intf_name) != 0:
-            self.connect_cmds.append(
-                "make_bd_intf_pins_external "
-                "[get_bd_intf_pins %s/%s]" % (inst_name, axilite_intf_name[0])
-            )
+            # the name Vivado gives the external port of the n-th pin of this name
             ext_if_name = "%s_%d" % (
                 axilite_intf_name[0],
                 len(self.intf_names["axilite"]),
             )
+            if self.clk2x_gen_active:
+                self.make_intf_external(inst_name, axilite_intf_name[0], ext_if_name)
+            else:
+                self.connect_cmds.append(
+                    "make_bd_intf_pins_external "
+                    "[get_bd_intf_pins %s/%s]" % (inst_name, axilite_intf_name[0])
+                )
             self.intf_names["axilite"].append(ext_if_name)
 
-        is_mlo = node_inst.get_nodeattr("mlo_max_iter")
-        if is_mlo:
-            self.is_mlo = True
-
         for mm_intf_name in aximm_intf_name:
-            self.connect_cmds.append(
-                "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]" % (inst_name, mm_intf_name[0])
-            )
-
             # Address range for the external segment; overridden per interface below.
             addr_range = "256M"
 
             # Determine external interface name and address segment path
             if node.op_type == "FINNLoop":
                 ext_if_name = mm_intf_name[0]
-                self.connect_cmds.append(
-                    "set_property name %s [get_bd_intf_ports %s_0]" % (ext_if_name, ext_if_name)
-                )
                 seg_name = "%s/%s/SEG_%s_Reg" % (inst_name, ext_if_name, ext_if_name)
             elif mm_intf_name[0] == "axi_mm":
                 # MVAU with external weights: the per-node fetch_weights unit
@@ -223,9 +310,6 @@ class CreateStitchedIP(Transformation):
                     ext_if_name = f"m_axi_MVAU_id_{idx}"
                 else:
                     ext_if_name = f"m_axi_{inst_name}_{self.aximm_idx}"
-                self.connect_cmds.append(
-                    "set_property name %s [get_bd_intf_ports axi_mm_0]" % (ext_if_name)
-                )
                 seg_name = "%s/%s_fetch_weights/axi_mm/SEG_%s_Reg" % (
                     inst_name,
                     inst_name,
@@ -242,11 +326,13 @@ class CreateStitchedIP(Transformation):
             else:
                 # Generic AXI-MM master accessing global memory (e.g. IODMA, Lookup).
                 ext_if_name = "m_axi_gmem%d" % (self.aximm_idx)
-                self.connect_cmds.append(
-                    "set_property name %s [get_bd_intf_ports m_axi_gmem_0]" % ext_if_name
-                )
                 seg_name = "%s/Data_m_axi_gmem/SEG_%s_Reg" % (inst_name, ext_if_name)
                 addr_range = "4G"
+
+            self.make_intf_external(inst_name, mm_intf_name[0], ext_if_name)
+            if self.clk2x_gen_active:
+                # the gate ends the address path: the external segment is the gate's
+                seg_name = "clk2x_gate_%s/outer/SEG_%s_Reg" % (ext_if_name, ext_if_name)
 
             self.connect_cmds.append("assign_bd_address")
             self.connect_cmds.append("set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name))
@@ -270,14 +356,7 @@ class CreateStitchedIP(Transformation):
                 if node.op_type != "FINNLoop":
                     continue
             output_intf_name = output_intf_names[i][0]
-            self.connect_cmds.append(
-                "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
-                % (inst_name, output_intf_name)
-            )
-            self.connect_cmds.append(
-                "set_property name m_axis_%d [get_bd_intf_ports %s_0]"
-                % (self.m_axis_idx, output_intf_name)
-            )
+            self.make_intf_external(inst_name, output_intf_name, "m_axis_%d" % self.m_axis_idx)
             self.has_m_axis = True
             self.intf_names["m_axis"].append(
                 ("m_axis_%d" % self.m_axis_idx, output_intf_names[i][1])
@@ -295,13 +374,7 @@ class CreateStitchedIP(Transformation):
                 if node.op_type != "FINNLoop":
                     continue
             input_intf_name = input_intf_names[i][0]
-            self.connect_cmds.append(
-                "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]" % (inst_name, input_intf_name)
-            )
-            self.connect_cmds.append(
-                "set_property name s_axis_%d [get_bd_intf_ports %s_0]"
-                % (self.s_axis_idx, input_intf_name)
-            )
+            self.make_intf_external(inst_name, input_intf_name, "s_axis_%d" % self.s_axis_idx)
             self.has_s_axis = True
             self.intf_names["s_axis"].append(
                 ("s_axis_%d" % self.s_axis_idx, input_intf_names[i][1])
@@ -365,10 +438,10 @@ class CreateStitchedIP(Transformation):
         )
         # set clk and reset
         self.connect_cmds.append(
-            "connect_bd_net [get_bd_ports ap_clk] [get_bd_pins %s/ap_clk]" % signature_name
+            "connect_bd_net %s [get_bd_pins %s/ap_clk]" % (self.clk_src(), signature_name)
         )
         self.connect_cmds.append(
-            "connect_bd_net [get_bd_ports ap_rst_n] [get_bd_pins %s/ap_rst_n]" % signature_name
+            "connect_bd_net %s [get_bd_pins %s/ap_rst_n]" % (self.rst_src(), signature_name)
         )
         fclk_mhz = 1 / (self.clk_ns * 0.001)
         fclk_hz = fclk_mhz * 1000000
@@ -383,10 +456,7 @@ class CreateStitchedIP(Transformation):
             )
         )
         # make axilite interface external
-        self.connect_cmds.append(
-            "make_bd_intf_pins_external [get_bd_intf_pins %s/s_axi]" % signature_name
-        )
-        self.connect_cmds.append("set_property name s_axilite_info [get_bd_intf_ports s_axi_0]")
+        self.make_intf_external(signature_name, "s_axi", "s_axilite_info")
         self.connect_cmds.append("assign_bd_address")
 
     def insert_sim_ctrl(self):
@@ -397,7 +467,7 @@ class CreateStitchedIP(Transformation):
             "create_bd_cell -type module -reference sim_ctrl %s" % sim_ctrl_name
         )
         self.connect_cmds.append(
-            "connect_bd_net [get_bd_ports ap_clk] [get_bd_pins %s/ap_clk]" % sim_ctrl_name
+            "connect_bd_net %s [get_bd_pins %s/ap_clk]" % (self.clk_src(), sim_ctrl_name)
         )
         self.connect_cmds.append(
             "make_bd_pins_external [get_bd_pins %s/sim_finish]" % sim_ctrl_name
@@ -421,6 +491,20 @@ class CreateStitchedIP(Transformation):
                 behavior. It is strongly recommended to insert FIFOs prior to
                 calling CreateStitchedIP."""
             )
+        # create a temporary folder for the project
+        prjname = "finn_vivado_stitch_proj"
+        vivado_stitch_proj_dir = make_build_dir(prefix="vivado_stitch_proj_")
+        self.proj_dir = vivado_stitch_proj_dir
+        model.set_metadata_prop("vivado_stitch_proj", vivado_stitch_proj_dir)
+        self.is_mlo = any(
+            getCustomOp(node).get_nodeattr("mlo_max_iter") for node in model.graph.node
+        )
+        block_name = self.ip_name + "_mlo" if self.is_mlo else self.ip_name
+        self.clk2x_gen_active = self.clk2x_gen and any(
+            self.is_double_pumped(node) for node in model.graph.node
+        )
+        if self.clk2x_gen_active:
+            self.create_clk2x_gen(block_name)
         for node in model.graph.node:
             # ensure that all nodes are fpgadataflow, and that IPs are generated
             assert is_hls_node(node) or is_rtl_node(
@@ -478,10 +562,6 @@ class CreateStitchedIP(Transformation):
 
         self.insert_sim_ctrl()
 
-        # create a temporary folder for the project
-        prjname = "finn_vivado_stitch_proj"
-        vivado_stitch_proj_dir = make_build_dir(prefix="vivado_stitch_proj_")
-        model.set_metadata_prop("vivado_stitch_proj", vivado_stitch_proj_dir)
         # start building the tcl script
         tcl = []
         # create vivado project
@@ -495,16 +575,24 @@ class CreateStitchedIP(Transformation):
         tcl.append("set_property ip_repo_paths [%s] [current_project]" % ip_dirs_str)
         tcl.append("update_ip_catalog")
         # create block design and instantiate all layers
-        if self.is_mlo:
-            block_name = self.ip_name + "_mlo"
-        else:
-            block_name = self.ip_name
         tcl.append('create_bd_design "%s"' % block_name)
         tcl.extend(self.create_cmds)
         tcl.extend(self.connect_cmds)
         fclk_mhz = 1 / (self.clk_ns * 0.001)
         fclk_hz = fclk_mhz * 1000000
         tcl.append("set_property CONFIG.FREQ_HZ %d [get_bd_ports /ap_clk]" % round(fclk_hz))
+        if self.clk2x_gen_active:
+            # The external interfaces are clocked by the generator's 1x clock, which
+            # reproduces ap_clk (same frequency and phase): associate them with ap_clk.
+            tcl.append(
+                "foreach p [get_bd_intf_ports] { set_property CONFIG.FREQ_HZ %d $p }"
+                % round(fclk_hz)
+            )
+            tcl.append(
+                "set_property CONFIG.ASSOCIATED_BUSIF [join [get_property NAME "
+                "[get_bd_intf_ports]] :] [get_bd_ports /ap_clk]"
+            )
+            tcl.append("set_property CONFIG.ASSOCIATED_RESET ap_rst_n [get_bd_ports /ap_clk]")
         if self.clock2x_is_external:
             tcl.append(
                 "set_property CONFIG.FREQ_HZ %d [get_bd_ports /ap_clk2x]" % round(2 * fclk_hz)
@@ -583,6 +671,9 @@ class CreateStitchedIP(Transformation):
         block_vlnv = "%s:%s:%s:1.0" % (block_vendor, block_library, block_name)
         model.set_metadata_prop("vivado_stitch_vlnv", block_vlnv)
         model.set_metadata_prop("vivado_stitch_ifnames", json.dumps(self.intf_names))
+        if self.clk2x_gen_active:
+            # the ap_clk frequency the clock generator is configured for
+            model.set_metadata_prop("clk2x_gen_freq_mhz", repr(1000.0 / self.clk_ns))
         if self.aximm_weight_files:
             model.set_metadata_prop(
                 "vivado_stitch_aximm_weights", json.dumps(self.aximm_weight_files)
@@ -596,6 +687,27 @@ class CreateStitchedIP(Transformation):
         )
         # Allow user to customize clock in deployment of stitched IP
         tcl.append("set_property ipi_drc {ignore_freq_hz true} [ipx::current_core]")
+        if self.clock2x_is_external:
+            # ap_rst_n belongs to ap_clk only: shell automation (e.g. the Vitis linker)
+            # would otherwise drive it once per associated clock. The packager may
+            # prefix the interface name (CLK.AP_CLK2X).
+            tcl.append(
+                "foreach b [ipx::get_bus_interfaces -of_objects [ipx::current_core]] "
+                "{ if {[string match -nocase {*ap_clk2x} [get_property NAME $b]]} "
+                "{ ipx::remove_bus_parameter -quiet ASSOCIATED_RESET $b } }"
+            )
+        if self.clk2x_gen_active and not self.run_synth:
+            # ship the clock constraint of the generator with the IP: as an IP-level
+            # XDC, it is scoped to each instance of the IP. (With run_synth, the
+            # constraints exported from the synthesized design hold it, but Vivado
+            # does not read them for Vitis kernels: VitisLink applies it.)
+            tcl.append("file mkdir ip/constrs")
+            tcl.append("file copy -force clk2x_gen.xdc ip/constrs/clk2x_gen.xdc")
+            tcl.append(
+                "set_property type xdc [ipx::add_file constrs/clk2x_gen.xdc "
+                "[ipx::get_file_groups xilinx_anylanguagesynthesis -of_objects "
+                "[ipx::current_core]]]"
+            )
         # in some cases, the IP packager seems to infer an aperture of 64K or 4G,
         # preventing address assignment of the DDR_LOW and/or DDR_HIGH segments
         # the following is a hotfix to remove this aperture during IODMA packaging
@@ -792,6 +904,7 @@ close $ofile
         self.s_axis_idx = 0
         self.clock_reset_are_external = False
         self.clock2x_is_external = False
+        self.clk2x_gen_active = False
         self.create_cmds = []
         self.connect_cmds = []
         self.intf_names = {

@@ -769,10 +769,14 @@ def join_window_floors(model, nodes, period=None):
                     if producer(x) is None:
                         continue
                     idx = input_need(inst, i, k)
-                    up = walk(x, int(idx[-1]))
+                    up = walk(x, max(int(idx[-1]), 1))
                     if up is None:
                         continue
-                    n_i, t_i = up[0][idx - 1], up[1][idx - 1]
+                    # a token that needs no input word (eager leading padding)
+                    # waits for nothing
+                    some, pos = idx > 0, np.maximum(idx, 1) - 1
+                    n_i = np.where(some, up[0][pos], 0)
+                    t_i = np.where(some, up[1][pos], 0)
                     need = n_i if need is None else np.maximum(need, n_i)
                     ready = t_i if ready is None else np.maximum(ready, t_i)
                 if need is None:
