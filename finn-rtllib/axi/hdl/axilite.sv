@@ -102,6 +102,7 @@ module axilite #(
 	data_t  WData = '{ vld: 0, val: 'x };
 	uwire  clr_rd;
 	uwire  clr_wr;
+	uwire  snk_re;
 	always_ff @(posedge aclk) begin
 		if(rst || clr_rd) begin
 			RAddr <= '{ vld: 0, val: 'x };
@@ -131,7 +132,7 @@ module axilite #(
 	data_t  RData = '{ vld: 0, val: 'x };
 
 	uwire  snk_we = WAddr.vld && WData.vld && !WIssued;
-	uwire  snk_re = !snk_we && RAddr.vld && !RLock && !RData.vld;
+	assign	snk_re = !snk_we && RAddr.vld && !RLock && !RData.vld;
 	uwire [IP_ADDR_WIDTH+WSEL_BITS-1:0]  snk_addr = snk_we? WAddr.val : RAddr.val;
 	uwire [IP_DATA_WIDTH          -1:0]  snk_data = WData.val;
 
