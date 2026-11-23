@@ -33,8 +33,9 @@
 module memstream_axi_tb #(
 	int unsigned  SETS = 3,
 	int unsigned  DEPTH = 912,
-	int unsigned  WIDTH = 72,
-	bit  PUMPED_MEMORY = 1
+	int unsigned  WIDTH = 73,
+	bit  PUMPED_MEMORY = 1,
+	bit  HIGH_PERFORMANCE = 0
 );
 
 	localparam int unsigned  WORDS = SETS * DEPTH;
@@ -92,7 +93,7 @@ module memstream_axi_tb #(
 	// DUT
 	memstream_axi #(
 		.SETS(SETS), .DEPTH(DEPTH), .WIDTH(WIDTH),
-		.PUMPED_MEMORY(PUMPED_MEMORY)
+		.PUMPED_MEMORY(PUMPED_MEMORY), .HIGH_PERFORMANCE(HIGH_PERFORMANCE)
 	) dut (
 		// Global Control
 		.clk, .clk2x, .rst,
@@ -215,7 +216,8 @@ module memstream_axi_tb #(
 		rready <= 1;
 		@(posedge clk iff rvalid);
 		rready <= 0;
-		assert(!rresp && (rdata == (WORDS-1) << $clog2(FOLD))) else begin
+		// Fold 0 of the last entry, which retains only WIDTH bits if WIDTH < 32
+		assert(!rresp && (rdata == ((WORDS-1) << $clog2(FOLD) & (FOLD > 1? '1 : 2**WIDTH-1)))) else begin
 			$error("Read back error.");
 			$stop;
 		end
