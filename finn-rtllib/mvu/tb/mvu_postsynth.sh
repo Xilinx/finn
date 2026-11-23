@@ -48,7 +48,8 @@ XILINX_LOCAL_USER_DATA=no vivado -mode batch -source synth.tcl -nojournal -log s
 xvlog -sv netlist.v "$HERE/mvu_postsynth_tb.sv" > xvlog.out
 xvlog "$VIVADO_DIR/data/verilog/src/glbl.v" >> xvlog.out
 xelab -timescale 1ns/1ps -L unisims_ver -L unimacro_ver -L secureip mvu_postsynth_tb glbl -s sim > xelab.out
-xsim sim -runall -log sim.log > /dev/null
+# report the log even if xsim exits non-zero; the grep below decides
+xsim sim -runall -log sim.log > /dev/null || true
 
 grep -E "MISMATCH|TEST (PASSED|FAILED)" sim.log | head -20
 grep -q "TEST PASSED" sim.log
