@@ -2701,8 +2701,9 @@ class InferElementwiseBinaryOperation(Transformation):
                 break
         # Re-do shape and data type annotations after potential changes to the
         # model graph
-        model = model.transform(InferShapes())
-        model = model.transform(InferDataTypes())
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
         # Return the transformed model and indicate whether the graph actually
         # has been transformed
         return model, graph_modified
@@ -2792,8 +2793,9 @@ class InferReLUAsElementwiseMax(Transformation):
                 break
         # Re-do shape and data type annotations after potential changes to the
         # model graph
-        model = model.transform(InferShapes())
-        model = model.transform(InferDataTypes())
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
         # Return the transformed model and indicate whether the graph actually
         # has been transformed
         return model, graph_modified
