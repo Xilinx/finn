@@ -63,7 +63,7 @@ def _get_cnpy_object(hls_path: str) -> str:
     with open(os.path.join(obj_dir, "cnpy.lock"), "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         builder.build_if_changed(obj_dir)
-    return builder.executable_path
+    return os.fspath(builder.executable_path)
 
 
 class HLSBackend(ABC):

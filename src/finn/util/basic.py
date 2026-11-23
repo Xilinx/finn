@@ -333,7 +333,7 @@ class CppBuilder:
 
     def get_flags(self) -> list[str]:
         """Return the compiler arguments, with environment variables expanded."""
-        flags = []
+        flags: list[str] = []
         for lib in self.include_paths:
             tokens = shlex.split(lib) if isinstance(lib, str) else lib
             flags.extend(os.path.expandvars(os.fspath(token)) for token in tokens)
