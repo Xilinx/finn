@@ -69,9 +69,6 @@ from finn.custom_op.fpgadataflow.hls.outer_shuffle_hls import OuterShuffle_hls
 from finn.custom_op.fpgadataflow.hls.pool_hls import Pool_hls
 from finn.custom_op.fpgadataflow.hls.requant_hls import Requant_hls
 from finn.custom_op.fpgadataflow.hls.split_hls import StreamingSplit_hls
-from finn.custom_op.fpgadataflow.hls.streamingdatawidthconverter_hls import (
-    StreamingDataWidthConverter_hls,
-)
 from finn.custom_op.fpgadataflow.hls.thresholding_hls import Thresholding_hls
 from finn.custom_op.fpgadataflow.hls.upsampler_hls import UpsampleNearestNeighbour_hls
 from finn.custom_op.fpgadataflow.hls.vectorvectoractivation_hls import VVAU_hls
@@ -91,7 +88,6 @@ custom_op["Pool_hls"] = Pool_hls
 custom_op["Requant_hls"] = Requant_hls
 custom_op["StreamingConcat_hls"] = StreamingConcat_hls
 custom_op["StreamingSplit_hls"] = StreamingSplit_hls
-custom_op["StreamingDataWidthConverter_hls"] = StreamingDataWidthConverter_hls
 custom_op["Thresholding_hls"] = Thresholding_hls
 custom_op["UpsampleNearestNeighbour_hls"] = UpsampleNearestNeighbour_hls
 custom_op["MVAU_hls"] = MVAU_hls

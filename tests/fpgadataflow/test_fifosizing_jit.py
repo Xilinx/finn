@@ -9,6 +9,7 @@ recorders, so no Vivado is needed."""
 
 import pytest
 
+import numpy as np
 import os
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
@@ -31,11 +32,13 @@ DT = DataType["INT4"]
 
 
 def make_fork_join_model(ch=16, pe=2, n_vec=8):
-    """``inp -> DuplicateStreams -> (a, b)``, ``b`` through a 1:4 and a 4:1
-    width converter, then ``ElementwiseAdd(a, b)``: a fork and a join, which are
-    never characterized, and two characterized nodes."""
+    """``inp -> DuplicateStreams -> (a, b)``, ``a`` scaled by a constant (HLS),
+    ``b`` through a 1:4 and a 4:1 width converter (RTL), then
+    ``ElementwiseAdd(a, b)``: a fork and a join, which are never characterized,
+    and three characterized nodes, one of them an HLS node that needs HLS
+    synthesis."""
     shape = [1, n_vec, ch]
-    tensors = ["inp", "a", "b", "b_wide", "b_narrow", "outp"]
+    tensors = ["inp", "a", "a_scaled", "b", "b_wide", "b_narrow", "outp"]
     width = pe * DT.bitwidth()
     nodes = [
         helper.make_node(
@@ -51,16 +54,33 @@ def make_fork_join_model(ch=16, pe=2, n_vec=8):
             numInputVectors=[1, n_vec],
         )
     ]
+    nodes.append(
+        helper.make_node(
+            "ElementwiseMul_hls",
+            ["a", "scale"],
+            ["a_scaled"],
+            domain="finn.custom_op.fpgadataflow.hls",
+            backend="fpgadataflow",
+            lhs_shape=shape,
+            rhs_shape=[1],
+            out_shape=shape,
+            lhs_dtype=DT.name,
+            rhs_dtype=DT.name,
+            out_dtype=DT.name,
+            lhs_style="input",
+            rhs_style="const",
+        )
+    )
     for inw, outw, src, dst in [
         (width, 4 * width, "b", "b_wide"),
         (4 * width, width, "b_wide", "b_narrow"),
     ]:
         nodes.append(
             helper.make_node(
-                "StreamingDataWidthConverter_hls",
+                "StreamingDataWidthConverter_rtl",
                 [src],
                 [dst],
-                domain="finn.custom_op.fpgadataflow.hls",
+                domain="finn.custom_op.fpgadataflow.rtl",
                 backend="fpgadataflow",
                 shape=shape,
                 inWidth=inw,
@@ -71,7 +91,7 @@ def make_fork_join_model(ch=16, pe=2, n_vec=8):
     nodes.append(
         helper.make_node(
             "ElementwiseAdd_hls",
-            ["a", "b_narrow"],
+            ["a_scaled", "b_narrow"],
             ["outp"],
             domain="finn.custom_op.fpgadataflow.hls",
             backend="fpgadataflow",
@@ -96,6 +116,8 @@ def make_fork_join_model(ch=16, pe=2, n_vec=8):
     model = ModelWrapper(qonnx_make_model(graph, producer_name="fork-join"))
     for t in tensors:
         model.set_tensor_datatype(t, DT)
+    model.set_initializer("scale", np.ones([1], dtype=np.float32))
+    model.set_tensor_datatype("scale", DT)
     return model.transform(GiveUniqueNodeNames())
 
 
@@ -110,7 +132,7 @@ class _NoOp(Transformation):
 @pytest.fixture
 def recorders(monkeypatch):
     """Replace code generation, HLS synthesis, the Verilog path fix-up and
-    rtlsim preparation by recorders. Returns the names of the nodes each step
+    rtlsim preparation (HLS and RTL) by recorders. Returns the names of the nodes each step
     ran for."""
     calls = {"codegen": [], "ipgen": [], "rtlsim": []}
 
@@ -134,18 +156,23 @@ def recorders(monkeypatch):
     monkeypatch.setattr(derive_characteristic, "ReplaceVerilogRelPaths", _NoOp)
     monkeypatch.setattr(HLSBackend, "ipgen_singlenode_code", ipgen)
     monkeypatch.setattr(HLSBackend, "prepare_rtlsim", prepare_rtlsim)
+    monkeypatch.setattr(
+        "finn.custom_op.fpgadataflow.rtlbackend.RTLBackend.prepare_rtlsim", prepare_rtlsim
+    )
     return calls
 
 
 @pytest.mark.fpgadataflow
 @pytest.mark.parametrize("ip_state", ["fresh", "exists", "missing"])
 def test_jit_synthesizes_only_what_is_needed(recorders, ip_state):
-    """IP is synthesized for the characterized nodes unless it already exists;
-    the fork and the join get neither IP nor rtlsim."""
+    """Code is generated and rtlsim prepared for the characterized nodes, HLS IP
+    synthesized for the characterized HLS nodes unless it already exists; the
+    fork and the join get neither IP nor rtlsim."""
     model = make_fork_join_model()
-    dwcs = [n.name for n in model.graph.node if n.op_type.startswith("StreamingDataWidth")]
+    hls = ["ElementwiseMul_hls_0"]
+    chrc = hls + ["StreamingDataWidthConverter_rtl_0", "StreamingDataWidthConverter_rtl_1"]
     for node in model.graph.node:
-        if node.name not in dwcs or ip_state == "fresh":
+        if node.name not in hls or ip_state == "fresh":
             continue
         inst = getCustomOp(node)
         code_gen_dir = make_build_dir("jit_test_existing_")
@@ -158,13 +185,14 @@ def test_jit_synthesizes_only_what_is_needed(recorders, ip_state):
 
     model = model.transform(JustInTimeSynthesize("xczu3eg-sbva484-1-e", 5.0))
 
-    assert sorted(recorders["codegen"]) == sorted(dwcs)
-    assert sorted(recorders["ipgen"]) == ([] if ip_state == "exists" else sorted(dwcs))
-    assert sorted(recorders["rtlsim"]) == sorted(dwcs)
+    assert sorted(recorders["codegen"]) == chrc
+    assert recorders["ipgen"] == ([] if ip_state == "exists" else hls)
+    assert sorted(recorders["rtlsim"]) == chrc
     for node in model.graph.node:
         inst = getCustomOp(node)
-        if node.name in dwcs:
+        if node.name in hls:
             assert os.path.isdir(inst.get_nodeattr("ipgen_path"))
+        if node.name in chrc:
             assert inst.get_nodeattr("rtlsim_so") != ""
         else:
             assert inst.get_nodeattr("rtlsim_so") == ""

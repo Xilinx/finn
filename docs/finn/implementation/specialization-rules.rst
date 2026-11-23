@@ -32,6 +32,8 @@ For each base layer node:
 
 **Auto-detection**: If a layer has both HLS and RTL variants available, RTL is preferred when constraints are satisfied. Otherwise, HLS is used as fallback.
 
+**Single backend**: If a layer has only one variant, SpecializeLayers uses it and warns if ``preferred_impl_style`` asks for the other one. For example, ``StreamingDataWidthConverter`` has only an RTL variant (finn-rtllib ``vpc``, any width ratio at full rate); a DWC with ``preferred_impl_style = "hls"`` becomes ``StreamingDataWidthConverter_rtl``.
+
 RTL Constraint Table
 =====================
 
@@ -51,8 +53,6 @@ Layers with conditional RTL availability:
      - Versal only, FLOAT32 only
    * - ElementwiseBinary
      - Versal only, FLOAT32 only
-   * - StreamingDataWidthConverter
-     - Integer width ratio only
 
 Example: LayerNorm Specialization
 ==================================

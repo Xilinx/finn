@@ -155,9 +155,8 @@ class StreamingDataWidthConverter(HWCustomOp):
         context[node.output[0]] = output
 
     def get_exp_cycles(self):
-        # Both converters (finn-rtllib vpc, the HLS StreamingDWC pair through the
-        # LCM width) move one word per cycle on the side with more words, also
-        # for non-integer width ratios.
+        # finn-rtllib's vpc moves one word per cycle on the side with more words,
+        # also for non-integer width ratios.
         num_in_words = int(np.prod(self.get_folded_input_shape()[:-1]))
         num_out_words = int(np.prod(self.get_folded_output_shape()[:-1]))
         return max(num_in_words, num_out_words)
