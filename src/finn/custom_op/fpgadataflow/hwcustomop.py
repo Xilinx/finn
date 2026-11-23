@@ -40,6 +40,10 @@ from finn.util.mlo import DMA_DATA_BITS
 
 finnxsi = xsi if xsi.is_available() else None
 
+# Clock period (ns) up to which the on-chip memstream selects its high-performance
+# implementation by default, i.e. for target clocks of at least 400 MHz.
+MEMSTREAM_HIGH_PERFORMANCE_MAX_CLK_NS = 2.5
+
 
 class HWCustomOp(CustomOp):
     """HWCustomOp class all custom ops that can be implemented with either
@@ -99,6 +103,12 @@ class HWCustomOp(CustomOp):
             "io_chrc_period": ("i", False, 0),
             # MLO max iterations
             "mlo_max_iter": ("i", False, 0),
+            # Implementation of the on-chip memstream of a decoupled parameter
+            # memory: "on" selects the credit-buffered high-performance variant
+            # (best Fmax, ~1 LUT per stream bit), "off" the lean one stalling
+            # the data within the memory. "auto" decides by the target clock,
+            # see get_mem_high_performance().
+            "mem_high_performance": ("s", False, "auto", {"auto", "on", "off"}),
             "address_offset": ("i", False, 0),
         }
 
@@ -364,9 +374,26 @@ class HWCustomOp(CustomOp):
             self.set_nodeattr(name, path)
         return
 
+    def supports_memstream(self) -> bool:
+        """Whether this layer can stream parameters from an on-chip memstream."""
+        ops = ["MVAU_hls", "MVAU_rtl", "VVAU_hls", "VVAU_rtl", "Thresholding_hls", "Requant_rtl"]
+        return self.onnx_node.op_type in ops or self.onnx_node.op_type.startswith("Elementwise")
+
+    def get_mem_high_performance(self, clk_ns: float, pumped_memory: int = 0) -> int:
+        """Resolve the mem_high_performance attribute to the HIGH_PERFORMANCE
+        parameter (0 or 1) of the memstream. In "auto" mode, the high-performance
+        implementation is chosen for memstream clocks of at least 400 MHz. A
+        pumped memory runs on the doubled clock."""
+        mode = self.get_nodeattr("mem_high_performance")
+        if mode == "auto":
+            mem_clk_ns = clk_ns / 2 if pumped_memory else clk_ns
+            return int(mem_clk_ns <= MEMSTREAM_HIGH_PERFORMANCE_MAX_CLK_NS)
+        return int(mode == "on")
+
     def generate_hdl_memstream(
         self,
         fpgapart,
+        clk,
         pumped_memory=0,
         name=None,
         depth=None,
@@ -376,7 +403,8 @@ class HWCustomOp(CustomOp):
     ):
         """Helper function to generate verilog code for memstream component.
         Currently utilized by MVAU, VVAU, HLS Thresholding, Elementwise and RTL
-        Requant layers.
+        Requant layers. The target clock period clk (ns) resolves an "auto"
+        mem_high_performance attribute.
 
         By default a single memstream wrapper named after the node is emitted,
         with depth/width/init_file/ram_style derived from the node. Callers that
@@ -384,8 +412,7 @@ class HWCustomOp(CustomOp):
         separately) can pass explicit ``name``, ``depth``, ``width``,
         ``init_file`` and ``ram_style`` to emit a named streamer without relying
         on the op-specific defaults."""
-        ops = ["MVAU_hls", "MVAU_rtl", "VVAU_hls", "VVAU_rtl", "Thresholding_hls", "Requant_rtl"]
-        if self.onnx_node.op_type in ops or self.onnx_node.op_type.startswith("Elementwise"):
+        if self.supports_memstream():
             template_path = (
                 os.environ["FINN_ROOT"] + "/finn-rtllib/memstream/hdl/memstream_wrapper_template.v"
             )
@@ -422,6 +449,7 @@ class HWCustomOp(CustomOp):
                 "$INIT_FILE$": [init_file],
                 "$RAM_STYLE$": [ram_style],
                 "$PUMPED_MEMORY$": [str(pumped_memory)],
+                "$HIGH_PERFORMANCE$": [str(self.get_mem_high_performance(clk, pumped_memory))],
             }
             # apply code generation to template
             with open(template_path, "r") as f:

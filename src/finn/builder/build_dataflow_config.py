@@ -297,6 +297,17 @@ class DataflowBuildConfig:
     #: Default is 9 (use Requant for 9+ bit outputs, Thresholding for 8-bit and below).
     requant_bitwidth_threshold: Optional[int] = 9
 
+    #: (Optional) Implementation of the on-chip memstreams feeding decoupled
+    #: weights and parameters (MVAU, VVAU, Thresholding, Elementwise, Requant).
+    #: True selects the high-performance variant (credit-buffered output, best
+    #: Fmax, but about one LUT per stream bit), False the lean variant (data
+    #: stalls within the memory, negligible LUTs, slightly lower Fmax).
+    #: None (default) decides by the clock: high performance for memstream
+    #: clocks of at least 400 MHz (synth_clk_period_ns <= 2.5, or <= 5.0 for a
+    #: pumped memory). Layers whose mem_high_performance node attribute is set
+    #: explicitly to "on" or "off" (e.g. via a folding config) are not affected.
+    mem_high_performance: Optional[bool] = None
+
     #: (Optional) Whether optimizations that minimize the bit width of the
     #: weights and accumulator will be applied. Because this optimization relies
     #: on the the values of the weights, it will only be applied if runtime-
