@@ -539,22 +539,29 @@ compilation transformations?
         PE*N_THRES partitions, so instruction count and front-end memory grow
         with (PE*N_THRES)**2 (issue #1214: >40 GB for PE=80, N_THRES=127).
 
-        ram_style selects the ROM implementation: "distributed" (LUTRAM),
-        "block" (BRAM) or "auto". HLS left to itself maps the wide reshaped words
-        to BRAM even when TMEM is tiny, so "auto" binds LUTRAM up to a depth of
-        64 (one LUT per bit) and leaves deeper memories to HLS.
+        ram_style selects the memory implementation: "distributed" (LUTRAM),
+        "block" (BRAM), "ultra" (URAM, initialized only on Versal) or "auto". HLS
+        left to itself maps the wide reshaped words to BRAM even when TMEM is
+        tiny, so "auto" binds LUTRAM up to a depth of 64 (one LUT per bit) and
+        leaves deeper memories to HLS. A memory of depth 1 is not bound: HLS
+        keeps its single word in registers.
         """
         pragmas = [
             "#pragma HLS array_partition variable=threshs.m_thresholds complete dim=1",
             "#pragma HLS array_reshape variable=threshs.m_thresholds complete dim=3",
         ]
-        # ram_style values are restricted by the node attribute definition
-        impl = {"distributed": "lutram", "block": "bram", "auto": None}[ram_style]
-        if ram_style == "auto" and tmem <= 64:
-            impl = "lutram"
-        if impl is not None:
+        if tmem <= 1:
+            return pragmas
+        # ram_style values are restricted by the node attribute definitions
+        storage = {
+            "distributed": ("rom_1p", "lutram"),
+            "block": ("rom_1p", "bram"),
+            "ultra": ("ram_s2p", "uram"),
+            "auto": ("rom_1p", "lutram") if tmem <= 64 else None,
+        }[ram_style]
+        if storage is not None:
             pragmas.append(
-                f"#pragma HLS bind_storage variable=threshs.m_thresholds type=rom_1p impl={impl}"
+                "#pragma HLS bind_storage variable=threshs.m_thresholds type=%s impl=%s" % storage
             )
         return pragmas
 
