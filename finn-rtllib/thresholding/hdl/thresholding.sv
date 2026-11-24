@@ -44,11 +44,22 @@
  *  accompanied by a channel selector.
  *
  *  Parameter Layout as seen on AXI-Lite (row by row):
- *            | Base                \    Offs          |   0    1    2  ...   N-1   ...
- *   ---------+----------------------------------------+---------------------------------
- *    Chnl #0 |   0                                    |  T_0  T_1  T_2 ... T_{N-1}  'x
- *    Chnl #1 |   2^$clog2(N)                          |  T_0  T_1  T_2 ... T_{N-1}  'x
- *    Chnl #c | ((c/PE)*$clog2(PE) + c%PE)*2^$clog2(N) |  T_0  T_1  T_2 ... T_{N-1}  'x
+ *            | Base                \    Offs           |   0    1    2  ...   N-1   ...
+ *   ---------+-----------------------------------------+---------------------------------
+ *    Chnl #0 |   0                                     |  T_0  T_1  T_2 ... T_{N-1}  'x
+ *    Chnl #1 |   2^$clog2(N)                           |  T_0  T_1  T_2 ... T_{N-1}  'x
+ *    Chnl #c | ((c/PE)*2^$clog2(PE) + c%PE)*2^$clog2(N) |  T_0  T_1  T_2 ... T_{N-1}  'x
+ *
+ *  Latency:
+ *  The search resolves one decision level per stage, i.e. one comparison per
+ *  PE and stage, at a latency of $clog2(N+1) stages (doubled with
+ *  DEEP_PIPELINE). Should the latency ever need tuning, generalize the binary
+ *  search to a RADIX parameter: each stage then folds $clog2(RADIX) decision
+ *  levels into one cycle by comparing against the RADIX-1 separators of the
+ *  current interval, cutting the stage count to ceil($clog2(N+1) / $clog2(RADIX)).
+ *  The maximum RADIX = N+1 degenerates into a single stage comparing against
+ *  all N thresholds in parallel, so a fully parallel comparator array needs no
+ *  separate implementation.
  *
  *****************************************************************************/
 module thresholding #(
