@@ -18,7 +18,7 @@
     "SIMD": 8,
     "ram_style": "auto"
   },
-  "MVA_hls_3": {
+  "MVAU_hls_3": {
     "PE": 10,
     "SIMD": 8,
     "ram_style": "distributed"
