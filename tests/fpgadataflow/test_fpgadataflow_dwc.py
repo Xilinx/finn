@@ -264,6 +264,8 @@ def test_fpgadataflow_analytical_characterization_dwc(config, impl_style):
         pytest.param(([1, 64, 32], 64, 16, DataType["INT8"]), id="serialize-64to16"),
         pytest.param(([1, 64, 32], 16, 64, DataType["INT8"]), id="deserialize-16to64"),
         pytest.param(([1, 64, 32], 32, 32, DataType["INT8"]), id="wire-through"),
+        # lcm(128, 130) > 8191: HLS converts through a one-element stream
+        pytest.param(([1, 65, 128], 128, 130, DataType["BINARY"]), id="oversized-lcm"),
     ],
 )
 @pytest.mark.parametrize("impl_style", ["hls", "rtl"])
@@ -295,13 +297,12 @@ def test_fpgadataflow_dwc_throughput(config, impl_style):
     node = model.graph.node[0]
     assert node.op_type == "StreamingDataWidthConverter_" + impl_style
     inst = getCustomOp(node)
-    n_in = int(np.prod(inst.get_folded_input_shape()[:-1]))
-    n_out = int(np.prod(inst.get_folded_output_shape()[:-1]))
     # With a free-running source and sink, the interface with more beats
-    # must sustain one beat per cycle. Allow a few cycles of fill latency.
-    exp_cycles = max(n_in, n_out)
+    # sustains one beat per cycle (HLS with an oversized LCM: one element per
+    # cycle). get_exp_cycles() must model this, also for non-integer ratios.
+    exp_cycles = inst.get_exp_cycles()
     cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
-    assert cycles_rtlsim <= exp_cycles + 16, (
-        f"DWC {inWidth}->{outWidth} took {cycles_rtlsim} cycles for "
-        f"{n_in} input / {n_out} output beats, expected about {exp_cycles}"
+    assert np.isclose(exp_cycles, cycles_rtlsim, atol=15), (
+        f"DWC {inWidth}->{outWidth} took {cycles_rtlsim} cycles, "
+        f"get_exp_cycles() expects {exp_cycles}"
     )

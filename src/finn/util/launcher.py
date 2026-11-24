@@ -27,7 +27,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Mapping, Optional, Sequence, Tuple, Union
+from typing import List, Mapping, Optional, Sequence, Tuple, Union
 
 from finn.util import vivado
 from finn.util.build_log import FILE_ONLY, in_run
@@ -112,10 +112,10 @@ def xilinx_tool(name: str) -> str:
         if not (os.path.isfile(path) and os.access(path, os.X_OK)):
             raise ToolUnavailable(name, f"no executable {path} ({TOOL_DIR_ENV}={override})")
         return path
-    path = shutil.which(name)
-    if path is None:
+    found = shutil.which(name)
+    if found is None:
         raise ToolUnavailable(name, "not found in PATH")
-    return os.path.abspath(path)
+    return os.path.abspath(found)
 
 
 def _popen(command, **kwargs):
@@ -236,7 +236,7 @@ def run_process(
         "none" if files is None else files[0],
     )
     started = time.monotonic()
-    running = []
+    running: List[subprocess.Popen] = []
 
     def printed():
         return files[0].read_bytes(), files[1].read_bytes()
@@ -286,8 +286,9 @@ def run_process(
                 proc.wait()
                 out, err = printed()
             if isinstance(exc, (subprocess.TimeoutExpired, KeyboardInterrupt)):
-                exc.output = out
-                exc.stderr = err
+                # TimeoutExpired has these attributes, KeyboardInterrupt gets them
+                setattr(exc, "output", out)
+                setattr(exc, "stderr", err)
             log.warning(
                 "Stopped %s after %.1f s (%s)",
                 command[0],
@@ -487,8 +488,8 @@ def run_tool(
         log_output: also emit captured output with ``emit_output`` before checking
             the exit status. Defaults to transcript-only output.
     """
-    command = [os.fspath(arg) for arg in command]
-    if not command:
+    argv = [os.fspath(arg) for arg in command]
+    if not argv:
         raise ValueError("Empty command")
     if env_overrides:
         for name in env_overrides:
@@ -500,34 +501,34 @@ def run_tool(
         os.stat(cwd)
         if not os.path.isdir(cwd):
             raise NotADirectoryError(errno.ENOTDIR, os.strerror(errno.ENOTDIR), os.fspath(cwd))
-    if command[0] in XILINX_TOOLS:
-        command[0] = xilinx_tool(command[0])
-    executable = resolve_executable(command[0], cwd, env)
+    if argv[0] in XILINX_TOOLS:
+        argv[0] = xilinx_tool(argv[0])
+    executable = resolve_executable(argv[0], cwd, env)
     if executable is None:
-        raise ToolUnavailable(command[0], "not found in PATH")
+        raise ToolUnavailable(argv[0], "not found in PATH")
     if not (os.path.isfile(executable) and os.access(executable, os.X_OK)):
-        raise ToolUnavailable(command[0], f"no executable {executable}")
-    command[0] = executable
+        raise ToolUnavailable(argv[0], f"no executable {executable}")
+    argv[0] = executable
     if replay is not None:
         lines = ["#!/bin/bash", "set -e"]
         if cwd is not None:
             lines.append("cd -- " + shlex.quote(os.fspath(cwd)))
         for name, value in (env_overrides or {}).items():
             lines.append("export " + name + "=" + shlex.quote(value))
-        lines.append("exec " + shlex.join(command))
+        lines.append("exec " + shlex.join(argv))
         Path(replay).write_text("\n".join(lines) + "\n")
         if transcript is None:
             transcript = os.path.splitext(os.fspath(replay))[0]
     try:
         result = run_process(
-            command, env=env, cwd=cwd, timeout=timeout, check=False, transcript=transcript
+            argv, env=env, cwd=cwd, timeout=timeout, check=False, transcript=transcript
         )
     except OSError as exc:
-        if exc.filename == command[0] and exc.errno in (errno.ENOENT, errno.EACCES, errno.ENOEXEC):
-            raise ToolUnavailable(os.path.basename(command[0]), str(exc)) from exc
+        if exc.filename == argv[0] and exc.errno in (errno.ENOENT, errno.EACCES, errno.ENOEXEC):
+            raise ToolUnavailable(os.path.basename(argv[0]), str(exc)) from exc
         raise
     if log_output:
         emit_output(result, log)
     if result.returncode != 0:
-        raise ToolFailed.of_run(os.path.basename(command[0]), result)
+        raise ToolFailed.of_run(os.path.basename(argv[0]), result)
     return result

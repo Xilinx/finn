@@ -19,7 +19,15 @@ rather than inheriting one that was written for another circuit.
 
 import numpy as np
 
-_REGISTRY = {}
+#: Pipeline latency in cycles assumed for every characterized node, added to
+#: its write times. A TAV records the steady state at an arbitrary phase, so a
+#: node's latency is in no TAV; it only matters where paths of different
+#: latency meet (joins, reconvergent shortcuts), where under-estimating it
+#: starves the join. Conservative: rtlsim measures 1 to 69 cycles (DWC 1,
+#: ElementwiseMul 11, Split 16, Thresholding_rtl 18, MVAU_rtl 22 to 69).
+TAV_PIPELINE_LATENCY = 32
+
+_REGISTRY: dict[str, "TreeModel"] = {}
 
 
 def register(*class_names):

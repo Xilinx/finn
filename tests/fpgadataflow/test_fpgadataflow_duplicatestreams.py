@@ -45,6 +45,7 @@ from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.convert_to_hw_layers import (
     InferDuplicateStreamsLayer,
 )
+from finn.transformation.fpgadataflow.fifo_sizing.tav import load_tav_npy
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
@@ -284,3 +285,28 @@ def test_infer_duplicatestreams(split_source, num_successors, num_global_outputs
         for i in range(num_successors):
             expected = add0_result + const_values_list[i + 1]
             assert (output_dict[f"out{i}"] == expected).all(), f"Output out{i} incorrect"
+
+
+@pytest.mark.parametrize("n_dupl", [2, 3])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+def test_fpgadataflow_duplicatestreams_rtlsim_characterization(n_dupl):
+    """rtlsim characterization drains every output: a word leaves on all outputs
+    together, so an output that is not read stalls the node."""
+    part = "xc7z020clg400-1"
+    model = make_dupstreams_modelwrapper(16, 4, 4, DataType["INT4"], n_dupl, "hls")
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareIP(part, 5))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+    inst = getCustomOp(model.graph.node[0])
+
+    inst.derive_token_access_vectors("rtlsim")
+
+    n_words = int(np.prod(inst.get_folded_output_shape()[:-1]))
+    # The stored window is two rtlsim periods. Each is a frame plus its share of
+    # the pipeline fill, so the window holds two frames and a few words more.
+    assert inst.get_nodeattr("io_chrc_period") >= n_words
+    n_written = load_tav_npy(inst.get_nodeattr("io_chrc_out"))[0][-1]
+    assert 2 * n_words <= n_written < 3 * n_words

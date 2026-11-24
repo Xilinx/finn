@@ -29,6 +29,7 @@
 import onnx
 import os
 import warnings
+from onnx import NodeProto
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp, is_custom_op
@@ -43,7 +44,7 @@ def is_mlo(model: ModelWrapper) -> bool:
     return False
 
 
-def is_fpgadataflow_node(node):
+def is_fpgadataflow_node(node: NodeProto | None) -> bool:
     """Returns True if given node is fpgadataflow node. Otherwise False."""
     is_node = False
     if node is not None:
@@ -57,7 +58,7 @@ def is_fpgadataflow_node(node):
     return is_node
 
 
-def is_hls_node(node):
+def is_hls_node(node: NodeProto | None) -> bool:
     """Returns True if given node is hls node. Otherwise False."""
     is_node = False
     if node is not None:
@@ -71,7 +72,7 @@ def is_hls_node(node):
     return is_node
 
 
-def is_rtl_node(node):
+def is_rtl_node(node: NodeProto | None) -> bool:
     """Returns True if given node is rtl node. Otherwise False."""
     is_node = False
     if node is not None:

@@ -129,7 +129,7 @@ class ElementwiseBinaryOperation_hls(
         ]
 
     # Generates C++ parameters file, i.e., constant initializer inputs
-    def generate_params(self, model: ModelWrapper, path: str):
+    def generate_params(self, model: ModelWrapper, path: str, fpgapart: str | None = None):
         # The code generation directory is specified as an argument, so this
         # will work for both RTL and C++ simulation
         code_gen_dir = path

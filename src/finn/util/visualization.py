@@ -31,13 +31,16 @@ import netron
 import os
 import time
 from IPython.display import IFrame
+from typing import Any, Optional
 
 
-def showSrc(what):
+def showSrc(what: Any) -> None:
     print("".join(inspect.getsourcelines(what)[0]))
 
 
-def showInNetron(model_filename: str, localhost_url: str = None, port: int = None):
+def showInNetron(
+    model_filename: str, localhost_url: Optional[str] = None, port: Optional[int] = None
+) -> IFrame:
     """Shows a ONNX model file in the Jupyter Notebook using Netron.
 
     :param model_filename: The path to the ONNX model file.

@@ -30,7 +30,9 @@ def input_gen_buffer_depth(fm_size, dims, coefs):
     elaboration for the loop nest (dims, coefs) over a feature map of fm_size
     elements. Mirrors the
     SystemVerilog functions R_FLAG, TERMINAL_RP_INC, TERMINAL_FP_INC,
-    INIT_MAX_OCCUPANCY and INIT_THROUGHPUT_OCC; keep the two in sync."""
+    INIT_MAX_OCCUPANCY and INIT_THROUGHPUT_OCC; keep the two in sync
+    (tests/fpgadataflow/test_fpgadataflow_input_gen_rtl.py checks them against
+    each other in xsim)."""
     d = len(dims)
     w = [fm_size] + list(coefs)
     r_flag = input_gen_r_flags(fm_size, dims, coefs)

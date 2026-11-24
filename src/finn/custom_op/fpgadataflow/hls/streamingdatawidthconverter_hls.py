@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import math
 import numpy as np
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
@@ -54,6 +55,35 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
 
     def _needs_element_width_split(self):
         return self.needs_lcm() and self.get_iowidth_lcm() > 8191
+
+    def get_exp_cycles(self):
+        if self._needs_element_width_split():
+            # the intermediate stream carries one element per cycle
+            return int(np.prod(self.get_folded_input_shape()))
+        return super().get_exp_cycles()
+
+    def lut_estimation(self, fpgapart):
+        """Calculates resource estimations for LUTs. Each StreamingDWC stage
+        buffers the wider word: a serializer muxes every bit between load and
+        shift, a deserializer only shifts. Non-integer ratios go through the
+        LCM width (an LCM-bit deserializer and serializer, plus the stream
+        between them), or for an LCM beyond 8191 bits through a one-element
+        stream. The block-level and stream handshakes add a fixed share.
+
+        Fitted to OOC synthesis (Vivado 2026.1, xc7z020) of the HLS-generated
+        RTL of 16 width pairs from 8 to 256 bits: within 10 %.
+        """
+        inw = self.get_instream_width()
+        outw = self.get_outstream_width()
+        if inw == outw:
+            return 0
+        if self._needs_element_width_split():
+            return inw + outw + 70
+        if self.needs_lcm():
+            return 3 * self.get_iowidth_lcm() // 2 + 75
+        if inw > outw:
+            return inw + 2 * math.ceil(math.log2(inw // outw)) + 90
+        return 2 * inw + 100
 
     def get_nodeattr_types(self):
         my_attrs = {}

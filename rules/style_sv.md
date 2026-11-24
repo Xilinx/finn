@@ -6,7 +6,9 @@ paths:
 
 General rules (file headers, comments, deviations, abbreviations) are in `style_common.md`.
 
-Every module body is enclosed by `` `default_nettype none`` (immediately after the port-list closing `);`) and `` `default_nettype wire`` (immediately before `endmodule`). This catches implicit net declarations inside the module without affecting port declarations or inter-module scope. Files with multiple modules repeat the pair for each module.
+Every module body is enclosed by `` `default_nettype none`` (immediately after the port-list closing `);`) and `` `default_nettype wire`` (immediately before `endmodule`). This catches implicit net declarations inside the module without affecting port declarations or inter-module scope. Files with multiple modules repeat the pair for each module. Both directives start in column 0, like all preprocessor directives.
+
+Do not use `` `timescale`` directives. Simulation time units are set globally by the build flow; per-file timescale directives create fragile dependencies on compilation order and are unnecessary.
 
 ## Naming
 

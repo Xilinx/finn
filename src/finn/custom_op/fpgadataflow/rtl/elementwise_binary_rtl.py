@@ -514,8 +514,6 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
 class ElementwiseAdd_rtl(ElementwiseBinary_rtl, elementwise_binary.ElementwiseAdd):
     """RTL implementation of elementwise addition."""
 
-    _operation = "Add", np.add, "({0} + {1})", '"ADD"'
-
     def _get_rtl_op_name(self):
         return '"ADD"'
 
@@ -523,16 +521,12 @@ class ElementwiseAdd_rtl(ElementwiseBinary_rtl, elementwise_binary.ElementwiseAd
 class ElementwiseSub_rtl(ElementwiseBinary_rtl, elementwise_binary.ElementwiseSub):
     """RTL implementation of elementwise subtraction."""
 
-    _operation = "Sub", np.subtract, "({0} - {1})", '"SUB"'
-
     def _get_rtl_op_name(self):
         return '"SUB"'
 
 
 class ElementwiseMul_rtl(ElementwiseBinary_rtl, elementwise_binary.ElementwiseMul):
     """RTL implementation of elementwise multiplication."""
-
-    _operation = "Mul", np.multiply, "({0} * {1})", '"MUL"'
 
     def _get_rtl_op_name(self):
         return '"MUL"'

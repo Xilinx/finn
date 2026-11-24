@@ -135,7 +135,7 @@ class MakeCPPDriver(Transformation):
     def __init__(
         self,
         platform: str,
-        version: str,
+        version: str | None,
     ):
         super().__init__()
         self.platform: str = platform

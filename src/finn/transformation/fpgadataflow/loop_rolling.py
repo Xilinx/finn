@@ -257,7 +257,7 @@ class LoopExtraction(Transformation):
             template_dir = make_build_dir("loop_body_template_")
             loop_body_template_path = os.path.join(template_dir, "loop-body-template.onnx")
         self.loop_body_template_path = os.fspath(loop_body_template_path)
-        self.loop_body_template = None
+        self.loop_body_template: LoopBodyTemplate | None = None
 
     def apply(self, model: ModelWrapper) -> Tuple[ModelWrapper, bool]:
         # Apply the loop extraction transformation

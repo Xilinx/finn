@@ -66,3 +66,12 @@ repos:
   rev: v0.15.10
   hooks:
     - id: ruff-check
+
+- repo: https://github.com/pre-commit/mirrors-mypy
+  rev: v2.4.1
+  hooks:
+  - id: mypy
+    args: [--config-file=mypy.ini]
+    files: ^src/finn/
+    # not a valid package name (hyphen), mypy aborts on it
+    exclude: ^src/finn/qnn-data/

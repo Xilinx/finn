@@ -30,7 +30,7 @@
 import numpy as np
 import os
 from dataclasses import dataclass, field
-from dataclasses_json import dataclass_json
+from dataclasses_json import DataClassJsonMixin
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
@@ -187,9 +187,8 @@ estimate_only_dataflow_steps = [
 hw_codegen_dataflow_steps = estimate_only_dataflow_steps + ["step_hw_codegen"]
 
 
-@dataclass_json
 @dataclass
-class DataflowBuildConfig:
+class DataflowBuildConfig(DataClassJsonMixin):
     """Build configuration to be passed to the build_dataflow function. Can be
     serialized into or de-serialized from JSON files for persistence.
     See list of attributes below for more information on the build configuration.
