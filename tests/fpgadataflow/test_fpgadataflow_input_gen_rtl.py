@@ -97,13 +97,16 @@ def test_fpgadataflow_input_gen_rtl(geometry, read_ahead, full_rate, finn_test_s
     # copy of its working directory and copy that back afterwards, which would
     # replace the transcript written meanwhile by its stale copy (finn-lsf).
     log_dir = make_build_dir("input_gen_tb_log_")
-    run = run_tool(
+    run_tool(
         cmd,
         cwd=sim_dir,
         replay=os.path.join(sim_dir, "sim.sh"),
         transcript=os.path.join(log_dir, "sim"),
     )
-    with open(run.transcript) as f:
+    # Read the simulator's own log rather than the transcript: a tool dispatcher may
+    # hand back the tool's standard output incompletely (finn-lsf copies the LSF job
+    # output before it is complete on NFS), but it copies the working directory back.
+    with open(os.path.join(sim_dir, "xsim.log")) as f:
         log = f.read()
 
     results = re.findall(r"^RESULT (PASS|FAIL) .*BUF_SIZE=(\d+)$", log, re.MULTILINE)

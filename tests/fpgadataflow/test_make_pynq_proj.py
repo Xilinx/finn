@@ -54,13 +54,15 @@ def test_zynq_shell_interconnect_accepts_axilite_limit():
             "}\n"
             % (pynq_part_map["AUP-ZU3_8GB"], ZYNQ_SHELL_MAX_AXILITE, ZYNQ_SHELL_MAX_AXILITE + 1)
         )
-    res = run_tool(
-        ["vivado", "-mode", "batch", "-nojournal", "-nolog", "-source", tcl], cwd=build_dir
-    )
-    stdout = res.stdout.decode()
-    results = [line.split()[1:] for line in stdout.splitlines() if line.startswith("FINN_NUM_MI")]
+    run_tool(["vivado", "-mode", "batch", "-nojournal", "-source", tcl], cwd=build_dir)
+    # Read Vivado's own log rather than the transcript: a tool dispatcher may hand
+    # back the tool's standard output incompletely (finn-lsf copies the LSF job
+    # output before it is complete on NFS).
+    with open(os.path.join(build_dir, "vivado.log")) as f:
+        log = f.read()
+    results = [line.split()[1:] for line in log.splitlines() if line.startswith("FINN_NUM_MI")]
     assert results == [
         [str(ZYNQ_SHELL_MAX_AXILITE), "1"],
         [str(ZYNQ_SHELL_MAX_AXILITE + 1), "0"],
-    ], stdout[-2000:]
+    ], log[-2000:]
     robust_rmtree(build_dir)
