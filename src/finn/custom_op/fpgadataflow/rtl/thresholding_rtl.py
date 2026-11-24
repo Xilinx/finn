@@ -65,6 +65,20 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
 
+    def get_search_stages(self):
+        """Return the number of binary search stages, $clog2(numSteps+1), each of
+        which owns one threshold memory per PE."""
+        return math.ceil(math.log2(self.get_nodeattr("numSteps") + 1))
+
+    def get_min_output_bits(self):
+        """Return the narrowest output width the RTL accepts for the biased result
+        (O_BITS default of thresholding.sv)."""
+        n = self.get_nodeattr("numSteps")
+        bias = self.get_nodeattr("ActVal")
+        if bias >= 0:
+            return math.ceil(math.log2(n + bias + 1))
+        return 1 + math.ceil(math.log2(-bias if -bias >= n + bias + 1 else n + bias + 1))
+
     def get_pe_mem_geometries(self):
         """return a list of (bitwidth, depth) for PE memory configurations to be used
         in resource estimation
@@ -84,17 +98,16 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         pe = self.get_nodeattr("PE")
         wdt = self.get_input_datatype(1)
         wdt_bits = wdt.bitwidth()
-        odt = self.get_output_datatype()
-        odt_bits = odt.bitwidth()
+        stages = self.get_search_stages()
         t_channels = self.get_nodeattr("NumChannels")
         cf = t_channels / pe
         # For MLO, multiply depth by number of sets (iterations)
         mlo_sets = max(1, self.get_nodeattr("mlo_max_iter"))
         is_uniform = self.get_nodeattr("uniform_thres")
         if is_uniform:
-            ret = [(odt_bits - x, cf * (2**x) * mlo_sets) for x in range(1, odt_bits)]
+            ret = [(stages - x, cf * (2**x) * mlo_sets) for x in range(1, stages)]
         else:
-            ret = [(wdt_bits, cf * (2**x) * mlo_sets) for x in range(odt_bits)]
+            ret = [(wdt_bits, cf * (2**x) * mlo_sets) for x in range(stages)]
         return ret
 
     def _get_memory_estimate_details(self):
@@ -172,9 +185,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         dat_files = []
         t_path = self.get_nodeattr("code_gen_dir_ipgen") if abspath else "."
         pe = self.get_nodeattr("PE")
-        output_data_type = self.get_nodeattr("outputDataType")  # output precision
-        o_bitwidth = DataType[output_data_type].bitwidth()
-        for stage in range(o_bitwidth):
+        for stage in range(self.get_search_stages()):
             for pe_value in range(pe):
                 thresh_file = t_path + "/%s_threshs_%s_%s.dat" % (
                     self.onnx_node.name,
@@ -267,13 +278,14 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         else:
             code_gen_dict["$FPARG$"] = [str(0)]
 
-        if bias >= 0:
-            o_bits = math.ceil(math.log2(n_thres_steps + bias + 1))
-        else:
-            o_bits = 1 + math.ceil(
-                math.log2(-bias if -bias >= (n_thres_steps + 1) / 2 else n_thres_steps + bias + 1)
-            )
-        code_gen_dict["$O_BITS$"] = [str(int(o_bits))]
+        # The output carries the biased result in the full width of the output
+        # datatype, which may exceed the minimum the RTL needs.
+        o_bits = self.get_output_datatype().bitwidth()
+        assert o_bits >= self.get_min_output_bits(), (
+            f"{self.onnx_node.name}: outputDataType {self.get_output_datatype().name} is too "
+            f"narrow for {n_thres_steps} thresholds with ActVal {bias}."
+        )
+        code_gen_dict["$O_BITS$"] = [str(o_bits)]
 
         rt_weights = self.get_nodeattr("runtime_writeable_weights")
         code_gen_dict["$USE_AXILITE$"] = [str(rt_weights)]
@@ -465,9 +477,10 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         thresholds = weights
         pe = self.get_nodeattr("PE")
         num_channels = self.get_nodeattr("NumChannels")  # number of channels
-        output_data_type = self.get_nodeattr("outputDataType")  # output precision
-        o_bitwidth = DataType[output_data_type].bitwidth()
-        expected_thresholds = 2**o_bitwidth - 1
+        # the search tree spans 2^stages - 1 thresholds, the excess being padding
+        # masked by the RTL
+        stages = self.get_search_stages()
+        expected_thresholds = 2**stages - 1
         n_thres_steps = self.get_nodeattr("numSteps")
         wdt = self.get_input_datatype(1)
         if expected_thresholds > n_thres_steps:
@@ -530,8 +543,8 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                 num_channels = pe
             channel_fold = int(num_channels / pe)
 
-            for stage in range(o_bitwidth):
-                sn = o_bitwidth - stage - 1
+            for stage in range(stages):
+                sn = stages - stage - 1
                 for pe_value in range(pe):
                     thresh_file = path + "/%s_threshs_%s_%s.dat" % (
                         self.onnx_node.name,
@@ -542,7 +555,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                     for ch in range(channel_fold):
                         for i in range(2**stage):
                             threshs[(ch << stage) + i] = t_packed[ch * pe + pe_value][
-                                (i << (o_bitwidth - stage)) + 2**sn - 1
+                                (i << (stages - stage)) + 2**sn - 1
                             ]
                     with open(thresh_file, "w") as f:
                         for val in threshs:

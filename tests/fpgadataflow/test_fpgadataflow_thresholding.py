@@ -42,10 +42,12 @@ from qonnx.util.basic import gen_finn_dt_tensor
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
+from finn.core.rtlsim_exec import rtlsim_exec
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferThresholdingLayer
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
     MinimizeWeightBitWidth,
 )
@@ -57,7 +59,7 @@ from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODep
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import get_vivado_version, is_versal, make_build_dir
-from finn.util.test import tree_model_test
+from finn.util.test import make_runtime_weight_stream, tree_model_test
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -887,3 +889,90 @@ def test_fpgadataflow_thresholding_data_layout(num_input_vecs, num_input_channel
     y_produced = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
 
     assert (y_produced.astype(np.float32) == y_expected.astype(np.float32)).all()
+
+
+# Output datatypes wider than the $clog2(numSteps+1) bits the binary search needs:
+# the RTL stage count and threshold layout must follow numSteps, and the output
+# must carry the biased result in the declared width.
+@pytest.mark.parametrize(
+    "num_steps,activation_bias,output_data_type",
+    [
+        pytest.param(7, -4, DataType["INT4"], id="n7_bias-4_int4"),
+        pytest.param(15, -8, DataType["INT8"], id="n15_bias-8_int8"),
+        pytest.param(7, 0, DataType["UINT8"], id="n7_bias0_uint8"),
+        pytest.param(3, 4, DataType["UINT3"], id="n3_bias4_uint3"),
+    ],
+)
+@pytest.mark.parametrize("pe", [1, 2])
+@pytest.mark.parametrize("runtime_writeable", [0, 1])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+def test_fpgadataflow_thresholding_rtl_wide_output(
+    num_steps, activation_bias, output_data_type, pe, runtime_writeable
+):
+    num_input_channels = 4
+    num_input_vecs = [1, 2, 2]
+    input_data_type = DataType["INT8"]
+
+    # distinct thresholds, so that only the output width is under test here
+    values = np.arange(input_data_type.min(), input_data_type.max() + 1)
+    thresholds = np.stack(
+        [
+            np.sort(np.random.choice(values, num_steps, replace=False))
+            for _ in range(num_input_channels)
+        ]
+    ).astype(np.float32)
+    model = make_single_multithresholding_modelwrapper(
+        thresholds,
+        input_data_type,
+        input_data_type,
+        output_data_type,
+        activation_bias,
+        num_input_vecs,
+        num_input_channels,
+    )
+    x = generate_edge_input_tensor(input_data_type, tuple(num_input_vecs + [num_input_channels]))
+    input_dict = {model.get_first_global_in(): x}
+    y_expected = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
+
+    model = model.transform(InferThresholdingLayer())
+    getCustomOp(model.graph.node[0]).set_nodeattr("preferred_impl_style", "rtl")
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    assert model.graph.node[0].op_type == "Thresholding_rtl"
+    inst = getCustomOp(model.graph.node[0])
+    inst.set_nodeattr("PE", pe)
+    inst.set_nodeattr("runtime_writeable_weights", runtime_writeable)
+    model = model.transform(GiveUniqueNodeNames())
+
+    if runtime_writeable:
+        # the AXI-lite interface only exists in the stitched IP; read back the
+        # embedded initial thresholds through it as well
+        weight_stream = make_runtime_weight_stream(inst, thresholds)
+        model = model.transform(InsertFIFO(True))
+        model = model.transform(SpecializeLayers(test_fpga_part))
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+        model = model.transform(HLSSynthIP())
+        model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
+        model = model.transform(PrepareRTLSim())
+        model.set_metadata_prop("exec_mode", "rtlsim")
+        read_back = []
+
+        def read_weights(sim):
+            addresses = [4 * i for i in range(len(weight_stream))]
+            handle = sim.read_axilite("s_axilite_0", iter(addresses))
+            sim.run()
+            read_back.extend(int(handle[a], 16) for a in addresses)
+
+        ctx = dict(input_dict)
+        rtlsim_exec(model, ctx, pre_hook=read_weights)
+        y_produced = ctx[model.get_first_global_out()]
+        assert read_back == weight_stream
+    else:
+        model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+        model = model.transform(SetExecMode("rtlsim"))
+        model = model.transform(HLSSynthIP())
+        model = model.transform(PrepareRTLSim())
+        y_produced = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
+
+    np.testing.assert_array_equal(y_produced, y_expected)

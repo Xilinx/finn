@@ -53,7 +53,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter  DEPTH_TRIGGER_BRAM = $DEPTH_TRIGGER_BRAM$,	// if non-zero, local mems of this depth or more go into BRAM
 	parameter  DEEP_PIPELINE = $DEEP_PIPELINE$,	// [bit] extra pipeline stages for easier timing closure
 
-	parameter  O_BITS = $O_BITS$
+	parameter  O_BITS = $O_BITS$	// output width, at least the minimum needed for N and BIAS
 )(
 	// Global Control
 	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axilite:in0_V:in1_V:out0_V, ASSOCIATED_RESET ap_rst_n" *)
@@ -114,7 +114,8 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 		.USE_AXILITE(USE_AXILITE),
 		.DEPTH_TRIGGER_URAM(DEPTH_TRIGGER_URAM),
 		.DEPTH_TRIGGER_BRAM(DEPTH_TRIGGER_BRAM),
-		.DEEP_PIPELINE(DEEP_PIPELINE)
+		.DEEP_PIPELINE(DEEP_PIPELINE),
+		.O_BITS(O_BITS)
 	) core (
 		.ap_clk(ap_clk), .ap_rst_n(ap_rst_n),
 

@@ -83,11 +83,13 @@ module thresholding #(
 	int unsigned  DEPTH_TRIGGER_BRAM = 0,	// if non-zero, local mems of this depth or more go into BRAM
 	bit  DEEP_PIPELINE = 0,
 
-	localparam int unsigned  CF = C/PE,  // Channel fold
-	localparam int unsigned  S_BITS = SETS > 2? $clog2(SETS) : 1,
-	localparam int unsigned  O_BITS = BIAS >= 0?
+	// Output width, at least the default minimum; wider outputs are sign-extended for BIAS < 0
+	parameter int unsigned  O_BITS = BIAS >= 0?
 		/* unsigned */ $clog2(N+BIAS+1) :
-		/* signed */ 1+$clog2(-BIAS >= N+BIAS+1? -BIAS : N+BIAS+1)
+		/* signed */ 1+$clog2(-BIAS >= N+BIAS+1? -BIAS : N+BIAS+1),
+
+	localparam int unsigned  CF = C/PE,  // Channel fold
+	localparam int unsigned  S_BITS = SETS > 2? $clog2(SETS) : 1
 )(
 	// Global Control
 	input	logic  clk,
@@ -117,6 +119,10 @@ module thresholding #(
 	initial begin
 		if(CF*PE != C) begin
 			$error("Parallelism PE=%0d is not a multiple of channel count C=%0d.", PE, C);
+			$finish;
+		end
+		if(O_BITS < (BIAS >= 0? $clog2(N+BIAS+1) : 1+$clog2(-BIAS >= N+BIAS+1? -BIAS : N+BIAS+1))) begin
+			$error("Output width O_BITS=%0d too narrow for N=%0d and BIAS=%0d.", O_BITS, N, BIAS);
 			$finish;
 		end
 	end
@@ -401,7 +407,7 @@ module thresholding #(
 
 		assign	ovld = BVld;
 		for(genvar  pe = 0; pe < PE; pe++) begin
-			assign	odat[pe] = BDat[pe] + BIAS;
+			assign	odat[pe] = $signed({1'b0, BDat[pe]}) + BIAS;
 		end
 	end : blkStreamOutput
 
