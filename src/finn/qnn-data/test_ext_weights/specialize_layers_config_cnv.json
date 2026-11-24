@@ -78,7 +78,7 @@
   "MVAU_8": {
     "preferred_impl_style": "hls"
   },
-  "LabelSelect_0": {
+  "HWTopK_0": {
     "preferred_impl_style": ""
   }
 }

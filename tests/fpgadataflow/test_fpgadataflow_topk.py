@@ -46,12 +46,12 @@ from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.test import soft_verify_topk, tree_model_test
 
 
-def make_labelselect_modelwrapper(labels, pe, k, idt, impl_style):
+def make_topk_modelwrapper(labels, pe, k, idt, impl_style):
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, labels])
     outp = helper.make_tensor_value_info("outp", TensorProto.INT64, [1, k])
 
-    labelselect_node = helper.make_node(
-        "LabelSelect",
+    topk_node = helper.make_node(
+        "HWTopK",
         ["inp"],
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -63,7 +63,7 @@ def make_labelselect_modelwrapper(labels, pe, k, idt, impl_style):
         preferred_impl_style=impl_style,
     )
     graph = helper.make_graph(
-        nodes=[labelselect_node],
+        nodes=[topk_node],
         name="graph",
         inputs=[inp],
         outputs=[outp],
@@ -96,7 +96,7 @@ def prepare_inputs(input_tensor, idt):
 @pytest.mark.parametrize("impl_style", ["hls"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_fpgadataflow_labelselect(idt, labels, fold, k, exec_mode, impl_style):
+def test_fpgadataflow_topk(idt, labels, fold, k, exec_mode, impl_style):
     if fold == -1:
         pe = 1
     else:
@@ -110,7 +110,7 @@ def test_fpgadataflow_labelselect(idt, labels, fold, k, exec_mode, impl_style):
     x = gen_finn_dt_tensor(idt, (1, labels))
     input_dict = prepare_inputs(x, idt)
 
-    model = make_labelselect_modelwrapper(labels, pe, k, idt, impl_style)
+    model = make_topk_modelwrapper(labels, pe, k, idt, impl_style)
 
     y = oxe.execute_onnx(model, input_dict)["outp"]
 
@@ -150,7 +150,7 @@ def test_fpgadataflow_labelselect(idt, labels, fold, k, exec_mode, impl_style):
 @pytest.mark.vivado
 @pytest.mark.slow
 @pytest.mark.node_tree_modeling
-def test_fpgadataflow_analytical_characterization_labelselect(idt, labels, fold, k, impl_style):
+def test_fpgadataflow_analytical_characterization_topk(idt, labels, fold, k, impl_style):
     if fold == -1:
         pe = 1
     else:
@@ -160,8 +160,8 @@ def test_fpgadataflow_analytical_characterization_labelselect(idt, labels, fold,
     if k == -1:
         k = labels
 
-    model = make_labelselect_modelwrapper(labels, pe, k, idt, impl_style)
-    node_details = ("LabelSelect", idt, labels, fold, k, impl_style)
+    model = make_topk_modelwrapper(labels, pe, k, idt, impl_style)
+    node_details = ("HWTopK", idt, labels, fold, k, impl_style)
     part = "xc7z020clg400-1"
     target_clk_ns = 4
     # TAV tolerances are fractions -- of the tokens moved and of the frame

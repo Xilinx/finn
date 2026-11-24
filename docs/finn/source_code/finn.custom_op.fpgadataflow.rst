@@ -103,10 +103,10 @@ finn.custom\_op.fpgadataflow.globalaccpool
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.fpgadataflow.labelselect
------------------------------------------
+finn.custom\_op.fpgadataflow.hwtopk
+------------------------------------
 
-.. automodule:: finn.custom_op.fpgadataflow.labelselect
+.. automodule:: finn.custom_op.fpgadataflow.hwtopk
    :members:
    :undoc-members:
    :show-inheritance:

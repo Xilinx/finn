@@ -29,19 +29,19 @@
 import numpy as np
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
-from finn.custom_op.fpgadataflow.labelselect import LabelSelect
+from finn.custom_op.fpgadataflow.hwtopk import HWTopK
 from finn.util.data_packing import hls_datatype_str
 
 
-class LabelSelect_hls(LabelSelect, HLSBackend):
-    """Class that corresponds to finn-hlslib LabelSelect_Batch function."""
+class HWTopK_hls(HWTopK, HLSBackend):
+    """Class that corresponds to finn-hlslib topk function."""
 
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
         my_attrs = {}
-        my_attrs.update(LabelSelect.get_nodeattr_types(self))
+        my_attrs.update(HWTopK.get_nodeattr_types(self))
         my_attrs.update(HLSBackend.get_nodeattr_types(self))
         return my_attrs
 
@@ -65,11 +65,11 @@ class LabelSelect_hls(LabelSelect, HLSBackend):
             self.get_nodeattr("outputDataType")
             info_messages.append("All necessary attributes exist")
         except Exception:
-            info_messages.append("""The required LabelSelect_Batch attributes do not exist.""")
+            info_messages.append("""The required topk attributes do not exist.""")
 
         # verify that input data is 1D
         if len(self.get_nodeattr("numInputVectors")) > 1:
-            info_messages.append("""LabelSelect_Batch requires 1D data input.""")
+            info_messages.append("""topk requires 1D data input.""")
             raise Exception
 
         return info_messages
@@ -94,14 +94,14 @@ class LabelSelect_hls(LabelSelect, HLSBackend):
         # PE and the input/output element types are inferred from the stream
         # types tensor<TI, PE> / tensor<TO, 1> declared by strm_decl/blackboxfunction
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            "LabelSelect_Batch<{}, {}>(in0_V, out0_V);".format(
+            "topk<{}, {}>(in0_V, out0_V);".format(
                 self.get_nodeattr("Labels"),
                 self.get_nodeattr("K"),
             )
         ]
 
     def timeout_value(self):
-        """LabelSelect_Batch is function-pipelined and processes one input per call.
+        """topk is function-pipelined and processes one input per call.
         It needs Labels/PE calls before the first output, so the default timeout
         of 1000 is insufficient for 1000 or more labels (e.g. ImageNet)."""
         total_inputs = self.get_nodeattr("Labels") // self.get_nodeattr("PE")

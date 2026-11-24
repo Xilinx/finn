@@ -34,8 +34,11 @@ from qonnx.util.basic import qonnx_make_model, roundup_to_integer_multiple
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
 
-class LabelSelect(HWCustomOp):
-    """Abstraction layer for HW implementation of LabelSelect"""
+class HWTopK(HWCustomOp):
+    """Abstraction layer for HW implementation of TopK (indices output).
+
+    Implements the ONNX TopK along the last axis with largest=1 and sorted=1,
+    but emits only the indices output, not the values output."""
 
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)

@@ -57,9 +57,9 @@ def custom_step_add_preproc(model, cfg):
 
 
 # The Brevitas BNN-PYNQ exports end at the final MatMul (raw N-class vector);
-# the verification golden and the LabelSelect-keyed folding/specialize configs
+# the verification golden and the HWTopK-keyed folding/specialize configs
 # both expect a top-1 class index. Append a TopK(k=1) so the graph matches --
-# convert_to_hw turns it into the configured LabelSelect node.
+# convert_to_hw turns it into the configured HWTopK node.
 def custom_step_add_postproc(model, cfg):
     model = model.transform(InsertTopK(k=1))
     return model

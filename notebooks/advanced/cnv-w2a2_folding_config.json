@@ -73,7 +73,7 @@
     "SIMD": 1,
     "ram_style": "distributed"
   },
-  "LabelSelect_hls_0": {
+  "HWTopK_hls_0": {
     "PE": 1
   }
 }

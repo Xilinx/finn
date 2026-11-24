@@ -238,10 +238,10 @@ class LookupHlsModel(TreeModel):
         return passthrough_characteristic(n_in, "Lookup_hls")
 
 
-@register("LabelSelect_hls")
-class LabelSelectHlsModel(TreeModel):
+@register("HWTopK_hls")
+class HWTopKHlsModel(TreeModel):
     def schedule(self, op):
-        """The HLS ``LabelSelect_Batch`` schedule: read the frame, then write K.
+        """The HLS ``topk`` schedule: read the frame, then write K.
 
         ``finn-hlslib/topk.hpp`` is a function-pipelined (``II=1``) two-state
         machine. In its capture state it reads one of the ``Labels / PE`` folded
@@ -280,7 +280,7 @@ class LabelSelectHlsModel(TreeModel):
             [(WIND_UP, [0, 0]), (NF, [1, 0]), (gap, [0, 0]), (K, [0, 1]), (tail, [0, 0])],
             True,
         )
-        return CharacteristicNode("LabelSelect frame", [(1, frame)], False)
+        return CharacteristicNode("HWTopK frame", [(1, frame)], False)
 
 
 @register("GlobalAccPool_hls")

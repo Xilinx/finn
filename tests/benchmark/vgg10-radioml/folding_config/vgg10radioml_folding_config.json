@@ -214,7 +214,7 @@
   "ElementwiseAdd_hls_0": {
     "PE": 1
   },
-  "LabelSelect_hls_0": {
+  "HWTopK_hls_0": {
     "PE": 1
   }
 }

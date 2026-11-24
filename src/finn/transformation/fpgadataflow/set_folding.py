@@ -222,7 +222,7 @@ class SetFolding(Transformation):
                     out_ind = list(producer.output).index(node.input[0])
                     pe = math.gcd(pe, getCustomOp(producer).get_folded_output_shape(out_ind)[-1])
                 node_inst.set_nodeattr("PE", pe)
-            elif op_type == "LabelSelect_hls":
+            elif op_type == "HWTopK_hls":
                 max_pe = node_inst.get_nodeattr("Labels")
                 self.optimize_attribute_val(node_inst, max_pe, "PE")
             elif op_type in depthwise_op_exceptions:
