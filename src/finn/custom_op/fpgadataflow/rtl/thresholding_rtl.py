@@ -50,9 +50,14 @@ class Thresholding_rtl(Thresholding, RTLBackend):
 
     def get_nodeattr_types(self):
         my_attrs = {
-            # memory depth triggers for threshold storage
+            # memory depth triggers for threshold storage: the per-stage memories
+            # of this depth or more go into URAM (priority) or BRAM, shallower ones
+            # into LUTs once the BRAM trigger is set; 0 disables a trigger, both 0
+            # leave the choice to Vivado. Vivado maps every per-PE stage memory from
+            # a depth of about 64 to its own BRAM18 even if filled to a few percent;
+            # 512 keeps BRAMs at least half full (for thresholds up to 18 bits).
             "depth_trigger_uram": ("i", False, 0),
-            "depth_trigger_bram": ("i", False, 0),
+            "depth_trigger_bram": ("i", False, 512),
             # enable uniform thres optimization
             # doesn't actually do anything yet, only
             # for resource estimations
@@ -100,14 +105,17 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         wdt_bits = wdt.bitwidth()
         stages = self.get_search_stages()
         t_channels = self.get_nodeattr("NumChannels")
-        cf = t_channels / pe
-        # For MLO, multiply depth by number of sets (iterations)
-        mlo_sets = max(1, self.get_nodeattr("mlo_max_iter"))
+        cf = t_channels // pe
+        # For MLO, the sets are stacked over a power-of-two channel fold (as DEPTH
+        # in thresholding.sv)
+        mlo_sets = self.get_nodeattr("mlo_max_iter")
+        if mlo_sets > 1:
+            cf = mlo_sets * (1 << (cf - 1).bit_length())
         is_uniform = self.get_nodeattr("uniform_thres")
         if is_uniform:
-            ret = [(stages - x, cf * (2**x) * mlo_sets) for x in range(1, stages)]
+            ret = [(stages - x, cf * (2**x)) for x in range(1, stages)]
         else:
-            ret = [(wdt_bits, cf * (2**x) * mlo_sets) for x in range(stages)]
+            ret = [(wdt_bits, cf * (2**x)) for x in range(stages)]
         return ret
 
     def _get_memory_estimate_details(self):
@@ -121,12 +129,16 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         ret = self.get_pe_mem_geometries()
         for mem_cfg in ret:
             (width, depth) = mem_cfg
-            primitives = mem_primitives_versal
-            if depth_trigger_bram != 0 or depth_trigger_uram != 0:
-                if depth >= depth_trigger_bram and depth < depth_trigger_uram:
-                    primitives = {k: v for (k, v) in mem_primitives_versal.items() if "BRAM" in k}
-                elif depth >= depth_trigger_uram:
-                    primitives = {k: v for (k, v) in mem_primitives_versal.items() if "URAM" in k}
+            # as RAM_STYLE in thresholding.sv
+            if depth_trigger_uram and depth >= depth_trigger_uram:
+                kind = "URAM"
+            elif depth_trigger_bram and depth >= depth_trigger_bram:
+                kind = "BRAM"
+            elif depth_trigger_bram:
+                kind = "LUTRAM"
+            else:
+                kind = ""  # Vivado's choice, approximated by the least waste
+            primitives = {k: v for (k, v) in mem_primitives_versal.items() if kind in k}
             alts = get_memutil_alternatives(mem_cfg, primitives)
             primary_alt = alts[0]
             primitive_name = primary_alt[0]
@@ -161,7 +173,16 @@ class Thresholding_rtl(Thresholding, RTLBackend):
     def lut_estimation(self, fpgapart):
         """return the number of LUTs required for this node"""
         res_dict = self.get_memory_estimate()
-        return res_dict.get("LUTRAM", 0)
+        # comparison and pipeline logic, about half a LUT per threshold bit, stage
+        # and PE (fit to out-of-context results on xczu7ev for 8- and 16-bit
+        # thresholds)
+        logic = (
+            self.get_nodeattr("PE")
+            * self.get_search_stages()
+            * self.get_input_datatype(1).bitwidth()
+            // 2
+        )
+        return res_dict.get("LUTRAM", 0) + logic
 
     def bram_efficiency_estimation(self, fpgapart):
         """return BRAM parameter storage efficiency for this node"""

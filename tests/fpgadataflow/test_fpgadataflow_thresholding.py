@@ -28,6 +28,7 @@
 
 import pytest
 
+import math
 import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
@@ -1090,3 +1091,49 @@ def test_specialize_thresholding_mlo_rtl_only(impl_style):
     else:
         model = model.transform(SpecializeLayers(test_fpga_part))
     assert model.graph.node[0].op_type == "Thresholding_rtl"
+
+
+# (numSteps, PE, NumChannels, threshold bits) of the out-of-context study and the
+# BRAM36 and LUT counts measured post-route on xczu7ev with the default depth
+# triggers; LUTs are compared for the large configurations only, as Vivado packs
+# tiny constant memories into fewer LUTs
+@pytest.mark.parametrize(
+    "cfg,bram36,luts",
+    [
+        ((3, 16, 64, 8), 0, None),
+        ((15, 1, 64, 8), 0.5, None),
+        ((15, 4, 64, 8), 0, None),
+        ((15, 16, 512, 16), 0, 2507),
+        ((255, 4, 64, 16), 8, 826),
+        ((255, 16, 512, 16), 64, 3056),
+    ],
+)
+@pytest.mark.fpgadataflow
+def test_thresholding_rtl_memory_estimate(cfg, bram36, luts):
+    """Default depth triggers and the memory estimate follow the RTL's RAM_STYLE
+    selection: stage memories of 512 entries or more in BRAM, the others in LUTs."""
+    num_steps, pe, num_channels, wbits = cfg
+    dt = DataType["INT%d" % wbits]
+    thresholds = make_threshold_pattern("duplicates", num_channels, num_steps, dt)
+    model = make_single_multithresholding_modelwrapper(
+        thresholds,
+        dt,
+        dt,
+        DataType["UINT%d" % math.ceil(math.log2(num_steps + 1))],
+        0,
+        [1],
+        num_channels,
+    )
+    model = model.transform(InferThresholdingLayer())
+    getCustomOp(model.graph.node[0]).set_nodeattr("preferred_impl_style", "rtl")
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    inst = getCustomOp(model.graph.node[0])
+    inst.set_nodeattr("PE", pe)
+
+    assert inst.bram_estimation(test_fpga_part) == 2 * bram36  # in BRAM18
+    assert inst.uram_estimation(test_fpga_part) == 0
+    if luts is not None:
+        assert abs(inst.lut_estimation(test_fpga_part) - luts) <= 0.1 * luts
+    # a BRAM trigger alone must not move memories into URAM
+    inst.set_nodeattr("depth_trigger_bram", 64)
+    assert inst.uram_estimation(test_fpga_part) == 0
