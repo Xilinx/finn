@@ -1067,3 +1067,26 @@ def test_fpgadataflow_thresholding_rtl_unsorted_duplicates(pattern, pe):
     model = model.transform(PrepareRTLSim())
     y_produced = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
     np.testing.assert_array_equal(y_produced, y_expected)
+
+
+@pytest.mark.parametrize("impl_style", ["", "hls", "rtl"])
+@pytest.mark.fpgadataflow
+def test_specialize_thresholding_mlo_rtl_only(impl_style):
+    """MLO threshold sets (in1_V) exist in RTL only, so an MLO Thresholding node
+    becomes Thresholding_rtl, with a warning if HLS was preferred."""
+    num_channels, num_steps = 4, 15
+    idt = DataType["INT8"]
+    thresholds = make_threshold_pattern("duplicates", num_channels, num_steps, idt)
+    model = make_single_multithresholding_modelwrapper(
+        thresholds, idt, idt, DataType["UINT4"], 0, [1], num_channels
+    )
+    model = model.transform(InferThresholdingLayer())
+    inst = getCustomOp(model.graph.node[0])
+    inst.set_nodeattr("preferred_impl_style", impl_style)
+    inst.set_nodeattr("mlo_max_iter", 2)
+    if impl_style == "hls":
+        with pytest.warns(UserWarning, match="does not support MLO"):
+            model = model.transform(SpecializeLayers(test_fpga_part))
+    else:
+        model = model.transform(SpecializeLayers(test_fpga_part))
+    assert model.graph.node[0].op_type == "Thresholding_rtl"
