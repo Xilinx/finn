@@ -475,6 +475,11 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         if not path:
             path = os.getcwd()
         thresholds = weights
+        if weight_file_mode == "decoupled_runtime":
+            # Runtime updates bypass inference and codegen, so this file, which the
+            # driver writes as is, sorts them for the binary search. This never
+            # changes the result (see InferThresholdingLayer).
+            thresholds = np.sort(thresholds, axis=-1)
         pe = self.get_nodeattr("PE")
         num_channels = self.get_nodeattr("NumChannels")  # number of channels
         # the search tree spans 2^stages - 1 thresholds, the excess being padding

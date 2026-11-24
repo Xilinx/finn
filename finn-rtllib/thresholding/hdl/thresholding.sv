@@ -36,8 +36,8 @@
  *  larger than the corresponding input:
  *     y = Σ(T_i <= x)
  *  The result is computed by binary search. The runtime-configurable
- *  thresholds must be sorted in ascending order:
- *     i < j => T_i < T_j
+ *  thresholds must be sorted in non-decreasing order, duplicates allowed:
+ *     i < j => T_i <= T_j
  *  The design supports channel folding allowing each input to be processed
  *  with respect to a selectable set of thresholds. The corresponding
  *  threshold configuration relies on a channel address prefix. Inputs are

@@ -825,6 +825,8 @@ def test_rtl_thresholding_unsorted_assertion():
     )
 
     model = model.transform(InferThresholdingLayer())
+    # inference sorts the thresholds, so unsort them again behind its back
+    model.set_initializer(model.graph.node[0].input[1], thresholds)
 
     # Set preferred_impl_style to RTL
     node = model.graph.node[0]
@@ -975,4 +977,93 @@ def test_fpgadataflow_thresholding_rtl_wide_output(
         model = model.transform(PrepareRTLSim())
         y_produced = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
 
+    np.testing.assert_array_equal(y_produced, y_expected)
+
+
+def make_threshold_pattern(pattern, num_channels, num_steps, dt):
+    """Thresholds per channel: shuffled distinct values, sorted with duplicates,
+    shuffled with duplicates, or all equal."""
+    values = np.arange(dt.min(), dt.max() + 1)
+    rows = []
+    for _ in range(num_channels):
+        if pattern == "constant":
+            row = np.full(num_steps, np.random.choice(values))
+        else:
+            row = np.random.choice(values, num_steps, replace=(pattern != "shuffled"))
+            row = np.random.permutation(row) if "shuffled" in pattern else np.sort(row)
+        rows.append(row)
+    return np.stack(rows).astype(np.float32)
+
+
+@pytest.mark.parametrize("pattern", ["shuffled", "duplicates", "shuffled_duplicates", "constant"])
+@pytest.mark.fpgadataflow
+def test_infer_thresholding_sorts_thresholds(pattern):
+    """InferThresholdingLayer sorts thresholds per channel without changing the result."""
+    num_channels, num_steps = 4, 15
+    idt = DataType["INT4"]
+    thresholds = make_threshold_pattern(pattern, num_channels, num_steps, idt)
+    model = make_single_multithresholding_modelwrapper(
+        thresholds, idt, idt, DataType["UINT4"], 0, [1, 4, 4], num_channels
+    )
+    x = gen_finn_dt_tensor(idt, (1, 4, 4, num_channels))
+    input_dict = {model.get_first_global_in(): x}
+    y_expected = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
+
+    model = model.transform(InferThresholdingLayer())
+    node = model.get_nodes_by_op_type("Thresholding")[0]
+    np.testing.assert_array_equal(
+        model.get_initializer(node.input[1]), np.sort(thresholds, axis=-1)
+    )
+    y_produced = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
+    np.testing.assert_array_equal(y_produced, y_expected)
+
+
+@pytest.mark.fpgadataflow
+def test_thresholding_rtl_runtime_weight_file_sorts():
+    """The runtime weight file is sorted whatever order the thresholds come in."""
+    num_channels, num_steps = 4, 15
+    idt = DataType["INT8"]
+    thresholds = make_threshold_pattern("shuffled_duplicates", num_channels, num_steps, idt)
+    model = make_single_multithresholding_modelwrapper(
+        np.sort(thresholds, axis=-1), idt, idt, DataType["UINT4"], 0, [1], num_channels
+    )
+    model = model.transform(InferThresholdingLayer())
+    getCustomOp(model.graph.node[0]).set_nodeattr("preferred_impl_style", "rtl")
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    inst = getCustomOp(model.graph.node[0])
+    inst.set_nodeattr("PE", 2)
+    assert make_runtime_weight_stream(inst, thresholds) == make_runtime_weight_stream(
+        inst, np.sort(thresholds, axis=-1)
+    )
+
+
+# The binary search must count thresholds <= x correctly for non-decreasing
+# thresholds with duplicates; unsorted ones are sorted by inference.
+@pytest.mark.parametrize("pattern", ["shuffled", "duplicates", "shuffled_duplicates", "constant"])
+@pytest.mark.parametrize("pe", [1, 2])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+def test_fpgadataflow_thresholding_rtl_unsorted_duplicates(pattern, pe):
+    num_channels, num_steps = 4, 15
+    num_input_vecs = [1, 4, 4]
+    idt = DataType["INT4"]
+    thresholds = make_threshold_pattern(pattern, num_channels, num_steps, idt)
+    model = make_single_multithresholding_modelwrapper(
+        thresholds, idt, idt, DataType["UINT4"], 0, num_input_vecs, num_channels
+    )
+    x = generate_edge_input_tensor(idt, tuple(num_input_vecs + [num_channels]))
+    input_dict = {model.get_first_global_in(): x}
+    y_expected = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
+
+    model = model.transform(InferThresholdingLayer())
+    getCustomOp(model.graph.node[0]).set_nodeattr("preferred_impl_style", "rtl")
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    assert model.graph.node[0].op_type == "Thresholding_rtl"
+    getCustomOp(model.graph.node[0]).set_nodeattr("PE", pe)
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+    y_produced = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
     np.testing.assert_array_equal(y_produced, y_expected)
