@@ -5,6 +5,7 @@
 
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
+from typing import Optional
 
 from finn.transformation.fpgadataflow.floorplan import get_attached_iodma
 from finn.util.fpgadataflow import is_fpgadataflow_node
@@ -20,10 +21,22 @@ def _is_untyped_stream_node(model: ModelWrapper, node) -> bool:
     )
 
 
+# BIPOLAR streams carry -1 as bit 0 and +1 as bit 1, the encoding of BINARY. Binary
+# MVAUs take BIPOLAR inputs while the layout ops before them stay BINARY (see
+# InferBinaryMatrixVectorActivation), so the two meet on purpose.
+_ONE_BIT_ENCODING = {"BINARY", "BIPOLAR"}
+
+
+def _same_stream_encoding(odt_name: Optional[str], idt_name: Optional[str]) -> bool:
+    "Whether a stream of the first datatype carries the bits the second expects."
+    return odt_name == idt_name or {odt_name, idt_name} <= _ONE_BIT_ENCODING
+
+
 def stream_compatibility(model: ModelWrapper) -> dict:
     """Checks every stream between two hardware nodes: the padded output stream width
     of the producer must equal the padded input stream width of the consumer, and the
-    output datatype of the producer the input datatype of the consumer.
+    output datatype of the producer the input datatype of the consumer. BINARY and
+    BIPOLAR count as equal, since they share the 1-bit encoding.
 
     Streams of width 0 (not exposed as a stream) are skipped, and so are the
     datatypes of streams from or to an IODMA, the DWC attached to it, or a
@@ -53,7 +66,7 @@ def stream_compatibility(model: ModelWrapper) -> dict:
             else:
                 odt_name = producer_inst.get_output_datatype(out_ind).name
                 idt_name = consumer_inst.get_input_datatype(in_ind).name
-            if out_width != in_width or odt_name != idt_name:
+            if out_width != in_width or not _same_stream_encoding(odt_name, idt_name):
                 mismatches.append(
                     f"{producer.name} output {out_ind} ({out_width} bits, {odt_name}) -> "
                     f"{consumer.name} input {in_ind} ({in_width} bits, {idt_name}) "

@@ -25,8 +25,8 @@ from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import pynq_part_map
 
 
-def _make_dup_concat_model(concat_simd=2, concat_idts=("UINT4", "UINT4")):
-    """inp -> DuplicateStreams (PE=2, UINT4) -> (a, b) -> StreamingConcat -> outp."""
+def _make_dup_concat_model(concat_simd=2, concat_idts=("UINT4", "UINT4"), dup_idt="UINT4"):
+    """inp -> DuplicateStreams (PE=2, dup_idt) -> (a, b) -> StreamingConcat -> outp."""
     dup = helper.make_node(
         "DuplicateStreams",
         ["inp"],
@@ -36,7 +36,7 @@ def _make_dup_concat_model(concat_simd=2, concat_idts=("UINT4", "UINT4")):
         NumChannels=4,
         PE=2,
         NumOutputStreams=2,
-        inputDataType="UINT4",
+        inputDataType=dup_idt,
         numInputVectors=[1],
     )
     concat = helper.make_node(
@@ -59,7 +59,7 @@ def _make_dup_concat_model(concat_simd=2, concat_idts=("UINT4", "UINT4")):
     model = ModelWrapper(qonnx_make_model(graph, producer_name="stream-model"))
     model = model.transform(GiveUniqueNodeNames())
     for tensor in ["inp", "a", "b", "outp"]:
-        model.set_tensor_datatype(tensor, DataType["UINT4"])
+        model.set_tensor_datatype(tensor, DataType[dup_idt])
     return model
 
 
@@ -94,6 +94,17 @@ def test_stream_compatibility_reports_datatype_mismatch():
         "DuplicateStreams_0 output 1 (8 bits, UINT4) -> "
         "StreamingConcat_0 input 1 (8 bits, INT4) on tensor b"
     ]
+
+
+@pytest.mark.fpgadataflow
+def test_stream_compatibility_passes_binary_into_bipolar():
+    # a BINARY layout op feeds a binary MVAU's BIPOLAR input in the BNN CNV: same bits
+    model = _make_dup_concat_model(concat_idts=("BIPOLAR", "BIPOLAR"), dup_idt="BINARY")
+    assert model.analysis(stream_compatibility)["mismatches"] == []
+    # still a mismatch for a wider datatype of the same stream width
+    model = _make_dup_concat_model(concat_simd=1, concat_idts=("BIPOLAR", "INT2"), dup_idt="BINARY")
+    mismatches = model.analysis(stream_compatibility)["mismatches"]
+    assert len(mismatches) == 1 and "(8 bits, INT2)" in mismatches[0], mismatches
 
 
 def _make_mvau(inp, outp, wname, mem_mode):
