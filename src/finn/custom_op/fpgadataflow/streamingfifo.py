@@ -125,10 +125,10 @@ class StreamingFIFO(HWCustomOp):
         return self.get_normal_input_shape()
 
     def get_folded_input_shape(self, ind=0):
-        return self.get_nodeattr("folded_shape")
+        return tuple(self.get_nodeattr("folded_shape"))
 
     def get_folded_output_shape(self, ind=0):
-        return self.get_nodeattr("folded_shape")
+        return tuple(self.get_nodeattr("folded_shape"))
 
     def get_instream_width(self, ind=0):
         dtype = DataType[self.get_nodeattr("dataType")]
