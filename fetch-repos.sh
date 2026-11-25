@@ -32,16 +32,22 @@
 # `-u` is deliberately omitted: optional FINN_SKIP_BOARD_FILES flag may be unset.
 set -eo pipefail
 
-QONNX_COMMIT="f5c9819bd00f01f41e70639b8461c8e4b39432f7"
+QONNX_COMMIT="4c1f9b4452bb90e743f3bd7e182603fa5096af06"
 FINN_EXP_COMMIT="0724be21111a21f0d81a072fccc1c446e053f851"
-BREVITAS_COMMIT="aad4d5a293db6f2ec622a92a5d3278e47072453e"
-HLSLIB_COMMIT="8d979e2bdced486dd25d26607d1ff5ae327ed6a8"
+BREVITAS_COMMIT="06133f4778ecedc77020b5e778022cf4e805bc86"
+HLSLIB_COMMIT="8706a00b1774c2ecc4fb705a194f39c714f92e6a"
 AVNET_BDF_COMMIT="2d49cfc25766f07792c0b314489f21fe916b639b"
 XIL_BDF_COMMIT="8cf4bb674a919ac34e3d99d8d71a9e60af93d14e"
 RFSOC4x2_BDF_COMMIT="13fb6f6c02c7dfd7e4b336b18b959ad5115db696"
 KV260_BDF_COMMIT="98e0d3efc901f0b974006bc4370c2a7ad8856c79"
-EXP_BOARD_FILES_MD5="226ca927a16ea4ce579f1332675e9e9a"
+# Cache checksum for the assembled deps/board_files folder. Only used to decide
+# whether an existing folder can be reused or must be re-downloaded; it does not
+# gate the build. Must be regenerated whenever the board files change (a board
+# added/removed, or a *_BDF_COMMIT above bumped) with:
+#   find deps/board_files/ -type f -exec md5sum {} \; | sort -k 2 | md5sum
+EXP_BOARD_FILES_MD5="221a7edc838f4236922afbd9b9a20f17"
 AUPZU3_BDF_COMMIT="b595ecdf37c7204129517de1773b0895bcdcc2ed"
+PYNQ_COMMIT="d90670c69f7b71ea1a5d23aaa3e0ec713ff5fa9f"
 
 QONNX_URL="https://github.com/fastmachinelearning/qonnx.git"
 FINN_EXP_URL="https://github.com/Xilinx/finn-experimental.git"
@@ -52,6 +58,7 @@ XIL_BDF_URL="https://github.com/Xilinx/XilinxBoardStore.git"
 RFSOC4x2_BDF_URL="https://github.com/RealDigitalOrg/RFSoC4x2-BSP.git"
 KV260_BDF_URL="https://github.com/Xilinx/XilinxBoardStore.git"
 AUPZU3_BDF_URL="https://github.com/RealDigitalOrg/aup-zu3-bsp.git"
+PYNQ_URL="https://github.com/Xilinx/PYNQ.git"
 
 QONNX_DIR="qonnx"
 FINN_EXP_DIR="finn-experimental"
@@ -62,6 +69,7 @@ XIL_BDF_DIR="xil-bdf"
 RFSOC4x2_BDF_DIR="rfsoc4x2-bdf"
 KV260_SOM_BDF_DIR="kv260-som-bdf"
 AUPZU3_BDF_DIR="aupzu3-8gb-bdf"
+PYNQ_DIR="pynq"
 
 # absolute path to this script, e.g. /home/user/bin/foo.sh
 SCRIPT=$(readlink -f "$0")
@@ -129,10 +137,15 @@ fetch_board_files() {
     mkdir -p "$SCRIPTPATH/deps/board_files"
     OLD_PWD=$(pwd)
     cd "$SCRIPTPATH/deps/board_files"
-    retry wget -qO pynq-z1.zip https://github.com/cathalmccabe/pynq-z1_board_files/raw/master/pynq-z1.zip
-    retry wget -qO pynq-z2.zip https://dpoauwgwqsy2x.cloudfront.net/Download/pynq-z2.zip
-    unzip -q pynq-z1.zip
-    unzip -q pynq-z2.zip
+    # Pynq-Z1/Pynq-Z2 (Zynq-7000) board files are retired from official support
+    # with the move to Vivado 2024.2 and are no longer downloaded by default (the
+    # two archives are also fairly large). If you want to build for Pynq-Z1/Pynq-Z2
+    # at your own decision, uncomment the four lines below and regenerate
+    # EXP_BOARD_FILES_MD5 (see top of this script) to match the new folder content.
+    # retry wget -qO pynq-z1.zip https://github.com/cathalmccabe/pynq-z1_board_files/raw/master/pynq-z1.zip
+    # retry wget -qO pynq-z2.zip https://dpoauwgwqsy2x.cloudfront.net/Download/pynq-z2.zip
+    # unzip -q pynq-z1.zip
+    # unzip -q pynq-z2.zip
     cp -r $SCRIPTPATH/deps/$AVNET_BDF_DIR/* $SCRIPTPATH/deps/board_files/
     cp -r $SCRIPTPATH/deps/$XIL_BDF_DIR/boards/Xilinx/rfsoc2x2 $SCRIPTPATH/deps/board_files/;
     cp -r $SCRIPTPATH/deps/$RFSOC4x2_BDF_DIR/board_files/rfsoc4x2 $SCRIPTPATH/deps/board_files/;
@@ -150,6 +163,11 @@ fetch_repo $XIL_BDF_URL $XIL_BDF_COMMIT $XIL_BDF_DIR
 fetch_repo $RFSOC4x2_BDF_URL $RFSOC4x2_BDF_COMMIT $RFSOC4x2_BDF_DIR
 fetch_repo $KV260_BDF_URL $KV260_BDF_COMMIT $KV260_SOM_BDF_DIR
 fetch_repo $AUPZU3_BDF_URL $AUPZU3_BDF_COMMIT $AUPZU3_BDF_DIR
+
+# PYNQ is only needed to build the VCK190 golden reference
+if [ "$FINN_VCK190_GOLDEN" = "1" ]; then
+    fetch_repo $PYNQ_URL $PYNQ_COMMIT $PYNQ_DIR
+fi
 
 # Can skip downloading of board files entirely if desired
 if [ "$FINN_SKIP_BOARD_FILES" = "1" ]; then

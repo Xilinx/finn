@@ -72,10 +72,9 @@ class InsertFIFO(Transformation):
 
     Constructor arguments:
 
-    :parameter max_qsrl_depth: FIFOs deeper than this will use Vivado IP
-        instead of Verilog FIFOs (Q_srl.v)
-    :parameter vivado_ram_style: the StreamingFIFO.ram_style attribute
-        to be used for large FIFOs implemented by Vivado
+    :parameter ram_style: the StreamingFIFO.ram_style attribute to be set on
+        the created FIFOs. The default "auto" lets FINN pick a backing per
+        depth and width, see StreamingFIFO.resolve_ram_style()
     :parameter create_shallow_fifos: Normally, shallow-depth (<=2) FIFOs
         won't be created since HLS streaming interfaces
         already have a degree of buffering.
@@ -85,11 +84,10 @@ class InsertFIFO(Transformation):
     The other node attributes necessary to create a FIFO node are taken from the
     node the FIFO node is inserted after: 'folded_shape' and 'dtype'"""
 
-    def __init__(self, create_shallow_fifos=False, max_qsrl_depth=None, vivado_ram_style="auto"):
+    def __init__(self, create_shallow_fifos=False, ram_style="auto"):
         super().__init__()
         self.create_shallow_fifos = create_shallow_fifos
-        self.max_qsrl_depth = max_qsrl_depth
-        self.vivado_ram_style = vivado_ram_style
+        self.ram_style = ram_style
 
     def apply(self, model):
         graph = model.graph
@@ -110,9 +108,10 @@ class InsertFIFO(Transformation):
                     consumer = consumers[0]
                     if _suitable_node(consumer) is True:
                         n0 = getCustomOp(first_node)
-                        # determine fifo node attributes
-                        fld_shape = n0.get_folded_output_shape()
-                        dtype = n0.get_output_datatype()
+                        # determine fifo node attributes, from the output this
+                        # fifo buffers (a split's outputs differ in shape)
+                        fld_shape = n0.get_folded_output_shape(idx_out)
+                        dtype = n0.get_output_datatype(idx_out)
                         n0_otensor = model.get_tensor_valueinfo(output_name)
                         n0_tensor_dtype = n0_otensor.type.tensor_type.elem_type
 
@@ -129,7 +128,7 @@ class InsertFIFO(Transformation):
                         folded output shape of the first node is not the same as the
                         folded output shape of the second node. A streaming fifo can't
                         be implemented in between these nodes."""
-                        n_shape = n0.get_normal_output_shape()
+                        n_shape = n0.get_normal_output_shape(idx_out)
 
                         # check if outFIFOdepths attribute of first node
                         # and inFIFOdepths attribute of consumer node is equal
@@ -147,15 +146,10 @@ class InsertFIFO(Transformation):
                             fifo_output_tensor = oh.make_tensor_value_info(
                                 model.make_new_valueinfo_name(),
                                 n0_tensor_dtype,
-                                n0.get_normal_output_shape(),
+                                n_shape,
                             )
                             graph.value_info.append(fifo_output_tensor)
                             model.set_tensor_datatype(fifo_output_tensor.name, dtype)
-
-                            if self.max_qsrl_depth is None or fifo_depth <= self.max_qsrl_depth:
-                                impl_style = "rtl"
-                            else:
-                                impl_style = "vivado"
 
                             fifo_node = oh.make_node(
                                 "StreamingFIFO",
@@ -167,8 +161,7 @@ class InsertFIFO(Transformation):
                                 folded_shape=fld_shape,
                                 normal_shape=n_shape,
                                 dataType=str(dtype.name),
-                                impl_style=impl_style,
-                                ram_style=self.vivado_ram_style,
+                                ram_style=self.ram_style,
                             )
                             # insert fifo
                             graph.node.insert(node_ind + 1, fifo_node)
@@ -215,10 +208,6 @@ class InsertFIFO(Transformation):
                         graph.value_info.append(fifo_output_tensor)
                         model.set_tensor_datatype(fifo_output_tensor.name, dtype)
 
-                        # only use rtl-style FIFOs to avoid simulation bug
-                        # (top-level IOs should not have impl_style=vivado)
-                        impl_style = "rtl"
-
                         fifo_node = oh.make_node(
                             "StreamingFIFO",
                             [n_input],
@@ -229,8 +218,7 @@ class InsertFIFO(Transformation):
                             folded_shape=fld_shape,
                             normal_shape=n_shape,
                             dataType=str(dtype.name),
-                            impl_style=impl_style,
-                            ram_style=self.vivado_ram_style,
+                            ram_style=self.ram_style,
                         )
                         # insert fifo
                         graph.node.insert(0, fifo_node)
@@ -254,7 +242,7 @@ class InsertFIFO(Transformation):
                     and final_node.op_type != "IODMA_hls"
                 ):
                     assert (
-                        final_node.op_type != "TLastMarker_hls"
+                        final_node.op_type != "TLastMarker_rtl"
                     ), """Insert tlast marker should be done
                         after inserting the FIFOs"""
                     n0 = getCustomOp(final_node)
@@ -279,10 +267,6 @@ class InsertFIFO(Transformation):
                         graph.value_info.append(fifo_input_tensor)
                         model.set_tensor_datatype(fifo_input_tensor.name, dtype)
 
-                        # only use rtl-style FIFOs to avoid simulation bug
-                        # (top-level IOs should not have impl_style=vivado)
-                        impl_style = "rtl"
-
                         fifo_node = oh.make_node(
                             "StreamingFIFO",
                             [fifo_input_tensor.name],
@@ -293,8 +277,7 @@ class InsertFIFO(Transformation):
                             folded_shape=fld_shape,
                             normal_shape=n_shape,
                             dataType=str(dtype.name),
-                            impl_style=impl_style,
-                            ram_style=self.vivado_ram_style,
+                            ram_style=self.ram_style,
                         )
                         # insert fifo
                         graph.node.append(fifo_node)

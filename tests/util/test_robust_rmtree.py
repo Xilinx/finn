@@ -52,7 +52,10 @@ def test_robust_rmtree_retries_on_transient_then_succeeds(monkeypatch, transient
         return real_rmtree(path, *a, **kw)
 
     monkeypatch.setattr(shutil, "rmtree", flaky)
-    monkeypatch.setattr(time, "sleep", lambda _s: None)
+    # skip the delay after the stubbed failures only: the real removal (NFS in
+    # CI) may need the backoff that robust_rmtree provides
+    real_sleep = time.sleep
+    monkeypatch.setattr(time, "sleep", lambda s: real_sleep(s) if state["calls"] >= 3 else None)
 
     robust_rmtree(target, retries=5)
 
@@ -77,7 +80,7 @@ def test_robust_rmtree_propagates_non_transient_oserror(monkeypatch):
         robust_rmtree(target, retries=5)
 
     assert excinfo.value.errno == errno.EACCES
-    # No retry: an errno outside (ENOTEMPTY, EBUSY) propagates on the first attempt.
+    # No retry: an errno outside the transient ones propagates on the first attempt.
     assert len(calls) == 1
 
 
@@ -102,11 +105,45 @@ def test_robust_rmtree_raises_after_retries_exhausted(monkeypatch):
 
 
 @pytest.mark.util
-def test_robust_rmtree_tolerates_filenotfounderror(monkeypatch):
+def test_robust_rmtree_tolerates_concurrent_removal(monkeypatch):
     target = make_build_dir("test_rmtree_")
+    real_rmtree = shutil.rmtree
 
-    def fnf(path, *a, **kw):
-        raise FileNotFoundError(str(path))
+    def removed_meanwhile(path, *a, **kw):
+        real_rmtree(path)
+        raise FileNotFoundError(errno.ENOENT, "fake", str(path))
 
-    monkeypatch.setattr(shutil, "rmtree", fnf)
+    monkeypatch.setattr(shutil, "rmtree", removed_meanwhile)
     robust_rmtree(target)
+    assert not os.path.exists(target)
+
+
+@pytest.mark.util
+def test_robust_rmtree_retries_when_an_entry_vanishes(monkeypatch):
+    # shutil.rmtree re-raises the FileNotFoundError of an entry that vanished
+    # after the directory was listed (e.g. a stale NFS listing); the tree itself
+    # is still there and must not be reported as removed
+    target = make_build_dir("test_rmtree_")
+    Path(os.path.join(target, "f")).write_text("x")
+    state = {"calls": 0}
+    real_rmtree = shutil.rmtree
+
+    def entry_vanishes(path, *a, **kw):
+        # count only the removal of this tree: other code in the process (e.g. a
+        # TemporaryDirectory finalizer) may call shutil.rmtree meanwhile
+        if os.fspath(path) != target:
+            return real_rmtree(path, *a, **kw)
+        state["calls"] += 1
+        if state["calls"] == 1:
+            raise FileNotFoundError(errno.ENOENT, "fake", os.path.join(str(path), "g"))
+        return real_rmtree(path, *a, **kw)
+
+    monkeypatch.setattr(shutil, "rmtree", entry_vanishes)
+    monkeypatch.setattr(time, "sleep", lambda _s: None)
+
+    robust_rmtree(target)
+
+    # retried after the vanished entry; on NFS, the real removal may itself need
+    # another (transient ENOTEMPTY/EBUSY) attempt
+    assert state["calls"] >= 2
+    assert not os.path.exists(target)

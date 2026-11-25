@@ -13,10 +13,10 @@
 import math
 import numpy as np
 import os
-import shutil
 
 from finn.custom_op.fpgadataflow.layernorm import LayerNorm
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
+from finn.util.basic import arith_rtl_files, fifo_rtl_files
 
 
 class LayerNorm_rtl(LayerNorm, RTLBackend):
@@ -46,6 +46,7 @@ class LayerNorm_rtl(LayerNorm, RTLBackend):
         code_gen_dict = {
             "$N$": int(n),
             "$SIMD$": int(simd),
+            "$NUM_RSQRT_REFINEMENTS$": self.get_nodeattr("numRsqrtRefinements"),
             "$TOP_MODULE_NAME$": topname,
         }
 
@@ -66,9 +67,6 @@ class LayerNorm_rtl(LayerNorm, RTLBackend):
         ) as f:
             f.write(template)
 
-        sv_files = ["layernorm.sv", "queue.sv", "accuf.sv", "binopf.sv", "rsqrtf.sv"]
-        for sv_file in sv_files:
-            shutil.copy(rtllib_dir + sv_file, code_gen_dir)
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
         self.set_nodeattr("ipgen_path", code_gen_dir)
@@ -82,38 +80,25 @@ class LayerNorm_rtl(LayerNorm, RTLBackend):
             code_gen_dir = ""
             rtllib_dir = ""
 
-        verilog_files = [
-            rtllib_dir + "layernorm.sv",
-            rtllib_dir + "queue.sv",
-            rtllib_dir + "accuf.sv",
-            rtllib_dir + "binopf.sv",
-            rtllib_dir + "rsqrtf.sv",
-            code_gen_dir + self.get_nodeattr("gen_top_module") + ".v",
-        ]
-        return verilog_files
+        return (
+            [
+                rtllib_dir + "layernorm.sv",
+                rtllib_dir + "accuf.sv",
+                rtllib_dir + "rsqrtf.sv",
+                code_gen_dir + self.get_nodeattr("gen_top_module") + ".v",
+            ]
+            + arith_rtl_files(["binopf.sv"], abspath)
+            + fifo_rtl_files(abspath)
+        )
 
     def code_generation_ipi(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-
-        sourcefiles = [
-            "layernorm.sv",
-            "queue.sv",
-            "accuf.sv",
-            "binopf.sv",
-            "rsqrtf.sv",
-        ]
-
-        sourcefiles.append(self.get_nodeattr("gen_top_module") + ".v")
-
-        sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
-
         cmd = []
-        for f in sourcefiles:
-            cmd += ["add_files -norecurse %s" % (f)]
-        cmd += [
+        for f in self.get_rtl_file_list(abspath=True):
+            cmd.append("add_files -norecurse %s" % f)
+        cmd.append(
             "create_bd_cell -type module -reference %s %s"
             % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)
-        ]
+        )
         return cmd
 
     def execute_node(self, context, graph):
@@ -123,7 +108,21 @@ class LayerNorm_rtl(LayerNorm, RTLBackend):
         elif mode == "rtlsim":
             RTLBackend.execute_node(self, context, graph)
 
+    def _rsqrt_latency(self):
+        """Latency allowance for rsqrtf, mirroring RSQRT_LATENCY of layernorm.sv:
+        three 4-cycle DSP passes per Newton-Raphson iteration and, for the
+        interleaving structures, 2 cycles of input skid and up to 3 cycles waiting
+        for a slot. A single iteration keeps its historic flat 14 cycles."""
+        refinements = self.get_nodeattr("numRsqrtRefinements")
+        if refinements == 1:
+            return 14
+        nn = self.get_normal_input_shape()[-1] // self.get_nodeattr("SIMD")
+        interleaved = 1 < nn < 12 * refinements - 3
+        return 12 * refinements + (2 + 3 if interleaved else 0)
+
     def get_exp_cycles(self):
+        """Mirrors the queue lengths of layernorm.sv, which is the ground truth for
+        the latency of the statistics paths of both normalization steps."""
         simd = self.get_nodeattr("SIMD")
         idim = self.get_normal_input_shape()
         n = idim[-1]
@@ -131,8 +130,36 @@ class LayerNorm_rtl(LayerNorm, RTLBackend):
             n % simd == 0
         ), """Requirement N (last dim) divisable by SIMD is violated.
             Please set SIMD to a different value"""
-        val_queue_len_0 = n // simd + math.ceil(math.log2(simd)) * 2 + 7
-        val_queue_len_1 = n // simd + math.ceil(math.log2(simd)) * 2 + 24
+        rsqrt_latency = self._rsqrt_latency()
+        # SIMD adder tree + accumulation + decouple
+        mean_latency = math.ceil(math.log2(simd)) * 2 + 4 + 3
+        # ... + scaling by 1/N + rsqrt
+        var_latency = mean_latency + 3 + rsqrt_latency
+        val_queue_len_0 = n // simd + mean_latency
+        val_queue_len_1 = n // simd + var_latency
         exp_cycles = val_queue_len_0 + val_queue_len_1 + np.prod(idim) // simd + 5
 
         return int(exp_cycles)
+
+    def dsp_estimation(self, fpgapart):
+        """DSPFP32 slices of the RTL LayerNorm.
+
+        Every SIMD lane takes five: the subtraction of the mean, the square, the
+        scaling by the inverse standard deviation and one node in each of the
+        two adder trees -- which have SIMD-1 nodes each and are completed to SIMD
+        by the two accumulators. The reciprocal square root adds the DSPs of the
+        rsqrtf structure selected by the interval N/SIMD: one where its 3 passes
+        per Newton-Raphson iteration fit into the interval, a chain of rings of
+        ceil(passes / interval) DSPs where they do not, and the two paired DSPs
+        of a single iteration at an interval of 2.
+        """
+        simd = self.get_nodeattr("SIMD")
+        nn = self.get_normal_input_shape()[-1] // simd
+        passes = 3 * self.get_nodeattr("numRsqrtRefinements")
+        if nn >= passes:
+            rsqrt_dsps = 1
+        elif passes == 3 and nn == 2:
+            rsqrt_dsps = 2
+        else:
+            rsqrt_dsps = math.ceil(passes / nn)
+        return 5 * simd + rsqrt_dsps

@@ -94,7 +94,6 @@ def test_move_scalar_past_conv(idim, stride, ifm_ch, ofm_ch, k, padding):
     model = ModelWrapper(modelproto)
     model = model.transform(InferShapes())
 
-    np.random.seed(0)
     model.set_initializer("p1", *np.random.rand(1).astype(np.float32))
     model.set_initializer("p2", np.random.rand(*conv_param_shape).astype(np.float32))
 

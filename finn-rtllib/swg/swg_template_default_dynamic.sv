@@ -98,11 +98,11 @@ module $TOP_MODULE_NAME$_controller #(
     state_e  State = $INNERMOST_STATE$;
     state_e  state_next;
 
-    logic signed [$clog2($LOOP_H_ITERATIONS$   +2)+1-1:0]  Counter_loop_h    = $LOOP_H_ITERATIONS$;
-    logic signed [$clog2($LOOP_W_ITERATIONS$   +2)+1-1:0]  Counter_loop_w    = $LOOP_W_ITERATIONS$;
-    logic signed [$clog2($LOOP_KH_ITERATIONS$  +2)+1-1:0]  Counter_loop_kh   = $LOOP_KH_ITERATIONS$;
-    logic signed [$clog2($LOOP_KW_ITERATIONS$  +2)+1-1:0]  Counter_loop_kw   = $LOOP_KW_ITERATIONS$;
-    logic signed [$clog2($LOOP_SIMD_ITERATIONS$+2)+1-1:0]  Counter_loop_simd = $LOOP_SIMD_ITERATIONS$;
+    logic signed [$clog2($LOOP_H_ITERATIONS$   +1):0]  Counter_loop_h    = $LOOP_H_ITERATIONS$;    // -1, 0, ..., LOOP_H_ITERATIONS
+    logic signed [$clog2($LOOP_W_ITERATIONS$   +1):0]  Counter_loop_w    = $LOOP_W_ITERATIONS$;    // -1, 0, ..., LOOP_W_ITERATIONS
+    logic signed [$clog2($LOOP_KH_ITERATIONS$  +1):0]  Counter_loop_kh   = $LOOP_KH_ITERATIONS$;   // -1, 0, ..., LOOP_KH_ITERATIONS
+    logic signed [$clog2($LOOP_KW_ITERATIONS$  +1):0]  Counter_loop_kw   = $LOOP_KW_ITERATIONS$;   // -1, 0, ..., LOOP_KW_ITERATIONS
+    logic signed [$clog2($LOOP_SIMD_ITERATIONS$+1):0]  Counter_loop_simd = $LOOP_SIMD_ITERATIONS$;  // -1, 0, ..., LOOP_SIMD_ITERATIONS
 
     // combinational logic for addr_incr generation
     always_comb begin : blkHead
@@ -292,12 +292,14 @@ module $TOP_MODULE_NAME$_impl #(
     // Add a sign bit even to (most) unsigned counters and Window_buffer_read_addr_reg,
     // so we can use automatic sign extension and simplify calculations w/ signed increment.
     // Alternatively, we could manually sign-extend and shave off a bit here or there.
-    logic signed [$clog2(LAST_READ_ELEM+1)+1-1:0]  Newest_buffered_elem = -1;
-    logic        [$clog2(LAST_READ_ELEM+1)+1-1:0]  Current_elem = 0;
-    logic        [$clog2(LAST_READ_ELEM+1)+1-1:0]  First_elem_next_window = 0;
-    logic        [$clog2(ELEM_PER_WINDOW)   -1:0]  Position_in_window = 0;
-    logic        [$clog2(BUF_ELEM_TOTAL)+1  -1:0]  Window_buffer_read_addr_reg = 0;
-    logic        [$clog2(BUF_ELEM_TOTAL)-1:0]      Window_buffer_write_addr_reg = 0;
+    logic signed [$clog2(LAST_READ_ELEM+1):0]  Newest_buffered_elem = -1;    // -1, 0, 1, ..., LAST_READ_ELEM
+    logic signed [$clog2(LAST_READ_ELEM+1):0]  Current_elem = 0;             // 0, ..., LAST_WRITE_ELEM
+    // Wider than the other element counters: in depthwise mode, after the first fetch of the
+    // last window this holds (start of that window + TAIL_INCR_LAST) which exceeds LAST_READ_ELEM.
+    logic signed [$clog2(LAST_READ_ELEM+$TAIL_INCR_LAST$+1):0]  First_elem_next_window = 0;  // 0, ..., LAST_READ_ELEM + TAIL_INCR_LAST
+    logic        [$clog2(ELEM_PER_WINDOW)   -1:0]  Position_in_window = 0;          // 0, 1, ..., ELEM_PER_WINDOW-1
+    logic signed [$clog2(BUF_ELEM_TOTAL)    :0]  Window_buffer_read_addr_reg = 0;  // 0, 1, ..., BUF_ELEM_TOTAL-1
+    logic        [$clog2(BUF_ELEM_TOTAL)-1:0]      Window_buffer_write_addr_reg = 0; // 0, 1, ..., BUF_ELEM_TOTAL-1
 
     // Control signals/registers
     logic  Write_cmd    = 0;
@@ -306,14 +308,14 @@ module $TOP_MODULE_NAME$_impl #(
     uwire  write_blocked = Write_cmd && !out_V_V_TREADY;
 
     logic  Fetching_done = 0;
-    uwire  fetch_cmd = !($signed(Current_elem) > Newest_buffered_elem) && !write_blocked && !Fetching_done;
+    uwire  fetch_cmd = !(Current_elem > Newest_buffered_elem) && !write_blocked && !Fetching_done;
 
     uwire  reading_done = Newest_buffered_elem == Cfg_last_read;
     uwire  read_cmd =
         !reading_done && ( // if there is still an input element left to read
             Fetching_done || ( // if fetching is done (e.g. for skipped rows at FM end due to stride)
-                $signed(((Newest_buffered_elem - (BUF_ELEM_TOTAL - 1)))) < $signed(First_elem_next_window) &&
-                $signed(((Newest_buffered_elem - (BUF_ELEM_TOTAL - 1)))) < $signed(Current_elem)
+                $signed(Newest_buffered_elem - (BUF_ELEM_TOTAL - 1)) < First_elem_next_window &&
+                $signed(Newest_buffered_elem - (BUF_ELEM_TOTAL - 1)) < Current_elem
             ) // (over-)write to buffer if oldest buffered element will no longer be needed
         );
     uwire  read_ok      = read_cmd && in0_V_V_TVALID;
@@ -370,8 +372,8 @@ module $TOP_MODULE_NAME$_impl #(
                 //use increment value calculated by controller
 
                 // absolute buffer address wrap-around
-                automatic logic signed [$clog2(BUF_ELEM_TOTAL)+1:0]  ra = $signed(Window_buffer_read_addr_reg) + $signed(addr_incr);
-                automatic logic signed [$clog2(BUF_ELEM_TOTAL+1):0]  ra_correct =
+                automatic logic signed [$clog2(2*BUF_ELEM_TOTAL-1):0]  ra = Window_buffer_read_addr_reg + addr_incr;  // -(BUF_ELEM_TOTAL-1), ..., 2*(BUF_ELEM_TOTAL-1)
+                automatic logic signed [$clog2(BUF_ELEM_TOTAL+1):0]  ra_correct =                                  // -BUF_ELEM_TOTAL, 0, BUF_ELEM_TOTAL
                     (ra >= BUF_ELEM_TOTAL)? -BUF_ELEM_TOTAL :
                     (ra <               0)?  BUF_ELEM_TOTAL : 0;
                 Window_buffer_read_addr_reg <= ra + ra_correct;
@@ -387,7 +389,7 @@ module $TOP_MODULE_NAME$_impl #(
                 if (Current_elem == Cfg_last_write)
                     Fetching_done <= 1;
                 else
-                    Current_elem <= $signed(Current_elem) + addr_incr;
+                    Current_elem <= Current_elem + addr_incr;
 
                 // determine if prefetched data will be outstanding in the next cycle
                 // if we fetch in this cycle -> yes

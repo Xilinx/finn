@@ -27,26 +27,36 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import errno
+import glob
+import logging
 import os
 import re
+import shlex
 import shutil
-import subprocess
-import sys
 import tempfile
 import time
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.util.basic import gen_finn_dt_tensor, roundup_to_integer_multiple
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Sequence, Tuple, Union
 
 from finn.util.data_packing import finnpy_to_packed_bytearray
+from finn.util.launcher import (
+    TOOL_DIR_ENV,
+    StrPath,
+    ToolUnavailable,
+    run_tool,
+    xilinx_tool,
+)
+
+log = logging.getLogger(__name__)
 
 # mapping from PYNQ board names to FPGA part names
-pynq_part_map = dict()
+pynq_part_map: dict[str, str] = dict()
 pynq_part_map["Ultra96"] = "xczu3eg-sbva484-1-e"
 pynq_part_map["Ultra96-V2"] = "xczu3eg-sbva484-1-i"
-pynq_part_map["Pynq-Z1"] = "xc7z020clg400-1"
-pynq_part_map["Pynq-Z2"] = "xc7z020clg400-1"
+pynq_part_map["Pynq-Z1"] = "xc7z020clg400-1"  # retired, see retired_pynq_boards
+pynq_part_map["Pynq-Z2"] = "xc7z020clg400-1"  # retired, see retired_pynq_boards
 pynq_part_map["ZCU102"] = "xczu9eg-ffvb1156-2-e"
 pynq_part_map["ZCU104"] = "xczu7ev-ffvc1156-2-e"
 pynq_part_map["ZCU111"] = "xczu28dr-ffvg1517-2-e"
@@ -54,10 +64,18 @@ pynq_part_map["RFSoC2x2"] = "xczu28dr-ffvg1517-2-e"
 pynq_part_map["RFSoC4x2"] = "xczu48dr-ffvg1517-2-e"
 pynq_part_map["KV260_SOM"] = "xck26-sfvc784-2LV-c"
 pynq_part_map["AUP-ZU3_8GB"] = "xczu3eg-sfvc784-2-e"
+pynq_part_map["VCK190"] = "xcvc1902-vsva2197-2MP-e-S"
+
+# Zynq-7000 boards (Pynq-Z1/Z2) retired from official support with the move to
+# Vivado 2024.2. The build flow itself is unchanged and Vivado 2024.2 still
+# supports the xc7z020 part, so these remain in the maps above and the builder
+# only blocks them at config-check time. To re-enable a build for one of these
+# boards, remove it from this set (see finn.builder.build_dataflow_checks).
+retired_pynq_boards = {"Pynq-Z1", "Pynq-Z2"}
 
 
 # native AXI HP port width (in bits) for PYNQ boards
-pynq_native_port_width = dict()
+pynq_native_port_width: dict[str, int] = dict()
 pynq_native_port_width["Pynq-Z1"] = 64
 pynq_native_port_width["Pynq-Z2"] = 64
 pynq_native_port_width["Ultra96"] = 128
@@ -69,33 +87,40 @@ pynq_native_port_width["RFSoC2x2"] = 128
 pynq_native_port_width["RFSoC4x2"] = 128
 pynq_native_port_width["KV260_SOM"] = 128
 pynq_native_port_width["AUP-ZU3_8GB"] = 128
+# native AXI port width (in bits) for the PL NoC slave ports on Versal
+pynq_native_port_width["VCK190"] = 512
 
 # Vitis device and platform mappings
-vitis_part_map = dict()
+vitis_part_map: dict[str, str] = dict()
 vitis_part_map["U50"] = "xcu50-fsvh2104-2L-e"
 vitis_part_map["U200"] = "xcu200-fsgd2104-2-e"
 vitis_part_map["U250"] = "xcu250-figd2104-2L-e"
-vitis_part_map["U280"] = "xcu280-fsvh2892-2L-e"
 vitis_part_map["U55C"] = "xcu55c-fsvh2892-2L-e"
 
-vitis_default_platform = dict()
+vitis_default_platform: dict[str, str] = dict()
 vitis_default_platform["U50"] = "xilinx_u50_gen3x16_xdma_5_202210_1"
 vitis_default_platform["U200"] = "xilinx_u200_gen3x16_xdma_2_202110_1"
-vitis_default_platform["U250"] = "xilinx_u250_gen3x16_xdma_2_1_202010_1"
-vitis_default_platform["U280"] = "xilinx_u280_gen3x16_xdma_1_202211_1"
+# 2024.2 shell (bumped from 2_1_202010_1). The lfc BNN design hits a
+# [VPL 18-1000] routing crash (partially-conflicted nets) on this newer U250
+# shell, so the Alveo BNN CI tests run on U55C instead.
+vitis_default_platform["U250"] = "xilinx_u250_gen3x16_xdma_4_1_202210_1"
 vitis_default_platform["U55C"] = "xilinx_u55c_gen3x16_xdma_3_202210_1"
 
 # Slash device mappings
-slash_part_map = dict()
+slash_part_map: dict[str, str] = dict()
 slash_part_map["V80"] = "xcv80-lsva4737-2MHP-e-s"
 
 # Create a joint part map, encompassing other boards too
-part_map = {**pynq_part_map, **vitis_part_map, **slash_part_map}
+part_map: dict[str, str] = {**pynq_part_map, **vitis_part_map, **slash_part_map}
 part_map["VEK280"] = "xcve2802-vsvh1760-2MP-e-S"
-part_map["VCK190"] = "xcvc1902-vsva2197-2MP-e-S"
+
+# Boards that expose HBM. Note that U50 has only HBM (no DDR), while the other
+# entries have HBM in addition to DDR. All boards not listed here are assumed to
+# be DDR-only (this includes U200/U250 and all Zynq/RFSoC boards).
+hbm_boards = {"U50", "U55C", "V80"}
 
 
-def get_rtlsim_trace_depth():
+def get_rtlsim_trace_depth() -> int:
     """Return the trace depth for rtlsim. Controllable
     via the RTLSIM_TRACE_DEPTH environment variable. If the env.var. is
     undefined, the default value of 1 is returned. A trace depth of 1
@@ -114,7 +139,7 @@ def get_rtlsim_trace_depth():
         return 1
 
 
-def get_finn_root():
+def get_finn_root() -> str:
     "Return the root directory that FINN is cloned into."
 
     try:
@@ -127,7 +152,37 @@ def get_finn_root():
         )
 
 
-def get_vivado_root():
+# Golden reference design files the Versal PYNQ shell is built against
+pynq_golden_files = ["golden_ref.tcl", "golden_noc.ncr", "golden_routed.dcp"]
+
+
+def get_pynq_golden_dir(board):
+    """Return the directory holding the golden reference design for a Versal PYNQ
+    board."""
+
+    return os.path.join(get_finn_root(), "deps", "pynq_golden", board.lower())
+
+
+def fifo_rtl_files(abspath=True, gauge=False):
+    """Return the shared FIFO RTL sources, referenced in place so that the flat
+    elaboration namespace only ever sees one declaration of module fifo."""
+    names = (["fifo_gauge.sv"] if gauge else []) + ["fifo.sv"]
+    if not abspath:
+        return names
+    rtlsrc = os.path.join(get_finn_root(), "finn-rtllib", "fifo", "hdl")
+    return [os.path.join(rtlsrc, n) for n in names]
+
+
+def arith_rtl_files(names, abspath=True):
+    """Return the shared arithmetic RTL sources (finn-rtllib/arith) named in
+    names, referenced in place like the FIFO sources."""
+    if not abspath:
+        return list(names)
+    rtlsrc = os.path.join(get_finn_root(), "finn-rtllib", "arith")
+    return [os.path.join(rtlsrc, n) for n in names]
+
+
+def get_vivado_root() -> str:
     "Return the root directory that Vivado is installed into."
 
     try:
@@ -147,14 +202,55 @@ def get_vivado_version() -> Optional[Tuple[int, int]]:
     return (int(match.group(1)), int(match.group(2))) if match else None
 
 
-def get_liveness_threshold_cycles():
-    """Return the number of no-output cycles rtlsim will wait before assuming
-    the simulation is not finishing and throwing an exception."""
+def require_vivado_version() -> Tuple[int, int]:
+    """Return get_vivado_version(), or raise ToolUnavailable if it is unknown."""
+    version = get_vivado_version()
+    if version is None:
+        path = os.environ.get("XILINX_VIVADO")
+        if not path:
+            raise ToolUnavailable("vivado", "XILINX_VIVADO is not set")
+        raise ToolUnavailable(
+            "vivado",
+            f"XILINX_VIVADO={path} does not name the Vivado release; set it to the "
+            "installation directory (<root>/<release>/Vivado), as the installation's "
+            "settings64.sh does",
+        )
+    return version
 
-    return int(os.getenv("LIVENESS_THRESHOLD", 1000000))
+
+def get_liveness_threshold_cycles() -> int:
+    """Return the ``LIVENESS_THRESHOLD`` environment override (in cycles) for the
+    rtlsim watchdog. Defaults to 10000 if unset."""
+
+    return int(os.getenv("LIVENESS_THRESHOLD", 10000))
 
 
-def make_build_dir(prefix=""):
+def get_watchdog_timeout_cycles(cycles_estimate=None):
+    """Return the effective number of no-output cycles rtlsim will wait before
+    assuming the simulation is not finishing and throwing an exception. This is
+    the derived cycle estimate raised to at least the ``LIVENESS_THRESHOLD``
+    override; with no estimate, the override alone is used."""
+
+    override = get_liveness_threshold_cycles()
+    if cycles_estimate is None:
+        return override
+    return max(int(cycles_estimate), override)
+
+
+def get_rtlsim_timeout_error_message(threshold, cycles_estimate=None):
+    """Return an actionable RTL simulation timeout error message."""
+
+    message = f"RTL simulation timed out after {int(threshold)} cycles"
+    if cycles_estimate is not None:
+        message += f" (derived estimate: {int(cycles_estimate)})"
+    return (
+        message
+        + ". If your model requires more cycles, set LIVENESS_THRESHOLD "
+        + "to a higher value."
+    )
+
+
+def make_build_dir(prefix: str = "") -> str:
     """Creates a folder with given prefix to be used as a build dir.
     Use this function instead of tempfile.mkdtemp to ensure any generated files
     will survive on the host after the FINN Docker container exits."""
@@ -174,7 +270,9 @@ def make_build_dir(prefix=""):
 
 def robust_rmtree(path, retries=6, initial_delay=0.1, backoff=2.0):
     """Remove a directory tree with retries for transient NFS cleanup races.
-    Retries ``ENOTEMPTY``/``EBUSY``. Other errors propagate immediately.
+    Retries ``ENOTEMPTY``/``EBUSY``, and a ``FileNotFoundError`` for an entry
+    that vanished while the tree still exists (``shutil.rmtree`` re-raises it,
+    e.g. for a stale NFS directory listing). Other errors propagate immediately.
     """
     if not path or not os.path.exists(path):
         return
@@ -183,10 +281,10 @@ def robust_rmtree(path, retries=6, initial_delay=0.1, backoff=2.0):
         try:
             shutil.rmtree(path)
             return
-        except FileNotFoundError:
-            return
         except OSError as exc:
-            transient = exc.errno in (errno.ENOTEMPTY, errno.EBUSY)
+            if isinstance(exc, FileNotFoundError) and not os.path.exists(path):
+                return
+            transient = exc.errno in (errno.ENOTEMPTY, errno.EBUSY, errno.ENOENT)
             if not transient or attempt == retries - 1:
                 raise
             time.sleep(delay)
@@ -194,91 +292,57 @@ def robust_rmtree(path, retries=6, initial_delay=0.1, backoff=2.0):
 
 
 class CppBuilder:
-    """Builds the g++ compiler command to produces the executable of the c++ code
-    in code_gen_dir which is passed to the function build() of this class."""
+    """Compile C++ sources with g++, retaining a replay and output transcripts."""
 
-    def __init__(self):
-        self.include_paths = []
-        self.cpp_files = []
-        self.executable_path = ""
-        self.code_gen_dir = ""
-        self.compile_components = []
-        self.compile_script = ""
+    def __init__(self) -> None:
+        self.include_paths: list[str | Sequence[StrPath]] = []
+        self.cpp_files: list[StrPath] = []
+        self.executable_path: StrPath = ""
+        self.code_gen_dir: StrPath = ""
+        self.compile_components: list[str] = []
+        self.compile_script: str = ""
 
-    def append_includes(self, library_path):
-        """Adds given library path to include_paths list."""
+    def append_includes(self, library_path: Union[str, Sequence[StrPath]]) -> None:
+        """Append compiler arguments, as tokens or a legacy shell-quoted fragment."""
         self.include_paths.append(library_path)
 
-    def append_sources(self, cpp_file):
-        """Adds given c++ file to cpp_files list."""
+    def append_sources(self, cpp_file: StrPath) -> None:
+        """Append a source path or glob, with environment variables expanded at build."""
         self.cpp_files.append(cpp_file)
 
-    def set_executable_path(self, path):
+    def set_executable_path(self, path: StrPath) -> None:
         """Sets member variable "executable_path" to given path."""
         self.executable_path = path
 
-    def build(self, code_gen_dir):
-        """Builds the g++ compiler command according to entries in include_paths
-        and cpp_files lists. Saves it in bash script in given folder and
-        executes it."""
-        # raise error if includes are empty
+    def build(self, code_gen_dir: StrPath) -> None:
+        """Compile directly, saving a replay and transcripts in ``code_gen_dir``."""
         self.code_gen_dir = code_gen_dir
-        self.compile_components.append("g++ -o " + str(self.executable_path))
+        command = ["g++", "-o", os.path.expandvars(os.fspath(self.executable_path))]
         for cpp_file in self.cpp_files:
-            self.compile_components.append(cpp_file)
+            source = os.path.expandvars(os.fspath(cpp_file))
+            if glob.has_magic(source):
+                matches = sorted(glob.glob(source))
+                if not matches:
+                    raise FileNotFoundError(f"No C++ sources match {source}")
+                command.extend(matches)
+            else:
+                command.append(source)
         for lib in self.include_paths:
-            self.compile_components.append(lib)
-        bash_compile = ""
-        for component in self.compile_components:
-            bash_compile += str(component) + " "
-        self.compile_script = str(self.code_gen_dir) + "/compile.sh"
-        with open(self.compile_script, "w") as f:
-            f.write("#!/bin/bash \n")
-            f.write(bash_compile + "\n")
-        bash_command = ["bash", self.compile_script]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
+            tokens = shlex.split(lib) if isinstance(lib, str) else lib
+            command.extend(os.path.expandvars(os.fspath(token)) for token in tokens)
+        self.compile_components = command
+        self.compile_script = os.path.join(code_gen_dir, "compile.sh")
+        # Historically compilation used the caller's CWD, including for relative
+        # sources. Retain that behavior and record it in the replay.
+        run_tool(command, cwd=os.getcwd(), replay=self.compile_script)
 
 
-def launch_process_helper(args, proc_env=None, cwd=None, check=False):
-    """Launch a process and capture its output for logging with Python loggers.
-
-    Returns ``(cmd_out, cmd_err)`` as UTF-8 strings, with undecodable bytes in
-    tool output replaced rather than raised. Both streams are also written
-    through to ``sys.stdout``/``sys.stderr``.
-
-    When ``check`` is True and the process exits non-zero, raises
-    ``subprocess.CalledProcessError`` with ``output`` and ``stderr`` set to the
-    captured strings. The write-through happens before the raise, so the tool
-    log is still visible on failure. That is why the return code is checked by
-    hand rather than relying on ``subprocess.run(check=True)``.
-    """
-    if proc_env is None:
-        proc_env = os.environ.copy()
-    proc = subprocess.run(
-        args,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env=proc_env,
-        cwd=cwd,
-        encoding="utf-8",
-        errors="replace",
-    )
-    cmd_out = proc.stdout
-    cmd_err = proc.stderr
-    sys.stdout.write(cmd_out)
-    sys.stderr.write(cmd_err)
-    if check and proc.returncode != 0:
-        raise subprocess.CalledProcessError(proc.returncode, args, cmd_out, cmd_err)
-    return (cmd_out, cmd_err)
-
-
-def which(program):
+def which(program: str) -> str | None:
     "Python equivalent of the shell cmd 'which'."
 
     # source:
     # https://stackoverflow.com/questions/377017/test-if-executable-exists-in-python
-    def is_exe(fpath):
+    def is_exe(fpath: str) -> bool:
         return os.path.isfile(fpath) and os.access(fpath, os.X_OK)
 
     fpath, fname = os.path.split(program)
@@ -294,7 +358,7 @@ def which(program):
     return None
 
 
-_XILINX_TOOL_DIR_ENV = "FINN_TOOL_DIR_OVERRIDE"
+_XILINX_TOOL_DIR_ENV = TOOL_DIR_ENV
 
 
 def resolve_xilinx_tool(tool_name):
@@ -307,6 +371,7 @@ def resolve_xilinx_tool(tool_name):
     - vitis-run
     - v++
     - xelab
+    - slashkit
 
     With FINN_TOOL_DIR_OVERRIDE set, the command resolves to
     <override>/<tool_name>, otherwise the bare tool_name is used.
@@ -314,16 +379,15 @@ def resolve_xilinx_tool(tool_name):
     bsub dispatcher) needs: point it at a shim dir whose filenames match the
     bare tool names. Raises FileNotFoundError when the resolved command is
     not found, so all the default names must have a corresponding shim filename.
+
+    ``finn.util.launcher.run_tool`` resolves these names itself; this function is
+    for commands written into scripts.
     """
-    dir_override = os.environ.get(_XILINX_TOOL_DIR_ENV)
-    tool = os.path.join(dir_override, tool_name) if dir_override else tool_name
-    if which(tool) is None:
-        if dir_override:
-            raise FileNotFoundError(
-                "%s not found (%s=%r)" % (tool, _XILINX_TOOL_DIR_ENV, dir_override)
-            )
-        raise FileNotFoundError("%s not found in PATH" % tool)
-    return tool
+    try:
+        path = xilinx_tool(tool_name)
+    except ToolUnavailable as exc:
+        raise FileNotFoundError(str(exc)) from exc
+    return path if os.environ.get(_XILINX_TOOL_DIR_ENV) else tool_name
 
 
 mem_primitives_versal = {
@@ -339,8 +403,10 @@ mem_primitives_versal = {
 
 
 def get_memutil_alternatives(
-    req_mem_spec, mem_primitives=mem_primitives_versal, sort_min_waste=True
-):
+    req_mem_spec: tuple[int, int],
+    mem_primitives: dict[str, tuple[int, int]] = mem_primitives_versal,
+    sort_min_waste: bool = True,
+) -> list[tuple[str, tuple[int, float, int]]]:
     """Computes how many instances of a memory primitive are necessary to
     implement a desired memory size, where req_mem_spec is the desired
     size and the primitive_spec is the primitve size. The sizes are expressed
@@ -359,7 +425,9 @@ def get_memutil_alternatives(
     return ret
 
 
-def memutil(req_mem_spec, primitive_spec):
+def memutil(
+    req_mem_spec: tuple[int, int], primitive_spec: tuple[int, int]
+) -> tuple[int, float, int]:
     """Computes how many instances of a memory primitive are necessary to
     implemented a desired memory size, where req_mem_spec is the desired
     size and the primitive_spec is the primitve size. The sizes are expressed
@@ -380,7 +448,7 @@ def memutil(req_mem_spec, primitive_spec):
     return (count, eff, waste)
 
 
-def is_versal(fpgapart):
+def is_versal(fpgapart: str) -> bool:
     """Returns whether board is part of the Versal family"""
     return fpgapart[0:4] in ["xcvc", "xcve", "xcvp", "xcvm", "xqvc", "xqvm"] or fpgapart[0:5] in [
         "xqrvc",
@@ -388,13 +456,72 @@ def is_versal(fpgapart):
     ]
 
 
-def get_dsp_block(fpgapart):
+def least_divisor_at_most(n, max_quotient):
+    """Smallest divisor d of n such that n/d <= max_quotient.
+
+    Equivalently, the smallest d that divides n and is >= ceil(n/max_quotient).
+    Always terminates: n divides itself, giving quotient 1."""
+    target = (n + max_quotient - 1) // max_quotient
+    for d in range(target, n + 1):
+        if n % d == 0:
+            return d
+    return n  # n always divides itself
+
+
+def get_dsp_block(fpgapart: str) -> str:
     if is_versal(fpgapart):
         return "DSP58"
     elif fpgapart[2] == "7":
         return "DSP48E1"
     else:
         return "DSP48E2"
+
+
+#: VERSION parameter of the DSP-based RTL cores (mvu.sv, requant.sv) per DSP block
+DSP_VERSIONS = {"DSP48E1": 1, "DSP48E2": 2, "DSP58": 3}
+
+
+def resolve_dsp_block(inst, fpgapart=None, record=True):
+    """The DSP block (generation) an RTL node with a ``dsp_block`` attribute targets.
+
+    SpecializeLayers sets the attribute from the part it specializes for. Without
+    a part (Python execution), the attribute is the answer. Given a part (code
+    generation, estimation), it must agree with the attribute, so that a node
+    specialized for one DSP generation is not built for another; an unset
+    attribute is filled in from the part unless ``record`` is False (analyses
+    must not change the model).
+    """
+    block = inst.get_nodeattr("dsp_block")
+    if fpgapart is not None:
+        part_block = get_dsp_block(fpgapart)
+        if block and block != part_block:
+            raise ValueError(
+                f"{inst.onnx_node.name} was specialized for {block}, "
+                f"but is built for {fpgapart} ({part_block})"
+            )
+        if not block and record:
+            inst.set_nodeattr("dsp_block", part_block)
+        block = part_block
+    if not block:
+        raise ValueError(
+            f"{inst.onnx_node.name}: unknown DSP generation, "
+            "specialize with SpecializeLayers(fpgapart) first"
+        )
+    return block
+
+
+def get_dsp_datapath_limits(dsp_block):
+    """Return the maximum (activation, weight, accumulator) operand widths in bits
+    that fit the datapath of the given DSP block. These correspond to the DSP B, A
+    and P ports respectively. Widths exceeding these limits would be silently
+    truncated (or fail synthesis) if mapped onto the DSP-based RTL MVU."""
+    if dsp_block == "DSP58":
+        max_act_width, max_weight_width, max_acc_width = 24, 27, 58
+    elif dsp_block == "DSP48E2":
+        max_act_width, max_weight_width, max_acc_width = 18, 27, 48
+    else:  # DSP48E1
+        max_act_width, max_weight_width, max_acc_width = 18, 25, 48
+    return max_act_width, max_weight_width, max_acc_width
 
 
 def get_driver_shapes(model: ModelWrapper) -> Dict:
@@ -487,3 +614,38 @@ def get_driver_shapes(model: ModelWrapper) -> Dict:
         "oshape_folded": oshape_folded,
         "oshape_packed": oshape_packed,
     }
+
+
+def resolve_resize_param_input(model, node):
+    """Identify which input of an ONNX Resize node carries the resampling
+    parameter, across the different opset input signatures, and whether that
+    parameter is a target output size (``sizes``) rather than ``scales``.
+
+    Returns a ``(param_index, is_sizes)`` tuple where ``param_index`` is the
+    index into ``node.input`` and ``is_sizes`` is True if the parameter is a
+    ``sizes`` input. Handles:
+
+    * ``(X, scales)`` (Resize-10)                  -> ``(1, False)``
+    * ``(X, roi, scales)`` (Resize-11+, no sizes)  -> ``(2, False)``
+    * ``(X, roi, scales, sizes)`` (Resize-11+)     -> ``(2, False)`` or ``(3, True)``
+    """
+    num_inputs = len(node.input)
+    if num_inputs == 2:
+        # Resize-10: (X, scales)
+        return 1, False
+    elif num_inputs == 3:
+        # Resize-11+: (X, roi, scales), no sizes input
+        return 2, False
+    elif num_inputs == 4:
+        # Resize-11+: (X, roi, scales, sizes); exactly one of scales/sizes is set
+        scales_init = model.get_initializer(node.input[2])
+        sizes_init = model.get_initializer(node.input[3])
+        scales_exists = scales_init is not None and len(scales_init) != 0
+        sizes_exists = sizes_init is not None and len(sizes_init) != 0
+        assert scales_exists ^ sizes_exists, (
+            "%s: Either scales or the target output size must be specified. "
+            "Specifying both is prohibited." % node.name
+        )
+        return (2, False) if scales_exists else (3, True)
+    else:
+        raise ValueError("%s: Unsupported number of Resize inputs (%d)." % (node.name, num_inputs))

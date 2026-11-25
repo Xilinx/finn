@@ -55,27 +55,10 @@ qonnx.util.inference\_cost
    :undoc-members:
    :show-inheritance:
 
-qonnx.util.mlo\_sim
---------------------------
-
-.. automodule:: qonnx.util.mlo_sim
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-
 qonnx.util.onnx
 -------------------
 
 .. automodule:: qonnx.util.onnx
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-qonnx.util.onnxscript\_helpers
---------------------------------
-
-.. automodule:: qonnx.util.onnxscript_helpers
    :members:
    :undoc-members:
    :show-inheritance:
@@ -188,6 +171,15 @@ finn.util.pytorch
  :show-inheritance:
 
 
+finn.util.torch_hw_modules
+---------------------------
+
+.. automodule:: finn.util.torch_hw_modules
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
 finn.util.test
 ---------------------
 
@@ -204,6 +196,14 @@ finn.util.visualization
    :members:
    :undoc-members:
    :show-inheritance:
+
+finn.util.rtlsim
+------------------------------
+
+.. automodule:: finn.util.rtlsim
+  :members:
+  :undoc-members:
+  :show-inheritance:
 
 finn.util.vivado
 ------------------------------

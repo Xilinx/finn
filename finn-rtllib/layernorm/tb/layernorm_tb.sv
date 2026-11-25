@@ -15,18 +15,28 @@
 	typedef struct {
 		int unsigned  n;
 		int unsigned  simd;
+		int unsigned  refinements;
 	} cfg_t;
-	localparam int unsigned  TESTS = 9;
+	localparam int unsigned  TESTS = 18;
 	localparam cfg_t  TEST_CFG[TESTS] = '{
-		'{  4,  4 },  // NN=1
-		'{ 10,  5 },  // NN=2
-		'{ 18,  6 },  // NN=3
-		'{ 42,  7 },  // NN=6
-		'{ 64,  8 },  // NN=8
-		'{ 81,  9 },  // NN=9
-		'{100, 10 },  // NN=10
-		'{ 44,  4 },  // NN=11
-		'{ 60,  5 }   // NN=12
+		'{  4,  4, 1 },  // NN=1
+		'{ 10,  5, 1 },  // NN=2
+		'{ 18,  6, 1 },  // NN=3
+		'{ 42,  7, 1 },  // NN=6
+		'{ 64,  8, 1 },  // NN=8
+		'{ 81,  9, 1 },  // NN=9
+		'{100, 10, 1 },  // NN=10
+		'{ 44,  4, 1 },  // NN=11
+		'{ 60,  5, 1 },  // NN=12
+		'{  4,  4, 2 },  // NN=1:  6 DSPs unrolled
+		'{ 10,  5, 2 },  // NN=2:  3 rings of 2 passes
+		'{ 18,  6, 2 },  // NN=3:  2 rings of 3 passes
+		'{ 40,  8, 2 },  // NN=5
+		'{ 42,  7, 2 },  // NN=6:  single ring of 6 passes
+		'{ 80,  4, 2 },  // NN=20
+		'{ 84,  4, 2 },  // NN=21: overlapped
+		'{ 92,  4, 2 },  // NN=23
+		'{ 96,  4, 2 }   // NN=24: exclusive
 	};
 
 	//-----------------------------------------------------------------------
@@ -48,6 +58,7 @@
 	for(genvar  test = 0; test < TESTS; test++) begin : genTests
 		localparam int unsigned  N    = TEST_CFG[test].n;
 		localparam int unsigned  SIMD = TEST_CFG[test].simd;
+		localparam int unsigned  REFINEMENTS = TEST_CFG[test].refinements;
 		typedef shortreal  vec_t[N];
 
 		// DUT
@@ -57,7 +68,11 @@
 		uwire [SIMD-1:0][31:0]  ydat;
 		uwire  yvld;
 		logic  yrdy;
-		layernorm #(.N(N), .SIMD(SIMD), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) dut (
+		layernorm #(
+			.N(N), .SIMD(SIMD),
+			.NUM_RSQRT_REFINEMENTS(REFINEMENTS),
+			.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
+		) dut (
 			.clk, .rst,
 			.xdat, .xvld, .xrdy,
 			.ydat, .yvld, .yrdy
@@ -130,6 +145,15 @@
 					assert(err < 1e-5) else begin
 						$error("[%0d] Output mismatch: %7.4f instead of %7.4f", test, y[i], exp[i]);
 						$stop;
+					end
+
+					// Error relative to unit output scale with two refinements
+					if(REFINEMENTS > 1) begin
+						err = (y[i]-exp[i]) / ((exp[i] < -1.0)? -exp[i] : (exp[i] > 1.0)? exp[i] : 1.0);
+						assert((-1e-5 < err) && (err < 1e-5)) else begin
+							$error("[%0d] Output inaccurate: %e instead of %e", test, y[i], exp[i]);
+							$stop;
+						end
 					end
 				end
 			end

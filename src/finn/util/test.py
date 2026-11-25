@@ -1,4 +1,5 @@
 # Copyright (c) 2020, Xilinx
+# Copyright (C) 2026, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -28,22 +29,49 @@
 
 import pytest
 
+import copy
 import importlib_resources as importlib
+import json
 import numpy as np
 import onnx
 import onnx.numpy_helper as nph
 import os
+import shutil
 import torchvision.transforms.functional as torchvision_util
 import warnings
+import xml.etree.ElementTree as ET
 from brevitas_examples import bnn_pynq, imagenet_classification
+from numpy.typing import NDArray
+from onnx import TensorProto, helper
+from PIL.Image import Image as PILImage
 from pkgutil import get_data
+from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.general import GiveUniqueNodeNames
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
+from typing import Any
 
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.alveo_build import VitisLink, VitisOptStrategy
-from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
-from finn.util.basic import pynq_part_map, vitis_default_platform, vitis_part_map
+from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.derive_characteristic import (
+    DeriveTokenAccessVectors,
+    JustInTimeSynthesize,
+)
+from finn.transformation.fpgadataflow.fifo_sizing.tav import load_tav_npy
+from finn.transformation.fpgadataflow.make_pynq_proj import PYNQBuild
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.basic import (
+    make_build_dir,
+    pynq_part_map,
+    robust_rmtree,
+    vitis_default_platform,
+    vitis_part_map,
+)
 
 # map of (wbits,abits) -> model
 example_map = {
@@ -62,7 +90,7 @@ example_map = {
 }
 
 
-def get_test_model(netname, wbits, abits, pretrained):
+def get_test_model(netname: str, wbits: int, abits: int, pretrained: bool) -> Any:
     """Returns the model specified by input arguments from the Brevitas BNN-PYNQ
     test networks. Pretrained weights loaded if pretrained is True."""
     model_cfg = (netname, wbits, abits)
@@ -71,31 +99,31 @@ def get_test_model(netname, wbits, abits, pretrained):
     return fc.eval()
 
 
-def get_test_model_trained(netname, wbits, abits):
+def get_test_model_trained(netname: str, wbits: int, abits: int) -> Any:
     "get_test_model with pretrained=True"
     return get_test_model(netname, wbits, abits, pretrained=True)
 
 
-def get_test_model_untrained(netname, wbits, abits):
+def get_test_model_untrained(netname: str, wbits: int, abits: int) -> Any:
     "get_test_model with pretrained=False"
     return get_test_model(netname, wbits, abits, pretrained=False)
 
 
-def get_topk(vec, k):
+def get_topk(vec: NDArray[Any], k: int) -> NDArray[Any]:
     "Return indices of the top-k values in given array vec (treated as 1D)."
     return np.flip(vec.flatten().argsort())[:k]
 
 
-def soft_verify_topk(invec, idxvec, k):
+def soft_verify_topk(invec: NDArray[Any], idxvec: NDArray[Any], k: int) -> bool:
     """Check that the topK indices provided actually point to the topK largest
     values in the input vector"""
     np_topk = np.flip(invec.flatten().argsort())[:k]
     soft_expected = invec.flatten()[np_topk.astype(np.int_).flatten()]
     soft_produced = invec.flatten()[idxvec.astype(np.int_).flatten()]
-    return (soft_expected == soft_produced).all()
+    return bool((soft_expected == soft_produced).all())
 
 
-def load_test_checkpoint_or_skip(filename):
+def load_test_checkpoint_or_skip(filename: str) -> ModelWrapper:
     "Try to load given .onnx and return ModelWrapper, else skip current test."
     if os.path.isfile(filename):
         model = ModelWrapper(filename)
@@ -105,15 +133,38 @@ def load_test_checkpoint_or_skip(filename):
         pytest.skip(filename + " not found from previous test step, skipping")
 
 
-def get_build_env(board, target_clk_ns):
+def get_hls_synth_interval(op_inst):
+    """Return the initiation interval of an HLS node's synthesized top function as
+    reported by Vitis HLS. PrepareIP and HLSSynthIP must have been run."""
+    node_name = op_inst.onnx_node.name
+    code_gen_dir = op_inst.get_nodeattr("code_gen_dir_ipgen")
+    report = f"{code_gen_dir}/project_{node_name}/sol1/syn/report/{node_name}_csynth.xml"
+    latency = ET.parse(report).getroot().find("PerformanceEstimates/SummaryOfOverallLatency")
+    # pipelined tops report PipelineInitiationInterval, dataflow tops only Interval-min
+    pii = latency.find("PipelineInitiationInterval")
+    return int(pii.text if pii is not None else latency.find("Interval-min").text)
+
+
+def make_runtime_weight_stream(op_inst, weights):
+    """Write runtime weights in FINN's standard format and return the parsed stream."""
+    weight_dir = make_build_dir("test_runtime_weights_")
+    weight_path = os.path.join(weight_dir, "weights.dat")
+    op_inst.make_weight_file(weights, "decoupled_runtime", weight_path)
+    with open(weight_path, "r") as f:
+        weight_stream = [int(x, 16) for x in f.read().strip().split("\n")]
+    robust_rmtree(weight_dir)
+    return weight_stream
+
+
+def get_build_env(board: str, target_clk_ns: float) -> dict[str, Any]:
     """Get board-related build environment for testing. Only relevant for bnn_pynq tests
     - board = any from pynq_part_map, vitis_part_map
     """
-    ret = {}
+    ret: dict[str, Any] = {}
     if board in pynq_part_map:
         ret["toolchain"] = "pynq"
         ret["part"] = pynq_part_map[board]
-        ret["build_fxn"] = ZynqBuild(board, target_clk_ns)
+        ret["build_fxn"] = PYNQBuild(board, target_clk_ns)
     elif board in vitis_part_map:
         ret["toolchain"] = "vitis-xrt"
         ret["part"] = vitis_part_map[board]
@@ -126,11 +177,12 @@ def get_build_env(board, target_clk_ns):
     return ret
 
 
-def get_example_input(topology):
+def get_example_input(topology: str) -> NDArray[Any]:
     "Get example numpy input tensor for given topology."
 
     if "fc" in topology:
         raw_i = get_data("qonnx.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
+        assert raw_i is not None, "Could not load test data"
         onnx_tensor = onnx.load_tensor_from_string(raw_i)
         return nph.to_array(onnx_tensor)
     elif topology == "cnv":
@@ -142,7 +194,9 @@ def get_example_input(topology):
         raise Exception("Unknown topology, can't return example input")
 
 
-def get_trained_network_and_ishape(topology, wbits, abits):
+def get_trained_network_and_ishape(
+    topology: str, wbits: int, abits: int
+) -> tuple[Any, tuple[int, int, int, int]]:
     "Return (trained_model, shape) for given BNN-PYNQ test config."
 
     topology_to_ishape = {
@@ -155,30 +209,506 @@ def get_trained_network_and_ishape(topology, wbits, abits):
     return (model, ishape)
 
 
-def execute_parent(parent_path, child_path, input_tensor_npy, return_full_ctx=False):
-    """Execute parent model containing a single StreamingDataflowPartition by
-    replacing it with the model at child_path and return result."""
+def execute_parent(
+    parent_path: str,
+    child_path: str,
+    input_tensor_npy: NDArray[Any],
+    return_full_ctx: bool = False,
+    batch_child: bool = False,
+) -> NDArray[Any] | dict[str, Any] | list[dict[str, Any]]:
+    """Execute a parent model containing one StreamingDataflowPartition.
+
+    With ``batch_child=True``, parent processing keeps its compiled batch-one
+    shapes while the partition child receives all preprocessed frames at once.
+    A full-context batched call returns one parent context per frame as a list.
+    """
 
     parent_model = load_test_checkpoint_or_skip(parent_path)
     iname = parent_model.get_first_global_in()
     oname = parent_model.get_first_global_out()
     sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
-    sdp_node = getCustomOp(sdp_node)
-    sdp_node.set_nodeattr("model", child_path)
-    sdp_node.set_nodeattr("return_full_exec_context", 1 if return_full_ctx else 0)
-    ret = execute_onnx(parent_model, {iname: input_tensor_npy}, True)
+    sdp_inst = getCustomOp(sdp_node)
+    sdp_inst.set_nodeattr("model", child_path)
+    sdp_inst.set_nodeattr("return_full_exec_context", 1 if return_full_ctx else 0)
+
+    batch_size = input_tensor_npy.shape[0]
+    if not batch_child or batch_size == 1:
+        ret = execute_onnx(parent_model, {iname: input_tensor_npy}, True)
+        if return_full_ctx:
+            return ret
+        else:
+            return ret[oname]
+
+    sdp_index = parent_model.get_node_index(sdp_node)
+    frame_contexts = []
+    for batch_index in range(batch_size):
+        frame_input = input_tensor_npy[batch_index : batch_index + 1]
+        if sdp_index == 0:
+            frame_context = parent_model.make_empty_exec_context()
+            frame_context[iname] = frame_input
+        else:
+            frame_context = execute_onnx(
+                parent_model,
+                {iname: frame_input},
+                True,
+                end_node=parent_model.graph.node[sdp_index - 1],
+            )
+        frame_contexts.append(frame_context)
+
+    # The partition only reads its declared inputs, so it does not need the full
+    # parent execution contexts.
+    partition_context = {
+        name: np.concatenate([context[name] for context in frame_contexts], axis=0)
+        for name in sdp_node.input
+    }
+    sdp_inst.execute_node(partition_context, parent_model.graph)
+
+    for output_name in sdp_node.output:
+        batched_output = partition_context[output_name]
+        for batch_index, frame_context in enumerate(frame_contexts):
+            frame_context[output_name] = batched_output[batch_index : batch_index + 1]
+
+    if sdp_index + 1 < len(parent_model.graph.node):
+        suffix_start = parent_model.graph.node[sdp_index + 1]
+        for batch_index, frame_context in enumerate(frame_contexts):
+            resume_context = {
+                name: value for name, value in frame_context.items() if value is not None
+            }
+            frame_contexts[batch_index] = execute_onnx(
+                parent_model,
+                resume_context,
+                True,
+                start_node=suffix_start,
+            )
+
     if return_full_ctx:
-        return ret
-    else:
-        return ret[oname]
+        return frame_contexts
+    return np.concatenate([context[oname] for context in frame_contexts], axis=0)
 
 
-def resize_smaller_side(target_pixels, img):
+def stage_hw_deployment(deploy_dir, board, model_title, input_npy, reference_npy):
+    """Stage a build_dataflow deployment package for the CI hardware pipeline.
+
+    The CI build pipeline zips every hw_deployment_*/<board>/<model_title>
+    directory under FINN_BUILD_DIR into the board's zip, and the HW pipeline runs
+    driver.py in each on input.npy and compares the result to
+    output_reference.npy. deploy_dir is the build's deploy/ output, whose bitfile
+    and driver (with its weights/ folder) are copied flat into that directory.
+    model_title must be unique per board within one CI row."""
+
+    deployment_dir = os.path.join(
+        make_build_dir("hw_deployment_" + board + "_"), board, model_title
+    )
+    os.makedirs(deployment_dir)
+    shutil.copytree(os.path.join(deploy_dir, "bitfile"), deployment_dir, dirs_exist_ok=True)
+    shutil.copytree(os.path.join(deploy_dir, "driver"), deployment_dir, dirs_exist_ok=True)
+    np.save(os.path.join(deployment_dir, "input.npy"), input_npy)
+    np.save(os.path.join(deployment_dir, "output_reference.npy"), reference_npy)
+    return deployment_dir
+
+
+def resize_smaller_side(target_pixels: int, img: PILImage) -> PILImage:
     """Resizes smallest side of image to target pixels and resizes larger side with
     same ratio. Expects a PIL image."""
     return torchvision_util.resize(img, target_pixels)
 
 
-def crop_center(size, img):
+def crop_center(size: int, img: PILImage) -> PILImage:
     """Crop central size*size window out of a PIL image."""
     return torchvision_util.center_crop(img, size)
+
+
+def tav_tolerance(frac, scale, const):
+    """``const + frac * scale`` -- the two terms a TAV error actually has.
+
+    The proportional term is the one that belongs in a budget: a period
+    reproduced to within four cycles is excellent on a 100k-cycle frame and
+    useless on a 40-cycle one, and a flat cycle count says the same thing about
+    both.
+
+    The constant term is not a fudge, it is the fixed part of the error:
+    pipeline wind-up, an adder tree's depth, the cycle rtlsim's
+    ``cycles_rtlsim // periods_to_simulate`` rounds away. Those cost the same
+    few cycles whatever the frame length, which is why they add rather than
+    compete -- a long frame carries the same fixed wind-up as a short one *and*
+    a proportional error on top, and ``max`` of the two would silently drop
+    whichever term happened to be smaller.
+    """
+    return float(const) + float(frac) * float(scale)
+
+
+def compare_two_chr_funcs(
+    a,
+    b,
+    max_allowed_volume_frac,
+    max_allowed_length_frac,
+    volume_const=0,
+    length_const=0,
+):
+    """Compare an analytical TAV ``a`` against the rtlsim ground truth ``b``.
+
+    ``max_allowed_volume_frac`` is a fraction of the tokens the reference moves
+    in the window, and ``max_allowed_length_frac`` a fraction of the reference's
+    length; ``*_const`` are the fixed cycle/token counts that add to the
+    proportional term. See ``tav_tolerance``.
+
+    The leeway this grants may produce larger FIFOs. Output delays due to long
+    pipelines generally do not affect FIFO sizes, so a larger relaxation on the
+    output side is expected.
+    """
+    a = np.asarray(a)
+    b = np.asarray(b)
+    lower_len = min(len(a), len(b))
+
+    len_allowed = tav_tolerance(max_allowed_length_frac, len(b), length_const)
+    if len(a) != len(b):
+        len_dif = abs(len(a) - len(b))
+        print(
+            "TAV length delta: %d (%.2f%% of %d, allowed %.0f)"
+            % (len_dif, 100.0 * len_dif / max(1, len(b)), len(b), len_allowed)
+        )
+        if len_dif > len_allowed:
+            return False
+
+    # scale the volume budget by the tokens actually moved, not by the cycle
+    # count: a peak cumulative delta is a token count and the two differ by the
+    # folding factor
+    total_tokens = int(b[lower_len - 1]) if lower_len else 0
+    vol_allowed = tav_tolerance(max_allowed_volume_frac, total_tokens, volume_const)
+    peak_volume_delta = np.max(np.abs(a[:lower_len] - b[:lower_len])) if lower_len else 0
+    print(
+        "TAV peak volume delta: %d (%.2f%% of %d tokens, allowed %.0f)"
+        % (
+            peak_volume_delta,
+            100.0 * peak_volume_delta / max(1, total_tokens),
+            total_tokens,
+            vol_allowed,
+        )
+    )
+    if peak_volume_delta > vol_allowed:
+        return False
+    return True
+
+
+def get_characteristic_fnc(model, part, target_clk_ns, strategy):
+    """Characterize the single node of ``model`` with ``strategy`` ("tree_model"
+    or "rtlsim") and return its custom op, for comparing the token access
+    vectors of the two strategies. A node without a tree model falls back to
+    rtlsim."""
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(GiveUniqueNodeNames())
+
+    # code, IP and rtlsim for the node, unless the tree model is characterized
+    model = model.transform(
+        JustInTimeSynthesize(part, target_clk_ns, only_without_tree_model=strategy == "tree_model")
+    )
+
+    model = model.transform(AnnotateCycles())
+    model = model.transform(DeriveTokenAccessVectors(strategy))
+
+    return getCustomOp(model.graph.node[0])
+
+
+def tree_model_test(
+    model,
+    node_details,
+    part,
+    target_clk_ns,
+    max_allowed_volume_frac,
+    max_allowed_length_frac,
+    volume_const=0,
+    length_const=0,
+):
+    """Characterize ``model``'s single node both ways and compare the two TAVs.
+
+    The tolerances are fractions -- of the tokens moved and of the frame length
+    respectively -- with an absolute floor for the fixed part of the error. See
+    ``compare_two_chr_funcs``.
+    """
+    print("TAV comparison for", node_details)
+    # ground truth model to rtlsim
+    model_rtl = copy.deepcopy(model)
+    node_analytical = get_characteristic_fnc(model, part, target_clk_ns, "tree_model")
+    node_rtlsim = get_characteristic_fnc(model_rtl, part, target_clk_ns, "rtlsim")
+
+    chr_in = load_tav_npy(node_analytical.get_nodeattr("io_chrc_in"))
+    chr_out = load_tav_npy(node_analytical.get_nodeattr("io_chrc_out"))
+
+    rtlsim_in = load_tav_npy(node_rtlsim.get_nodeattr("io_chrc_in"))
+    rtlsim_out = load_tav_npy(node_rtlsim.get_nodeattr("io_chrc_out"))
+
+    # test input port
+    input_check = compare_two_chr_funcs(
+        chr_in[0],
+        rtlsim_in[0],
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    )
+
+    # test output port
+    output_check = compare_two_chr_funcs(
+        chr_out[0],
+        rtlsim_out[0],
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    )
+
+    return input_check and output_check
+
+
+def compare_chr_funcs_up_to_rotation(
+    chr_in,
+    chr_out,
+    rtlsim_in,
+    rtlsim_out,
+    max_allowed_volume_frac,
+    max_allowed_length_frac,
+    volume_const=0,
+    length_const=0,
+):
+    """Compare a tree model against rtlsim allowing one *shared* phase offset.
+
+    Weaker than ``compare_two_chr_funcs`` in exactly one way and no other: the
+    tree model may place the frame anywhere within the period, as long as it
+    places the input and the output row at the *same* offset. That is the right
+    assertion for a node whose steady-state schedule is known exactly but whose
+    wind-up is not, and it is not a licence to be sloppy -- a model that got the
+    read-to-write relationship wrong, or the period, or the token count, still
+    fails, and those are what FIFO sizing integrates. Only the absolute
+    placement of the frame inside rtlsim's two-period window is forgiven, and
+    that placement is an artefact of where the window was cut.
+
+    Tolerances are fractions with an absolute floor, as in
+    ``compare_two_chr_funcs``. The length excess is one-sided here -- rtlsim's
+    period carries a share of the wind-up, so a model that reproduces the steady
+    state exactly is *short* by that share and never long -- and running long is
+    rejected outright, being a real error rather than a wind-up artefact.
+
+    Returns ``(ok, rotation, in_delta, out_delta)``.
+    """
+    a_in, b_in = np.asarray(chr_in), np.asarray(rtlsim_in)
+    a_out, b_out = np.asarray(chr_out), np.asarray(rtlsim_out)
+
+    len_dif = len(b_in) - len(a_in)
+    len_allowed = tav_tolerance(max_allowed_length_frac, len(b_in), length_const)
+    if len_dif < 0 or len_dif > len_allowed:
+        print(
+            "TAV length delta: %d (%.2f%% of %d, allowed %.0f)"
+            % (len_dif, 100.0 * len_dif / max(1, len(b_in)), len(b_in), len_allowed)
+        )
+        return False, 0, None, None
+
+    # one period of per-cycle deltas, which is what a rotation acts on
+    def one_period(cum):
+        n = len(cum) // 2
+        d = np.diff(np.concatenate(([0], np.asarray(cum, dtype=np.int64))))
+        return d[:n]
+
+    d_in, d_out = one_period(a_in), one_period(a_out)
+    r_in, r_out = one_period(b_in), one_period(b_out)
+
+    # Deliberately no equal-token-count assertion between the two. rtlsim's
+    # period is cycles_rtlsim // periods_to_simulate and rounds *up* off the
+    # wind-up, so on a short period its window holds a little more than one
+    # frame -- 41 reads against the node's 36 on SF=2, TH=9 -- and demanding
+    # equality would fail the model for the reference's rounding. That the
+    # model itself moves exactly one folded frame per period is an absolute
+    # property with no reference in it, and is asserted on its own.
+    n = min(len(d_in), len(r_in))
+    ref_in = np.cumsum(r_in[:n])
+    ref_out = np.cumsum(r_out[:n])
+    best = None
+    for rot in range(len(d_in)):
+        v = int(np.max(np.abs(np.cumsum(np.roll(d_in, rot)[:n]) - ref_in)))
+        if best is None or v < best[0]:
+            best = (v, rot)
+    in_delta, rot = best
+    out_delta = int(np.max(np.abs(np.cumsum(np.roll(d_out, rot)[:n]) - ref_out)))
+    vol_allowed = tav_tolerance(
+        max_allowed_volume_frac, max(int(ref_in[-1]), int(ref_out[-1])) if n else 0, volume_const
+    )
+    print(
+        "TAV rotation: %d, peak volume delta in/out: %d/%d (allowed %.0f)"
+        % (rot, in_delta, out_delta, vol_allowed)
+    )
+    ok = in_delta <= vol_allowed and out_delta <= vol_allowed
+    return ok, rot, in_delta, out_delta
+
+
+def tree_model_test_up_to_rotation(
+    model,
+    node_details,
+    part,
+    target_clk_ns,
+    max_allowed_volume_frac,
+    max_allowed_length_frac,
+    volume_const=0,
+    length_const=0,
+):
+    """``tree_model_test`` with ``compare_chr_funcs_up_to_rotation`` as the check."""
+    print("TAV comparison for", node_details)
+    model_rtl = copy.deepcopy(model)
+    node_analytical = get_characteristic_fnc(model, part, target_clk_ns, "tree_model")
+    node_rtlsim = get_characteristic_fnc(model_rtl, part, target_clk_ns, "rtlsim")
+    chr_in = load_tav_npy(node_analytical.get_nodeattr("io_chrc_in"))
+    chr_out = load_tav_npy(node_analytical.get_nodeattr("io_chrc_out"))
+    rtlsim_in = load_tav_npy(node_rtlsim.get_nodeattr("io_chrc_in"))
+    rtlsim_out = load_tav_npy(node_rtlsim.get_nodeattr("io_chrc_out"))
+    ok, _, _, _ = compare_chr_funcs_up_to_rotation(
+        chr_in[0],
+        chr_out[0],
+        rtlsim_in[0],
+        rtlsim_out[0],
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    )
+    return ok
+
+
+def make_mvau_node(name, inputs, output, impl, mw, mh, idt, wdt, odt, **attrs):
+    """MVAU_hls/MVAU_rtl node (`impl`) on a 1x3x3 input with the given shapes and types."""
+    return helper.make_node(
+        "MVAU_" + impl,
+        inputs,
+        [output],
+        name=name,
+        domain="finn.custom_op.fpgadataflow." + impl,
+        backend="fpgadataflow",
+        MW=mw,
+        MH=mh,
+        inputDataType=idt.name,
+        weightDataType=wdt.name,
+        outputDataType=odt.name,
+        numInputVectors=[1, 3, 3],
+        **attrs,
+    )
+
+
+def make_pumped_chain_model(mw=16, mh=16, pe=4, simd=4):
+    """MVAU chain with all pumping variants next to non-pumped nodes:
+    MVAU_rtl (pumpedCompute) -> Thresholding_rtl (not pumped) -> MVAU_hls
+    (pumpedMemory, fused activation) -> MVAU_rtl (pumpedCompute and pumpedMemory).
+    All weights are internal_decoupled (on-chip memstream)."""
+    idt = wdt = adt = DataType["INT4"]
+    acc = DataType["INT32"]
+    n_steps = adt.get_num_possible_values() - 1
+    shape_in = [1, 3, 3, mw]
+    shape_out = [1, 3, 3, mh]
+    common = {"PE": pe, "SIMD": simd, "mem_mode": "internal_decoupled"}
+    nodes = [
+        make_mvau_node(
+            "mvau0",
+            ["inp", "w0"],
+            "mm0",
+            "rtl",
+            mw,
+            mh,
+            idt,
+            wdt,
+            acc,
+            noActivation=1,
+            pumpedCompute=1,
+            **common,
+        ),
+        helper.make_node(
+            "Thresholding_rtl",
+            ["mm0", "thr0"],
+            ["act0"],
+            name="thr0",
+            domain="finn.custom_op.fpgadataflow.rtl",
+            backend="fpgadataflow",
+            NumChannels=mh,
+            PE=pe,
+            inputDataType=acc.name,
+            weightDataType="INT33",
+            outputDataType=adt.name,
+            ActVal=int(adt.min()),
+            numSteps=n_steps,
+            numInputVectors=[1, 3, 3],
+        ),
+        make_mvau_node(
+            "mvau1",
+            ["act0", "w1", "thr1"],
+            "act1",
+            "hls",
+            mh,
+            mh,
+            adt,
+            wdt,
+            adt,
+            noActivation=0,
+            ActVal=int(adt.min()),
+            pumpedMemory=1,
+            **common,
+        ),
+        make_mvau_node(
+            "mvau2",
+            ["act1", "w2"],
+            "outp",
+            "rtl",
+            mh,
+            mh,
+            adt,
+            wdt,
+            acc,
+            noActivation=1,
+            pumpedCompute=1,
+            pumpedMemory=1,
+            **common,
+        ),
+    ]
+    graph = helper.make_graph(
+        nodes=nodes,
+        name="pumped_chain",
+        inputs=[helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape_in)],
+        outputs=[helper.make_tensor_value_info("outp", TensorProto.FLOAT, shape_out)],
+        value_info=[
+            helper.make_tensor_value_info(t, TensorProto.FLOAT, shape_out)
+            for t in ["mm0", "act0", "act1"]
+        ],
+    )
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="pumped-chain"))
+    model.set_initializer("w0", gen_finn_dt_tensor(wdt, (mw, mh)))
+    model.set_initializer("w1", gen_finn_dt_tensor(wdt, (mh, mh)))
+    model.set_initializer("w2", gen_finn_dt_tensor(wdt, (mh, mh)))
+    # thresholds within the accumulator range, so that the activations vary
+    acc_max = mw * 64
+    thr0 = np.sort(np.random.randint(-acc_max // 4, acc_max // 4, (1, n_steps)), axis=1)
+    thr1 = np.sort(np.random.randint(-acc_max // 4, acc_max // 4, (mh, n_steps)), axis=1)
+    model.set_initializer("thr0", thr0.astype(np.float32))
+    model.set_initializer("thr1", thr1.astype(np.float32))
+    for t, dt in [
+        ("inp", idt),
+        ("w0", wdt),
+        ("w1", wdt),
+        ("w2", wdt),
+        ("mm0", acc),
+        ("thr0", acc),
+        ("act0", adt),
+        ("thr1", acc),
+        ("act1", adt),
+        ("outp", acc),
+    ]:
+        model.set_tensor_datatype(t, dt)
+    return model
+
+
+def cppsim_reference(model, x):
+    """Output of the (single-input, single-output) model in cppsim."""
+    model = model.transform(SetExecMode("cppsim"))
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
+    return execute_onnx(model, {model.graph.input[0].name: x})[model.graph.output[0].name]
+
+
+def bd_nets(bd_file):
+    """Map each net of a block design file to the set of pins/ports it connects."""
+    with open(bd_file) as f:
+        design = json.load(f)["design"]
+    return {name: set(net["ports"]) for name, net in design.get("nets", {}).items()}

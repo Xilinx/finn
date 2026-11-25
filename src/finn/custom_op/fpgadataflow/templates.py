@@ -32,10 +32,8 @@ docompute_template = """
 #define AP_INT_MAX_W $AP_INT_MAX_W$
 #define HLS_NO_XIL_FPO_LIB
 #include "cnpy.h"
-#include "npy2apintstream.hpp"
-#include "npy2vectorstream.hpp"
+#include "npy2tensorstream.hpp"
 #include <vector>
-#include "bnn-library.h"
 
 // includes for network parameters
 $GLOBALS$
@@ -64,10 +62,8 @@ $SAVEASCNPY$
 docompute_template_timeout = """
 #define AP_INT_MAX_W $AP_INT_MAX_W$
 #include "cnpy.h"
-#include "npy2apintstream.hpp"
-#include "npy2vectorstream.hpp"
+#include "npy2tensorstream.hpp"
 #include <vector>
-#include "bnn-library.h"
 
 // includes for network parameters
 $GLOBALS$
@@ -110,8 +106,7 @@ $SAVEASCNPY$
 # cpp file
 ipgen_template = """
 #define AP_INT_MAX_W $AP_INT_MAX_W$
-
-#include "bnn-library.h"
+#include "tensor.hpp"
 
 $GLOBALS$
 
@@ -337,24 +332,21 @@ add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/cdma/cdma_a/axi_dma_rd_a.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/cdma/cdma_a/axi_dma_wr_a.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/cdma/cdma_u/cdma_u.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/cdma/cdma_u/cdma_u_wr.sv"
-add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/cdma/cdma_u/cdma_u_rd.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/cdma/cdma_u/axi_dma_rd_u.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/cdma/cdma_u/axi_dma_wr_u.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/cdma/cdma_x/cdma_x.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/cdma/cdma_x/cdma_x_rd.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/cdma/cdma_x/cdma_x_wr.sv"
-add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/dwc/hdl/axis_adapter.v"
-add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/dwc/hdl/axis_fifo.v"
-add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/dwc/hdl/axis_fifo_adapter.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/skid/skid.sv"
-add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/ram/ram_p_c.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/mlo/infrastructure/intermediate_frames.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/mlo/infrastructure/mux.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/mlo/infrastructure/demux.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/mlo/loop_control.sv"
+add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/mlo/address_config.sv"
+add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/axi/hdl/axilite.sv"
 add_files -norecurse "@TOP_VERILOG_FILE@"
-add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/fifo/hdl/Q_srl.v"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/fifo/hdl/fifo_gauge.sv"
+add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/fifo/hdl/fifo.sv"
 
 @IP_GEN@
 
@@ -427,7 +419,7 @@ foreach xci_file $xci_files {
     }
 }
 
-set all_v_files [get_files -filter {USED_IN_SYNTHESIS == 1 && (FILE_TYPE == Verilog || FILE_TYPE == SystemVerilog || FILE_TYPE =="Verilog Header" || FILE_TYPE == XCI)}]
+set all_v_files [get_files -filter {USED_IN_SYNTHESIS == 1 && (FILE_TYPE == Verilog || FILE_TYPE == SystemVerilog || FILE_TYPE =="Verilog Header" || FILE_TYPE == VHDL || FILE_TYPE == XCI)}]
 
 set fp [open @PRJFOLDER@/all_verilog_srcs.txt w]
 foreach vf $all_v_files {puts $fp $vf}

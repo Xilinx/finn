@@ -19,6 +19,7 @@ from qonnx.custom_op.registry import getCustomOp
 from typing import Any, Dict
 
 from finn.transformation.general import ApplyConfig
+from finn.util.basic import make_build_dir, robust_rmtree
 from finn.util.config import extract_model_config, extract_model_config_to_json
 
 # this is a pretend opset so that we can create
@@ -144,7 +145,7 @@ def test_extract_model_config():
     attrs_to_extract = ["kernel_size", "stride", "pad_amount", "input_shape"]
 
     extracted_config = extract_model_config(
-        model, subgraph_hier=None, attr_names_to_extract=attrs_to_extract
+        model, subgraph_hier=None, attr_names_to_extract=attrs_to_extract, apply_to_subgraphs=True
     )
     assert extracted_config == expected_config, "Extracted config does not match expected config"
 
@@ -157,11 +158,12 @@ def test_roundtrip_export_import():
 
     # Extract config from model
     original_config = extract_model_config(
-        model, subgraph_hier=None, attr_names_to_extract=attrs_to_extract
+        model, subgraph_hier=None, attr_names_to_extract=attrs_to_extract, apply_to_subgraphs=True
     )
     # Save in json
-    config_json_file = os.environ["FINN_BUILD_DIR"] + "/original_config.json"
-    extract_model_config_to_json(model, config_json_file, attrs_to_extract)
+    test_dir = make_build_dir("test_config_roundtrip_")
+    config_json_file = os.path.join(test_dir, "original_config.json")
+    extract_model_config_to_json(model, config_json_file, attrs_to_extract, apply_to_subgraphs=True)
 
     # Modify all Im2Col nodes to different values (recursively through subgraphs)
     def modify_all_im2col_nodes(graph_proto):
@@ -179,20 +181,19 @@ def test_roundtrip_export_import():
     modify_all_im2col_nodes(model.graph)
     # test that modification happened
     new_config = extract_model_config(
-        model, subgraph_hier=None, attr_names_to_extract=attrs_to_extract
+        model, subgraph_hier=None, attr_names_to_extract=attrs_to_extract, apply_to_subgraphs=True
     )
     assert new_config != original_config, "Config of nodes wasn't properly changed"
 
-    model = model.transform(ApplyConfig(config_json_file))
+    model = model.transform(ApplyConfig(config_json_file, apply_to_subgraphs=True))
 
     # Re-extract config and verify it matches original
     restored_config = extract_model_config(
-        model, subgraph_hier=None, attr_names_to_extract=attrs_to_extract
+        model, subgraph_hier=None, attr_names_to_extract=attrs_to_extract, apply_to_subgraphs=True
     )
     assert restored_config == original_config, "Config not properly restored after roundtrip"
 
-    if os.path.exists(config_json_file):
-        os.remove(config_json_file)
+    robust_rmtree(test_dir)
 
 
 @pytest.mark.util
@@ -224,3 +225,59 @@ def test_apply_config_warns_for_non_custom_op_config():
     assert any("Configs can only be applied to custom ops" in msg for msg in warning_messages)
     assert any("{} ({})".format(if_node.name, if_node.op_type) in msg for msg in warning_messages)
     assert not any("Unused HW configurations" in msg for msg in warning_messages)
+
+
+IM2COL_ATTRS = ["kernel_size", "stride", "pad_amount", "input_shape"]
+
+
+@pytest.mark.util
+def test_apply_config_defaults_to_top_level_only():
+    """Without apply_to_subgraphs, ApplyConfig and extract_model_config stay on the
+    top-level graph: subgraph nodes are neither configured nor exported."""
+    model, expected_config = make_im2col_test_model()
+    top_key = model.graph.node[0].name
+
+    extracted = extract_model_config(model, None, IM2COL_ATTRS)
+    assert extracted == {"Defaults": {}, top_key: expected_config[top_key]}
+
+    # a config addressing every Im2Col, flat and hierarchical
+    config = {key: {"kernel_size": [9, 9]} for key in expected_config if key != "Defaults"}
+    model = model.transform(ApplyConfig(config))
+
+    after = extract_model_config(model, None, IM2COL_ATTRS, apply_to_subgraphs=True)
+    for key in expected_config:
+        if key == "Defaults":
+            continue
+        want = [9, 9] if key == top_key else expected_config[key]["kernel_size"]
+        assert after[key]["kernel_size"] == want, key
+
+
+@pytest.mark.util
+def test_apply_config_hierarchical_keys_win_over_flat_and_defaults():
+    """All Im2Col nodes share one name. A flat key configures only the top-level
+    node, a hierarchical key configures exactly its subgraph node and overrides the
+    Defaults, and nodes without a key of their own keep the Defaults. Applying the
+    flat key inside the subgraphs as well (the former double traversal through
+    ApplyConfig's own descent plus the generic apply_to_subgraphs) fails this."""
+    model, expected_config = make_im2col_test_model()
+    name = model.graph.node[0].name
+    then_key = "n1_then_branch_" + name
+    config = {
+        "Defaults": {"stride": [[1, 1], ["Im2Col"]]},
+        name: {"kernel_size": [9, 9]},
+        then_key: {"kernel_size": [4, 4], "stride": [2, 2]},
+    }
+    model = model.transform(ApplyConfig(config, apply_to_subgraphs=True))
+
+    after = extract_model_config(model, None, IM2COL_ATTRS, apply_to_subgraphs=True)
+    for key in expected_config:
+        if key == "Defaults":
+            continue
+        if key == name:
+            want_kernel, want_stride = [9, 9], [1, 1]
+        elif key == then_key:
+            want_kernel, want_stride = [4, 4], [2, 2]
+        else:
+            want_kernel, want_stride = expected_config[key]["kernel_size"], [1, 1]
+        assert after[key]["kernel_size"] == want_kernel, key
+        assert after[key]["stride"] == want_stride, key

@@ -187,7 +187,9 @@ module memstream #(
 	data_t  Dat3 = 'x; /* absorbed register */
 	if(1) begin : blkMem
 		(* RAM_STYLE = RAM_STYLE *)
-		data_t  Mem[SETS*DEPTH];
+		// Vivado maps a single-word memory to registers and drops its $readmemh
+		// initialization in the process. Therefore, the memory is forced to be at least two deep.
+		data_t  Mem[(SETS*DEPTH < 2)? 2 : SETS*DEPTH];
 
 		// Optional Memory Initialization
 		if(INIT_FILE != "")  initial $readmemh(INIT_FILE, Mem);

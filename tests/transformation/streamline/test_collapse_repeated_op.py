@@ -116,7 +116,6 @@ def test_collapse_repeated_only_if_linear(test_args):
     model = ModelWrapper(modelproto)
     model = model.transform(InferShapes())
 
-    np.random.seed(0)
     model.set_initializer("p1", *np.random.rand(1).astype(np.float32))
     model.set_initializer("p2", *np.random.rand(1).astype(np.float32))
     model.set_initializer("p3", *np.random.rand(1).astype(np.float32))

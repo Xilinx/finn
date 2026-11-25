@@ -125,15 +125,16 @@ def _extract_from_slash_report(model, root: ET.Element):
     Returns {node name : resources_dict}."""
     res_dict = dict()
 
-    def totals_to_stats(totals: ET.Element):
+    def totals_to_stats(totals: ET.Element | None) -> dict[str, int]:
+        assert totals is not None, "SLASH report entry without totals"
         return {
             "LUT": int(totals.get("total_luts", 0)),
-            "SRL": int(totals.get("srl"), 0),
-            "FF": int(totals.get("ff"), 0),
-            "BRAM_36K": int(totals.get("ramb36"), 0),
-            "BRAM_18K": int(totals.get("ramb18"), 0),
-            "URAM": int(totals.get("uram"), 0),
-            "DSP": int(totals.get("dsp"), 0),
+            "SRL": int(totals.get("srl", 0)),
+            "FF": int(totals.get("ff", 0)),
+            "BRAM_36K": int(totals.get("ramb36", 0)),
+            "BRAM_18K": int(totals.get("ramb18", 0)),
+            "URAM": int(totals.get("uram", 0)),
+            "DSP": int(totals.get("dsp", 0)),
         }
 
     top_totals = root.find("totals")

@@ -8,7 +8,10 @@ Functional Verification
    :scale: 40%
    :align: center
 
-This part of the flow is covered by the Jupyter notebook about the verification of a simple fully-connected network, which you can find in the `end2end notebook folder <https://github.com/Xilinx/finn/blob/main/notebooks/end2end_example/bnn-pynq/tfc_end2end_verification.ipynb>`_.
+In a builder flow, these checks are enabled with the ``verify_steps`` option of the build configuration, see :ref:`command_line`.
+The `verification and debugging notebook <https://github.com/Xilinx/finn/blob/main/notebooks/end2end_example/bnn-pynq/tfc_end2end_verification.ipynb>`_
+runs a builder flow with verification enabled and then performs the same checks by hand on the intermediate models of a simple fully-connected network,
+which shows what each verification step does and how to debug a failing one.
 
 When the network is transformed it is important to verify the functionality to make sure the transformation did not change the behaviour of the model. There are multiple ways of verification that can be applied in different stages of the network inside FINN. All can be accessed using the execution function in module :py:mod:`finn.core.onnx_exec`. The execution happens in most cases node by node, which supports networks that have a mixture of standard ONNX nodes, custom nodes and HLS/RTL custom nodes. A single node can be executed using one or more of the following methods:
 
@@ -27,6 +30,13 @@ Emulation using XSI
 ===========================
 
 The emulation using XSI can be used when IP blocks/RTL modules were generated, either node by node or of a whole (IP-stitched) design. For that purpose XSI gets the generated verilog files.
+
+The number of threads used by ``xelab`` while building an XSI simulation can
+be set with the ``FINN_XELAB_MT`` environment variable, for example
+``export FINN_XELAB_MT=4``. If it is not set, FINN uses
+``NUM_DEFAULT_WORKERS``, or 8 if neither variable is set. Setting
+``FINN_XELAB_MT=1`` disables ``xelab`` multithreading (equivalent to
+``--mt off``).
 
 For debugging purposes, it's possible to generate .vcd trace files that show the value of external & internal signals as the emuation is running. To enable this:
  - for node-by-node rtlsim, set the `rtlsim_trace` attribute of each node of interest to either a file name for the vcd or `default` to use the node name as the filename.

@@ -40,7 +40,7 @@ Decorate it with the existing markers. For example, `@pytest.mark.fpgadataflow`.
 
 ### Clean up scratch in a test
 
-Use FINN's `make_build_dir()` and tear it down with the `robust_rmtree()` helper.
+Do not write scratch into the current working directory. Use FINN's `make_build_dir()` and tear it down with the `robust_rmtree()` helper. Successful tests should remove disposable scratch, while failed tests can keep it for diagnosis.
 
 ### Add a new BNN parameter value
 
@@ -62,18 +62,27 @@ To start a build, click *Build with Parameters* and select the stage you would l
 | `STAGES` value     | Rows that run            | Use when                                      | Needs `FINN_CI_NFS_ROOT`?                                      |
 | ------------------ | ------------------------ | --------------------------------------------- | -------------------------------------------------------------- |
 | `sanity` (default) | Sanity rows only         | Per-PR quick check                            | Recommended (publishes `bnn_build_sanity` zips for HW handoff) |
-| `full`             | Every CI row             | Nightly / pre-merge full matrix               | Yes (otherwise no handoff and no timing master update)         |
-| `fpgadataflow`     | fpgadataflow row(s) only | Only build-side debug, no HW handoff produced | No                                                             |
-| `end2end`          | end2end + BNN rows only  | Debugging just the end2end family             | Recommended (BNN rows publish `bnn_build_full` zips)           |
+| `full`             | Every CI row except benchmark | Nightly / pre-merge full matrix          | Yes (otherwise no handoff and no timing master update)         |
+| `fpgadataflow`     | fpgadataflow row(s) only | Debugging just the fpgadataflow family        | Recommended (publishes `mlo_build` zips)                       |
+| `end2end`          | end2end + BNN rows only  | Debugging just the end2end family             | Recommended (End2end publishes `ext_weights_build`, BNN rows `bnn_build_full` zips) |
+| `benchmark`        | finn-examples suite only | Manual benchmark runs (excluded from `full`)  | No (build-only, no HW handoff yet)                             |
 
 
 The above table is unit tested for drift against the actual stage tables. Bitstream artifact handoff is skipped if an NFS root directory is not set. Note that "sanity" is the only stage that will be available directly after running a seed job.
 
 `local_setup` is another stage that can be added for non-Docker tests. Set `FINN_LOCAL_BUILD_LABEL` in the DSL to bind the stage to an agent that has the requisite dependencies set up.
 
+### Trigger a HW build
+
+The HW job picks its board zips up automatically from the build job named by `build_job_name` (default `finn`). Three parameters cover the exceptions:
+
+- `build_job_name` selects which job's `ci_runs/<jobKey>/` tree to scan for per-board READY zips.
+- `build_dir` is a full path to one build directory, forcing every board through it. Use it to pin a specific build or for off-Jenkins recovery.
+- `allow_fallback` accepts a board falling back to an older READY zip without marking the HW build UNSTABLE.
+
 ### Debug one stage
 
-Trigger a build with the matching `STAGES` value and use `STAGE_FILTER` in the GUI to match via substring to the shard's display name, for example, `STAGE_FILTER=BNN U250`.
+Trigger a build with the matching `STAGES` value and use `STAGE_FILTER` in the GUI to match via substring to the shard's display name, for example, `STAGE_FILTER=BNN U55C`.
 
 ### Pin a test to a specific shard
 
@@ -95,6 +104,8 @@ For an archived Jenkins build, open `reports/shard_map.txt` and grep for the nod
 - No build-to-HW artifact handoff (HW pipeline won't be able to use this build)
 - No persistent timing master file (sharding falls back to round-robin)
 
+The HW job ([Jenkinsfile_HW](./Jenkinsfile_HW)) is the exception: it hard-fails when `FINN_CI_NFS_ROOT` is unset, because it has no board zips to read otherwise.
+
 Optional CI-related overrides are listed below, with sensible defaults:
 
 
@@ -104,6 +115,8 @@ Optional CI-related overrides are listed below, with sensible defaults:
 | `FINN_CI_LOCAL_CACHE_ROOT` | `${WORKSPACE_TMP:-/tmp}/finn-ci-cache` | Pip + XDG cache root for the same non-Docker stage.                                                                         |
 | `FINN_CI_MIN_FREE_GB`      | `120`                                  | Minimum free space (GB) on the agent scratch volume below which a shard refuses to start.                                   |
 | `FINN_LSF_NFS_STAGING`     | unset                                  | Staging area for LSF jobs, setting this variable enables a range of LSF functionality. Only needed if using an LSF cluster. |
+| `FINN_HW_RECOVERY_JOB`     | unset                                  | Jenkins job the HW pipeline may ask to recover a board that a reboot did not fix. Unset means no board recovery is attempted. |
+| `REBOOT_WAIT_CAP_MINUTES`  | `10`                                   | Cap on the HW pipeline's wait for a rebooted board to reconnect. It bounds a polling wait rather than setting a fixed sleep, so raise it only for a lab whose slowest board boots in longer. |
 
 ### Test configuration
 
@@ -112,6 +125,8 @@ Every parallel stage is defined by one row of `STAGES` in [finn_ci/config.py](./
 A `STAGES` row `marker` is restricted to an "a or b or c" pattern because it is interpolated into a shell `-m` argument, so `and`/`not` are rejected. This only constrains `STAGES` rows. Ad-hoc runs such as `pytest -m "fpgadataflow and not slow"` are unaffected and can still be sharded locally.
 
 If a stage is completing slowly, it may be possible to speed it up by increasing the shard or worker count.
+
+The board-tethered [Jenkinsfile_HW](./Jenkinsfile_HW) follows the same pattern with a separate `HW_SHARDS` table, derived from `BOARDS` rather than declared by hand.
 
 ### Adding a new CI param
 
@@ -143,18 +158,35 @@ choice quantization -> rows ['Quantization - Brevitas']
 
 1. Add the marker `bnn_<board>` to `setup.cfg` under `[tool:pytest]`.
 2. In [finn_ci/config.py](./finn_ci/config.py), add a `BOARDS` entry, plus a `STAGES` row that references the board in its `zipArtifacts.boards`. `tests/end2end/test_end2end_bnn_pynq.py` reads `BOARDS[board]["bnnMarker"]`, so the board's scenarios are parametrised automatically.
-3. Nothing else is needed. `validate_config()` sanity-checks each `STAGES`/`BOARDS` row.
+3. Nothing else is needed. `validate_config()` sanity-checks each `STAGES`/`BOARDS` row, and `Jenkinsfile_HW` derives `HW_SHARDS`, the HW test types, and their labels from `BOARDS`/`STAGES` through a single `PYTHONPATH=ci python3 -m finn_ci hw-config-json` call.
+
+### Adding a new HW test type
+
+A new `hwTestType` (today `bnn_build_sanity`, `bnn_build_full`, `mlo_build` or `ext_weights_build`) is a config-only change in [finn_ci/config.py](./finn_ci/config.py):
+
+1. Add `STAGES` rows whose `zipArtifacts.hwTestType` is the new name.
+2. Add an entry to `HW_TEST_TYPE_LABELS` mapping that name to the label shown in the Jenkins UI, for example `"bnn_build_robust": "BNN Robust"`. The HW stages are named `<label> - <board>`.
+
+`hw-config-json` reads them in first-appearance order, so place shorter smoke types before longer ones. `validate_config()` rejects an `hwTestType` declared in `STAGES` without a matching label.
+
+### Adding a board test outside the BNN matrix
+
+Any build test can hand its bitfile to the HW pipeline. Call `finn.util.test.stage_hw_deployment()` with the build's `deploy/` directory, the board, a model title, and a reference input and output. It writes `hw_deployment_*/<board>/<title>/`, which the shard picks up for every board in its row's `zipArtifacts`. On the board, [test_bnn_hw_pytest.py](./test_bnn_hw_pytest.py) runs the driver on the input, compares the result to the reference, and measures throughput. The MLO tests in `tests/fpgadataflow/test_fpgadataflow_finnloop.py` and the external-weights tests in `tests/end2end/test_ext_weights.py` work this way.
+
+Titles must be unique per board within a row, because a duplicate fails the zip aggregation. Only stage after the build's own checks have passed, so a known-bad bitfile never reaches a board.
 
 ### Running tools on LSF (optional)
 
 Each shard runs safely as a parallel branch on whatever `finn-build` executor picks it up, so adding capacity is as simple as adding more machines and agents under that label. For this reason, integration with an LSF cluster is not required to run FINN's CI.
 
-However, the intended long-term operational model for FINN CI is a single FINN build machine running several shards at once, delegating any heavy tasks to a compute farm. A tool interception hook has been provided for this reason at `finn.util.basic.resolve_xilinx_tool()`. The agent still drives the FINN flow and pytest, but each `vivado` / `v++` / `vitis_hls` / `xelab` invocation is wrapped with a deployment-specific shim that can delegate heavy subprocesses. The interception hook is generic and can be adapted for a variety of HPC models.
+However, the intended long-term operational model for FINN CI is a single FINN build machine running several shards at once, delegating heavy tasks to a compute farm. `finn.util.launcher.xilinx_tool()` resolves AMD tool names through the `FINN_TOOL_DIR_OVERRIDE` shim directory, once per process. The agent still drives the FINN flow and pytest, while deployment-specific wrappers for `vivado`, `v++`, `vitis_hls` / `vitis-run`, `xelab` and `slashkit` can delegate their work. The directory override is generic and can be adapted for a variety of HPC models; `finn.util.basic.resolve_xilinx_tool()` remains a compatibility interface for generated scripts.
+
+On a shard failure, `archive_failure_logs.sh` includes launcher `*.stdout.log` and `*.stderr.log` transcripts from the known build-directory families, including compiler, simulator, SLASH and separate C++ driver Git-log directories. If `FINN_ROOT` is set, it also collects the standalone XSI setup diagnostics from `finn_xsi`, scoped by the shard start marker when supplied.
 
 If using IBM's LSF, the pipeline cooperates with such a wrapper through one env var, `FINN_LSF_NFS_STAGING`. When it is set:
 
 - The Jenkinsfile reaps orphaned `bsub` jobs left by an aborted build, both on this build's completion and at the next build's Validate. The site's wrapper must tag every job name `finn_ci_<jobScope>_<TOOL>_<JOB_TAG>` so the reaper can find them and `bkill` only the jobs whose submitting build is no longer running.
-- `archive_failure_logs.sh` tails the LSF staging-dir logs into a failed shard's bundle, so a farm-side tool failure is visible in Jenkins without opening the cluster.
+- `archive_failure_logs.sh` includes the LSF staging-dir logs in a failed shard's bundle, so a farm-side tool failure is visible in Jenkins without opening the cluster.
 
 When `FINN_LSF_NFS_STAGING` is unset (the default) both behaviours are skipped.
 
@@ -186,19 +218,21 @@ ${FINN_CI_NFS_ROOT}/artifacts/ci_runs/<jobKey>/<BUILD>/
       deployments/<hwTestType>/<board>/<stash>/<board>/<model>/
 ```
 
-The `.READY` marker is the build-to-HW handshake. It is touched only after the aggregated zip has been renamed into place. `FINN_CI_NFS_ROOT` is required for any build run that expects bitstream inputs (for example, Jenkinsfile_HW).
+The `.READY` marker is the build-to-HW handshake. It is touched only after the aggregated zip has been renamed into place, so a half-written zip or an aborted shard never leaves a READY pointing at incomplete bytes. `FINN_CI_NFS_ROOT` is required for any build run that expects bitstream inputs (for example, Jenkinsfile_HW).
 
-> Note: Jenkinsfile_HW hasn't been migrated yet. See [Known limitations](#known-limitations).
+A shard stages its deployments whether or not all of its tests passed, because a test only writes a package after its own checks passed. A board whose shards had failures still gets a zip of the models that built, and only an aborted or timed-out shard stages nothing.
+
+HW resolves each `(testType, board)` pair independently to the newest build under `ci_runs/<jobKey>/` whose `<board>.zip.READY` sibling is present. A board with no staged deployment in a build has no READY that build, so HW falls back to that board's previous READY. Fallback is measured per test type, against the newest build that published a READY zip for that test type, so a build that published none of them does not make every board look stale. It marks the HW build UNSTABLE unless `allow_fallback` is set on the HW job. There is no global READY marker, so the per-board markers are the whole handshake.
 
 A `STAGES` row that produces these zips declares a `zipArtifacts` nested key:
 
 ```python
-"zipArtifacts": {"hwTestType": "bnn_build_full", "boards": ["U250"]}
+"zipArtifacts": {"hwTestType": "bnn_build_full", "boards": ["U55C"]}
 ```
 
-`hwTestType` (today `bnn_build_sanity` or `bnn_build_full`) selects which HW pipeline category the zip feeds. `boards` lists the board zips the row produces. The nested shape means the pair is either present or absent.
+`hwTestType` (today `bnn_build_sanity`, `bnn_build_full`, `mlo_build` or `ext_weights_build`) selects which HW pipeline category the zip feeds. `boards` lists the board zips the row produces. The nested shape means the pair is either present or absent.
 
-`BUILD_INFO.txt` is simply a human-readable provenance record of the build.
+`BUILD_INFO.txt` is simply a human-readable provenance record of the build. The HW pipeline archives each distinct source build's copy as `build_info_<N>.txt` and lists the per-board source builds in the HW build description, so a mixed run stays traceable.
 
 ### Storage and retention
 
@@ -220,7 +254,6 @@ The "Validate" stage rotates the image, artifact, and timing-snapshot trees via 
 ## Known limitations
 
 - **Targeting a non-default branch needs a DSL edit.** The job DSL targets "dev" by default, so testing a different branch (for example a PR branch) currently means editing the DSL and running a seed job. The intended fix is to target a PR branch without hand-editing the DSL.
-- **Jenkinsfile_HW is not migrated yet.** It will continue working with any existing artifacts in the legacy `ARTIFACT_DIR`, but won't work with the new aggregated board zips until it is migrated. The intention is that the HW test runs with the newest valid board zip available, and is marked UNSTABLE if the newest zip wasn't created by the last run (i.e. there was some error in the build stage that is unrelated to HW tests).
 
 ---
 
@@ -263,6 +296,6 @@ A site that offloads the heavy Xilinx tools to a compute farm (see "Running tool
 
 | Env var                  | What it sets                                                                                                                                        |
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FINN_TOOL_DIR_OVERRIDE` | Shim directory. `finn.util.basic.resolve_xilinx_tool()` resolves `vivado`/`v++`/`vitis_hls`/`vitis-run`/`xelab` to `<dir>/<tool>` when set.        |
+| `FINN_TOOL_DIR_OVERRIDE` | Shim directory. `finn.util.basic.resolve_xilinx_tool()` resolves `vivado`/`v++`/`vitis_hls`/`vitis-run`/`xelab`/`slashkit` to `<dir>/<tool>` when set.        |
 
 The wrapper's own variables are deployment-specific.

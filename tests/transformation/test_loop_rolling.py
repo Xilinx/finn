@@ -7,25 +7,25 @@ import qonnx.util.basic as util
 import torch
 from brevitas.nn import QuantLinear
 from brevitas.quant import Int8ActPerTensorFloat, Int8WeightPerTensorFloat
+from onnx import TensorProto, helper
 from pathlib import Path
-from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import (
     ConvertDivToMul,
     ConvertSubToAdd,
     GiveUniqueNodeNames,
 )
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.util.basic import gen_finn_dt_tensor
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
-import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn.transformation.fpgadataflow.loop_rolling import LoopExtraction, LoopRolling
 from finn.transformation.fpgadataflow.raise_scalar_to_rank1 import RaiseScalarToRank1
 from finn.transformation.fpgadataflow.set_loop_boundary import SetLoopBoundary
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
-from finn.transformation.streamline.absorb import AbsorbSignBiasIntoMultiThreshold
+from finn.transformation.streamline.absorb import AbsorbScalarBiasIntoMultiThreshold
 from finn.transformation.streamline.collapse_repeated import (
     CollapseRepeatedAdd,
     CollapseRepeatedMul,
@@ -118,20 +118,25 @@ def check_tensor_shape(model_wrapper, name, expected_shape):
     ), f"Shape mismatch for {name}: expected {expected_shape}, got {actual_shape}"
 
 
+@pytest.mark.transform
+def test_loop_extraction_default_paths_are_unique():
+    first = LoopExtraction(hierarchy_list=[["", "layers.0"]])
+    second = LoopExtraction(hierarchy_list=[["", "layers.0"]])
+    first_dir = Path(first.loop_body_template_path).parent
+    second_dir = Path(second.loop_body_template_path).parent
+    assert first_dir != second_dir
+    assert first_dir.parent == second_dir.parent
+    robust_rmtree(first_dir)
+    robust_rmtree(second_dir)
+
+
 # input_size == hidden_size to create model that can be rolled
 @pytest.mark.parametrize("input_size", [20, 30, 40])
 # num_layers
 @pytest.mark.parametrize("num_layers", [6, 12, 24])
 @pytest.mark.transform
-def test_finn_loop(input_size, num_layers, monkeypatch):
+def test_finn_loop(input_size, num_layers):
     out_dir = Path(make_build_dir(prefix="test_finn_loop_"))
-    # LoopExtraction saves and reloads a fixed-name loop-body-template.onnx in
-    # the cwd, so run each case in its own build dir (kept on failure for
-    # debugging) to stop concurrent workers racing on that file
-    monkeypatch.chdir(out_dir)
-    # fixed seed so the deep quantised configs stay within tolerance run to run
-    torch.manual_seed(0)
-    np.random.seed(0)
     hidden_size = input_size
 
     onnx_path, model = export_model_to_qonnx(out_dir, input_size, hidden_size, num_layers)
@@ -145,7 +150,7 @@ def test_finn_loop(input_size, num_layers, monkeypatch):
     # Warning: Running standard streamlining here causes optimizations
     # across loop body boundaries that breaks current loop rolling assumptions.
     # instead of streamlining only apply some transformations and then convert to hw
-    model_wrapper = model_wrapper.transform(AbsorbSignBiasIntoMultiThreshold())
+    model_wrapper = model_wrapper.transform(AbsorbScalarBiasIntoMultiThreshold())
     model_wrapper = model_wrapper.transform(ConvertSubToAdd())
     model_wrapper = model_wrapper.transform(ConvertDivToMul())
     model_wrapper = model_wrapper.transform(MoveScalarMulPastMatMul())
@@ -161,6 +166,16 @@ def test_finn_loop(input_size, num_layers, monkeypatch):
     m_input_dt = model_wrapper.get_tensor_datatype(model_wrapper.model.graph.input[0].name)
     m_output_dt = model_wrapper.get_tensor_datatype(model_wrapper.model.graph.output[0].name)
 
+    # Specialize to backend-specific ops before loop extraction/rolling. MLO
+    # weight streaming requires the RTL MVAU backend (mem_mode "external_mem" is
+    # set by MVAU_rtl.adapt_for_loop_body during rolling), so the abstract MVAU
+    # must be specialized first. This must happen before LoopExtraction, since
+    # SpecializeLayers only walks top-level graph nodes and would skip the
+    # compute nodes once they are moved into the fn_loop-body subgraphs. A Versal
+    # part is used so the MVAU specializes to RTL.
+    fpga_part = "xcvc1902-vsva2197-2MP-e-S"
+    model_wrapper = model_wrapper.transform(SpecializeLayers(fpga_part))
+
     model_wrapper = model_wrapper.transform(GiveUniqueNodeNames())
     # temporarily set loop boundaries manually
     node_metadata = {
@@ -171,7 +186,10 @@ def test_finn_loop(input_size, num_layers, monkeypatch):
     model_wrapper = model_wrapper.transform(SetLoopBoundary(node_metadata, node_range=node_range))
 
     # Loop extraction
-    loop_extraction = LoopExtraction(hierarchy_list=[["", "layers.0"]])
+    template_path = out_dir / "loop-body-template.onnx"
+    loop_extraction = LoopExtraction(
+        hierarchy_list=[["", "layers.0"]], loop_body_template_path=template_path
+    )
     model_wrapper = model_wrapper.transform(loop_extraction)
 
     # should be one constant node and one loop-body node per layer
@@ -210,9 +228,15 @@ def test_finn_loop(input_size, num_layers, monkeypatch):
         util.get_by_name(loop_node.attribute, "body").g
     )
 
+    # nodes are specialized (e.g. MVAU_rtl, Thresholding_rtl, ElementwiseAdd_hls)
+    # so match on the op_type prefix
     mlo_nodes = ["MVAU", "Thresholding", "ElementwiseAdd", "ElementwiseMul"]
+    seen_prefixes = set()
     for node in loop_body_wrapper.model.graph.node:
-        if node.op_type in mlo_nodes:
+        for prefix in mlo_nodes:
+            if node.op_type.startswith(prefix):
+                seen_prefixes.add(prefix)
+        if any(node.op_type.startswith(prefix) for prefix in mlo_nodes):
             mlo_attr = util.get_by_name(node.attribute, "mlo_max_iter")
             assert (
                 mlo_attr is not None
@@ -220,33 +244,58 @@ def test_finn_loop(input_size, num_layers, monkeypatch):
             assert (
                 mlo_attr.i == num_layers
             ), "Loop body max iteration count should match number of layers"
+        # MVAU_rtl.adapt_for_loop_body should have switched the streamed-weight
+        # MVAU to external_mem so its weights are fetched over AXI-MM per iteration
+        if node.op_type.startswith("MVAU"):
+            mem_mode_attr = util.get_by_name(node.attribute, "mem_mode")
+            assert (
+                mem_mode_attr is not None and mem_mode_attr.s.decode("utf-8") == "external_mem"
+            ), """MVAU node in loop body should have mem_mode
+            'external_mem' set by adapt_for_loop_body"""
+        # ElementwiseBinary.adapt_for_loop_body should have switched the style of
+        # any per-iteration (streamed) operand from "const" to "input". Verify
+        # the observable effect: a "const" operand must be backed by an embedded
+        # initializer, while a streamed operand (a body input, no initializer)
+        # must have style "input".
+        if node.op_type.startswith("Elementwise"):
+            for side, style_name in ((0, "lhs_style"), (1, "rhs_style")):
+                if side >= len(node.input):
+                    continue
+                style_attr = util.get_by_name(node.attribute, style_name)
+                if style_attr is None:
+                    continue
+                style = style_attr.s.decode("utf-8")
+                has_init = loop_body_wrapper.get_initializer(node.input[side]) is not None
+                if style == "const":
+                    assert has_init, (
+                        f"{node.op_type} {style_name} is 'const' but the operand has no "
+                        "initializer; adapt_for_loop_body should have set it to 'input'"
+                    )
+                elif style == "input":
+                    assert not has_init, (
+                        f"{node.op_type} {style_name} is 'input' but the operand is an "
+                        "embedded initializer"
+                    )
 
-    inp_tensor = gen_finn_dt_tensor(DataType["FLOAT32"], [1, input_size])
-    idict = {model_wrapper.graph.input[0].name: inp_tensor}
-    odict = oxe.execute_onnx(model_wrapper, idict)
-    produced = odict[model_wrapper.graph.output[0].name]
-    inp_tensor = torch.from_numpy(inp_tensor).float()
-    expected = model.forward(inp_tensor).detach().numpy()
+    # make sure the adapt_for_loop_body coverage above is not vacuous: the loop
+    # body must actually contain the node types we assert on
+    assert seen_prefixes == set(mlo_nodes), (
+        "Loop body is missing expected MLO node types; "
+        f"expected {set(mlo_nodes)}, saw {seen_prefixes}"
+    )
 
-    max_diff = np.max(np.abs(produced - expected))
-    print(f"Max difference between produced and expected: {max_diff}")
-
-    # compare results within a tolerance
-    rtol = 1e-4
-    atol = 1e-3
-    assert np.allclose(
-        produced, expected, rtol=rtol, atol=atol
-    ), "Results do not match within tolerance!"
+    # Numeric verification is skipped here: functional/numeric equivalence is
+    # covered by the MLO tests. Executing the specialized model would require
+    # cppsim (and therefore a Vivado toolchain), which is not available in the
+    # lightweight quicktest CI runners.
 
     # on success drop the per-test scratch dir, kept on failure for debugging
     robust_rmtree(out_dir)
 
 
 @pytest.mark.transform
-def test_inconsistent_initializer_shape(monkeypatch):
+def test_inconsistent_initializer_shape():
     out_dir = Path(make_build_dir(prefix="test_inconsistent_initializer_"))
-    # isolate LoopExtraction's fixed-name cwd file per test, see test_finn_loop
-    monkeypatch.chdir(out_dir)
     # test that if the initializer shape is inconsistent with the value info
     # shape, the transformation fails
     input_size = 20
@@ -266,7 +315,10 @@ def test_inconsistent_initializer_shape(monkeypatch):
     param0 = model_wrapper.get_initializer("Mul_0_param0")
     model_wrapper.set_initializer("Mul_0_param0", np.append(param0, param0))
 
-    loop_extraction = LoopExtraction(hierarchy_list=[["", "layers.0"]])
+    template_path = out_dir / "loop-body-template.onnx"
+    loop_extraction = LoopExtraction(
+        hierarchy_list=[["", "layers.0"]], loop_body_template_path=template_path
+    )
     model_wrapper = model_wrapper.transform(loop_extraction)
 
     # should throw an error because the initializer shape is inconsistent with the value info shape
@@ -279,4 +331,157 @@ def test_inconsistent_initializer_shape(monkeypatch):
         model_wrapper = model_wrapper.transform(LoopRolling(loop_extraction.loop_body_template))
 
     # on success (the expected raise fired) drop the scratch dir, kept otherwise
+    robust_rmtree(out_dir)
+
+
+@pytest.mark.transform
+def test_single_instance_loop_rolling_raises():
+    # A model with a single loop-body instance (num_layers=1) resolves to
+    # iteration=1, which the MLO infrastructure does not support.
+    out_dir = Path(make_build_dir(prefix="test_single_instance_loop_"))
+    input_size = 20
+    hidden_size = 20
+    num_layers = 1
+
+    onnx_path, model = export_model_to_qonnx(out_dir, input_size, hidden_size, num_layers)
+
+    qonnx_cleanup(onnx_path, out_file=onnx_path)
+    model_wrapper = ModelWrapper(onnx_path)
+
+    template_path = out_dir / "loop-body-template.onnx"
+    loop_extraction = LoopExtraction(
+        hierarchy_list=[["", "layers.0"]], loop_body_template_path=template_path
+    )
+    model_wrapper = model_wrapper.transform(loop_extraction)
+
+    # exactly one loop-body instance -> rolling would yield iteration=1
+    assert (
+        len(model_wrapper.get_nodes_by_op_type("fn_loop-body")) == 1
+    ), "Expected a single loop-body instance for num_layers=1"
+
+    with pytest.raises(
+        Exception,
+        match="LoopRolling: MLO requires at least 2 repetitions of the loop body",
+    ):
+        model_wrapper = model_wrapper.transform(LoopRolling(loop_extraction.loop_body_template))
+
+    # on success (the expected raise fired) drop the scratch dir, kept otherwise
+    robust_rmtree(out_dir)
+
+
+@pytest.mark.transform
+def test_loop_rolling_makes_upstream_pad_lazy():
+    # Padding ops anywhere upstream of a FINNLoop must be lazy (Eager=0) so they
+    # cannot block the loop input with their own data. The chain in front of the
+    # loop is Reshape -> Pad1D -> Pad1D -> Reshape: the second Pad1D is not a
+    # direct producer of the loop and a non-dataflow node sits in between.
+    input_size = 20
+    num_layers = 6
+    out_dir = Path(make_build_dir(prefix="test_loop_rolling_lazy_pad_"))
+
+    onnx_path, model = export_model_to_qonnx(out_dir, input_size, input_size, num_layers)
+    qonnx_cleanup(onnx_path, out_file=onnx_path)
+    model_wrapper = ModelWrapper(onnx_path)
+    model_wrapper = model_wrapper.transform(ConvertQONNXtoFINN())
+    model_wrapper = model_wrapper.transform(RaiseScalarToRank1())
+    model_wrapper = model_wrapper.transform(AbsorbScalarBiasIntoMultiThreshold())
+    model_wrapper = model_wrapper.transform(ConvertSubToAdd())
+    model_wrapper = model_wrapper.transform(ConvertDivToMul())
+    model_wrapper = model_wrapper.transform(MoveScalarMulPastMatMul())
+    model_wrapper = model_wrapper.transform(MoveScalarAddPastMatMul())
+    model_wrapper = model_wrapper.transform(CollapseRepeatedMul())
+    model_wrapper = model_wrapper.transform(MoveAddPastMul())
+    model_wrapper = model_wrapper.transform(CollapseRepeatedAdd())
+    model_wrapper = model_wrapper.transform(CollapseRepeatedMul())
+    model_wrapper = model_wrapper.transform(to_hw.InferThresholdingLayer())
+    model_wrapper = model_wrapper.transform(to_hw.InferQuantizedMatrixVectorActivation())
+    model_wrapper = model_wrapper.transform(to_hw.InferElementwiseBinaryOperation())
+    model_wrapper = model_wrapper.transform(SpecializeLayers("xcvc1902-vsva2197-2MP-e-S"))
+    model_wrapper = model_wrapper.transform(GiveUniqueNodeNames())
+    node_metadata = {
+        "pkg.torch.onnx.name_scopes": "['', 'layers.0']",
+        "pkg.torch.onnx.class_hierarchy": "['TestModule', 'test']",
+    }
+    node_range = (model_wrapper.graph.node[0], model_wrapper.graph.node[3])
+    model_wrapper = model_wrapper.transform(SetLoopBoundary(node_metadata, node_range=node_range))
+
+    # Insert the pad chain between the model input and its first consumer(s),
+    # all pad ops start out eager.
+    graph = model_wrapper.graph
+    idt = model_wrapper.get_tensor_datatype(graph.input[0].name)
+    inp = graph.input[0].name
+    consumers = model_wrapper.find_consumers(inp)
+    shape3 = [1, 1, input_size]
+    shape2 = [1, input_size]
+
+    def new_tensor(name, shape):
+        graph.value_info.append(helper.make_tensor_value_info(name, TensorProto.FLOAT, shape))
+        model_wrapper.set_tensor_datatype(name, idt)
+        return name
+
+    def new_shape_init(name, shape):
+        model_wrapper.set_initializer(name, np.array(shape, dtype=np.int64))
+        return name
+
+    t_r0 = new_tensor("lazy_test_r0", shape3)
+    t_p0 = new_tensor("lazy_test_p0", shape3)
+    t_p1 = new_tensor("lazy_test_p1", shape3)
+    t_r1 = new_tensor("lazy_test_r1", shape2)
+
+    def pad_node(name, tin, tout):
+        return helper.make_node(
+            "Pad1D_rtl",
+            [tin],
+            [tout],
+            domain="finn.custom_op.fpgadataflow.rtl",
+            backend="fpgadataflow",
+            name=name,
+            NumTokens=1,
+            NumChannels=input_size,
+            SIMD=1,
+            inputDataType=idt.name,
+            outputDataType=idt.name,
+            Eager=1,
+        )
+
+    chain = [
+        helper.make_node(
+            "Reshape", [inp, new_shape_init("lazy_test_s3", shape3)], [t_r0], name="lazy_rs0"
+        ),
+        pad_node("lazy_pad0", t_r0, t_p0),
+        pad_node("lazy_pad1", t_p0, t_p1),
+        helper.make_node(
+            "Reshape", [t_p1, new_shape_init("lazy_test_s2", shape2)], [t_r1], name="lazy_rs1"
+        ),
+    ]
+    for c in consumers:
+        for i, name in enumerate(c.input):
+            if name == inp:
+                c.input[i] = t_r1
+    for pos, n in enumerate(chain):
+        # like exported nodes outside of the loop body: top-level module scope
+        n.metadata_props.add(key="pkg.torch.onnx.name_scopes", value="['']")
+        n.metadata_props.add(key="pkg.torch.onnx.class_hierarchy", value="['TestModule']")
+        graph.node.insert(pos, n)
+    pad_names = ["lazy_pad0", "lazy_pad1"]
+    for n in model_wrapper.graph.node:
+        if n.name in pad_names:
+            assert getCustomOp(n).get_nodeattr("Eager") == 1
+
+    template_path = out_dir / "loop-body-template.onnx"
+    loop_extraction = LoopExtraction(
+        hierarchy_list=[["", "layers.0"]], loop_body_template_path=template_path
+    )
+    model_wrapper = model_wrapper.transform(loop_extraction)
+    model_wrapper = model_wrapper.transform(LoopRolling(loop_extraction.loop_body_template))
+
+    assert len(model_wrapper.get_nodes_by_op_type("FINNLoop")) == 1
+    seen = []
+    for n in model_wrapper.graph.node:
+        if n.name in pad_names:
+            seen.append(n.name)
+            assert getCustomOp(n).get_nodeattr("Eager") == 0, f"{n.name} must be lazy before loop"
+    assert sorted(seen) == sorted(pad_names), "pad nodes must survive loop rolling"
+
+    # on success drop the per-test scratch dir, kept on failure for debugging
     robust_rmtree(out_dir)

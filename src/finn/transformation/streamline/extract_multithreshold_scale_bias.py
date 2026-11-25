@@ -14,6 +14,7 @@
 import numpy as np
 from onnx import TensorProto
 from onnx import helper as oh
+from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveUniqueParameterTensors, SortGraph
@@ -90,6 +91,10 @@ class ExtractMultiThresholdScaleBias(Transformation):
                     mt_inst.set_nodeattr("out_bias", 0.0)
 
                 if extract_scale or extract_bias:
+                    # the MultiThreshold now yields the bare step count, out_dtype
+                    # described the scaled and biased output
+                    n_steps = model.get_tensor_shape(mt_node.input[1])[-1]
+                    mt_inst.set_nodeattr("out_dtype", DataType.get_smallest_possible(n_steps).name)
                     # since we used append() for new nodes, need to call
                     # SortGraph to ensure correct (topological) order
                     model = model.transform(SortGraph())

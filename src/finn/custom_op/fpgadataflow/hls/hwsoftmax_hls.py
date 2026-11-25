@@ -11,6 +11,7 @@ import numpy as np
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.hwsoftmax import HWSoftmax
+from finn.util.data_packing import hls_datatype_str
 
 
 class HWSoftmax_hls(HWSoftmax, HLSBackend):
@@ -23,11 +24,22 @@ class HWSoftmax_hls(HWSoftmax, HLSBackend):
         my_attrs.update(HLSBackend.get_nodeattr_types(self))
         return my_attrs
 
+    def get_exp_cycles(self):
+        # SoftMax is a 3-stage dataflow pipeline (max, exp+sum, divide) with
+        # depth=N/SIMD FIFOs between stages. Each vector incurs pipeline stall
+        # overhead as stages wait for max/sum values before proceeding.
+        folded = self.get_folded_input_shape()
+        n_beats = int(np.prod(folded[:-1]))
+        n = self.get_normal_input_shape()[-1]
+        simd = self.get_nodeattr("SIMD")
+        beats_per_vec = max(1, n // simd)
+        num_vectors = n_beats // beats_per_vec
+        # Per-vector stalls (max/sum reads) + pipeline fill + FP operation latencies
+        return n_beats + 2 * num_vectors + 2 * beats_per_vec + 30
+
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = [
-            "#include <hls_vector.h>",
             '#include "softmax.hpp"',
-            '#include "utils.hpp"',
         ]
 
     def defines(self, var):
@@ -38,19 +50,18 @@ class HWSoftmax_hls(HWSoftmax, HLSBackend):
             f"""
             constexpr unsigned  SIMD = {simd};
             constexpr unsigned  W = {w};
-            using  TI = {idtype.get_hls_datatype_str()};
-            using  F = float;
+            using  TI = {hls_datatype_str(idtype)};
+            SoftMax<TI, float, W, SIMD>  sm_inst;
            """
         ]
 
     def docompute(self):
         self.code_gen_dict["$DOCOMPUTE$"] = [
             """
-                static hls::stream<hls::vector<TI,SIMD>>  src0;
-                static hls::stream<hls::vector<float,SIMD>>  dst0;
+                static hls::stream<tensor<TI,SIMD>>  src0;
+                static hls::stream<tensor<float,SIMD>>  dst0;
 
                 move(in0_V, src0);
-                static SoftMax<TI, float, W, SIMD> sm_inst;
                 sm_inst.execute(src0, dst0);
                 move(dst0, out0_V);
         """
@@ -60,8 +71,8 @@ class HWSoftmax_hls(HWSoftmax, HLSBackend):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             f"""
             void {self.onnx_node.name}(
-                hls::stream<hls::vector<TI,SIMD>> &in0_V,
-                hls::stream<hls::vector<float,SIMD>> &out0_V
+                hls::stream<tensor<TI,SIMD>> &in0_V,
+                hls::stream<tensor<float,SIMD>> &out0_V
                 )
             """
         ]

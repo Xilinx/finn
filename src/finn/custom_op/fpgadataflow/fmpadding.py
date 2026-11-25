@@ -58,6 +58,9 @@ class FMPadding(HWCustomOp):
             "inputDataType": ("s", True, ""),
             # shape describing input vecs per execution
             "numInputVectors": ("i", False, 1),
+            # Emit the leading padding of a frame without waiting for its first input (1)
+            # or only once that input is available (0), see finn-rtllib/pad/hdl/pad.sv.
+            "Eager": ("i", False, 1, {0, 1}),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs

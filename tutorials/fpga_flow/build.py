@@ -118,17 +118,12 @@ def custom_step_gen_tb_and_io(model, cfg):
     return model
 
 
-build_steps = build_cfg.default_build_dataflow_steps + [custom_step_gen_tb_and_io]
-
-
 cfg = build.DataflowBuildConfig(
-    steps=build_steps,
-    board=platform_name,
+    inject_steps_after={"phase_generate_outputs": [custom_step_gen_tb_and_io]},
     output_dir="output_%s_%s" % (model_name, platform_name),
     synth_clk_period_ns=10.0,
     folding_config_file="folding_config.json",
     fpga_part="xczu3eg-sbva484-1-e",
-    shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
     stitched_ip_gen_dcp=False,
     generate_outputs=[
         build_cfg.DataflowOutputType.STITCHED_IP,

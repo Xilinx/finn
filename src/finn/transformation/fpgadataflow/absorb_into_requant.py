@@ -24,7 +24,9 @@ class AbsorbElementwiseOpsIntoRequant(Transformation):
     layers have been inferred.
 
     The absorbed operations are removed from the graph and their constant
-    parameters are folded into the Requant's scale/bias initializers.
+    parameters are folded into the Requant's scale/bias initializers. Only scalar
+    or per-channel constants are absorbed, as Requant supports at most per-channel
+    scale/bias (e.g. a per-element positional encoding stays an ElementwiseAdd).
     """
 
     def apply(self, model):
@@ -36,6 +38,7 @@ class AbsorbElementwiseOpsIntoRequant(Transformation):
                 continue
 
             node_inst = getCustomOp(node)
+            num_channels = node_inst.get_nodeattr("NumChannels")
 
             # Get current scale and bias
             current_scale = node_inst.get_scale(model)
@@ -56,7 +59,7 @@ class AbsorbElementwiseOpsIntoRequant(Transformation):
             if predecessor.op_type == "ElementwiseMul":
                 mul_inst = getCustomOp(predecessor)
                 mul_const, mul_input = self._get_const_and_input(model, predecessor, mul_inst)
-                if mul_const is None:
+                if mul_const is None or not self._can_be_absorbed(mul_const, num_channels):
                     continue
 
                 absorbed_scale = mul_const.flatten()
@@ -68,7 +71,7 @@ class AbsorbElementwiseOpsIntoRequant(Transformation):
             elif predecessor.op_type == "ElementwiseAdd":
                 add_inst = getCustomOp(predecessor)
                 add_const, add_input = self._get_const_and_input(model, predecessor, add_inst)
-                if add_const is None:
+                if add_const is None or not self._can_be_absorbed(add_const, num_channels):
                     continue
 
                 absorbed_bias = add_const.flatten()
@@ -80,7 +83,7 @@ class AbsorbElementwiseOpsIntoRequant(Transformation):
                 if add_pred is not None and add_pred.op_type == "ElementwiseMul":
                     mul_inst = getCustomOp(add_pred)
                     mul_const, mul_input = self._get_const_and_input(model, add_pred, mul_inst)
-                    if mul_const is not None:
+                    if mul_const is not None and self._can_be_absorbed(mul_const, num_channels):
                         # Check that ElementwiseMul has only one consumer
                         mul_consumers = model.find_consumers(add_pred.output[0])
                         if len(mul_consumers) == 1:
@@ -139,6 +142,13 @@ class AbsorbElementwiseOpsIntoRequant(Transformation):
             graph_modified = True
 
         return (model, graph_modified)
+
+    @staticmethod
+    def _can_be_absorbed(const, num_channels):
+        """True if a constant can be absorbed into the Requant's scale/bias, i.e. it is
+        a scalar or a per-channel (last axis) parameter."""
+        const = np.asarray(const)
+        return const.size == 1 or (const.size == num_channels and const.shape[-1] == num_channels)
 
     def _get_const_and_input(self, model, node, node_inst):
         """Get constant operand and streaming input from ElementwiseBinary node.

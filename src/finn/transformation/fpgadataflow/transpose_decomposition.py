@@ -6,7 +6,9 @@
 #
 # @author       Shane T. Fleming <shane.fleming@amd.com>
 ############################################################################
+import logging
 import numpy as np
+import warnings
 from collections import deque
 from onnx import helper
 from operator import itemgetter
@@ -15,6 +17,8 @@ from qonnx.transformation.base import Transformation
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from typing import List, Optional, Tuple
+
+log = logging.getLogger(__name__)
 
 
 def shuffle_perfect_loopnest_coeffs(shape: tuple[int], perm: tuple[int]) -> tuple[int]:
@@ -28,9 +32,7 @@ def shuffle_perfect_loopnest_coeffs(shape: tuple[int], perm: tuple[int]) -> tupl
     return tuple(out_coeffs)
 
 
-def apply_inner_shuffle_operation(
-    perm: List[int], shape: List[int] = None, simd: int = 1
-) -> List[int]:
+def apply_inner_shuffle_operation(perm: List[int]) -> List[int]:
     """
     Apply inner_shuffle operation: swap the last two positions
     (..., a, b) -> (..., b, a)
@@ -38,21 +40,12 @@ def apply_inner_shuffle_operation(
     if len(perm) < 2:
         return perm[:]
 
-    # Check SIMD constraint for inner_shuffle: SIMD must divide the final
-    # innermost dimension (J)
-    if shape is not None and simd > 1:
-        j_dim = shape[-1]  # Final innermost dimension
-        if j_dim % simd != 0:
-            return perm[:]  # Return unchanged if constraint not satisfied
-
     result = perm[:]
     result[-2], result[-1] = result[-1], result[-2]
     return result
 
 
-def apply_outer_shuffle_operation(
-    perm: List[int], i: int, j: int, shape: List[int] = None, simd: int = 1
-) -> Optional[List[int]]:
+def apply_outer_shuffle_operation(perm: List[int], i: int, j: int) -> Optional[List[int]]:
     """
     Apply outer_shuffle operation: swap positions i and j
     Constraint: cannot move the very last dimension
@@ -69,20 +62,13 @@ def apply_outer_shuffle_operation(
     if i == j or i < 0 or j < 0 or i >= n or j >= n:
         return None
 
-    # Check SIMD constraint for outer_shuffle: SIMD must divide the
-    # innermost dimension that cannot move
-    if shape is not None and simd > 1:
-        innermost_dim = shape[-1]  # The innermost dimension that cannot move
-        if innermost_dim % simd != 0:
-            return None
-
     result = perm[:]
     result[i], result[j] = result[j], result[i]
     return result
 
 
 def get_all_possible_moves(
-    perm: List[int], shape: List[int] = None, simd: int = 1
+    perm: List[int],
 ) -> List[Tuple[List[int], str, Optional[Tuple[int, int]]]]:
     """
     Get all possible moves from current permutation.
@@ -95,20 +81,20 @@ def get_all_possible_moves(
     operation_type is either 'inner_shuffle' or 'outer_shuffle'
     operation_params is None for inner_shuffle, (i, j) for outer_shuffle
     """
-    moves = []
+    moves: List[Tuple[List[int], str, Optional[Tuple[int, int]]]] = []
     n = len(perm)
 
     # Try inner_shuffle operation
-    new_perm = apply_inner_shuffle_operation(perm, shape, simd)
+    new_perm = apply_inner_shuffle_operation(perm)
     if new_perm != perm:
         moves.append((new_perm, "inner_shuffle", None))
 
     # Try all valid outer_shuffle operations
     for i in range(n):
         for j in range(i + 1, n):
-            new_perm = apply_outer_shuffle_operation(perm, i, j, shape, simd)
-            if new_perm is not None and new_perm != perm:
-                moves.append((new_perm, "outer_shuffle", (i, j)))
+            swapped_perm = apply_outer_shuffle_operation(perm, i, j)
+            if swapped_perm is not None and swapped_perm != perm:
+                moves.append((swapped_perm, "outer_shuffle", (i, j)))
 
     return moves
 
@@ -151,8 +137,6 @@ def is_valid_hardware_permutation(perm_array: List[int]) -> bool:
 def find_minimal_operation_sequence(
     start_perm: List[int],
     target_perm: List[int],
-    shape: List[int] = None,
-    simd: int = 1,
 ) -> Optional[List[Tuple[str, Optional[Tuple[int, int]]]]]:
     """
     Find minimal sequence of operations to transform start_perm into target_perm.
@@ -166,16 +150,18 @@ def find_minimal_operation_sequence(
     if start_perm == target_perm:
         return []
 
-    queue = deque([(start_perm, [])])
+    queue: deque[Tuple[List[int], List[Tuple[str, Optional[Tuple[int, int]]]]]] = deque(
+        [(start_perm, [])]
+    )
     visited = {tuple(start_perm)}
 
     while queue:
         current_perm, operations = queue.popleft()
 
-        for next_perm, op_type, op_params in get_all_possible_moves(current_perm, shape, simd):
+        for next_perm, op_type, op_params in get_all_possible_moves(current_perm):
             test_operations = operations + [(op_type, op_params)]
             test_perms = convert_operations_to_permutations(
-                list(range(len(start_perm))), test_operations, shape, simd
+                list(range(len(start_perm))), test_operations
             )
 
             if not is_valid_hardware_permutation(test_perms[-1]):
@@ -195,8 +181,6 @@ def find_minimal_operation_sequence(
 def convert_operations_to_permutations(
     start_perm: List[int],
     operations: List[Tuple[str, Optional[Tuple[int, int]]]],
-    shape: List[int] = None,
-    simd: int = 1,
 ) -> List[List[int]]:
     """
     Convert a sequence of operations to a list of permutation arrays.
@@ -206,11 +190,12 @@ def convert_operations_to_permutations(
     permutations = []
 
     for op_type, op_params in operations:
+        new_perm: Optional[List[int]]
         if op_type == "inner_shuffle":
-            new_perm = apply_inner_shuffle_operation(current_perm, shape, simd)
+            new_perm = apply_inner_shuffle_operation(current_perm)
         elif op_type == "outer_shuffle" and op_params is not None:
             i, j = op_params
-            new_perm = apply_outer_shuffle_operation(current_perm, i, j, shape, simd)
+            new_perm = apply_outer_shuffle_operation(current_perm, i, j)
             if new_perm is None:
                 raise RuntimeError(f"Invalid outer_shuffle operation: ({i}, {j})")
         else:
@@ -228,7 +213,7 @@ def convert_operations_to_permutations(
 
 
 def can_be_single_operation(
-    target_perm: List[int], shape: List[int] = None, simd: int = 1
+    target_perm: List[int],
 ) -> Optional[Tuple[str, Optional[Tuple[int, int]]]]:
     """
     Check if the target permutation can be achieved with a single operation.
@@ -243,7 +228,7 @@ def can_be_single_operation(
 
     # Check if it's a simple inner_shuffle operation (swap last two)
     if n >= 2:
-        expected_inner_shuffle = apply_inner_shuffle_operation(start_perm, shape, simd)
+        expected_inner_shuffle = apply_inner_shuffle_operation(start_perm)
         if target_perm == expected_inner_shuffle:
             return ("inner_shuffle", None)
 
@@ -251,7 +236,7 @@ def can_be_single_operation(
     # that doesn't move the last position)
     for i in range(n):
         for j in range(i + 1, n):
-            expected_outer_shuffle = apply_outer_shuffle_operation(start_perm, i, j, shape, simd)
+            expected_outer_shuffle = apply_outer_shuffle_operation(start_perm, i, j)
             if expected_outer_shuffle is not None and target_perm == expected_outer_shuffle:
                 return ("outer_shuffle", (i, j))
 
@@ -259,7 +244,7 @@ def can_be_single_operation(
 
 
 def decompose_transpose_with_constraints(
-    target_perm: List[int], shape: List[int] = None, simd: int = 1
+    target_perm: List[int],
 ) -> Tuple[List[List[int]], List[str]]:
     """
     Decompose a target permutation into a sequence of hardware-constrained
@@ -281,15 +266,15 @@ def decompose_transpose_with_constraints(
         return [], []  # Identity permutation
 
     # First check if this can be done with a single operation
-    single_op = can_be_single_operation(target_perm, shape, simd)
+    single_op = can_be_single_operation(target_perm)
     if single_op is not None:
         op_type, op_params = single_op
         # Create the permutation array for this single operation
-        permutations = convert_operations_to_permutations(start_perm, [single_op], shape, simd)
+        permutations = convert_operations_to_permutations(start_perm, [single_op])
         return permutations, [op_type]
 
     # If not a single operation, find minimal sequence using BFS
-    operations = find_minimal_operation_sequence(start_perm, target_perm, shape, simd)
+    operations = find_minimal_operation_sequence(start_perm, target_perm)
 
     if operations is None:
         raise RuntimeError(f"No solution found for permutation: {target_perm}")
@@ -298,7 +283,7 @@ def decompose_transpose_with_constraints(
         return [], []  # Identity permutation
 
     # Convert operations to permutation arrays
-    permutations = convert_operations_to_permutations(start_perm, operations, shape, simd)
+    permutations = convert_operations_to_permutations(start_perm, operations)
     operation_types = [op[0] for op in operations]
 
     return permutations, operation_types
@@ -339,17 +324,14 @@ class ShuffleDecomposition(Transformation):
             orig_in_shape = f_inst.get_nodeattr("in_shape")
             in_shape = orig_in_shape
             transpose_in_shape = f_inst.get_nodeattr("transpose_in_shape")
-            simd = f_inst.get_nodeattr("SIMD")
 
             try:
-                P_list, operation_types = decompose_transpose_with_constraints(
-                    perm, transpose_in_shape, simd
-                )
+                P_list, operation_types = decompose_transpose_with_constraints(perm)
                 if len(P_list) == 0:
-                    print("\tNo swaps necessary (identity permutation).")
+                    log.info(f"{node.name}: no swaps necessary (identity permutation)")
                     continue
             except RuntimeError as e:
-                print(f"\tSkipping node {node.name}: {e}")
+                log.warning(f"Skipping {node.name}: {e}")
                 continue
             orig_input = list(node.input)
             orig_output = list(node.output)
@@ -358,7 +340,7 @@ class ShuffleDecomposition(Transformation):
                 # Transpose usually has one input and one output; if not,
                 # skip replacement
                 # TODO: Should this raise an exception? Probably need to be handled.
-                print(f"\tSkipping node {node.name}: unexpected number of inputs/outputs.")
+                log.warning(f"Skipping {node.name}: unexpected number of inputs/outputs")
                 continue
 
             prev_tensor = orig_input[0]
@@ -432,10 +414,57 @@ def _is_inner_shuffle(perm, shape):
     return perm == expected_perm
 
 
+def shuffle_stage_simd_dim(perm, shape):
+    """The dimension that SIMD must divide for one decomposed Shuffle stage.
+
+    InnerShuffle streams the axis it moves to the innermost position (the second
+    to last axis of its input), OuterShuffle cannot move the innermost axis, so
+    its SIMD divides the last axis of its input.
+    """
+    return int(shape[-2]) if _is_inner_shuffle(list(perm), list(shape)) else int(shape[-1])
+
+
+def shuffle_simd_dims(perm, transpose_in_shape):
+    """The dimensions that SIMD must divide in every stage of the decomposition of
+    a transpose with the given permutation, so that no stage needs its SIMD adjusted.
+    Empty for the identity permutation."""
+    perm = list(perm)
+    current_shape = list(transpose_in_shape)
+    stage_perms, _ = decompose_transpose_with_constraints(perm)
+    dims = []
+    for stage_perm in stage_perms:
+        dims.append(shuffle_stage_simd_dim(stage_perm, current_shape))
+        current_shape = list(itemgetter(*stage_perm)(current_shape))
+    return dims
+
+
+def legalize_stage_simd(simd, dim, node_name):
+    """Return simd if it divides dim, else the next larger divisor of dim.
+
+    Raises a RuntimeError naming node_name if dim has no divisor larger than simd.
+    This is the one place where a Shuffle stage's SIMD may be rounded; callers that
+    apply it to a configured value are expected to warn when the result differs.
+    """
+    for candidate in range(max(simd, 1), dim + 1):
+        if dim % candidate == 0:
+            return candidate
+    raise RuntimeError(
+        f"{node_name}: Unable to determine a new SIMD value for this transpose "
+        f"(SIMD={simd}, dim={dim})."
+    )
+
+
 class InferInnerOuterShuffles(Transformation):
     """
     Infers Inner and Outer Shuffles from Shuffle operators.
     This should run after the ShuffleDecomposition transformation.
+
+    The SIMD of an InnerShuffle / OuterShuffle has to divide one dimension of its
+    input (see shuffle_stage_simd_dim). A configured SIMD that does not is rounded up
+    to the next divisor here, with a warning, and nowhere else: the nodes' constructors
+    never change SIMD. SetFolding only picks values that need no rounding, so this only
+    applies to SIMD values that were configured by hand. The configured value stays in
+    original_simd for the config export.
     """
 
     def __init__(self):
@@ -460,38 +489,46 @@ class InferInnerOuterShuffles(Transformation):
                 perm = f_inst.get_nodeattr("perm")
                 simd = f_inst.get_nodeattr("SIMD")
 
-                if _is_inner_shuffle(perm, in_shape):
-                    # Get original node name if it exists, otherwise use current node name
-                    try:
-                        original_name = f_inst.get_nodeattr("original_node_name") or node.name
-                        original_simd = f_inst.get_nodeattr("original_simd") or simd
-                    except (AttributeError, KeyError):
-                        original_name = node.name
-                        original_simd = simd
+                # The Shuffle this stage came from and its configured SIMD, for the config
+                # export. ShuffleDecomposition sets both; a Shuffle it left alone has
+                # neither (original_simd then holds its default, not a configured value).
+                original_name = f_inst.get_nodeattr("original_node_name")
+                if original_name:
+                    original_simd = f_inst.get_nodeattr("original_simd")
+                else:
+                    original_name, original_simd = node.name, simd
+
+                is_inner = _is_inner_shuffle(perm, in_reshaped)
+                stage_dim = shuffle_stage_simd_dim(perm, in_reshaped)
+                new_simd = legalize_stage_simd(simd, stage_dim, node.name)
+                if new_simd != simd:
+                    stage = "InnerShuffle" if is_inner else "OuterShuffle"
+                    warnings.warn(
+                        f"{node.name}: SIMD={simd} does not divide {stage_dim}, the dimension "
+                        f"that the {stage} stage of this Shuffle has to fold. "
+                        f"Using SIMD={new_simd}."
+                    )
+                simd = new_simd
+
+                if is_inner:
                     new_node = helper.make_node(
                         "InnerShuffle",
                         [new_in_tensor],
                         [new_out_tensor],
                         domain="finn.custom_op.fpgadataflow",
                         backend="fpgadataflow",
-                        in_shape=in_shape,
+                        in_shape=in_shape,  # physical shape (matches the input tensor)
+                        transpose_in_shape=in_reshaped,  # logical (post-fused-reshape) shape
                         data_type=data_type,
                         perm=perm,
                         name=f"InnerShuffle_{node.name}",
                         original_node_name=original_name,  # Preserve original shuffle name
                         original_simd=original_simd,  # Preserve original SIMD
                         SIMD=simd,
-                        I=in_shape[-2],  # Second to last dim
-                        J=in_shape[-1],  # Last dim
+                        I=in_reshaped[-2],  # Second to last dim
+                        J=in_reshaped[-1],  # Last dim
                     )
                 else:
-                    # Get original node name if it exists, otherwise use current node name
-                    try:
-                        original_name = f_inst.get_nodeattr("original_node_name") or node.name
-                        original_simd = f_inst.get_nodeattr("original_simd") or simd
-                    except (AttributeError, KeyError):
-                        original_name = node.name
-                        original_simd = simd
                     new_node = helper.make_node(
                         "OuterShuffle",
                         [new_in_tensor],
@@ -510,8 +547,6 @@ class InferInnerOuterShuffles(Transformation):
                         loop_coeffs=shuffle_perfect_loopnest_coeffs(shape=in_reshaped, perm=perm),
                         SIMD=simd,
                         NumChannels=in_reshaped[-1],
-                        cpp_interface="hls_vector",
-                        hls_style="freerunning",
                     )
                 graph.node.insert(node_ind, new_node)
 

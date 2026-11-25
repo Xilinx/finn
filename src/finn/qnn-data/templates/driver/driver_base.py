@@ -29,6 +29,7 @@
 import numpy as np
 import os
 import time
+import warnings
 from pynq import Overlay, allocate
 from pynq.ps import Clocks
 from qonnx.core.datatype import DataType
@@ -54,7 +55,7 @@ class FINNExampleOverlay(Overlay):
         fclk_mhz=100.0,
         device=None,
         download=True,
-        runtime_weight_dir="runtime_weights/",
+        weight_dir="weights/",
     ):
         """Initialize the FINN accelerator.
 
@@ -63,7 +64,7 @@ class FINNExampleOverlay(Overlay):
         bitfile_name: str
             Path to accelerator .bit/.xclbin file
         platform: str
-            FINN platform type, either "vitis-xrt" or "zynq-iodma"
+            FINN platform type, either "vitis-xrt" or "pynq-iodma"
         io_shape_dict: dict
             Dictionary with particulars of the generated accelerator
         batch_size: int
@@ -74,20 +75,32 @@ class FINNExampleOverlay(Overlay):
             Which PYNQ device to use, None for default.
         download: bool
             Whether to flash the bitstream.
-        runtime_weight_dir: str
-            Path to runtime weights folder.
+        weight_dir: str
+            Path to the weights folder. Per-class weights live in subfolders
+            underneath it: runtime_weights/ (external + runtime weights) and
+            mlo_weights/. Each is loaded only if its subfolder/config is present.
         """
         super().__init__(bitfile_name, download=download, device=device)
-        self.runtime_weight_dir = runtime_weight_dir
+        self.weight_dir = weight_dir
+        self.runtime_weight_dir = os.path.join(weight_dir, "runtime_weights")
+        self.mlo_weight_dir = os.path.join(weight_dir, "mlo_weights")
         self._io_shape_dict = io_shape_dict
         self.ibuf_packed_device = None
         self.obuf_packed_device = None
-        self.platform = platform
-        self.batch_size = batch_size
         self.fclk_mhz = fclk_mhz
         self.idma = []
         self.odma = []
         self.odma_handle = []
+        if platform == "zynq-iodma":
+            warnings.warn(
+                'Platform "zynq-iodma" has been renamed to "pynq-iodma" and will be '
+                "removed in a future release.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            platform = "pynq-iodma"
+        self.platform = platform
+        self.batch_size = batch_size
         if "input_dma_name" in io_shape_dict.keys():
             for idma_name in io_shape_dict["input_dma_name"]:
                 self.idma.append(getattr(self, idma_name))
@@ -102,13 +115,14 @@ class FINNExampleOverlay(Overlay):
             self.odma = [self.odma0]
             if self.platform == "vitis-xrt":
                 self.odma_handle.append(None)
-        if self.platform == "zynq-iodma":
+        if self.platform == "pynq-iodma":
             # set the clock frequency as specified by user during transformations
             if self.fclk_mhz > 0:
                 Clocks.fclk0_mhz = self.fclk_mhz
-        # load any external + runtime weights
+        # load any external + runtime weights + MLO (DDR)
         self.load_external_weights()
         self.load_runtime_weights()
+        self.load_mlo_weights()
 
     def load_external_weights(self):
         """Load any existing external (DRAM) weights from the specified dir into the
@@ -159,6 +173,43 @@ class FINNExampleOverlay(Overlay):
                 + "weight tensors available do not match. \n"
                 + "Is runtime_weight_dir pointing to the correct folder?"
             )
+
+    def load_mlo_weights(self):
+        """Load DDR weights for MLO/FINNLoop accelerators."""
+        self.mlo_weight_buffer = None
+        mlo_cfg = self._io_shape_dict.get("mlo_weight_config")
+        if not mlo_cfg:
+            return
+        total_size = mlo_cfg["total_size_bytes"]
+        # allocate one big contiguous buffer for all MLO weights
+        weight_buf = allocate(shape=(total_size,), dtype=np.uint8)
+        weight_buf[:] = 0
+        for entry in mlo_cfg["weights"]:
+            dat_path = os.path.join(self.mlo_weight_dir, entry["dat_file"])
+            with open(dat_path, "r") as f:
+                dat = f.read()
+            raw = bytearray()
+            for tok in dat.split():
+                if len(tok) % 2:
+                    tok = "0" + tok
+                raw += bytes.fromhex(tok)[::-1]
+            layer_bytes = np.frombuffer(bytes(raw), dtype=np.uint8)
+            offset = entry["address_offset"]
+            assert offset + layer_bytes.shape[0] <= total_size, (
+                "MLO weight %s does not fit in the allocated DDR buffer" % entry["dat_file"]
+            )
+            weight_buf[offset : offset + layer_bytes.shape[0]] = layer_bytes
+        weight_buf.flush()
+        self.mlo_weight_buffer = weight_buf
+
+        # write buffer physical DDR address
+        phys_addr = int(weight_buf.device_address)
+        for ip_name in mlo_cfg.get("address_config_ips", []):
+            if ip_name not in self.ip_dict.keys():
+                continue
+            address_config = getattr(self, ip_name)
+            address_config.write(0x0, phys_addr & 0xFFFFFFFF)
+            address_config.write(0x4, (phys_addr >> 32) & 0xFFFFFFFF)
 
     def load_runtime_weights(self, flush_accel=True, verify=True):
         """Load any existing runtime-writable weights from the specified dir into the
@@ -271,7 +322,7 @@ class FINNExampleOverlay(Overlay):
             self.ibuf_packed_device = None
         if self.obuf_packed_device is not None:
             self.obuf_packed_device = None
-        cacheable = {"vitis-xrt": False, "zynq-iodma": True}[self.platform]
+        cacheable = {"vitis-xrt": False, "pynq-iodma": True}[self.platform]
         self.ibuf_packed_device = []
         self.obuf_packed_device = []
         self.obuf_packed = []
@@ -301,11 +352,7 @@ class FINNExampleOverlay(Overlay):
         """Packs folded input and reverses both SIMD dim and endianness.
         Gets input data in folded shape and returns packed input data."""
         ibuf_packed = finnpy_to_packed_bytearray(
-            ibuf_folded,
-            self.idt(ind),
-            reverse_endian=True,
-            reverse_inner=True,
-            fast_mode=True,
+            ibuf_folded, self.idt(ind), reverse_endian=True, reverse_inner=True
         )
         return ibuf_packed
 
@@ -350,7 +397,7 @@ class FINNExampleOverlay(Overlay):
         if batch_size is None:
             batch_size = self.batch_size
         assert batch_size <= self.batch_size, "Specified batch_size is too large."
-        if self.platform == "zynq-iodma":
+        if self.platform == "pynq-iodma":
             for o in range(self.num_outputs):
                 assert self.odma[o].read(0x00) & 0x4 != 0, "Output DMA %d is not idle" % (o)
             # manually launch IODMAs since signatures are missing
@@ -390,7 +437,7 @@ class FINNExampleOverlay(Overlay):
 
     def wait_until_finished(self):
         "Block until all output DMAs have finished writing."
-        if self.platform == "zynq-iodma":
+        if self.platform == "pynq-iodma":
             # check if output IODMA is finished via register reads
             for o in range(self.num_outputs):
                 status = self.odma[o].read(0x00)
@@ -451,7 +498,7 @@ class FINNExampleOverlay(Overlay):
             res["DRAM_extw_%s_bandwidth[MB/s]" % iwdma_name] = (
                 self.batch_size * np.prod(iwbuf.shape) * num_repeats * 0.000001 / runtime
             )
-        if self.platform == "zynq-iodma":
+        if self.platform == "pynq-iodma":
             res["fclk[mhz]"] = Clocks.fclk0_mhz
         elif self.platform == "vitis-xrt":
             res["fclk[mhz]"] = self.clock_dict["clock0"]["frequency"]

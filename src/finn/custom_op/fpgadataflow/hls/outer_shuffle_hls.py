@@ -7,53 +7,16 @@
 # @author       Shane T. Fleming <shane.fleming@amd.com>
 ############################################################################
 
-import math
 import numpy as np
-from typing import Optional
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.outer_shuffle import OuterShuffle
-
-
-def auto_size_simd(I_dim: int, SIMD: int) -> Optional[int]:
-    """
-    Return the smallest divisor d of I_dim such that d > SIMD.
-    if no such divisor exists, return None.
-    """
-    if I_dim <= 0:
-        raise ValueError("I_dim must be a positive integer")
-    if SIMD < 0:
-        raise ValueError("SIMD must be a non-negative integer")
-
-    candidates = []
-    limit = int(math.isqrt(I_dim))
-    for a in range(1, limit + 1):
-        if I_dim % a == 0:
-            b = I_dim // a
-            if a > SIMD:
-                candidates.append(a)
-            if b > SIMD:
-                candidates.append(b)
-
-    if not candidates:
-        return None
-
-    return min(candidates)
+from finn.util.data_packing import hls_datatype_str
 
 
 class OuterShuffle_hls(OuterShuffle, HLSBackend):
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
-
-        # check some constraints that it is a legal shuffle_hls
-        last_dim = self.get_nodeattr("transpose_in_shape")[-1]
-        SIMD = self.get_nodeattr("SIMD")
-        if last_dim % SIMD != 0:
-            new_simd = auto_size_simd(last_dim, SIMD)
-            if new_simd is not None:
-                self.set_nodeattr("SIMD", new_simd)
-            else:
-                raise RuntimeError("Unable to determine a new SIMD value for this transpose.")
 
     def get_nodeattr_types(self):
         return OuterShuffle.get_nodeattr_types(self) | HLSBackend.get_nodeattr_types(self)
@@ -62,7 +25,6 @@ class OuterShuffle_hls(OuterShuffle, HLSBackend):
         self.code_gen_dict["$GLOBALS$"] = [
             '#include "input_gen.hpp"',
             "#include <ap_int.h>",
-            "#include <hls_vector.h>",
             "#include <hls_stream.h>",
         ]
 
@@ -72,8 +34,8 @@ class OuterShuffle_hls(OuterShuffle, HLSBackend):
         self.code_gen_dict["$DEFINES$"] = [
             f"""
             constexpr unsigned  SIMD = {simd};
-            using  TE = {dtype.get_hls_datatype_str()};
-            using  TV = hls::vector<TE, SIMD>;
+            using  TE = {hls_datatype_str(dtype)};
+            using  TV = tensor<TE, SIMD>;
             """
         ]
 
@@ -96,6 +58,19 @@ class OuterShuffle_hls(OuterShuffle, HLSBackend):
 
             """
         ]
+
+    def ipgen_extra_directives(self):
+        """Bind the input_gen reorder buffer to the requested memory resource.
+
+        The buffer is a function-local static inside the finn-hlslib template, so
+        it is bound from the synthesis script rather than by a source pragma.
+        """
+        impl = {"block": "bram", "distributed": "lutram", "ultra": "uram"}.get(
+            self.get_nodeattr("ram_style")
+        )
+        if impl is None:
+            return []
+        return [f'set_directive_bind_storage -type ram_s2p -impl {impl} "input_gen" buf']
 
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [

@@ -65,7 +65,6 @@ import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.core.onnx_exec import execute_onnx
-from finn.core.throughput_test import throughput_test_rtlsim
 from finn.transformation.fpgadataflow.alveo_build import PrepareForLinking
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
@@ -86,7 +85,10 @@ from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
+from finn.transformation.fpgadataflow.set_fifo_depths import (
+    InsertAndSetFIFODepths,
+    xsi_fifosim,
+)
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
@@ -98,6 +100,7 @@ from finn.transformation.streamline.reorder import (
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import get_finn_root, make_build_dir
 from finn.util.pytorch import ToTensor
+from finn.util.rtlsim import annotate_rtlsim_performance
 from finn.util.test import (
     execute_parent,
     get_build_env,
@@ -166,6 +169,22 @@ def fold_lfc(model):
     return model
 
 
+def fold_cnv_swgs_and_pools(model):
+    """Derive SWG SIMD and Pool PE from the adjacent MVAUs (by graph, not index)."""
+    for swg in model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl"):
+        swg_inst = getCustomOp(swg)
+        consumer = model.find_consumer(swg.output[0])
+        if consumer is not None and consumer.op_type.startswith("MVAU"):
+            swg_inst.set_nodeattr("SIMD", getCustomOp(consumer).get_nodeattr("SIMD"))
+        swg_inst.set_nodeattr("ram_style", "distributed")
+    # InferPool leaves Pool fully parallel (PE=Channels). Match the producing
+    # MVAU's PE instead: equal stream widths (no DWC) at ample throughput.
+    for pool in model.get_nodes_by_op_type("Pool_hls"):
+        producer = model.find_producer(pool.input[0])
+        if producer is not None and producer.op_type.startswith("MVAU"):
+            getCustomOp(pool).set_nodeattr("PE", getCustomOp(producer).get_nodeattr("PE"))
+
+
 def fold_cnv_large(model):
     fc_layers = model.get_nodes_by_op_type("MVAU_hls")
     # each tuple is (PE, SIMD) for a layer
@@ -187,13 +206,7 @@ def fold_cnv_large(model):
         fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
         fcl_inst.set_nodeattr("resType", "lut")
 
-    swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")
-    for i in range(len(swg_layers)):
-        swg_inst = getCustomOp(swg_layers[i])
-        if not swg_inst.get_nodeattr("depthwise"):
-            simd = folding[i][1]
-            swg_inst.set_nodeattr("SIMD", simd)
-        swg_inst.set_nodeattr("ram_style", "distributed")
+    fold_cnv_swgs_and_pools(model)
     return model
 
 
@@ -219,13 +232,7 @@ def fold_cnv_small(model):
         fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
         fcl_inst.set_nodeattr("resType", "lut")
 
-    swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")
-    for i in range(len(swg_layers)):
-        swg_inst = getCustomOp(swg_layers[i])
-        if not swg_inst.get_nodeattr("depthwise"):
-            simd = folding[i][1]
-            swg_inst.set_nodeattr("SIMD", simd)
-        swg_inst.set_nodeattr("ram_style", "distributed")
+    fold_cnv_swgs_and_pools(model)
     inp_qnt_node = model.get_nodes_by_op_type("Thresholding_rtl")[0]
     inp_qnt = getCustomOp(inp_qnt_node)
     inp_qnt.set_nodeattr("depth_trigger_uram", 32000)
@@ -313,15 +320,7 @@ def topology2dataset(topology):
 
 
 def deploy_based_on_board(model, model_title, topology, wbits, abits, board):
-    # Check if a deployment directory for this board type already exists
-    if ("FINN_DEPLOY_DIR" in os.environ) and (board in os.environ["FINN_DEPLOY_DIR"]):
-        deploy_dir_root = os.environ["FINN_DEPLOY_DIR"]
-    else:
-        deploy_dir_root = make_build_dir(prefix="hw_deployment_" + board + "_")
-        # Set it for the next round if multiple bitstreams are selected for generation
-        os.environ["FINN_DEPLOY_DIR"] = deploy_dir_root
-
-    # create directory for deployment files
+    deploy_dir_root = make_build_dir(prefix="hw_deployment_" + board + "_")
     deployment_dir = deploy_dir_root + "/" + board + "/" + model_title
     os.makedirs(deployment_dir)
 
@@ -373,10 +372,10 @@ def deploy_based_on_board(model, model_title, topology, wbits, abits, board):
 # Sanity is a fixed set of four scenarios, one per board. -m bnn_<board>
 # selects the twelve-scenario matrix (wbits x abits x topology) for one board.
 _SANITY_BNN_CONFIGS = [
-    (1, 1, "lfc", "Pynq-Z1"),
+    (1, 1, "lfc", "AUP-ZU3_8GB"),
     (1, 2, "cnv", "KV260_SOM"),
     (2, 2, "tfc", "ZCU104"),
-    (2, 2, "cnv", "U250"),
+    (2, 2, "cnv", "U55C"),
 ]
 
 # these values feed the xdist_group names below, so changing one renames its
@@ -503,7 +502,7 @@ class TestEnd2End:
     def test_streamline(self, topology, wbits, abits, board):
         prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "pre_post")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
-        model = model.transform(absorb.AbsorbSignBiasIntoMultiThreshold())
+        model = model.transform(absorb.AbsorbScalarBiasIntoMultiThreshold())
         # move past any reshapes to be able to streamline input scaling
         model = model.transform(MoveScalarLinearPastInvariants())
         model = model.transform(Streamline())
@@ -538,6 +537,7 @@ class TestEnd2End:
             model = model.transform(to_hw.InferPool())
             model = model.transform(to_hw.InferConvInpGen())
             model = model.transform(RemoveCNVtoFCFlatten())
+            model = model.transform(to_hw.InferStreamingReshape())
         # get rid of Tranpose -> Tranpose identity seq
         model = model.transform(absorb.AbsorbConsecutiveTransposes())
         model = model.transform(GiveUniqueNodeNames())
@@ -565,7 +565,7 @@ class TestEnd2End:
             "cnv": [
                 ("Transpose", 1),
                 ("Thresholding", 1),
-                ("ConvolutionInputGenerator", 8),
+                ("ConvolutionInputGenerator", 6),
                 ("MVAU", 9),
                 ("Pool", 2),
                 ("LabelSelect", 1),
@@ -583,6 +583,11 @@ class TestEnd2End:
         build_data = get_build_env(board, target_clk_ns)
         prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "convert_to_hw_layers")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
+        # First pass: datatype-only bit width minimization before specialization
+        # Gives specialization realistic bit widths for RTL/HLS decisions
+        model = model.transform(MinimizeWeightBitWidth(datatype_only=True))
+        model = model.transform(MinimizeAccumulatorWidth(datatype_only=True))
+        model = model.transform(InferDataTypes())
         model = model.transform(SpecializeLayers(build_data["part"]))
         model = model.transform(GiveUniqueNodeNames())
         model.save(get_checkpoint_name(board, topology, wbits, abits, "specialize_layers"))
@@ -608,7 +613,7 @@ class TestEnd2End:
             "cnv": [
                 ("Transpose", 1),
                 ("Thresholding_rtl", 1),
-                ("ConvolutionInputGenerator_rtl", 8),
+                ("ConvolutionInputGenerator_rtl", 6),
                 ("MVAU_hls", 9),
                 ("Pool_hls", 2),
                 ("LabelSelect_hls", 1),
@@ -688,15 +693,7 @@ class TestEnd2End:
         prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "ipgen")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         test_fpga_part = get_build_env(board, target_clk_ns)["part"]
-        if topology == "cnv" and abits == 2 and board == "Pynq-Z1":
-            # Enabling swg_exception for these test cases. Disabling the exception results in
-            # a design that exceeds the resources of the Pynq-Z1 board. In future this should be
-            # revisited and handled correctly as the swg_exception is poorly justified.
-            model = model.transform(
-                InsertAndSetFIFODepths(test_fpga_part, target_clk_ns, swg_exception=True)
-            )
-        else:
-            model = model.transform(InsertAndSetFIFODepths(test_fpga_part, target_clk_ns))
+        model = model.transform(InsertAndSetFIFODepths(test_fpga_part, target_clk_ns))
 
         fifo_layers = model.get_nodes_by_op_type("StreamingFIFO_rtl")
         assert len(fifo_layers) > 0
@@ -704,7 +701,7 @@ class TestEnd2End:
 
     @pytest.mark.slow
     @pytest.mark.vivado
-    def test_ipstitch_rtlsim(self, topology, wbits, abits, board):
+    def test_ipstitch_rtlsim(self, topology, wbits, abits, board, monkeypatch):
         prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "fifodepth")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         test_fpga_part = get_build_env(board, target_clk_ns)["part"]
@@ -714,17 +711,14 @@ class TestEnd2End:
         model = model.transform(AnnotateCycles())
         perf = model.analysis(dataflow_performance)
         latency = perf["critical_path_cycles"]
-        # rtlsim only supports impl_style=rtl for StreamingFIFO, ensure that
-        for fifo_layer in model.get_nodes_by_op_type("StreamingFIFO_rtl"):
-            getCustomOp(fifo_layer).set_nodeattr("impl_style", "rtl")
         model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
         model = model.transform(HLSSynthIP())
         model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
         model.set_metadata_prop("exec_mode", "rtlsim")
-        os.environ["LIVENESS_THRESHOLD"] = str(int(latency * 1.1))
+        monkeypatch.setenv("LIVENESS_THRESHOLD", str(int(latency * 1.1)))
         if rtlsim_trace:
             model.set_metadata_prop("rtlsim_trace", "%s_w%da%d.vcd" % (topology, wbits, abits))
-            os.environ["RTLSIM_TRACE_DEPTH"] = "3"
+            monkeypatch.setenv("RTLSIM_TRACE_DEPTH", "3")
         rtlsim_chkpt = get_checkpoint_name(board, topology, wbits, abits, "ipstitch_rtlsim")
         model.save(rtlsim_chkpt)
         parent_chkpt = get_checkpoint_name(board, topology, wbits, abits, "dataflow_parent")
@@ -741,14 +735,19 @@ class TestEnd2End:
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         n_nodes = len(model.graph.node)
         perf_est = model.analysis(dataflow_performance)
-        ret_b1 = throughput_test_rtlsim(model, target_clk_ns, batchsize=1)
-        latency = int(ret_b1["cycles"])
+        # Run with 2 frames to get valid steady-state throughput
+        batchsize = max(2, 2 * n_nodes)
+        # derive the rtlsim watchdog timeout from the latency estimate (mirrors the
+        # FIFO-sizing and perf-report steps); the flat liveness default is too low
+        # for the pipeline-fill latency of a full model
+        max_iters = perf_est["critical_path_cycles"] * 1.1 + 50
+        ret = xsi_fifosim(model, n_inferences=batchsize, max_iters=max_iters)
+        ret = annotate_rtlsim_performance(ret, batchsize, target_clk_ns)
+        # Check that steady-state throughput is valid and close to estimate
+        assert ret["stable_throughput_valid"] is True
         cycles_per_sample_est = perf_est["max_cycles"]
-        batchsize = 2 * n_nodes
-        ret = throughput_test_rtlsim(model, target_clk_ns, batchsize=batchsize)
-        res_cycles = ret["cycles"]
-        est_cycles = latency + cycles_per_sample_est * batchsize
-        assert (abs(res_cycles - est_cycles) / res_cycles) < 0.15
+        est_throughput = 1.0e9 / (target_clk_ns * cycles_per_sample_est)
+        assert abs(ret["stable_throughput[images/s]"] - est_throughput) / est_throughput < 0.15
 
     @pytest.mark.slow
     @pytest.mark.vivado
@@ -812,7 +811,7 @@ class TestEnd2End:
             else:
                 model = model.transform(MakePYNQDriver("vitis-xrt"))
         elif build_data["toolchain"] == "pynq":
-            model = model.transform(MakePYNQDriver("zynq-iodma"))
+            model = model.transform(MakePYNQDriver("pynq-iodma"))
         else:
             raise Exception("Unsupported toolchain/topology combination for driver generation")
         model.save(get_checkpoint_name(board, topology, wbits, abits, "driver"))

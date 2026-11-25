@@ -135,7 +135,6 @@ def _make_mvau_model(
         accDataType=adt.name,
         ActVal=tdt.min() if tdt is not None else 0,
         noActivation=0 if tdt is not None else 1,
-        binaryXnorMode=0,
     )
 
     nodes = [main_node]
@@ -174,7 +173,6 @@ def _make_mvau_model(
             accDataType=adt.name,
             ActVal=0,
             noActivation=1,
-            binaryXnorMode=0,
         )
         nodes.append(successor_node)
         initializers.append(
@@ -242,7 +240,6 @@ def _make_vvau_mvau_model(wdt: DataType, idt: DataType, tdt: Optional[DataType] 
         weightDataType=wdt.name,
         ActVal=tdt.min() if tdt is not None else 0,
         noActivation=0 if tdt is not None else 1,
-        binaryXnorMode=0,
     )
     graph = helper.make_graph(
         nodes=[layer1, layer2], name="fclayer_graph", inputs=[inp], outputs=[outp]
@@ -365,10 +362,6 @@ def calculate_accumulator_bit_width(
         return np.log2(1 + pow(2, -x))
 
     weights = model.get_initializer(inst.onnx_node.input[1])
-    # since in the calculation the values of the weight matrix are used,
-    # for the bipolar case they need to be converted to bipolar
-    if inst.get_nodeattr("binaryXnorMode"):
-        weights = 2 * weights - 1
     # modify the weights based on if the node is a VVAU or MVAU
     if isinstance(inst, MVAU):
         K = inst.get_nodeattr("MW")  # matrix_width = num_inputs
@@ -856,3 +849,211 @@ def test_full_bit_width_optimization_pipeline():
     assert (
         final_thresh_dt.bitwidth() <= DataType["INT32"].bitwidth()
     ), "Threshold datatype optimized"
+
+
+# --- Tests for Pool, GlobalAccPool, Lookup minimize methods ---
+
+
+def make_pool_model(idt: DataType, k: int, function: str):
+    """Create a simple fused Pool node (raw NHWC feature map in, windows
+    generated internally) with non-overlapping k x k windows."""
+    channels, odim = 4, 4
+    idim = odim * k
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, idim, idim, channels])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, odim, odim, channels])
+
+    node = helper.make_node(
+        "Pool",
+        ["inp"],
+        ["outp"],
+        domain="finn.custom_op.fpgadataflow",
+        backend="fpgadataflow",
+        Channels=channels,
+        PE=1,
+        KernelSize=[k, k],
+        Stride=[k, k],
+        IFMDim=[idim, idim],
+        Padding=[0, 0, 0, 0],
+        Function=function,
+        OutImgDims=[odim, odim],
+        InputDataType=idt.name,
+        OutputDataType=idt.name,
+        AccumBits=32,
+        BatchSize=1,
+    )
+
+    graph = helper.make_graph(nodes=[node], name="pool_test", inputs=[inp], outputs=[outp])
+    model = helper.make_model(graph, producer_name="pool-test")
+    model = ModelWrapper(model)
+    model.set_tensor_datatype("inp", idt)
+    model.set_tensor_datatype("outp", idt)
+    # guard against the helper drifting from the node's shape contract again
+    inst = getCustomOp(node)
+    assert inst.get_normal_input_shape() == tuple(model.get_tensor_shape("inp"))
+    assert inst.get_normal_output_shape() == tuple(model.get_tensor_shape("outp"))
+    return model
+
+
+def make_globalaccpool_model(idt: DataType, h: int, w: int):
+    """Create a simple GlobalAccPool node for testing."""
+    channels = 4
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, h, w, channels])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, 1, 1, channels])
+
+    node = helper.make_node(
+        "GlobalAccPool",
+        ["inp"],
+        ["outp"],
+        domain="finn.custom_op.fpgadataflow",
+        backend="fpgadataflow",
+        NumChannels=channels,
+        PE=1,
+        inputDataType=idt.name,
+        numInputVectors=[1, h, w],
+    )
+
+    graph = helper.make_graph(nodes=[node], name="globalaccpool_test", inputs=[inp], outputs=[outp])
+    model = helper.make_model(graph, producer_name="globalaccpool-test")
+    model = ModelWrapper(model)
+    model.set_tensor_datatype("inp", idt)
+    return model
+
+
+def make_lookup_model(edt: DataType, mem_mode: str = "internal_embedded"):
+    """Create a simple Lookup node for testing."""
+    num_embeddings, embedding_dim = 16, 8
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, 4])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, 4, embedding_dim])
+
+    node = helper.make_node(
+        "Lookup",
+        ["inp", "embeddings"],
+        ["outp"],
+        domain="finn.custom_op.fpgadataflow",
+        backend="fpgadataflow",
+        NumEmbeddings=num_embeddings,
+        EmbeddingDim=embedding_dim,
+        EmbeddingType=edt.name,
+        InputType="UINT4",
+        InputShape=[1, 4],
+        mem_mode=mem_mode,
+    )
+
+    embeddings = gen_finn_dt_tensor(edt, (num_embeddings, embedding_dim))
+
+    graph = helper.make_graph(
+        nodes=[node],
+        name="lookup_test",
+        inputs=[inp],
+        outputs=[outp],
+        initializer=[
+            helper.make_tensor(
+                "embeddings", TensorProto.FLOAT, embeddings.shape, embeddings.flatten()
+            )
+        ],
+    )
+    model = helper.make_model(graph, producer_name="lookup-test")
+    model = ModelWrapper(model)
+    model.set_tensor_datatype("inp", DataType["UINT4"])
+    model.set_tensor_datatype("embeddings", edt)
+    model.set_tensor_datatype("outp", edt)
+    model.set_initializer("embeddings", embeddings)
+    return model
+
+
+@pytest.mark.parametrize(
+    "idt", [DataType["INT8"], DataType["UINT8"], DataType["INT4"], DataType["UINT4"]]
+)
+@pytest.mark.parametrize("k", [2, 3, 4])
+@pytest.mark.parametrize("function", ["QuantAvgPool", "MaxPool"])
+@pytest.mark.fpgadataflow
+def test_pool_minimize_accumulator_width(idt: DataType, k: int, function: str):
+    """Test minimize_accumulator_width for Pool (QuantAvgPool and MaxPool)."""
+    model = make_pool_model(idt, k=k, function=function)
+    inst = getCustomOp(model.graph.node[0])
+    initial_accum_bits = inst.get_nodeattr("AccumBits")
+
+    result_dt = inst.minimize_accumulator_width(model)
+
+    if function == "MaxPool":
+        # MaxPool has no accumulator - should be no-op
+        assert result_dt is None
+        assert inst.get_nodeattr("AccumBits") == initial_accum_bits
+    else:
+        # QuantAvgPool should minimize AccumBits
+        assert inst.get_nodeattr("AccumBits") < 32
+        # Verify accumulator can hold worst-case sum
+        kernel_elements = k * k
+        if idt.signed():
+            worst_min = kernel_elements * idt.min()
+            worst_max = kernel_elements * idt.max()
+            assert result_dt.min() <= worst_min and result_dt.max() >= worst_max
+        else:
+            assert result_dt.max() >= kernel_elements * idt.max()
+
+
+@pytest.mark.parametrize(
+    "idt", [DataType["INT8"], DataType["UINT8"], DataType["INT4"], DataType["UINT4"]]
+)
+@pytest.mark.parametrize("h,w", [(2, 2), (4, 4), (8, 8), (4, 8)])
+@pytest.mark.fpgadataflow
+def test_globalaccpool_minimize_accumulator_width(idt: DataType, h: int, w: int):
+    """Test minimize_accumulator_width for GlobalAccPool."""
+    model = make_globalaccpool_model(idt, h=h, w=w)
+    inst = getCustomOp(model.graph.node[0])
+
+    result_dt = inst.minimize_accumulator_width(model)
+
+    # Verify output tensor datatype was set
+    assert model.get_tensor_datatype("outp") == result_dt
+
+    # Verify datatype can hold worst-case accumulation
+    npixels = h * w
+    if idt.signed():
+        assert result_dt.min() <= npixels * idt.min()
+        assert result_dt.max() >= npixels * idt.max()
+    else:
+        assert result_dt.max() >= npixels * idt.max()
+
+
+@pytest.mark.parametrize(
+    "edt", [DataType["INT8"], DataType["UINT8"], DataType["INT4"], DataType["INT16"]]
+)
+@pytest.mark.parametrize("mem_mode", ["internal_embedded", "external"])
+@pytest.mark.parametrize("datatype_only", [True, False])
+@pytest.mark.fpgadataflow
+def test_lookup_minimize_weight_bit_width(edt: DataType, mem_mode: str, datatype_only: bool):
+    """Test minimize_weight_bit_width for Lookup with various configurations."""
+    model = make_lookup_model(edt, mem_mode=mem_mode)
+    inst = getCustomOp(model.graph.node[0])
+
+    result_dt = inst.minimize_weight_bit_width(model, datatype_only=datatype_only)
+
+    if mem_mode == "external" or datatype_only:
+        # Should return original datatype without modification
+        assert result_dt == edt
+    else:
+        # Should minimize based on actual embedding values
+        new_edt = DataType[inst.get_nodeattr("EmbeddingType")]
+        assert new_edt == result_dt
+        # Verify embeddings fit in new datatype
+        embeddings = model.get_initializer("embeddings")
+        assert embeddings.min() >= result_dt.min()
+        assert embeddings.max() <= result_dt.max()
+
+
+@pytest.mark.fpgadataflow
+def test_lookup_minimize_weight_bit_width_narrows_wide_datatype():
+    """Test that Lookup narrows INT32 to smaller type when values are small."""
+    model = make_lookup_model(DataType["INT32"])
+    inst = getCustomOp(model.graph.node[0])
+
+    # Replace embeddings with small values that fit in INT4
+    small_embeddings = np.random.randint(-8, 7, (16, 8)).astype(np.float32)
+    model.set_initializer("embeddings", small_embeddings)
+
+    result_dt = inst.minimize_weight_bit_width(model)
+
+    assert (
+        result_dt.bitwidth() <= 8
+    ), f"Expected INT8 or smaller for values in [-8,7], got {result_dt}"

@@ -5,22 +5,6 @@ Custom Op - fpgadataflow.hls
 HLS Custom Op Nodes
 ===================
 
-finn.custom\_op.fpgadataflow.addstreams\_hls
----------------------------------------------
-
-.. automodule:: finn.custom_op.fpgadataflow.hls.addstreams_hls
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-finn.custom\_op.fpgadataflow.channelwise\_op\_hls
------------------------------------------------------
-
-.. automodule:: finn.custom_op.fpgadataflow.hls.channelwise_op_hls
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 finn.custom\_op.fpgadataflow.checksum_hls
 ------------------------------------------
 
@@ -111,26 +95,10 @@ finn.custom\_op.fpgadataflow.streamingdatawidthconverter\_hls
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.fpgadataflow.streamingeltwise\_hls
-----------------------------------------------------------------------
-
-.. automodule:: finn.custom_op.fpgadataflow.hls.streamingeltwise_hls
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 finn.custom\_op.fpgadataflow.thresholding\_hls
 -------------------------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.hls.thresholding_hls
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-finn.custom\_op.fpgadataflow.tlastmarker\_hls
------------------------------------------------
-
-.. automodule:: finn.custom_op.fpgadataflow.hls.tlastmarker_hls
    :members:
    :undoc-members:
    :show-inheritance:

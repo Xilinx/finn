@@ -39,7 +39,6 @@ from finn.transformation.streamline.absorb import AbsorbConsecutiveTransposes
 
 @pytest.mark.streamline
 def test_absorb_opposite_transposes():
-    np.random.seed(0)
     shp = [1, 3, 4, 2]
     shp_str = str(shp)
     input = f"""

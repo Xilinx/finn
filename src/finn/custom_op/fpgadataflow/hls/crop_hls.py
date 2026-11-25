@@ -12,12 +12,10 @@
 
 from finn.custom_op.fpgadataflow.crop import Crop
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
+from finn.util.data_packing import hls_datatype_str
 
 
 class Crop_hls(Crop, HLSBackend):
-    def __init__(self, onnx_node, **kwargs):
-        super().__init__(onnx_node, **kwargs)
-
     def get_nodeattr_types(self):
         return Crop.get_nodeattr_types(self) | HLSBackend.get_nodeattr_types(self)
 
@@ -44,7 +42,7 @@ class Crop_hls(Crop, HLSBackend):
             constexpr unsigned  CROP_E = {self.get_nodeattr("CropEast")};
             constexpr unsigned  CROP_S = {self.get_nodeattr("CropSouth")};
             constexpr unsigned  CROP_W = {self.get_nodeattr("CropWest")};
-            using  TV = hls::vector<{dtype.get_hls_datatype_str()}, SIMD>;
+            using  TV = tensor<{hls_datatype_str(dtype)}, SIMD>;
             """
         ]
 

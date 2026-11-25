@@ -29,8 +29,11 @@
 
 import pytest
 
+import glob
+import json
 import numpy as np
 import os
+import re
 from qonnx.core.modelwrapper import ModelWrapper
 from shutil import copytree
 
@@ -46,24 +49,71 @@ def test_end2end_build_dataflow_directory():
     target_dir = test_dir + "/build_dataflow"
     example_data_dir = os.environ["FINN_ROOT"] + "/src/finn/qnn-data/build_dataflow"
     copytree(example_data_dir, target_dir)
+    # disable pdb postmortem on the copy only, the shipped example keeps the default
+    cfg_file = target_dir + "/dataflow_build_config.json"
+    with open(cfg_file) as f:
+        cfg_json = json.load(f)
+    cfg_json["enable_build_pdb_debug"] = False
+    with open(cfg_file, "w") as f:
+        json.dump(cfg_json, f, indent=2)
     build_dataflow_directory(target_dir)
     # check the generated files
-    output_dir = target_dir + "/output_tfc_w1a1_Pynq-Z1"
+    output_dir = target_dir + "/output_tfc_w1a1_AUP-ZU3_8GB"
     assert os.path.isfile(output_dir + "/build_dataflow.log")
     assert os.path.isfile(output_dir + "/time_per_step.json")
     assert os.path.isfile(output_dir + "/auto_folding_config.json")
     assert os.path.isfile(output_dir + "/final_hw_config.json")
     assert os.path.isfile(output_dir + "/template_specialize_layers_config.json")
     assert os.path.isfile(output_dir + "/stitched_ip/ip/component.xml")
+    # Portable RTL export checks
+    assert os.path.isdir(output_dir + "/portable_rtl")
+    assert os.path.isdir(output_dir + "/portable_rtl/rtl")
+    assert os.path.isdir(output_dir + "/portable_rtl/data")
+    assert os.path.isfile(output_dir + "/portable_rtl/filelist.f")
+    assert os.path.isfile(output_dir + "/portable_rtl/sources.tcl")
+    assert os.path.isfile(output_dir + "/portable_rtl/README.md")
+    # every decoupled layer reads its own weights: the memstream wrappers' INIT_FILEs
+    # (all memblock.dat originally) must be distinct, exported files
+    src_dir = output_dir + "/portable_rtl/rtl/src"
+    init_files = []
+    for wrapper in glob.glob(src_dir + "/*_memstream_wrapper.v"):
+        with open(wrapper) as f:
+            init_files.append(re.search(r'INIT_FILE\s*=\s*"([^"]+)"', f.read()).group(1))
+    assert len(init_files) >= 2
+    assert len(set(init_files)) == len(init_files)
+    for init_file in init_files:
+        assert os.path.isfile(os.path.join(src_dir, init_file))
     assert os.path.isfile(output_dir + "/driver/driver.py")
     assert os.path.isfile(output_dir + "/report/estimate_layer_cycles.json")
     assert os.path.isfile(output_dir + "/report/estimate_layer_resources.json")
-    assert os.path.isfile(output_dir + "/report/rtlsim_perf_batch_1.wdb")
+    assert os.path.isfile(output_dir + "/report/rtlsim_perf_batch_2.wdb")
     assert os.path.isfile(output_dir + "/report/fifosim_trace.wdb")
     assert os.path.isfile(output_dir + "/report/estimate_layer_config_alternatives.json")
     assert os.path.isfile(output_dir + "/report/estimate_network_performance.json")
     assert os.path.isfile(output_dir + "/report/ooc_synth_and_timing.json")
     assert os.path.isfile(output_dir + "/report/rtlsim_performance.json")
+
+    # Exercise the complete multi-frame XSI path. These assertions use raw
+    # harness statistics so that first/last completion accounting regressions
+    # cannot be hidden by downstream throughput arithmetic.
+    with open(output_dir + "/report/rtlsim_performance.json") as f:
+        rtlsim_perf = json.load(f)
+    assert rtlsim_perf["TIMEOUT"] == 0
+    assert rtlsim_perf["UNFINISHED_INS"] == 0
+    assert rtlsim_perf["UNFINISHED_OUTS"] == 0
+    assert rtlsim_perf["completed_output_frames"] == 2
+    assert rtlsim_perf["latency_cycles"] > 0
+    assert rtlsim_perf["latency_cycles"] < rtlsim_perf["cycles"]
+    assert rtlsim_perf["interval_valid"] == 1
+    assert rtlsim_perf["interval_cycles"] > 0
+    assert rtlsim_perf["steady_state_frames"] == 1
+    assert rtlsim_perf["steady_state_cycles"] == rtlsim_perf["interval_cycles"]
+    assert (
+        rtlsim_perf["latency_cycles"] + rtlsim_perf["steady_state_cycles"] <= rtlsim_perf["cycles"]
+    )
+    assert rtlsim_perf["stable_throughput_valid"] is True
+    expected_stable_throughput = 1.0e9 / (10.0 * rtlsim_perf["steady_state_cycles"])
+    assert rtlsim_perf["stable_throughput[images/s]"] == pytest.approx(expected_stable_throughput)
 
     # Verify OOC P&R flow results are present in report directory
     assert os.path.isfile(
@@ -98,8 +148,11 @@ def test_end2end_build_dataflow_directory():
         assert os.path.isfile(stitched_waveform_dir + f"/verify_rtlsim_{i}.wdb")
 
         # Check that node-by-node rtlsim waveforms were created for each node
+        # Skip FIFO nodes as they use pass-through execution (no RTL simulation)
         node_waveform_dir = verify_out_dir + "/node_by_node_rtlsim_waveforms"
         for node in model.graph.node:
+            if node.op_type.startswith("StreamingFIFO"):
+                continue
             assert os.path.isfile(
                 node_waveform_dir + f"/{node.name}_rtlsim_{i}.wdb"
             ), f"Missing waveform for node {node.name} in batch {i}"
@@ -113,6 +166,11 @@ def test_end2end_build_dataflow_directory():
     assert os.path.isdir(fifo_sizing_dir), "FIFO sizing log directory not created"
     fifo_sizing_logs = [f for f in os.listdir(fifo_sizing_dir) if f.endswith(".log")]
     assert len(fifo_sizing_logs) > 0, "No FIFO debug logs created during fifo_sizing phase"
+
+    # Check that the pre-FIFO-sim model snapshot was created alongside the logs
+    assert os.path.isfile(
+        fifo_sizing_dir + "/intermediate_models/pre_fifosim.onnx"
+    ), "No pre-FIFO-sim model snapshot created during fifo_sizing phase"
 
     # Check that stitched_ip_rtlsim phase logs were created
     stitched_rtlsim_dir = fifo_log_base + "/stitched_ip_rtlsim/main"

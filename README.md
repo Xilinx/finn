@@ -40,27 +40,31 @@ In the past, we also had a [Gitter channel](https://gitter.im/xilinx-finn/commun
 
 ## Citation
 
-The current implementation of the framework is based on the following publications. Please consider citing them if you find FINN useful.
+If you use FINN in your research, please cite the software and the publications it is based on.
+[CITATION.cff](CITATION.cff) contains the citation metadata for both; GitHub offers it through
+"Cite this repository" in the sidebar, and reference managers can import it. The publications:
 
     @article{blott2018finn,
       title={FINN-R: An end-to-end deep-learning framework for fast exploration of quantized neural networks},
-      author={Blott, Michaela and Preu{\ss}er, Thomas B and Fraser, Nicholas J and Gambardella, Giulio and O’brien, Kenneth and Umuroglu, Yaman and Leeser, Miriam and Vissers, Kees},
+      author={Blott, Michaela and Preu{\ss}er, Thomas B and Fraser, Nicholas J and Gambardella, Giulio and O'Brien, Kenneth and Umuroglu, Yaman and Leeser, Miriam and Vissers, Kees},
       journal={ACM Transactions on Reconfigurable Technology and Systems (TRETS)},
       volume={11},
       number={3},
       pages={1--23},
       year={2018},
-      publisher={ACM New York, NY, USA}
+      publisher={ACM New York, NY, USA},
+      doi={10.1145/3242897}
     }
 
     @inproceedings{finn,
-    author = {Umuroglu, Yaman and Fraser, Nicholas J. and Gambardella, Giulio and Blott, Michaela and Leong, Philip and Jahre, Magnus and Vissers, Kees},
-    title = {FINN: A Framework for Fast, Scalable Binarized Neural Network Inference},
-    booktitle = {Proceedings of the 2017 ACM/SIGDA International Symposium on Field-Programmable Gate Arrays},
-    series = {FPGA '17},
-    year = {2017},
-    pages = {65--74},
-    publisher = {ACM}
+      author={Umuroglu, Yaman and Fraser, Nicholas J. and Gambardella, Giulio and Blott, Michaela and Leong, Philip and Jahre, Magnus and Vissers, Kees},
+      title={FINN: A Framework for Fast, Scalable Binarized Neural Network Inference},
+      booktitle={Proceedings of the 2017 ACM/SIGDA International Symposium on Field-Programmable Gate Arrays},
+      series={FPGA '17},
+      year={2017},
+      pages={65--74},
+      publisher={ACM},
+      doi={10.1145/3020078.3021744}
     }
 
 ## Old version

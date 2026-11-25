@@ -30,7 +30,6 @@ import pytest
 
 import numpy as np
 import os
-import re
 import shutil
 import time
 import torch
@@ -83,14 +82,13 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import (
     InsertAndSetFIFODepths,
     RemoveShallowFIFOs,
-    SplitLargeFIFOs,
 )
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.collapse_repeated import CollapseRepeatedMul
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import get_finn_root, make_build_dir
+from finn.util.basic import get_finn_root, get_vivado_version, make_build_dir
 from finn.util.pytorch import NormalizePreProc
 from finn.util.test import (
     crop_center,
@@ -103,14 +101,7 @@ build_dir = os.environ["FINN_BUILD_DIR"]
 
 # Detect Vivado version to determine FPGA part
 # Use V80 (Slash) when Vivado 2025.1, otherwise use Versal xcvm1802
-vivado_path = os.environ.get("XILINX_VIVADO", "")
-vivado_version_match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
-if vivado_version_match:
-    vivado_year = int(vivado_version_match.group(1))
-    vivado_minor = int(vivado_version_match.group(2))
-    is_vivado_2025_1 = vivado_year == 2025 and vivado_minor == 1
-else:
-    is_vivado_2025_1 = False
+is_vivado_2025_1 = get_vivado_version() == (2025, 1)
 
 # Select FPGA part based on Vivado version
 # V80 requires Vivado 2025.1 for Slash toolchain support
@@ -271,6 +262,11 @@ def test_end2end_mobilenet_convert_to_hw_layers():
 @pytest.mark.end2end
 def test_end2end_mobilenet_specialize_layers():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_hw_layers.onnx")
+    # First pass: datatype-only bit width minimization before specialization
+    # Gives specialization realistic bit widths for RTL/HLS decisions
+    model = model.transform(MinimizeWeightBitWidth(datatype_only=True))
+    model = model.transform(MinimizeAccumulatorWidth(datatype_only=True))
+    model = model.transform(InferDataTypes())
     model = model.transform(SpecializeLayers(fpga_part))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
@@ -364,13 +360,13 @@ def test_end2end_mobilenet_folding():
     for thresholding, pe in zip(thresholding_layers, folding):
         thresholding_inst = getCustomOp(thresholding)
         thresholding_inst.set_nodeattr("PE", pe)
-    # adjust final pooling layer + its inpgen
+    # final pooling layer (fused: input generation lives inside Pool): match the
+    # producer's PE, so stream widths agree without a DWC. Even at PE=1 the Pool
+    # (~50k cycles/frame) stays well below the slowest MVAU (~200k).
     pool_node = model.get_nodes_by_op_type("Pool_hls")[0]
     pool_inst = getCustomOp(pool_node)
-    pool_inst.set_nodeattr("PE", 4 // extra_fold)
-    pool_inpgen = model.find_direct_predecessors(pool_node)[0]
-    pool_inpgen_inst = getCustomOp(pool_inpgen)
-    pool_inpgen_inst.set_nodeattr("SIMD", 4 // extra_fold)
+    producer = model.find_producer(pool_node.input[0])
+    pool_inst.set_nodeattr("PE", getCustomOp(producer).get_nodeattr("PE"))
     model = model.transform(InferDataLayouts())
     model.save(build_dir + "/end2end_mobilenet_folded.onnx")
 
@@ -379,8 +375,11 @@ def test_end2end_mobilenet_folding():
 @pytest.mark.end2end
 def test_end2end_mobilenet_minimize_bit_width():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_folded.onnx")
-    model = model.transform(MinimizeAccumulatorWidth())
+    # same order as step_minimize_bit_width: accumulator widths depend on the
+    # minimized weight (and bias) widths
     model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(MinimizeAccumulatorWidth())
+    model = model.transform(InferDataTypes())
     model = model.transform(RoundAndClipThresholds())
     model.save(build_dir + "/end2end_mobilenet_minimize_bitwidth.onnx")
 
@@ -444,13 +443,11 @@ def test_end2end_mobilenet_set_fifo_depths():
             fpga_part,
             target_clk_ns,
             swg_exception=False,
-            vivado_ram_style="auto",
         )
     )
-    # perform FIFO splitting and shallow FIFO removal only after the final config
-    # json file has been written. otherwise, since these transforms may add/remove
-    # FIFOs, we get name mismatch problems when trying to reuse the final config.
-    model = model.transform(SplitLargeFIFOs())
+    # perform shallow FIFO removal only after the final config json file has been
+    # written. otherwise, since this transform removes FIFOs, we get name mismatch
+    # problems when trying to reuse the final config.
     model = model.transform(RemoveShallowFIFOs())
     # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again
     # this will only run for the new nodes (e.g. FIFOs and DWCs)
@@ -480,14 +477,15 @@ def test_end2end_mobilenet_stitched_ip():
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.end2end
-def test_end2end_mobilenet_stitched_ip_rtlsim():
+def test_end2end_mobilenet_stitched_ip_rtlsim(monkeypatch):
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_stitched_ip.onnx")
     # use critical path estimate to set rtlsim liveness threshold
     # (very conservative)
     model = model.transform(AnnotateCycles())
     estimate_network_performance = model.analysis(dataflow_performance)
-    os.environ["LIVENESS_THRESHOLD"] = str(
-        int(estimate_network_performance["critical_path_cycles"])
+    monkeypatch.setenv(
+        "LIVENESS_THRESHOLD",
+        str(int(estimate_network_performance["critical_path_cycles"])),
     )
     # Prepare input
     x = np.load(build_dir + "/end2end_mobilenet_input.npy")
@@ -532,6 +530,7 @@ def test_end2end_mobilenet_build_v80():
 
     cfg = build.DataflowBuildConfig(
         output_dir=output_dir,
+        enable_build_pdb_debug=False,
         synth_clk_period_ns=target_clk_ns,
         fpga_part=fpga_part,
         shell_flow_type=build_cfg.ShellFlowType.SLASH_ALVEO,
@@ -540,6 +539,10 @@ def test_end2end_mobilenet_build_v80():
             build_cfg.DataflowOutputType.CPP_DRIVER,
             build_cfg.DataflowOutputType.DEPLOYMENT_PACKAGE,
         ],
+        # Folding is already baked into the resumed checkpoint and the folding step is
+        # skipped via start_step, so this only satisfies the folding_missing check; it
+        # does not re-fold the model.
+        target_fps=1000,
         # Start from the set_fifo_depths checkpoint, skip earlier steps
         start_step="step_create_stitched_ip",
     )

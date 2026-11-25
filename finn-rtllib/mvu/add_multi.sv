@@ -121,7 +121,7 @@ module add_multi import mvu_pkg::*; #(
 		logic [SUM_WIDTH-1:0]  SumZ[DEPTH - L] = '{ default: SUM_RESET };
 		always_ff @(posedge clk) begin
 			if(rst)  SumZ <= '{ default: SUM_RESET };
-			else begin
+			else if(en) begin
 				for(int unsigned  i = 0; i < DEPTH-L-1; i++)  SumZ[i] <= SumZ[i+1];
 				SumZ[DEPTH-L-1] <= sum0;
 			end

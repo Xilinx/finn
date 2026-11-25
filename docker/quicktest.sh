@@ -6,20 +6,21 @@ cd $FINN_ROOT
 # check if command line argument is empty or not present
 if [ -z $1 ]; then
   echo "Running quicktest: not (vivado or slow or board or bnn) with pytest-xdist"
-  pytest -m 'not (vivado or slow or vitis or board or notebooks or sanity_bnn or bnn_pynq or bnn_zcu104 or bnn_kv260 or bnn_u250)' --dist=loadfile -n $PYTEST_PARALLEL
+  pytest -m 'not (vivado or slow or vitis or board or notebooks or sanity_bnn or bnn_aup_zu3 or bnn_zcu104 or bnn_kv260 or bnn_u55c)' --dist=loadgroup -n $PYTEST_PARALLEL
 elif [ $1 = "verify" ]; then
   echo "Running verification tests (minimal install verification with Vivado)"
   $FINN_ROOT/scripts/quicktest-local.sh vivado
 elif [ $1 = "main" ]; then
   echo "Running main test suite: not (rtlsim or end2end) with pytest-xdist"
-  pytest -k 'not (rtlsim or end2end)' --dist=loadfile -n $PYTEST_PARALLEL
+  pytest -m 'not finn_examples' -k 'not (rtlsim or end2end)' --dist=loadgroup -n $PYTEST_PARALLEL
 elif [ $1 = "rtlsim" ]; then
   echo "Running rtlsim test suite with pytest-parallel"
-  pytest -k rtlsim --workers $PYTEST_PARALLEL
+  pytest -m 'not finn_examples' -k rtlsim --workers $PYTEST_PARALLEL
 elif [ $1 = "end2end" ]; then
   echo "Running end2end test suite with no parallelism"
-  pytest -k end2end
+  pytest -m 'not finn_examples' -k end2end
 elif [ $1 = "full" ]; then
+  # The benchmark builds (marker finn_examples) are opt-in and excluded here
   echo "Running full test suite, each step with appropriate parallelism"
   $0 main;
   $0 rtlsim;

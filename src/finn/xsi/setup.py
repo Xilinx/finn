@@ -23,11 +23,12 @@ Options:
 import argparse
 import os
 import shutil
-import subprocess
 import sys
 import sysconfig
 from pathlib import Path
 from typing import List, Tuple
+
+from finn.util.launcher import ToolFailed, ToolUnavailable, run_tool
 
 
 def get_build_paths() -> Tuple[List[str], str, List[str]]:
@@ -122,10 +123,19 @@ def build_xsi(force: bool = False, verbose: bool = True) -> bool:
         print(f"Error: finn_xsi source not found at {xsi_path}")
         return False
 
+    # Source files
+    source_files = ["xsi_bind.cpp", "xsi_finn.cpp"]
+
     # Check if already built
     if not force:
         xsi_so = xsi_path / "xsi.so"
-        if xsi_so.exists():
+        # Rebuild if any C++ source or header is newer than xsi.so
+        so_mtime = xsi_so.stat().st_mtime if xsi_so.exists() else None
+        deps = list(xsi_path.glob("*.hpp")) + [xsi_path / f for f in source_files]
+        if so_mtime is not None and any(f.stat().st_mtime > so_mtime for f in deps):
+            if verbose:
+                print("xsi.so is older than its sources, rebuilding...")
+        elif so_mtime is not None:
             # Try importing to see if it works
             sys.path.insert(0, str(xsi_path))
             try:
@@ -147,9 +157,6 @@ def build_xsi(force: bool = False, verbose: bool = True) -> bool:
     # Get build configuration
     include_dirs, compiler, compile_args = get_build_paths()
 
-    # Source files
-    source_files = ["xsi_bind.cpp", "xsi_finn.cpp"]
-
     # Build command
     cmd = [compiler] + compile_args
 
@@ -170,14 +177,11 @@ def build_xsi(force: bool = False, verbose: bool = True) -> bool:
         print(f"Build command: {' '.join(cmd)}")
 
     # Run the compilation
-    result = subprocess.run(cmd, cwd=xsi_path, capture_output=True, text=True)
-
-    if result.returncode != 0:
+    try:
+        result = run_tool(cmd, cwd=xsi_path, replay=xsi_path / "compile_xsi.sh")
+    except (ToolFailed, ToolUnavailable) as exc:
         print("Build failed!")
-        if result.stderr:
-            print("Error output:", result.stderr)
-        if result.stdout:
-            print("Build output:", result.stdout)
+        print(exc)
         print("\nBuild command was:")
         print(" ".join(cmd))
         print("\nCommon issues:")
@@ -187,7 +191,7 @@ def build_xsi(force: bool = False, verbose: bool = True) -> bool:
         return False
 
     if verbose and result.stdout:
-        print(result.stdout)
+        print(result.stdout.decode("utf-8", errors="replace"))
 
     if verbose:
         print("Build completed successfully.")

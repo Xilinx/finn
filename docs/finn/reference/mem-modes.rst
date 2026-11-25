@@ -81,14 +81,12 @@ In *internal_embedded* mode, weights are "baked in" to the Matrix-Vector-Activat
 
 **Architecture**: The resulting IP block has an input and output stream (shown in the diagram on the left). FIFOs in the form of Verilog components are connected to these streams.
 
-Advantages
-----------
+**Advantages:**
 
 - Smaller resource footprint
 - Easier to debug layer in cppsim since no additional components
 
-Disadvantages
--------------
+**Disadvantages:**
 
 - Can lead to very long HLS synthesis times for certain weight array shapes
 - Less control over weight memory FPGA primitives, Vivado HLS doesn't always make the best resource allocation decisions
@@ -102,15 +100,13 @@ In *internal_decoupled* mode, a different variant of the MVAU with three ports i
 
 **Architecture**: The weight streamer accesses the weight memory and sends values via a FIFO to the MVAU. Weight values are saved in ``.dat`` files and stored in weight memory. The resulting Verilog component (named after the node with suffix ``_memstream.v``) exposes only two ports externally (data input and output), behaving the same as internal_embedded mode from the outside.
 
-Advantages
-----------
+**Advantages:**
 
 - Better control over the used memory primitives (see the ``ram_style`` attribute in MatrixVectorActivation)
 - Potentially faster HLS synthesis time since weight array shape is no longer part of HLS synthesis
 - (Future work) Will enable placing memory and compute into different clock domains, combining different layers into same weight memory for higher packing efficiency, sourcing the weight stream from other sources such as DRAM
 
-Disadvantages
--------------
+**Disadvantages:**
 
 - Slightly higher resource footprint due to additional weight streamer and weight FIFO
 

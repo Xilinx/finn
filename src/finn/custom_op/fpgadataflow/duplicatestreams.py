@@ -136,6 +136,15 @@ class DuplicateStreams(HWCustomOp):
         # Channels/PE * batch size * fmdim * fmdim
         return np.prod(self.get_folded_output_shape()[:-1])
 
+    def get_tav_io_dict(self):
+        # rtlsim has to drain every output: a word leaves on all outputs
+        # together, so one that is not read stalls the node
+        n_inps = np.prod(self.get_folded_input_shape()[:-1])
+        return {
+            "inputs": {"in0": [0 for i in range(n_inps)]},
+            "outputs": {"out%d" % i: [] for i in range(self.get_num_output_streams())},
+        }
+
     def execute_node(self, context, graph):
         # passing input to both outputs to make
         # abstraction layer executable
@@ -147,13 +156,3 @@ class DuplicateStreams(HWCustomOp):
         output = np.asarray([output], dtype=np.float32).reshape(*exp_shape)
         for outp in node.output:
             context[outp] = output
-
-    def derive_characteristic_fxns(self, period):
-        n_inps = np.prod(self.get_folded_input_shape()[:-1])
-        io_dict = {
-            "inputs": {
-                "in0": [0 for i in range(n_inps)],
-            },
-            "outputs": {"out0": [], "out1": []},
-        }
-        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)

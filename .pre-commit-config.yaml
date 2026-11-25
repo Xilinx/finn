@@ -29,7 +29,7 @@
 exclude: '^docs/conf.py'
 
 default_language_version:
-    python: python3.10
+    python: python3.12
 
 repos:
 - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -66,3 +66,12 @@ repos:
   rev: v0.15.10
   hooks:
     - id: ruff-check
+
+- repo: https://github.com/pre-commit/mirrors-mypy
+  rev: v2.4.1
+  hooks:
+  - id: mypy
+    args: [--config-file=mypy.ini]
+    files: ^src/finn/
+    # not a valid package name (hyphen), mypy aborts on it
+    exclude: ^src/finn/qnn-data/

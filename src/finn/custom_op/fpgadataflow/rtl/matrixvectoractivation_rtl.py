@@ -31,7 +31,7 @@ import os
 
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.util.basic import get_dsp_block, is_versal
+from finn.util.basic import DSP_VERSIONS, get_dsp_datapath_limits, resolve_dsp_block
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation_rtl:
@@ -51,14 +51,31 @@ class MVAU_rtl(MVAU, RTLBackend):
         my_attrs = {
             # Double-pumped DSPs enabled
             "pumpedCompute": ("i", False, 0, {0, 1}),
+            # DSP generation of the target part, set by SpecializeLayers
+            "dsp_block": ("s", False, "", {"", "DSP48E1", "DSP48E2", "DSP58"}),
         }
         my_attrs.update(MVAU.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
 
+    def adapt_for_loop_body(self, input_types):
+        """
+        Adapt MVAU_rtl for loop body execution.
+
+        A per-iteration indexed weight must be streamed from external memory over
+        the AXI-MM interface, which only mem_mode "external_mem" instantiates
+        (along with the per-iteration index input). LoopRolling flags such nodes
+        by setting mlo_max_iter on the consumer of each indexed (PARAMETER) loop
+        input, so gate the switch on that per-node signal rather than the
+        positional loop signature. Dynamic matmuls (streamed activation weights,
+        e.g. a merged branch) are not indexed per iteration, do not receive
+        mlo_max_iter, and thus correctly keep their mem_mode ("dynamic").
+        """
+        if self.get_nodeattr("mlo_max_iter") > 0:
+            self.set_nodeattr("mem_mode", "external_mem")
+
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
-        dynamic_input = self.get_nodeattr("dynamic_input")
         mem_mode = self.get_nodeattr("mem_mode")
         node = self.onnx_node
 
@@ -91,7 +108,7 @@ class MVAU_rtl(MVAU, RTLBackend):
                     )
 
                 if in_ind == 1:
-                    if dynamic_input or self.get_nodeattr("mlo_max_iter"):
+                    if mem_mode in ["dynamic", "external"]:
                         reshaped_input = context[inputs].reshape(-1, context[inputs].shape[-1])
                         self.make_weight_file(
                             reshaped_input, "decoupled_npy", "{}/input_1.npy".format(code_gen_dir)
@@ -101,19 +118,15 @@ class MVAU_rtl(MVAU, RTLBackend):
             nbits = self.get_instream_width()
             inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
             super().reset_rtlsim(sim)
-            if (
-                dynamic_input
-                or mem_mode in ["external", "internal_decoupled"]
-                or self.get_nodeattr("mlo_max_iter")
-            ):
+            if mem_mode in ["external", "dynamic", "internal_decoupled", "external_mem"]:
                 wnbits = self.get_instream_width(1)
-                if dynamic_input:
+                if mem_mode == "dynamic":
                     wnbits = wnbits * self.get_nodeattr("SIMD")
                 export_wdt = self.get_input_datatype(1)
 
                 wei = npy_to_rtlsim_input("{}/input_1.npy".format(code_gen_dir), export_wdt, wnbits)
                 num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
-
+                num_w_reps = num_w_reps // self.get_nodeattr("TH")
                 io_dict = {
                     "inputs": {"in0": inp, "in1": wei * num_w_reps},
                     "outputs": {"out0": []},
@@ -146,24 +159,39 @@ class MVAU_rtl(MVAU, RTLBackend):
                 )
             )
 
-    def lut_estimation(self):
+    def lut_estimation(self, fpgapart):
         return 0
 
     def dsp_estimation(self, fpgapart):
         # multiplication
         P = self.get_nodeattr("PE")
         Q = self.get_nodeattr("SIMD")
-        dsp_block = get_dsp_block(fpgapart)
+        dsp_block = resolve_dsp_block(self, fpgapart, record=False)
         if dsp_block == "DSP58":
             mult_dsp = P * np.ceil(Q / 3)
         else:
             mult_dsp = np.ceil(P / 4) * Q
         return int(mult_dsp)
 
+    def get_exp_compute_cycles(self):
+        exp_cycles = super().get_exp_compute_cycles()
+        th = self.get_nodeattr("TH")
+        if th > 1:
+            # The tiled MVU stalls after every NF*SF*TH beats to drain its compute
+            # pipeline (CORE_PIPELINE_DEPTH in mvu_vvu_axi.sv), i.e. once per group
+            # of TH input vectors. Uses the depth of the lane-sliced core, which is
+            # an upper bound for the shallower DSP58 INT8 core.
+            simd = self.get_nodeattr("SIMD")
+            n_vecs = np.prod(self.get_nodeattr("numInputVectors"))
+            drain = 4 + (simd - 1).bit_length() + (simd == 1) + 1
+            exp_cycles += (n_vecs // th) * drain
+        return int(exp_cycles)
+
     def instantiate_ip(self, cmd):
         # instantiate the RTL IP
         node_name = self.onnx_node.name
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+
         rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
         sourcefiles = [
             "mvu_pkg.sv",
@@ -173,14 +201,23 @@ class MVAU_rtl(MVAU, RTLBackend):
             "mvu_vvu_8sx9_dsp58.sv",
             "add_multi.sv",
         ]
+        if self.get_nodeattr("TH") > 1:
+            sourcefiles += [
+                "../input_gen/hdl/input_gen.sv",
+                "weights_buff_tile.sv",
+                "../skid/skid.sv",
+            ]
         sourcefiles = [
             os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v")
         ] + [rtllib_dir + _ for _ in sourcefiles]
 
         for f in sourcefiles:
             cmd.append("add_files -norecurse %s" % (f))
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "internal_decoupled" or self.get_nodeattr("mlo_max_iter"):
+        if self.get_nodeattr("mem_mode") in [
+            "internal_decoupled",
+            "dynamic",
+            "external_mem",
+        ] or self.get_nodeattr("mlo_max_iter"):
             cmd.append(
                 "create_bd_cell -type hier -reference %s /%s/%s"
                 % (
@@ -212,16 +249,12 @@ class MVAU_rtl(MVAU, RTLBackend):
                     node_name,
                 )
             )
-            # if using 2x pumped compute, connect the MVU's 2x clk input
-            # to the 2x clock port. Otherwise connect 2x clk to regular clk port
+            # For 2x pumped compute the MVU's 2x clk input is driven by the external
+            # 2x clock port, which CreateStitchedIP exposes and connects for this
+            # (flat) cell - nothing to connect here. Otherwise drive the unused 2x
+            # clk input from the regular clock.
             clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
-            if self.get_nodeattr("pumpedCompute"):
-                clk2x_name = self.get_verilog_top_module_intf_names()["clk2x"][0]
-                cmd.append(
-                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
-                    % (node_name, clk2x_name, node_name, clk2x_name)
-                )
-            else:
+            if not self.get_nodeattr("pumpedCompute"):
                 cmd.append(
                     "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/ap_clk2x]"
                     % (node_name, clk_name, node_name)
@@ -260,13 +293,7 @@ class MVAU_rtl(MVAU, RTLBackend):
             self.onnx_node.name
         )
 
-        match dsp_block:
-            case "DSP58":
-                return 3
-            case "DSP48E2":
-                return 2
-            case _:
-                return 1
+        return DSP_VERSIONS[dsp_block]
 
     def generate_hdl(self, model, fpgapart, clk):
         # Generate params as part of IP preparation
@@ -280,9 +307,9 @@ class MVAU_rtl(MVAU, RTLBackend):
         wdt = self.get_input_datatype(1)
         narrow_weights = (
             0
-            if np.min(weights) == wdt.min()
-            or self.get_nodeattr("dynamic_input")
-            or (self.get_nodeattr("mlo_max_iter") > 1)
+            if weights is None
+            or np.min(weights) == wdt.min()
+            or self.get_nodeattr("mem_mode") in ["dynamic", "external_mem"]
             else 1
         )
         code_gen_dict["$NARROW_WEIGHTS$"] = str(narrow_weights)
@@ -305,21 +332,9 @@ class MVAU_rtl(MVAU, RTLBackend):
         ) as f:
             f.write(template_wrapper)
 
-        dynamic_input = self.get_nodeattr("dynamic_input")
-        mem_mode = self.get_nodeattr("mem_mode")
+        # generate the weight-infrastructure HDL (shared MVAU helper)
+        self.generate_infra_hdl(fpgapart)
 
-        if dynamic_input:
-            self.generate_hdl_dynload()
-        elif mem_mode == "internal_decoupled" and not self.get_nodeattr("mlo_max_iter"):
-            if self.get_nodeattr("ram_style") == "ultra" and not is_versal(fpgapart):
-                runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
-                assert (
-                    runtime_writeable == 1
-                ), """Layer with URAM weights must have runtime_writeable_weights=1
-                    if Ultrascale device is targeted."""
-            self.generate_hdl_memstream(fpgapart, pumped_memory=self.get_nodeattr("pumpedMemory"))
-        elif self.get_nodeattr("mlo_max_iter"):
-            self.generate_hdl_fetch_weights(fpgapart)
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
         self.set_nodeattr("ipgen_path", code_gen_dir)
@@ -335,7 +350,66 @@ class MVAU_rtl(MVAU, RTLBackend):
             raise Exception(
                 "Clock pumping an input of SIMD=1 is not meaningful. Please increase SIMD."
             )
-        dsp_block = get_dsp_block(fpgapart)
+
+        # Validate the tiled-MVU (TH>1) constraints
+        theight = self.get_nodeattr("TH")
+        # the tiled MVU rejects PUMPED_COMPUTE at elaboration, and the pumped
+        # weight memstream is not verified with the tiled (WSIMD) weight stream
+        if theight > 1 and (pumped_compute or self.get_nodeattr("pumpedMemory")):
+            raise Exception(
+                "%s: pumpedCompute/pumpedMemory are not supported by the tiled MVU "
+                "(TH=%d). Use TH=1 or disable clock pumping." % (self.onnx_node.name, theight)
+            )
+        if theight > 1:
+            # The tile size must divide the number of input vectors evenly; otherwise the
+            # final partial tile can cause output to be dropped and eventually stall.
+            num_inp_vec = int(np.prod(self.get_nodeattr("numInputVectors")))
+            if num_inp_vec % theight != 0:
+                valid_th = [t for t in range(1, num_inp_vec + 1) if num_inp_vec % t == 0]
+                raise Exception(
+                    "%s: TH=%d does not divide numInputVectors=%d. The tiled MVU "
+                    "requires TH | numInputVectors; choose a divisor (valid: %s)."
+                    % (self.onnx_node.name, theight, num_inp_vec, valid_th)
+                )
+
+        dsp_block = resolve_dsp_block(self, fpgapart)
+
+        # the operand and accumulator widths must fit the target DSP datapath
+        # (activation->B, weight->A, accumulator->P); wider values would be
+        # silently truncated or fail synthesis on the DSP-based RTL MVU
+        max_act, max_weight, max_acc = get_dsp_datapath_limits(dsp_block)
+        idt = self.get_input_datatype(0)
+        signed_act = 1 if idt.signed() else 0
+        act_width = idt.bitwidth()
+        weight_width = self.get_input_datatype(1).bitwidth()
+        acc_width = self.get_output_datatype().bitwidth()
+        # activations sit in the signed B datapath; unsigned activations cost one
+        # extra bit, so the effective width must stay below the B datapath width
+        if act_width - signed_act >= max_act:
+            raise Exception(
+                "%s: %s activation width of %d bits exceeds the %s activation datapath "
+                "limit of %d bits. Use the HLS MVAU for wider activations."
+                % (
+                    self.onnx_node.name,
+                    "signed" if signed_act else "unsigned",
+                    act_width,
+                    dsp_block,
+                    max_act - 1 + signed_act,
+                )
+            )
+        if weight_width > max_weight:
+            raise Exception(
+                "%s: weight width of %d bits exceeds the %s weight datapath "
+                "limit of %d bits. Use the HLS MVAU for wider weights."
+                % (self.onnx_node.name, weight_width, dsp_block, max_weight)
+            )
+        if acc_width > max_acc:
+            raise Exception(
+                "%s: accumulator width of %d bits exceeds the %s accumulator datapath "
+                "limit of %d bits. Use the HLS MVAU for wider accumulators."
+                % (self.onnx_node.name, acc_width, dsp_block, max_acc)
+            )
+
         code_gen_dict = {}
         code_gen_dict["$IS_MVU$"] = [str(1)]
         code_gen_dict["$VERSION$"] = [str(self._resolve_dsp_version(dsp_block))]
@@ -344,6 +418,8 @@ class MVAU_rtl(MVAU, RTLBackend):
         code_gen_dict["$MH$"] = [str(self.get_nodeattr("MH"))]
         code_gen_dict["$PE$"] = [str(self.get_nodeattr("PE"))]
         code_gen_dict["$SIMD$"] = [str(simd)]
+        code_gen_dict["$TH$"] = [str(self.get_nodeattr("TH"))]
+        code_gen_dict["$WSIMD$"] = [str(self.get_weight_stream_simd())]
         code_gen_dict["$ACTIVATION_WIDTH$"] = [str(self.get_input_datatype(0).bitwidth())]
         code_gen_dict["$WEIGHT_WIDTH$"] = [str(self.get_input_datatype(1).bitwidth())]
         code_gen_dict["$ACCU_WIDTH$"] = [str(self.get_output_datatype().bitwidth())]
@@ -351,6 +427,7 @@ class MVAU_rtl(MVAU, RTLBackend):
             [str(1)] if (self.get_input_datatype(0).min() < 0) else [str(0)]
         )
         code_gen_dict["$SEGMENTLEN$"] = [str(self._resolve_segment_len(clk))]
+        code_gen_dict["$N_DCPL_STAGES$"] = [str(2)]
 
         return template_path, code_gen_dict
 
@@ -362,7 +439,7 @@ class MVAU_rtl(MVAU, RTLBackend):
             code_gen_dir = ""
             rtllib_dir = ""
 
-        verilog_files = [
+        sourcefiles = [
             "mvu_pkg.sv",
             "mvu_vvu_axi.sv",
             "replay_buffer.sv",
@@ -370,13 +447,20 @@ class MVAU_rtl(MVAU, RTLBackend):
             "mvu_vvu_8sx9_dsp58.sv",
             "add_multi.sv",
         ]
+        if self.get_nodeattr("TH") > 1:
+            sourcefiles += [
+                "../input_gen/hdl/input_gen.sv",
+                "weights_buff_tile.sv",
+                "../skid/skid.sv",
+            ]
         verilog_files = [
             os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v")
-        ] + [rtllib_dir + _ for _ in verilog_files]
+        ] + [rtllib_dir + _ for _ in sourcefiles]
 
         return verilog_files
 
     def get_verilog_paths(self):
         verilog_paths = super().get_verilog_paths()
         verilog_paths.append(os.environ["FINN_ROOT"] + "/finn-rtllib/mvu")
+        verilog_paths.append(os.environ["FINN_ROOT"] + "/finn-rtllib/input_gen/hdl")
         return verilog_paths

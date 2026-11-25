@@ -11,3 +11,5 @@ This section provides detailed documentation for specific FINN hardware componen
 
    rtl-swg
    mlo
+   pwpolyf
+   streaming-fifo

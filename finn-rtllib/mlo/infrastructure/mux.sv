@@ -32,8 +32,9 @@
 
 module mux #(
     int unsigned              IDX_BITS,
-    int unsigned              FM_SIZE,
+    int unsigned              FM_ELEMS,
 
+    int unsigned              ELEM_BITS,
     int unsigned              ILEN_BITS,
 
     int unsigned              QDEPTH = 32,
@@ -68,8 +69,25 @@ module mux #(
     output logic [ILEN_BITS-1:0]        m_axis_tdata
 );
 
-localparam int unsigned FM_BEATS = FM_SIZE / (ILEN_BITS/8);
-localparam int unsigned FM_BEATS_BITS = (FM_BEATS == 1) ? 1 : $clog2(FM_BEATS);
+localparam int unsigned  PE       = ILEN_BITS / ELEM_BITS;
+localparam int unsigned  FM_BEATS = FM_ELEMS / PE;
+
+initial begin
+    if(ELEM_BITS == 0 || ILEN_BITS == 0 || FM_ELEMS == 0) begin
+        $error("%m: ELEM_BITS, ILEN_BITS, and FM_ELEMS must all be non-zero.");
+        $finish;
+    end
+    if(ILEN_BITS % ELEM_BITS != 0) begin
+        $error("%m: ILEN_BITS (%0d) not a multiple of ELEM_BITS (%0d).",
+            ILEN_BITS, ELEM_BITS);
+        $finish;
+    end
+    if(FM_ELEMS % PE != 0) begin
+        $error("%m: FM_ELEMS (%0d) not a multiple of PE (%0d).",
+            FM_ELEMS, PE);
+        $finish;
+    end
+end
 
 //
 // Generate idx from data
@@ -78,7 +96,7 @@ localparam int unsigned FM_BEATS_BITS = (FM_BEATS == 1) ? 1 : $clog2(FM_BEATS);
 typedef enum logic[0:0] {ST_GEN_IDLE, ST_GEN_DATA} state_gen_t;
 state_gen_t state_gen_C = ST_GEN_IDLE, state_gen_N;
 
-logic [FM_BEATS_BITS-1:0] cnt_gen_C = '0, cnt_gen_N;
+logic [(FM_BEATS > 1 ? $clog2(FM_BEATS) : 1)-1:0] cnt_gen_C = '0, cnt_gen_N;
 
 logic axis_fs_tvalid, axis_fs_tready;
 logic [ILEN_BITS-1:0] axis_fs_tdata;
@@ -139,13 +157,13 @@ always_comb begin: DP_GEN
     endcase
 end
 
-Q_srl #(
-    .depth(2), .width(ILEN_BITS)
+fifo #(
+    .DEPTH(2), .DATA_WIDTH(ILEN_BITS)
 ) inst_queue_gend (
-    .clock(aclk), .reset(!aresetn),
+    .clk(aclk), .rst(!aresetn),
     .count(), .maxcount(),
-    .i_d(axis_fs_tdata), .i_v(axis_fs_tvalid), .i_r(axis_fs_tready),
-    .o_d(axis_fs_tdata_q), .o_v(axis_fs_tvalid_q), .o_r(axis_fs_tready_q)
+    .idat(axis_fs_tdata), .ivld(axis_fs_tvalid), .irdy(axis_fs_tready),
+    .odat(axis_fs_tdata_q), .ovld(axis_fs_tvalid_q), .ordy(axis_fs_tready_q)
 );
 
 //
@@ -205,16 +223,7 @@ always_comb begin: DP_CTRL
 
     case (state_ctrl_C)
         ST_CTRL_IDLE: begin
-            if(idx_fs_tvalid) begin
-                idx_fs_tready = 1'b1;
-
-                val_idx_N = 1'b1;
-                val_seq_N = 1'b1;
-
-                idx_N = '0;
-                seq_N = 1'b0;
-            end
-            else if(s_idx_tvalid) begin
+            if(s_idx_tvalid) begin
                 s_idx_tready = 1'b1;
 
                 val_idx_N = 1'b1;
@@ -222,6 +231,15 @@ always_comb begin: DP_CTRL
 
                 idx_N = s_idx_tdata;
                 seq_N = 1'b1;
+            end
+            else if(idx_fs_tvalid) begin
+                idx_fs_tready = 1'b1;
+
+                val_idx_N = 1'b1;
+                val_seq_N = 1'b1;
+
+                idx_N = '0;
+                seq_N = 1'b0;
             end
         end
 
@@ -232,13 +250,13 @@ always_comb begin: DP_CTRL
     endcase
 end
 
-Q_srl #(
-    .depth(QDEPTH), .width(1)
+fifo #(
+    .DEPTH(QDEPTH), .DATA_WIDTH(1)
 ) inst_queue_seq (
-    .clock(aclk), .reset(!aresetn),
+    .clk(aclk), .rst(!aresetn),
     .count(), .maxcount(),
-    .i_d(seq_C), .i_v(val_seq_C), .i_r(seq_tready),
-    .o_d(seq_out_tdata), .o_v(seq_out_tvalid), .o_r(seq_out_tready)
+    .idat(seq_C), .ivld(val_seq_C), .irdy(seq_tready),
+    .odat(seq_out_tdata), .ovld(seq_out_tvalid), .ordy(seq_out_tready)
 );
 
 assign m_idx_tvalid = val_idx_C;
@@ -252,7 +270,7 @@ assign m_idx_tdata = idx_C;
 typedef enum logic[1:0] {ST_DATA_IDLE, ST_DATA_MUX_FS, ST_DATA_MUX_IF} state_data_t;
 state_data_t state_data_C = ST_DATA_IDLE, state_data_N;
 
-logic [FM_BEATS_BITS-1:0] cnt_data_C = '0, cnt_data_N;
+logic [(FM_BEATS > 1 ? $clog2(FM_BEATS) : 1)-1:0] cnt_data_C = '0, cnt_data_N;
 
 logic m_axis_int_tvalid, m_axis_int_tready;
 logic [ILEN_BITS-1:0] m_axis_int_tdata;

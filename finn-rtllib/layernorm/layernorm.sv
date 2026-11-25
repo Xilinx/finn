@@ -33,6 +33,7 @@
 module layernorm #(
 	int unsigned  N,
 	int unsigned  SIMD,
+	int unsigned  NUM_RSQRT_REFINEMENTS = 1,  // Newton-Raphson iterations of 1/sqrt(variance): 1 | 2
 	bit  FORCE_BEHAVIORAL = 0
 )(
 	// Global Control
@@ -49,6 +50,7 @@ module layernorm #(
 	output	logic  yvld,
 	input	logic  yrdy
 );
+`default_nettype none
 
 	localparam int unsigned  NN = N / SIMD;
 	initial begin
@@ -56,7 +58,23 @@ module layernorm #(
 			$error("%m: SIMD(%0d) must divide N(%0d).", SIMD, N);
 			$finish;
 		end
+		if((NUM_RSQRT_REFINEMENTS < 1) || (2 < NUM_RSQRT_REFINEMENTS)) begin
+			$error("%m: NUM_RSQRT_REFINEMENTS(%0d) must be 1 or 2.", NUM_RSQRT_REFINEMENTS);
+			$finish;
+		end
 	end
+
+	// Latency allowance for rsqrtf by the structure it selects for interval NN:
+	//	- Every structure takes three 4-cycle DSP passes per iteration.
+	//	- Interleaving structures (1 < NN < 12*ITERATIONS-3) add an input skid
+	//	  of 2 cycles and up to 3 cycles waiting for a free slot.
+	//	The single iteration keeps its historic flat allowance of 14 cycles.
+	function int unsigned RSQRT_LATENCY_INIT();
+		if(NUM_RSQRT_REFINEMENTS == 1)  return  14;
+		return  12*NUM_RSQRT_REFINEMENTS +
+			(((1 < NN) && (NN < 12*NUM_RSQRT_REFINEMENTS - 3))? 2 + 3 : 0);
+	endfunction : RSQRT_LATENCY_INIT
+	localparam int unsigned  RSQRT_LATENCY = RSQRT_LATENCY_INIT();
 
 	typedef logic [31:0]  fp32;
 	typedef fp32 [SIMD-1:0] vfp32;
@@ -88,14 +106,14 @@ module layernorm #(
 			// SIMD adder tree + accumulation + decouple
 			$clog2(SIMD) * 2   +     4        +    3 +
 			// Variance: *1/N + rsqrt
-			step   *    (  3  + 14  );
+			step   *    (  3  + RSQRT_LATENCY  );
 		localparam int unsigned  VALUE_QUEUE_LEN = NN + STATISTICS_LATENCY;
 		localparam int unsigned  STATS_QUEUE_LEN = 2 + (VALUE_QUEUE_LEN-1)/NN;
 
 		//-------------------------------------------------------------------
 		// Value bypass Queue
 		uwire vedge_t  bypass;
-		queue #(.DATA_WIDTH(SIMD*32), .ELASTICITY(VALUE_QUEUE_LEN)) bypass_queue (
+		fifo #(.DATA_WIDTH(SIMD*32), .DEPTH(VALUE_QUEUE_LEN)) bypass_queue (
 			.clk, .rst,
 			.idat(vedge[step].dat), .ivld(vedge[step].vld), .irdy(vedge[step].rdy),
 			.odat(bypass     .dat), .ovld(bypass     .vld), .ordy(bypass     .rdy)
@@ -200,6 +218,7 @@ module layernorm #(
 				uwire  vrdy;
 				rsqrtf #(
 					.SUSTAINABLE_INTERVAL(NN),
+					.ITERATIONS(NUM_RSQRT_REFINEMENTS),
 					.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
 				) vari_rsqurt (
 					.clk, .rst,
@@ -226,7 +245,7 @@ module layernorm #(
 			uwire  norm0_rdy;
 			if(1) begin : blkMeanCatcher
 				uwire  norm_rdy;
-				queue #(.DATA_WIDTH(32), .ELASTICITY(STATS_QUEUE_LEN)) catcher (
+				fifo #(.DATA_WIDTH(32), .DEPTH(STATS_QUEUE_LEN)) catcher (
 					.clk, .rst,
 					.idat(norm .dat), .ivld(norm .vld), .irdy(norm_rdy),
 					.odat(norm0.dat), .ovld(norm0.vld), .ordy(norm0_rdy)
@@ -281,7 +300,7 @@ module layernorm #(
 
 			// Output Queue
 			uwire  rrdy;
-			queue #(.DATA_WIDTH(SIMD * 32), .ELASTICITY(CREDIT)) decouple (
+			fifo #(.DATA_WIDTH(SIMD * 32), .DEPTH(CREDIT)) decouple (
 				.clk, .rst,
 				.idat(rdat), .ivld(rvld), .irdy(rrdy),
 				.odat(vedge[step+1].dat), .ovld(vedge[step+1].vld), .ordy(vedge[step+1].rdy)
@@ -298,4 +317,5 @@ module layernorm #(
 
 	end : genNormDiamonds
 
+`default_nettype wire
 endmodule : layernorm

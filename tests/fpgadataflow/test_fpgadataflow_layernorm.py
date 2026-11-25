@@ -15,7 +15,8 @@ import pytest
 import json
 import numpy as np
 import os
-import warnings
+import torch
+import torch.nn.functional as F
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -45,9 +46,12 @@ from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODep
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.streamline.extract_norm_scale_bias import ExtractNormScaleBias
 from finn.util.basic import make_build_dir
+from finn.util.test import tree_model_test
 
 test_fpga_part = "xcvc1902-vsva2197-2MP-e-S"
 target_clk_ns = 5
+
+tree_model_clk_ns = 5.0
 
 
 def create_layernorm_model(idt, ishape, has_scale, has_bias, epsilon):
@@ -448,19 +452,12 @@ def test_hls_rtl_dsp_conflict_detection():
     with open(specialize_config_file, "w") as f:
         json.dump(specialize_config, f)
 
-    # Build steps - includes conversion to HW layers and specialization
+    # Build steps using phases
     steps = [
-        "step_convert_to_hw",
-        "step_create_dataflow_partition",
-        "step_specialize_layers",
-        "step_target_fps_parallelization",
-        "step_apply_folding_config",
-        "step_minimize_bit_width",
-        "step_generate_estimate_reports",
-        "step_hw_codegen",
-        "step_hw_ipgen",
-        "step_set_fifo_depths",
-        "step_create_stitched_ip",
+        "phase_convert_to_hardware",  # Includes convert_to_hw, partition, specialize, loop_rolling
+        "phase_optimize_hardware",  # Includes target_fps, folding, bit_width, reports
+        "phase_build_hardware",  # Includes codegen, ipgen, FIFO depths
+        "step_create_stitched_ip",  # Fine-grained (just stitched IP)
     ]
 
     # Request verification steps that will trigger DSP conflict detection
@@ -472,6 +469,7 @@ def test_hls_rtl_dsp_conflict_detection():
 
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
+        enable_build_pdb_debug=False,
         steps=steps,
         target_fps=1000,
         synth_clk_period_ns=target_clk_ns,
@@ -486,19 +484,14 @@ def test_hls_rtl_dsp_conflict_detection():
         ],
     )
 
-    # Capture warnings during build
-    with warnings.catch_warnings(record=True) as caught_warnings:
-        warnings.simplefilter("always")
-        build.build_dataflow_cfg(tmp_output_dir + "/model.onnx", cfg)
+    build.build_dataflow_cfg(tmp_output_dir + "/model.onnx", cfg)
 
-    # Check that DSP conflict warning was issued
-    dsp_conflict_warnings = [
-        w for w in caught_warnings if "HLS+RTL DSP CONFLICT DETECTED" in str(w.message)
-    ]
-    assert len(dsp_conflict_warnings) > 0, (
-        "Expected DSP conflict warning to be issued. "
-        f"Found warnings: {[str(w.message)[:100] for w in caught_warnings]}"
-    )
+    # Check that DSP conflict warning was issued. The build routes Python
+    # warnings into its log (finn.util.build_log), so a warnings recorder
+    # around the build would never see them.
+    assert "HLS+RTL DSP CONFLICT DETECTED" in build_log_text(
+        tmp_output_dir
+    ), "Expected DSP conflict warning in build_dataflow.log"
 
     # Verify cppsim still passed (not affected by DSP conflict)
     verif_dir = tmp_output_dir + "/verification_output"
@@ -524,6 +517,12 @@ def test_hls_rtl_dsp_conflict_detection():
     assert not os.path.isfile(
         stitched_success
     ), "stitched_ip_rtlsim should have been skipped due to DSP conflict"
+
+
+def build_log_text(output_dir):
+    """The build's log, where build_dataflow_cfg routes Python warnings."""
+    with open(os.path.join(output_dir, "build_dataflow.log")) as f:
+        return f.read()
 
 
 def create_layernorm_threshold_mul_model(ishape):
@@ -667,17 +666,10 @@ def test_integer_hls_elementwise_no_dsp_conflict():
 
     # Build steps - includes conversion to HW layers and specialization
     steps = [
-        "step_convert_to_hw",
-        "step_create_dataflow_partition",
-        "step_specialize_layers",
-        "step_target_fps_parallelization",
-        "step_apply_folding_config",
-        "step_minimize_bit_width",
-        "step_generate_estimate_reports",
-        "step_hw_codegen",
-        "step_hw_ipgen",
-        "step_set_fifo_depths",
-        "step_create_stitched_ip",
+        "phase_convert_to_hardware",  # Includes convert_to_hw, partition, specialize, loop_rolling
+        "phase_optimize_hardware",  # Includes target_fps, folding, bit_width, reports
+        "phase_build_hardware",  # Includes codegen, ipgen, FIFO depths
+        "step_create_stitched_ip",  # Fine-grained (just stitched IP)
     ]
 
     # Request verification steps - stitched_ip_rtlsim should NOT be skipped
@@ -688,6 +680,7 @@ def test_integer_hls_elementwise_no_dsp_conflict():
 
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
+        enable_build_pdb_debug=False,
         steps=steps,
         target_fps=1000,
         synth_clk_period_ns=target_clk_ns,
@@ -702,10 +695,7 @@ def test_integer_hls_elementwise_no_dsp_conflict():
         ],
     )
 
-    # Capture warnings during build
-    with warnings.catch_warnings(record=True) as caught_warnings:
-        warnings.simplefilter("always")
-        build.build_dataflow_cfg(tmp_output_dir + "/model.onnx", cfg)
+    build.build_dataflow_cfg(tmp_output_dir + "/model.onnx", cfg)
 
     # Check that layers were specialized as expected:
     intermediate_model_path = tmp_output_dir + "/intermediate_models/step_specialize_layers.onnx"
@@ -733,14 +723,10 @@ def test_integer_hls_elementwise_no_dsp_conflict():
         len(mul_hls_nodes) == 1
     ), f"Expected exactly 1 ElementwiseMul_hls, found {len(mul_hls_nodes)}. Op types: {op_types}"
 
-    # Check that NO DSP conflict warning was issued
-    dsp_conflict_warnings = [
-        w for w in caught_warnings if "HLS+RTL DSP CONFLICT DETECTED" in str(w.message)
-    ]
-    assert len(dsp_conflict_warnings) == 0, (
-        f"No DSP conflict warning should be issued for integer HLS Elementwise. "
-        f"Found warnings: {[str(w.message)[:100] for w in dsp_conflict_warnings]}"
-    )
+    # Check that NO DSP conflict warning was issued (see build_log_text)
+    assert "HLS+RTL DSP CONFLICT DETECTED" not in build_log_text(
+        tmp_output_dir
+    ), "No DSP conflict warning should be issued for integer HLS Elementwise."
 
     # Verify that stitched_ip_rtlsim ran successfully (was NOT skipped)
     verif_dir = tmp_output_dir + "/verification_output"
@@ -754,3 +740,189 @@ def test_integer_hls_elementwise_no_dsp_conflict():
     assert not os.path.isfile(
         stitched_conflict_file
     ), f"No DSP conflict log file should exist at {stitched_conflict_file}"
+
+
+def make_layernorm_modelwrapper(
+    ishape, simd, idt, impl_style, epsilon=9.999999960041972e-13, rsqrt_refinements=1
+):
+    """A graph holding one LayerNorm node, scale and bias already extracted."""
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, list(ishape))
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, list(ishape))
+    node = helper.make_node(
+        "LayerNorm",
+        ["inp"],
+        ["outp"],
+        domain="finn.custom_op.fpgadataflow",
+        backend="fpgadataflow",
+        SIMD=simd,
+        ifm_dim=list(ishape),
+        epsilon=epsilon,
+        numRsqrtRefinements=rsqrt_refinements,
+        inputDataType=idt.name,
+        outputDataType="FLOAT32",
+        preferred_impl_style=impl_style,
+    )
+    graph = helper.make_graph(nodes=[node], name="layernorm_graph", inputs=[inp], outputs=[outp])
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="layernorm-model"))
+    model.set_tensor_datatype("inp", idt)
+    model.set_tensor_datatype("outp", DataType["FLOAT32"])
+    return model
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        # HLS, integer input, one vector at least as long as the rsqrt path
+        ([1, 16, 64], 1, "INT8", "hls", "xczu7ev-ffvc1156-2-e", 1),
+        ([1, 16, 96], 2, "INT8", "hls", "xczu7ev-ffvc1156-2-e", 1),
+        ([1, 16, 40], 1, "INT8", "hls", "xczu7ev-ffvc1156-2-e", 1),
+        # RTL, which is II=1 by construction at any folding and rsqrt refinement
+        ([1, 16, 64], 1, "FLOAT32", "rtl", "xcvc1902-vsva2197-2MP-e-S", 1),
+        ([1, 16, 48], 2, "FLOAT32", "rtl", "xcvc1902-vsva2197-2MP-e-S", 1),
+        ([1, 16, 64], 8, "FLOAT32", "rtl", "xcvc1902-vsva2197-2MP-e-S", 1),
+        ([1, 16, 64], 1, "FLOAT32", "rtl", "xcvc1902-vsva2197-2MP-e-S", 2),
+        ([1, 16, 48], 2, "FLOAT32", "rtl", "xcvc1902-vsva2197-2MP-e-S", 2),
+        ([1, 16, 64], 8, "FLOAT32", "rtl", "xcvc1902-vsva2197-2MP-e-S", 2),
+    ],
+)
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_layernorm(config):
+    ishape, simd, idt, impl_style, part, rsqrt_refinements = config
+
+    model = make_layernorm_modelwrapper(
+        ishape, simd, DataType[idt], impl_style, rsqrt_refinements=rsqrt_refinements
+    )
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(GiveUniqueNodeNames())
+    assert model.graph.node[0].op_type == "LayerNorm_" + impl_style
+
+    node_details = ("LayerNorm", config)
+
+    # Both rows are one solid run at one beat per cycle, so nothing can drift and
+    # the volume budget is a floor rather than a fraction. The length budget
+    # covers the pipeline fill, which the period leaves out on purpose: it is a
+    # one-off cost the reference's period carries a share of, and folding it in
+    # would put a hole in a row that has none. A second rsqrt refinement lengthens
+    # that fill by the 12 cycles of its DSP passes.
+    max_allowed_volume_frac = 0.0
+    volume_const = 2
+    max_allowed_length_frac = 0.04
+    length_const = 20 + 12 * (rsqrt_refinements - 1)
+
+    assert tree_model_test(
+        model,
+        node_details,
+        part,
+        tree_model_clk_ns,
+        max_allowed_volume_frac,
+        max_allowed_length_frac,
+        volume_const,
+        length_const,
+    ), "characterized TAV does not match RTLsim'd one!"
+
+
+def gen_layernorm_rows(ishape, offset):
+    """FLOAT32 rows of normal samples, each scaled by its own power of ten from
+    1e-15 to 1e15 and shifted by up to ``offset`` standard deviations: a wide
+    dynamic range of variances, down to 1e-30."""
+    rng = np.random.default_rng(42)
+    rows = int(np.prod(ishape[:-1]))
+    scale = 10.0 ** rng.uniform(-15, 15, size=(rows, 1))
+    shift = offset * rng.uniform(-1, 1, size=(rows, 1))
+    x = (rng.standard_normal((rows, ishape[-1])) + shift) * scale
+    return x.astype(np.float32).reshape(ishape)
+
+
+# rsqrt refinements
+@pytest.mark.parametrize("rsqrt_refinements", [1, 2])
+# N/SIMD, the interval of the rsqrt computation selecting its structure
+@pytest.mark.parametrize("nn", [1, 2, 3, 5, 6, 8, 9, 12, 20, 21, 24])
+# SIMD
+@pytest.mark.parametrize("simd", [2, 4])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_fpgadataflow_rtl_layernorm_rsqrt_refinements(rsqrt_refinements, nn, simd):
+    """Accuracy and cycles of the RTL LayerNorm by rsqrt refinements.
+
+    N/SIMD covers every rsqrtf structure of both settings: the unrolled DSP chain
+    (1), chained rings (2; 3-5 with two refinements), the single ring (3-8; 6-20),
+    the overlapped (9-11; 21-23) and the exclusive single DSP (12; 24).
+
+    The error is measured against the exact LayerNorm and relative to
+    ``max(|y|, 1)``: relative where the output is at least the unit standard
+    deviation of the normalized row, absolute below. A plain relative error is not
+    bounded by the rsqrt for outputs close to zero as an fp32 ``x - mean`` is off
+    by up to an ulp of ``x``. With rows shifted by at most 3 standard deviations,
+    the other fp32 operations contribute less than 1e-6 to this error (float32
+    emulation of the datapath). The rsqrt alone has a maximum relative error of
+    1.75e-3 with one and of 4.7e-6 with two refinements. The RTL LayerNorm does
+    not add epsilon, which is thus 0 in the reference for rows of low variance.
+    """
+    ishape = [1, 64, nn * simd]
+    model = make_layernorm_modelwrapper(
+        ishape, simd, DataType["FLOAT32"], "rtl", epsilon=0.0, rsqrt_refinements=rsqrt_refinements
+    )
+    x = gen_layernorm_rows(ishape, offset=3.0)
+    input_dict = {"inp": x}
+    # The RTL LayerNorm deliberately omits epsilon: its approximate rsqrt has no
+    # division by zero to guard against. The reference therefore uses eps=0.
+    y_expected = F.layer_norm(torch.from_numpy(x.astype(np.float64)), [ishape[-1]], eps=0.0)
+    y_expected = y_expected.numpy()
+
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+    assert model.graph.node[0].op_type == "LayerNorm_rtl"
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+
+    err = np.abs(y_produced - y_expected) / np.maximum(np.abs(y_expected), 1.0)
+    bound = {1: 2e-3, 2: 1e-5}[rsqrt_refinements]
+    big = np.abs(y_expected) >= 1.0
+    gain = np.mean(y_produced[big] / y_expected[big] - 1.0)
+    print(f"max error {err.max():.3e}, mean gain error {gain:.3e}")
+    assert err.max() <= bound, f"max error {err.max():.3e} exceeds {bound:.0e}"
+
+    node = model.graph.node[0]
+    cycles_rtlsim = getCustomOp(node).get_nodeattr("cycles_rtlsim")
+    exp_cycles = model.analysis(exp_cycles_per_layer)[node.name]
+    assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
+
+
+# configuration (N/SIMD selecting the rsqrtf structure, SIMD, rsqrt refinements) with
+# the DSPFP32 count of its out-of-context synthesis for xcvc1902-vsva2197-2MP-e-S,
+# one table rather than an axis per parameter as every row pins a measured count
+@pytest.mark.parametrize(
+    "nn,simd,rsqrt_refinements,dsps",
+    [
+        (1, 4, 1, 23),
+        (1, 4, 2, 26),
+        (2, 5, 1, 27),
+        (2, 5, 2, 28),
+        (3, 6, 1, 31),
+        (3, 6, 2, 32),
+        (5, 8, 2, 42),
+        (6, 7, 1, 36),
+        (6, 7, 2, 36),
+        (21, 4, 2, 21),
+        (24, 4, 1, 21),
+        (24, 4, 2, 21),
+        (48, 1, 2, 6),
+        (32, 2, 2, 11),
+    ],
+)
+@pytest.mark.fpgadataflow
+def test_fpgadataflow_rtl_layernorm_dsp_estimation(nn, simd, rsqrt_refinements, dsps):
+    """The DSP estimate of LayerNorm_rtl matches synthesis."""
+    ishape = [1, 4, nn * simd]
+    model = make_layernorm_modelwrapper(
+        ishape, simd, DataType["FLOAT32"], "rtl", rsqrt_refinements=rsqrt_refinements
+    )
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    assert getCustomOp(model.graph.node[0]).dsp_estimation(test_fpga_part) == dsps

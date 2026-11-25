@@ -62,7 +62,7 @@ def pytest_configure(config):
         "markers",
         "shard(N): pin this test to shard N (use sparingly for flaky-test isolation).",
     )
-    config.pluginmanager.register(_FinnCiShardingPlugin(), "_finn_ci_sharding")
+    config.pluginmanager.register(_FinnCiPlugin(), "_finn_ci")
 
 
 def _is_xdist_worker(config):
@@ -213,7 +213,7 @@ def _write_shard_map(config, kept, groups, assignment, source, weights_table, fa
         pass
 
 
-class _FinnCiShardingPlugin:
+class _FinnCiPlugin:
     """Stateful pytest hooks, one instance per process (xdist controller or worker).
 
     The timing dict is left as None on xdist workers so the per-test reports

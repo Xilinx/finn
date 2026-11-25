@@ -29,7 +29,6 @@
 
 import json
 import os
-import subprocess
 from enum import Enum
 from pathlib import Path
 from qonnx.core.modelwrapper import ModelWrapper
@@ -52,7 +51,9 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.basic import make_build_dir, resolve_xilinx_tool
+from finn.util.basic import make_build_dir
+from finn.util.fpgadataflow import find_clk2x_nodes
+from finn.util.launcher import run_tool
 
 from . import templates
 
@@ -63,6 +64,25 @@ def _check_vitis_envvars():
     assert (
         "XILINX_XRT" in os.environ
     ), "XILINX_XRT must be set for Vitis, ensure the XRT env is sourced"
+
+
+def check_no_clk2x(model: ModelWrapper, flow: str):
+    """Reject double-pumped designs for a link flow that does not support them
+    (SLASH).
+
+    A kernel's ap_clk2x must be phase-aligned with its ap_clk. The SLASH
+    platform offers no such clock pair. The internal clock generator of the
+    stitched IP (CreateStitchedIP clk2x_gen) is the intended path, but has not
+    been verified with this flow.
+    """
+    clk2x_nodes = find_clk2x_nodes(model)
+    if clk2x_nodes:
+        raise Exception(
+            "The %s flow does not support double-pumped kernels yet (a kernel-internal "
+            "ap_clk2x generator is the intended path, but unverified), but these "
+            "nodes need ap_clk2x (pumpedCompute/pumpedMemory): %s. Disable clock "
+            "pumping for this flow." % (flow, ", ".join(clk2x_nodes))
+        )
 
 
 _SLASH_ALLOWED_AXILITE_STEMS = {"s_axi_control"}
@@ -179,18 +199,12 @@ class CreateVitisXO(Transformation):
         with open(vivado_proj_dir + "/gen_xo.tcl", "w") as f:
             f.write(package_xo_string)
 
-        # create a shell script and call Vivado
         package_xo_sh = vivado_proj_dir + "/gen_xo.sh"
-        working_dir = os.environ["PWD"]
-        vivado_cmd = resolve_xilinx_tool("vivado")
-        with open(package_xo_sh, "w") as f:
-            f.write("#!/bin/bash \n")
-            f.write("cd {}\n".format(vivado_proj_dir))
-            f.write("{} -mode batch -source gen_xo.tcl\n".format(vivado_cmd))
-            f.write("cd {}\n".format(working_dir))
-        bash_command = ["bash", package_xo_sh]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
+        run_tool(
+            ["vivado", "-mode", "batch", "-source", "gen_xo.tcl"],
+            cwd=vivado_proj_dir,
+            replay=package_xo_sh,
+        )
         assert os.path.isfile(xo_path), (
             "Vitis .xo file not created, check logs under %s" % vivado_proj_dir
         )
@@ -208,6 +222,10 @@ class PrepareForLinking(Transformation):
     :parameter floorplan_file: path to a JSON containing a dictionary with
         SLR assignments for each node in the ONNX graph.
         Must be parse-able by the ApplyConfig transform.
+    :parameter clk2x_gen: whether kernels with double-pumped nodes derive their
+        ap_clk2x from ap_clk by an internal clock generator (see CreateStitchedIP).
+        Otherwise, such kernels have an ap_clk2x input, which VitisLink maps to a
+        platform clock (clk2x_clock_ids). SLASH supports no double-pumped kernels.
     """
 
     def __init__(
@@ -217,6 +235,7 @@ class PrepareForLinking(Transformation):
         platform,
         floorplan_file=None,
         partition_model_dir=None,
+        clk2x_gen=True,
     ):
         super().__init__()
         self.fpga_part = fpga_part
@@ -224,10 +243,13 @@ class PrepareForLinking(Transformation):
         self.platform = platform
         self.floorplan_file = floorplan_file
         self.partition_model_dir = partition_model_dir
+        self.clk2x_gen = clk2x_gen
 
     def apply(self, model):
         if self.platform not in ["vitis-xrt", "slash-vrt"]:
             raise Exception(f"Unknown platform {self.platform}")
+        if self.platform == "slash-vrt":
+            check_no_clk2x(model, self.platform)
 
         # prepare at global level, then break up into kernels
         prep_transforms = [InsertIODMA(512), InsertDWC(), SpecializeLayers(self.fpga_part)]
@@ -260,7 +282,11 @@ class PrepareForLinking(Transformation):
             kernel_model = kernel_model.transform(HLSSynthIP())
             kernel_model = kernel_model.transform(
                 CreateStitchedIP(
-                    self.fpga_part, self.period_ns, sdp_node.onnx_node.name, run_synth=True
+                    self.fpga_part,
+                    self.period_ns,
+                    sdp_node.onnx_node.name,
+                    run_synth=True,
+                    clk2x_gen=self.clk2x_gen,
                 )
             )
             if self.platform == "vitis-xrt":
@@ -275,6 +301,12 @@ class PrepareForLinking(Transformation):
 class VitisLink(Transformation):
     """Create an XCLBIN with Vitis.
 
+    All kernels run on kernel clock 0 at round(1000 / period_ns) MHz. Kernels with
+    an internal clock generator (CreateStitchedIP clk2x_gen) must have been stitched
+    for this frequency. Kernels with an ap_clk2x input need clk2x_clock_ids: the ids
+    of two phase-aligned platform clocks for ap_clk and ap_clk2x, which then replace
+    kernel clock 0 for all kernels.
+
     Outcome if successful: sets the "bitfile" and "vivado_synth_rpt" attribute in the ONNX
     ModelProto's metadata_props field with the XCLBIN's and Vivado synthesis report's
     full path as value.
@@ -286,17 +318,51 @@ class VitisLink(Transformation):
         period_ns,
         strategy=VitisOptStrategy.PERFORMANCE,
         enable_debug=False,
+        clk2x_clock_ids=None,
     ):
         super().__init__()
         self.vitis_platform = vitis_platform
         self.f_mhz = round(1000 / period_ns)
         self.strategy = strategy
         self.enable_debug = enable_debug
+        self.clk2x_clock_ids = clk2x_clock_ids
+
+    def check_kernel_clocks(self, model: ModelWrapper) -> bool:
+        """Check, before the (hours-long) link, that the kernels' clocks can be
+        provided. Returns whether some kernel has an internal clock generator."""
+        has_clkgen = False
+        for node in model.graph.node:
+            kernel = ModelWrapper(getCustomOp(node).get_nodeattr("model"))
+            ifnames = json.loads(kernel.get_metadata_prop("vivado_stitch_ifnames") or "{}")
+            if ifnames.get("clk2x") and self.clk2x_clock_ids is None:
+                raise Exception(
+                    "Kernel %s has an ap_clk2x input, which needs a phase-aligned pair of "
+                    "platform clocks (clk2x_clock_ids). Otherwise, stitch it with the "
+                    "internal clock generator (clk2x_gen)." % node.name
+                )
+            f_gen = kernel.get_metadata_prop("clk2x_gen_freq_mhz")
+            if f_gen is not None:
+                has_clkgen = True
+                # v++ takes the kernel frequency in integer MHz
+                if abs(float(f_gen) - self.f_mhz) > 0.01:
+                    raise Exception(
+                        "Kernel %s derives ap_clk2x from an ap_clk of %s MHz, but the "
+                        "link targets %d MHz: choose a clock period with an integer "
+                        "frequency in MHz." % (node.name, f_gen, self.f_mhz)
+                    )
+        if has_clkgen and self.clk2x_clock_ids is not None:
+            raise Exception(
+                "Kernels with an internal clock generator run on kernel clock 0, "
+                "not on the platform clocks clk2x_clock_ids."
+            )
+        return has_clkgen
 
     def apply(self, model):
         _check_vitis_envvars()
+        has_clkgen = self.check_kernel_clocks(model)
         # create a config file and empty list of xo files
         config = ["[connectivity]"]
+        clock_config = []
         object_files = []
         idma_idx = 0
         odma_idx = 0
@@ -336,6 +402,12 @@ class VitisLink(Transformation):
                 instance_names[node.name] = node.name
                 config.append("nk=%s:1:%s" % (node.name, instance_names[node.name]))
             sdp_node.set_nodeattr("instance_name", instance_names[node.name])
+            if self.clk2x_clock_ids is not None:
+                ifnames = json.loads(kernel_model.get_metadata_prop("vivado_stitch_ifnames"))
+                clk_id, clk2x_id = self.clk2x_clock_ids
+                clock_config.append("id=%d:%s.ap_clk" % (clk_id, instance_names[node.name]))
+                if ifnames.get("clk2x"):
+                    clock_config.append("id=%d:%s.ap_clk2x" % (clk2x_id, instance_names[node.name]))
             # explicitly assign SLRs if the slr attribute is not -1
             node_slr = sdp_node.get_nodeattr("slr")
             if node_slr != -1:
@@ -345,11 +417,7 @@ class VitisLink(Transformation):
                 node_mem_port = sdp_node.get_nodeattr("mem_port")
                 if node_mem_port == "":
                     # configure good defaults based on board
-                    if (
-                        "u50" in self.vitis_platform
-                        or "u280" in self.vitis_platform
-                        or "u55c" in self.vitis_platform
-                    ):
+                    if "u50" in self.vitis_platform or "u55c" in self.vitis_platform:
                         # Use HBM where available (also U50 does not have DDR)
                         mem_type = "HBM"
                         node_mem_port = "%s[%d]" % (mem_type, mem_idx)
@@ -392,14 +460,36 @@ class VitisLink(Transformation):
         link_dir = make_build_dir(prefix="vitis_link_proj_")
         model.set_metadata_prop("vitis_link_proj", link_dir)
 
+        if clock_config:
+            config += ["[clock]"] + clock_config
+
+        vivado_props = []
+        if self.clk2x_clock_ids is None:
+            # Vitis (2024.2 to 2026.1 at least) fails to derive the constraint of the
+            # kernel clock on (non-Versal) Alveo platforms: its clock wizard helper
+            # gets the project instead of the part ("[Ip 78-110] Invalid part string
+            # Project") and the kernel clock is constrained to the 100 MHz reference
+            # of its MMCM. Re-constrain it to f_mhz before opt_design.
+            clk_hook = link_dir + "/finn_kernel_clk.tcl"
+            with open(clk_hook, "w") as f:
+                f.write(templates.vitis_kernel_clk_tcl.replace("@F_MHZ@", str(self.f_mhz)))
+            vivado_props.append("run.impl_1.STEPS.OPT_DESIGN.TCL.PRE=%s" % clk_hook)
         # add Vivado physopt directives if desired
         if self.strategy == VitisOptStrategy.PERFORMANCE_BEST:
-            config.append("[vivado]")
-            config.append("prop=run.impl_1.STEPS.OPT_DESIGN.ARGS.DIRECTIVE=ExploreWithRemap")
-            config.append("prop=run.impl_1.STEPS.PLACE_DESIGN.ARGS.DIRECTIVE=Explore")
-            config.append("prop=run.impl_1.STEPS.PHYS_OPT_DESIGN.IS_ENABLED=true")
-            config.append("prop=run.impl_1.STEPS.PHYS_OPT_DESIGN.ARGS.DIRECTIVE=Explore")
-            config.append("prop=run.impl_1.STEPS.ROUTE_DESIGN.ARGS.DIRECTIVE=Explore")
+            vivado_props += [
+                "run.impl_1.STEPS.OPT_DESIGN.ARGS.DIRECTIVE=ExploreWithRemap",
+                "run.impl_1.STEPS.PLACE_DESIGN.ARGS.DIRECTIVE=Explore",
+                "run.impl_1.STEPS.PHYS_OPT_DESIGN.IS_ENABLED=true",
+                "run.impl_1.STEPS.PHYS_OPT_DESIGN.ARGS.DIRECTIVE=Explore",
+                "run.impl_1.STEPS.ROUTE_DESIGN.ARGS.DIRECTIVE=Explore",
+            ]
+        if vivado_props:
+            config += ["[vivado]"] + ["prop=" + prop for prop in vivado_props]
+        if has_clkgen:
+            # the clock generators are configured for f_mhz: let v++ fail rather
+            # than lower the kernel clock if timing fails
+            config.append("[advanced]")
+            config.append("param=compiler.enableAutoFrequencyScaling=false")
 
         config = "\n".join(config) + "\n"
         with open(link_dir + "/config.txt", "w") as f:
@@ -414,32 +504,25 @@ class VitisLink(Transformation):
         debug_commands = []
         if self.enable_debug:
             for inst in list(instance_names.values()):
-                debug_commands.append("--dk chipscope:%s" % inst)
+                debug_commands.extend(["--dk", "chipscope:%s" % inst])
 
-        # create a shell script and call Vitis
         script = link_dir + "/run_vitis_link.sh"
-        working_dir = os.environ["PWD"]
-        vxx_cmd = resolve_xilinx_tool("v++")
-        with open(script, "w") as f:
-            f.write("#!/bin/bash \n")
-            f.write("cd {}\n".format(link_dir))
-            f.write(
-                "%s -t hw --platform %s --link %s"
-                " --kernel_frequency %d --config config.txt --optimize %s"
-                " --save-temps -R2 %s\n"
-                % (
-                    vxx_cmd,
-                    self.vitis_platform,
-                    " ".join(object_files),
-                    self.f_mhz,
-                    self.strategy.value,
-                    " ".join(debug_commands),
-                )
-            )
-            f.write("cd {}\n".format(working_dir))
-        bash_command = ["bash", script]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
+        command = ["v++", "-t", "hw", "--platform", self.vitis_platform, "--link"]
+        command.extend(object_files)
+        if self.clk2x_clock_ids is None:
+            command.extend(["--kernel_frequency", str(self.f_mhz)])
+        command.extend(
+            [
+                "--config",
+                "config.txt",
+                "--optimize",
+                str(self.strategy.value),
+                "--save-temps",
+                "-R2",
+            ]
+        )
+        command.extend(debug_commands)
+        run_tool(command, cwd=link_dir, replay=script)
         # TODO rename xclbin appropriately here?
         xclbin = link_dir + "/a.xclbin"
         assert os.path.isfile(xclbin), (
@@ -449,20 +532,47 @@ class VitisLink(Transformation):
 
         # run Vivado to gen xml report
         gen_rep_xml_sh = link_dir + "/gen_report_xml.sh"
-        working_dir = os.environ["PWD"]
-        vivado_cmd = resolve_xilinx_tool("vivado")
-        with open(gen_rep_xml_sh, "w") as f:
-            f.write("#!/bin/bash \n")
-            f.write("cd {}\n".format(link_dir))
-            f.write("%s -mode batch -source %s\n" % (vivado_cmd, link_dir + "/gen_report_xml.tcl"))
-            f.write("cd {}\n".format(working_dir))
-        bash_command = ["bash", gen_rep_xml_sh]
-        process_genxml = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_genxml.communicate()
+        run_tool(
+            ["vivado", "-mode", "batch", "-source", "gen_report_xml.tcl"],
+            cwd=link_dir,
+            replay=gen_rep_xml_sh,
+        )
         # filename for the synth utilization report
         synth_report_filename = link_dir + "/synth_report.xml"
+        assert os.path.isfile(synth_report_filename), (
+            "Vivado synthesis report not created, check logs under %s" % link_dir
+        )
         model.set_metadata_prop("vivado_synth_rpt", synth_report_filename)
         return (model, False)
+
+
+def _slash_link_command(tool, config_path, vbin_path, component_xml_paths, build_hardware):
+    """Build the argv for a single SLASH linker "link" invocation.
+
+    :parameter tool: command used to invoke the SLASH linker.
+    :parameter config_path: path to the generated connectivity config.
+    :parameter vbin_path: path the linker should write the VBIN to.
+    :parameter component_xml_paths: IP-XACT component.xml files, one per kernel.
+    :parameter build_hardware: if True, link a hardware image, otherwise a simulation image.
+    :return: argv list for a single linker subprocess invocation.
+    """
+    return [
+        tool,
+        "link",
+        "--config",
+        str(config_path),
+        "--platform",
+        "hw" if build_hardware else "sim",
+        "--out",
+        str(vbin_path),
+        "--kernels",
+    ] + [str(path) for path in component_xml_paths]
+
+
+def _slash_link_argv(config_path, vbin_path, component_xml_paths, build_hardware):
+    return _slash_link_command(
+        "slashkit", config_path, vbin_path, component_xml_paths, build_hardware
+    )
 
 
 class SlashLink(Transformation):
@@ -472,8 +582,9 @@ class SlashLink(Transformation):
     ModelProto's metadata_props field with the VBIN's and synthesis report's
     full path as value.
 
-    :parameter build_hardware: If True, SlashLink will build a hardware programming image.
-    Otherwise, it will create an simulation image.
+    Args:
+        build_hardware: If True, SlashLink will build a hardware programming image.
+            Otherwise, it will create a simulation image.
     """
 
     def __init__(self, build_hardware=True):
@@ -481,6 +592,7 @@ class SlashLink(Transformation):
         self.build_hardware = build_hardware
 
     def apply(self, model):
+        check_no_clk2x(model, "slash-vrt")
         # create a temporary folder for the project and check out SLASH
         link_dir = Path(make_build_dir(prefix="slash_link_proj_"))
         model.set_metadata_prop("slash_link_proj", str(link_dir))
@@ -564,22 +676,10 @@ class SlashLink(Transformation):
 
         # Construct the linker invocation
         vbin_path = link_dir / "finn.vbin"
-        command = [
-            "v80++",
-            "link",
-            "--config",
-            str(config_path),
-            "--platform",
-            "hw" if self.build_hardware else "sim",
-            "--out",
-            str(vbin_path),
-            "--kernels",
-        ] + [str(path) for path in component_xml_paths]
+        command = _slash_link_argv(config_path, vbin_path, component_xml_paths, self.build_hardware)
 
-        # Run the linker
-        log_path = link_dir / "slash.log"
-        with open(log_path, "w") as log_file:
-            subprocess.run(command, check=True, stdout=log_file, stderr=log_file)
+        run_tool(command, cwd=link_dir, replay=link_dir / "run_slash_link.sh")
+        log_path = link_dir / "run_slash_link.stdout.log"
 
         assert (
             vbin_path.is_file()
