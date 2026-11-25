@@ -24,6 +24,16 @@ module eltwise #(
 	int unsigned  B_WIDTH  = 32,
 	bit           B_SIGNED = 0,
 
+	// Replay of the B stream to broadcast it along axes of A. Per block of
+	// B_REP_DIMS[0] * B_REP_COEFS[0] words, input_gen emits (level 0 = outermost):
+	//   for(i0 < B_REP_DIMS[0]) ... for(in < B_REP_DIMS[n])
+	//     emit(b[B_REP_COEFS[0]*i0 + ... + B_REP_COEFS[n]*in]);
+	// A coefficient of 0 replays the words of the levels below, or holds each word on
+	// the innermost level. B_REP_D = 0: no replay.
+	int unsigned  B_REP_D  = 0,
+	bit [(B_REP_D? B_REP_D-1 : 0):0][31:0]  B_REP_DIMS  = '0,
+	bit [(B_REP_D? B_REP_D-1 : 0):0][31:0]  B_REP_COEFS = '0,
+
 	// Port-width derivations (do not override)
 	localparam int unsigned  A_DAT_W = A_FLOAT? 32 : A_WIDTH,
 	localparam int unsigned  B_DAT_W = B_FLOAT? 32 : B_WIDTH,
@@ -75,12 +85,44 @@ module eltwise #(
 		end
 	end
 
-	//=== Input Sidestep Registers =========================================
-	uwire  take;
-
 	typedef logic [PE-1:0][A_DAT_W-1:0]  a_vec_t;
 	typedef logic [PE-1:0][B_DAT_W-1:0]  b_vec_t;
 	typedef logic [PE-1:0][O_WIDTH-1:0]  o_vec_t;
+
+	//=== Replay of the B Stream ===========================================
+	uwire b_vec_t  brep_dat;
+	uwire  brep_vld;
+	uwire  brep_rdy;
+	if(B_REP_D == 0) begin : genNoRep
+		assign	brep_dat = bdat;
+		assign	brep_vld = bvld;
+		assign	brdy = brep_rdy;
+	end : genNoRep
+	else begin : genRep
+		typedef int unsigned  nest_t[B_REP_D];
+		function automatic nest_t  NEST(input bit [B_REP_D-1:0][31:0]  levels);
+			automatic nest_t  a;
+			foreach(a[i])  a[i] = levels[B_REP_D-1-i];
+			return  a;
+		endfunction : NEST
+		localparam nest_t  DIMS  = NEST(B_REP_DIMS);
+		localparam nest_t  COEFS = NEST(B_REP_COEFS);
+
+		input_gen #(
+			.DATA_WIDTH($bits(b_vec_t)),
+			.FM_SIZE(DIMS[0] * COEFS[0]),
+			.D(B_REP_D),
+			.DIMS(DIMS),
+			.COEFS(COEFS)
+		) replay (
+			.clk, .rst,
+			.idat(bdat), .ivld(bvld), .irdy(brdy),
+			.odat(brep_dat), .ovld(brep_vld), .olst(), .odone(), .ordy(brep_rdy)
+		);
+	end : genRep
+
+	//=== Input Sidestep Registers =========================================
+	uwire  take;
 
 	typedef struct {
 		a_vec_t  val;
@@ -100,19 +142,19 @@ module eltwise #(
 		else begin
 			if(A.rdy)  A.val <= adat;
 			A.rdy <= (A.rdy && !avld) || take;
-			if(B.rdy)  B.val <= bdat;
-			B.rdy <= (B.rdy && !bvld) || take;
+			if(B.rdy)  B.val <= brep_dat;
+			B.rdy <= (B.rdy && !brep_vld) || take;
 		end
 	end
 	assign	ardy = A.rdy;
-	assign	brdy = B.rdy;
+	assign	brep_rdy = B.rdy;
 	uwire a_vec_t  a = A.rdy? adat : A.val;
-	uwire b_vec_t  b = B.rdy? bdat : B.val;
+	uwire b_vec_t  b = B.rdy? brep_dat : B.val;
 
 	//=== Credit-based Operation Issue =====================================
 	logic signed [$clog2(CREDIT):0]  Credit = -CREDIT;
 	uwire  give = ovld && ordy;
-	assign	take = (avld || !ardy) && (bvld || !brdy) && Credit[$left(Credit)];
+	assign	take = (avld || !ardy) && (brep_vld || !brep_rdy) && Credit[$left(Credit)];
 	always_ff @(posedge clk) begin
 		if(rst)  Credit <= -CREDIT;
 		else     Credit <= Credit + ((give == take)? 0 : give? -1 : 1);
