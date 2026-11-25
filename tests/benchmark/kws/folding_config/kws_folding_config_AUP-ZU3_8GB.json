@@ -35,7 +35,7 @@
     "mem_mode": "internal_decoupled",
     "runtime_writeable_weights": 0
   },
-  "LabelSelect_hls_0": {
+  "HWTopK_hls_0": {
     "PE": 1
   }
 }

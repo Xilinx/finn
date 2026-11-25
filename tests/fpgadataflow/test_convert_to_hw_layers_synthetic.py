@@ -201,7 +201,7 @@ def _test_convert_to_hw_layers_synthetic(ch, ifmdim, idt, build_dir):
     model = model.transform(InsertTopK())
     model = model.transform(AbsorbScalarMulAddIntoTopK())
     model = model.transform(InferDataTypes())
-    model = model.transform(to_hw.InferLabelSelectLayer())
+    model = model.transform(to_hw.InferTopKLayer())
     model = model.transform(AbsorbConsecutiveTransposes())
     model = model.transform(InferDataTypes())
     model = model.transform(to_hw.InferDuplicateStreamsLayer())
@@ -213,8 +213,8 @@ def _test_convert_to_hw_layers_synthetic(ch, ifmdim, idt, build_dir):
     assert len(finn_nodes) == 9
     pool_nodes = model.get_nodes_by_op_type("GlobalAccPool")
     assert len(pool_nodes) == 1
-    label_nodes = model.get_nodes_by_op_type("LabelSelect")
-    assert len(label_nodes) == 1
+    topk_nodes = model.get_nodes_by_op_type("HWTopK")
+    assert len(topk_nodes) == 1
     # ElementwiseBinary ops replaced ChannelwiseOp (5 nodes) and AddStreams (1 node)
     elementwise_add_nodes = model.get_nodes_by_op_type("ElementwiseAdd")
     assert len(elementwise_add_nodes) == 4  # 3 from channelwise Add + 1 from AddStreams
@@ -233,8 +233,8 @@ def _test_convert_to_hw_layers_synthetic(ch, ifmdim, idt, build_dir):
     assert len(finn_nodes) == 9
     pool_nodes = model.get_nodes_by_op_type("GlobalAccPool_hls")
     assert len(pool_nodes) == 1
-    label_nodes = model.get_nodes_by_op_type("LabelSelect_hls")
-    assert len(label_nodes) == 1
+    topk_nodes = model.get_nodes_by_op_type("HWTopK_hls")
+    assert len(topk_nodes) == 1
     # ElementwiseBinary_hls ops replaced ChannelwiseOp_hls and AddStreams_hls
     elementwise_add_nodes = model.get_nodes_by_op_type("ElementwiseAdd_hls")
     assert len(elementwise_add_nodes) == 4

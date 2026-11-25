@@ -1142,8 +1142,8 @@ class InferChannelwiseLinearLayer(Transformation):
         return InferElementwiseBinaryOperation().apply(model)
 
 
-class InferLabelSelectLayer(Transformation):
-    """Convert any TopK into a LabelSelect HW layer."""
+class InferTopKLayer(Transformation):
+    """Convert any TopK into an HWTopK layer (indices output only)."""
 
     def apply(self, model):
         graph = model.graph
@@ -1175,9 +1175,9 @@ class InferLabelSelectLayer(Transformation):
 
                 k = model.get_initializer(k_input)[0]
 
-                # create and insert new LabelSelect node
+                # create and insert new HWTopK node
                 new_node = helper.make_node(
-                    "LabelSelect",
+                    "HWTopK",
                     [fc_input],
                     [idx_output],
                     domain="finn.custom_op.fpgadataflow",
@@ -1187,7 +1187,7 @@ class InferLabelSelectLayer(Transformation):
                     K=k,
                     inputDataType=idt.name,
                     numInputVectors=num_inp_vecs,
-                    name="LabelSelect_" + node.name,
+                    name="HWTopK_" + node.name,
                 )
                 graph.node.insert(node_ind, new_node)
                 # remove old node

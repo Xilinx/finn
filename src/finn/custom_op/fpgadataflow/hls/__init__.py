@@ -60,8 +60,8 @@ from finn.custom_op.fpgadataflow.hls.duplicatestreams_hls import DuplicateStream
 from finn.custom_op.fpgadataflow.hls.fmpadding_pixel_hls import FMPadding_Pixel_hls
 from finn.custom_op.fpgadataflow.hls.globalaccpool_hls import GlobalAccPool_hls
 from finn.custom_op.fpgadataflow.hls.hwsoftmax_hls import HWSoftmax_hls
+from finn.custom_op.fpgadataflow.hls.hwtopk_hls import HWTopK_hls
 from finn.custom_op.fpgadataflow.hls.iodma_hls import IODMA_hls
-from finn.custom_op.fpgadataflow.hls.labelselect_hls import LabelSelect_hls
 from finn.custom_op.fpgadataflow.hls.layernorm_hls import LayerNorm_hls
 from finn.custom_op.fpgadataflow.hls.lookup_hls import Lookup_hls
 from finn.custom_op.fpgadataflow.hls.matrixvectoractivation_hls import MVAU_hls
@@ -81,7 +81,6 @@ custom_op["DuplicateStreams_hls"] = DuplicateStreams_hls
 custom_op["FMPadding_Pixel_hls"] = FMPadding_Pixel_hls
 custom_op["GlobalAccPool_hls"] = GlobalAccPool_hls
 custom_op["IODMA_hls"] = IODMA_hls
-custom_op["LabelSelect_hls"] = LabelSelect_hls
 custom_op["LayerNorm_hls"] = LayerNorm_hls
 custom_op["Lookup_hls"] = Lookup_hls
 custom_op["Pool_hls"] = Pool_hls
@@ -93,4 +92,5 @@ custom_op["UpsampleNearestNeighbour_hls"] = UpsampleNearestNeighbour_hls
 custom_op["MVAU_hls"] = MVAU_hls
 custom_op["VVAU_hls"] = VVAU_hls
 custom_op["HWSoftmax_hls"] = HWSoftmax_hls
+custom_op["HWTopK_hls"] = HWTopK_hls
 custom_op["OuterShuffle_hls"] = OuterShuffle_hls
