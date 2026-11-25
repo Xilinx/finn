@@ -45,6 +45,7 @@ from finn.util.data_packing import (
     pack_innermost_dim_as_hex_string,
     rtlsim_output_to_npy,
 )
+from finn.util.mlo import mlo_set_select_bits
 
 # Mapping of memory resource attributes to the corresponding C++ HLS
 # pragma directives
@@ -624,12 +625,18 @@ out0_V.write(out_t);
         # need to be inserted
         if self.lhs_style == "input":
             intf_names["s_axis"] += [("in0_V", self.get_instream_width_padded(ind=0))]
-            if self.rhs_style == "const" and self.get_nodeattr("mlo_max_iter"):
-                intf_names["s_axis"] += [("in1_V", self.get_instream_width_padded(ind=0))]
         # If the right-hand-side is provided as runtime input interface names
         # need to be inserted
         if self.rhs_style == "input":
-            intf_names["s_axis"] += [("in1_V", self.get_instream_width_padded(ind=1))]
+            mlo_max_iter = self.get_nodeattr("mlo_max_iter")
+            if mlo_max_iter:
+                # In a loop body, the per-iteration rhs comes from the memstream
+                # inside the node's hierarchy (see code_generation_ipi); its in1_V
+                # is the set-select stream of the FINNLoop stream tap.
+                in1_width = mlo_set_select_bits(mlo_max_iter)
+            else:
+                in1_width = self.get_instream_width_padded(ind=1)
+            intf_names["s_axis"] += [("in1_V", in1_width)]
         # AXI stream output interfaces
         intf_names["m_axis"] = [("out0_V", self.get_outstream_width_padded(ind=0))]
         # No AXI-MM, AXI-Lite or protocol-less interfaces

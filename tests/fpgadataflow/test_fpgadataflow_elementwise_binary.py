@@ -59,6 +59,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import get_vivado_version
+from finn.util.mlo import mlo_set_select_bits
 from finn.util.test import tree_model_test
 
 # Mapping of ElementwiseBinaryOperation specializations to numpy reference
@@ -486,6 +487,18 @@ def test_elementwise_binary_hls_broadcast_stream_width(lhs_shape, rhs_shape, pe)
         *_, elems = inst.get_folded_input_shape(ind)
         assert inst.get_instream_width(ind) == elems * 8
         assert ports[port] == inst.get_instream_width_padded(ind)
+
+
+@pytest.mark.fpgadataflow
+def test_elementwise_binary_hls_mlo_set_select_port():
+    # In a loop body, the per-iteration rhs comes from the memstream inside the
+    # node: in1_V is the set-select stream of the FINNLoop stream tap, while the
+    # rhs data stream from the memstream keeps its PE-wide words.
+    inst = _specialized_broadcast_node([3, 32, 1, 16], [3, 1, 7, 1], 4)
+    inst.set_nodeattr("mlo_max_iter", 5)
+    ports = dict(inst.get_verilog_top_module_intf_names()["s_axis"])
+    assert ports["in1_V"] == mlo_set_select_bits(5)
+    assert inst.get_instream_width(1) == 4 * 8
 
 
 # A broadcast const operand is npy-fed in internal_decoupled but baked into params
