@@ -50,9 +50,14 @@ class Thresholding_rtl(Thresholding, RTLBackend):
 
     def get_nodeattr_types(self):
         my_attrs = {
-            # memory depth triggers for threshold storage
+            # memory depth triggers for threshold storage: the per-stage memories
+            # of this depth or more go into URAM (priority) or BRAM, shallower ones
+            # into LUTs once the BRAM trigger is set; 0 disables a trigger, both 0
+            # leave the choice to Vivado. Vivado maps every per-PE stage memory from
+            # a depth of about 64 to its own BRAM18 even if filled to a few percent;
+            # 512 keeps BRAMs at least half full (for thresholds up to 18 bits).
             "depth_trigger_uram": ("i", False, 0),
-            "depth_trigger_bram": ("i", False, 0),
+            "depth_trigger_bram": ("i", False, 512),
             # enable uniform thres optimization
             # doesn't actually do anything yet, only
             # for resource estimations
@@ -64,6 +69,20 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         my_attrs.update(Thresholding.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
+
+    def get_search_stages(self):
+        """Return the number of binary search stages, $clog2(numSteps+1), each of
+        which owns one threshold memory per PE."""
+        return math.ceil(math.log2(self.get_nodeattr("numSteps") + 1))
+
+    def get_min_output_bits(self):
+        """Return the narrowest output width the RTL accepts for the biased result
+        (O_BITS default of thresholding.sv)."""
+        n = self.get_nodeattr("numSteps")
+        bias = self.get_nodeattr("ActVal")
+        if bias >= 0:
+            return math.ceil(math.log2(n + bias + 1))
+        return 1 + math.ceil(math.log2(-bias if -bias >= n + bias + 1 else n + bias + 1))
 
     def get_pe_mem_geometries(self):
         """return a list of (bitwidth, depth) for PE memory configurations to be used
@@ -84,17 +103,19 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         pe = self.get_nodeattr("PE")
         wdt = self.get_input_datatype(1)
         wdt_bits = wdt.bitwidth()
-        odt = self.get_output_datatype()
-        odt_bits = odt.bitwidth()
+        stages = self.get_search_stages()
         t_channels = self.get_nodeattr("NumChannels")
-        cf = t_channels / pe
-        # For MLO, multiply depth by number of sets (iterations)
-        mlo_sets = max(1, self.get_nodeattr("mlo_max_iter"))
+        cf = t_channels // pe
+        # For MLO, the sets are stacked over a power-of-two channel fold (as DEPTH
+        # in thresholding.sv)
+        mlo_sets = self.get_nodeattr("mlo_max_iter")
+        if mlo_sets > 1:
+            cf = mlo_sets * (1 << (cf - 1).bit_length())
         is_uniform = self.get_nodeattr("uniform_thres")
         if is_uniform:
-            ret = [(odt_bits - x, cf * (2**x) * mlo_sets) for x in range(1, odt_bits)]
+            ret = [(stages - x, cf * (2**x)) for x in range(1, stages)]
         else:
-            ret = [(wdt_bits, cf * (2**x) * mlo_sets) for x in range(odt_bits)]
+            ret = [(wdt_bits, cf * (2**x)) for x in range(stages)]
         return ret
 
     def _get_memory_estimate_details(self):
@@ -108,12 +129,16 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         ret = self.get_pe_mem_geometries()
         for mem_cfg in ret:
             (width, depth) = mem_cfg
-            primitives = mem_primitives_versal
-            if depth_trigger_bram != 0 or depth_trigger_uram != 0:
-                if depth >= depth_trigger_bram and depth < depth_trigger_uram:
-                    primitives = {k: v for (k, v) in mem_primitives_versal.items() if "BRAM" in k}
-                elif depth >= depth_trigger_uram:
-                    primitives = {k: v for (k, v) in mem_primitives_versal.items() if "URAM" in k}
+            # as RAM_STYLE in thresholding.sv
+            if depth_trigger_uram and depth >= depth_trigger_uram:
+                kind = "URAM"
+            elif depth_trigger_bram and depth >= depth_trigger_bram:
+                kind = "BRAM"
+            elif depth_trigger_bram:
+                kind = "LUTRAM"
+            else:
+                kind = ""  # Vivado's choice, approximated by the least waste
+            primitives = {k: v for (k, v) in mem_primitives_versal.items() if kind in k}
             alts = get_memutil_alternatives(mem_cfg, primitives)
             primary_alt = alts[0]
             primitive_name = primary_alt[0]
@@ -148,7 +173,16 @@ class Thresholding_rtl(Thresholding, RTLBackend):
     def lut_estimation(self, fpgapart):
         """return the number of LUTs required for this node"""
         res_dict = self.get_memory_estimate()
-        return res_dict.get("LUTRAM", 0)
+        # comparison and pipeline logic, about half a LUT per threshold bit, stage
+        # and PE (fit to out-of-context results on xczu7ev for 8- and 16-bit
+        # thresholds)
+        logic = (
+            self.get_nodeattr("PE")
+            * self.get_search_stages()
+            * self.get_input_datatype(1).bitwidth()
+            // 2
+        )
+        return res_dict.get("LUTRAM", 0) + logic
 
     def bram_efficiency_estimation(self, fpgapart):
         """return BRAM parameter storage efficiency for this node"""
@@ -172,9 +206,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         dat_files = []
         t_path = self.get_nodeattr("code_gen_dir_ipgen") if abspath else "."
         pe = self.get_nodeattr("PE")
-        output_data_type = self.get_nodeattr("outputDataType")  # output precision
-        o_bitwidth = DataType[output_data_type].bitwidth()
-        for stage in range(o_bitwidth):
+        for stage in range(self.get_search_stages()):
             for pe_value in range(pe):
                 thresh_file = t_path + "/%s_threshs_%s_%s.dat" % (
                     self.onnx_node.name,
@@ -267,13 +299,14 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         else:
             code_gen_dict["$FPARG$"] = [str(0)]
 
-        if bias >= 0:
-            o_bits = math.ceil(math.log2(n_thres_steps + bias + 1))
-        else:
-            o_bits = 1 + math.ceil(
-                math.log2(-bias if -bias >= (n_thres_steps + 1) / 2 else n_thres_steps + bias + 1)
-            )
-        code_gen_dict["$O_BITS$"] = [str(int(o_bits))]
+        # The output carries the biased result in the full width of the output
+        # datatype, which may exceed the minimum the RTL needs.
+        o_bits = self.get_output_datatype().bitwidth()
+        assert o_bits >= self.get_min_output_bits(), (
+            f"{self.onnx_node.name}: outputDataType {self.get_output_datatype().name} is too "
+            f"narrow for {n_thres_steps} thresholds with ActVal {bias}."
+        )
+        code_gen_dict["$O_BITS$"] = [str(o_bits)]
 
         rt_weights = self.get_nodeattr("runtime_writeable_weights")
         code_gen_dict["$USE_AXILITE$"] = [str(rt_weights)]
@@ -463,11 +496,17 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         if not path:
             path = os.getcwd()
         thresholds = weights
+        if weight_file_mode == "decoupled_runtime":
+            # Runtime updates bypass inference and codegen, so this file, which the
+            # driver writes as is, sorts them for the binary search. This never
+            # changes the result (see InferThresholdingLayer).
+            thresholds = np.sort(thresholds, axis=-1)
         pe = self.get_nodeattr("PE")
         num_channels = self.get_nodeattr("NumChannels")  # number of channels
-        output_data_type = self.get_nodeattr("outputDataType")  # output precision
-        o_bitwidth = DataType[output_data_type].bitwidth()
-        expected_thresholds = 2**o_bitwidth - 1
+        # the search tree spans 2^stages - 1 thresholds, the excess being padding
+        # masked by the RTL
+        stages = self.get_search_stages()
+        expected_thresholds = 2**stages - 1
         n_thres_steps = self.get_nodeattr("numSteps")
         wdt = self.get_input_datatype(1)
         if expected_thresholds > n_thres_steps:
@@ -530,8 +569,8 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                 num_channels = pe
             channel_fold = int(num_channels / pe)
 
-            for stage in range(o_bitwidth):
-                sn = o_bitwidth - stage - 1
+            for stage in range(stages):
+                sn = stages - stage - 1
                 for pe_value in range(pe):
                     thresh_file = path + "/%s_threshs_%s_%s.dat" % (
                         self.onnx_node.name,
@@ -542,7 +581,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                     for ch in range(channel_fold):
                         for i in range(2**stage):
                             threshs[(ch << stage) + i] = t_packed[ch * pe + pe_value][
-                                (i << (o_bitwidth - stage)) + 2**sn - 1
+                                (i << (stages - stage)) + 2**sn - 1
                             ]
                     with open(thresh_file, "w") as f:
                         for val in threshs:

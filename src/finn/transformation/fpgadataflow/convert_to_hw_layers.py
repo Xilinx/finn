@@ -237,6 +237,13 @@ class InferThresholdingLayer(Transformation):
                     thl_output = nchw_to_nhwc(thl_output, model, node_ind, reverse=True)
                     node_ind += 1
 
+                # The binary search of Thresholding_rtl needs non-decreasing thresholds
+                # per channel. Sorting never changes the result as the count of
+                # thresholds below an input is invariant under their permutation.
+                thresholds = model.get_initializer(thl_threshold)
+                if thresholds is not None and (np.diff(thresholds, axis=-1) < 0).any():
+                    model.set_initializer(thl_threshold, np.sort(thresholds, axis=-1))
+
                 # now safe to assume number of channels is in last dimension
                 ifc = int(thl_in_shape[-1])
                 # create node with no parallelization first

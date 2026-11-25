@@ -28,6 +28,7 @@
 
 import pytest
 
+import math
 import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
@@ -42,10 +43,12 @@ from qonnx.util.basic import gen_finn_dt_tensor
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
+from finn.core.rtlsim_exec import rtlsim_exec
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferThresholdingLayer
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
     MinimizeWeightBitWidth,
 )
@@ -57,7 +60,7 @@ from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODep
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import get_vivado_version, is_versal, make_build_dir
-from finn.util.test import tree_model_test
+from finn.util.test import make_runtime_weight_stream, tree_model_test
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -823,6 +826,8 @@ def test_rtl_thresholding_unsorted_assertion():
     )
 
     model = model.transform(InferThresholdingLayer())
+    # inference sorts the thresholds, so unsort them again behind its back
+    model.set_initializer(model.graph.node[0].input[1], thresholds)
 
     # Set preferred_impl_style to RTL
     node = model.graph.node[0]
@@ -887,3 +892,248 @@ def test_fpgadataflow_thresholding_data_layout(num_input_vecs, num_input_channel
     y_produced = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
 
     assert (y_produced.astype(np.float32) == y_expected.astype(np.float32)).all()
+
+
+# Output datatypes wider than the $clog2(numSteps+1) bits the binary search needs:
+# the RTL stage count and threshold layout must follow numSteps, and the output
+# must carry the biased result in the declared width.
+@pytest.mark.parametrize(
+    "num_steps,activation_bias,output_data_type",
+    [
+        pytest.param(7, -4, DataType["INT4"], id="n7_bias-4_int4"),
+        pytest.param(15, -8, DataType["INT8"], id="n15_bias-8_int8"),
+        pytest.param(7, 0, DataType["UINT8"], id="n7_bias0_uint8"),
+        pytest.param(3, 4, DataType["UINT3"], id="n3_bias4_uint3"),
+    ],
+)
+@pytest.mark.parametrize("pe", [1, 2])
+@pytest.mark.parametrize("runtime_writeable", [0, 1])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+def test_fpgadataflow_thresholding_rtl_wide_output(
+    num_steps, activation_bias, output_data_type, pe, runtime_writeable
+):
+    num_input_channels = 4
+    num_input_vecs = [1, 2, 2]
+    input_data_type = DataType["INT8"]
+
+    # distinct thresholds, so that only the output width is under test here
+    values = np.arange(input_data_type.min(), input_data_type.max() + 1)
+    thresholds = np.stack(
+        [
+            np.sort(np.random.choice(values, num_steps, replace=False))
+            for _ in range(num_input_channels)
+        ]
+    ).astype(np.float32)
+    model = make_single_multithresholding_modelwrapper(
+        thresholds,
+        input_data_type,
+        input_data_type,
+        output_data_type,
+        activation_bias,
+        num_input_vecs,
+        num_input_channels,
+    )
+    x = generate_edge_input_tensor(input_data_type, tuple(num_input_vecs + [num_input_channels]))
+    input_dict = {model.get_first_global_in(): x}
+    y_expected = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
+
+    model = model.transform(InferThresholdingLayer())
+    getCustomOp(model.graph.node[0]).set_nodeattr("preferred_impl_style", "rtl")
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    assert model.graph.node[0].op_type == "Thresholding_rtl"
+    inst = getCustomOp(model.graph.node[0])
+    inst.set_nodeattr("PE", pe)
+    inst.set_nodeattr("runtime_writeable_weights", runtime_writeable)
+    model = model.transform(GiveUniqueNodeNames())
+
+    if runtime_writeable:
+        # the AXI-lite interface only exists in the stitched IP; read back the
+        # embedded initial thresholds through it as well
+        weight_stream = make_runtime_weight_stream(inst, thresholds)
+        model = model.transform(InsertFIFO(True))
+        model = model.transform(SpecializeLayers(test_fpga_part))
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+        model = model.transform(HLSSynthIP())
+        model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
+        model = model.transform(PrepareRTLSim())
+        model.set_metadata_prop("exec_mode", "rtlsim")
+        read_back = []
+
+        def read_weights(sim):
+            addresses = [4 * i for i in range(len(weight_stream))]
+            handle = sim.read_axilite("s_axilite_0", iter(addresses))
+            sim.run()
+            read_back.extend(int(handle[a], 16) for a in addresses)
+
+        ctx = dict(input_dict)
+        rtlsim_exec(model, ctx, pre_hook=read_weights)
+        y_produced = ctx[model.get_first_global_out()]
+        assert read_back == weight_stream
+    else:
+        model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+        model = model.transform(SetExecMode("rtlsim"))
+        model = model.transform(HLSSynthIP())
+        model = model.transform(PrepareRTLSim())
+        y_produced = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
+
+    np.testing.assert_array_equal(y_produced, y_expected)
+
+
+def make_threshold_pattern(pattern, num_channels, num_steps, dt):
+    """Thresholds per channel: shuffled distinct values, sorted with duplicates,
+    shuffled with duplicates, or all equal."""
+    values = np.arange(dt.min(), dt.max() + 1)
+    rows = []
+    for _ in range(num_channels):
+        if pattern == "constant":
+            row = np.full(num_steps, np.random.choice(values))
+        else:
+            row = np.random.choice(values, num_steps, replace=(pattern != "shuffled"))
+            row = np.random.permutation(row) if "shuffled" in pattern else np.sort(row)
+        rows.append(row)
+    return np.stack(rows).astype(np.float32)
+
+
+@pytest.mark.parametrize("pattern", ["shuffled", "duplicates", "shuffled_duplicates", "constant"])
+@pytest.mark.fpgadataflow
+def test_infer_thresholding_sorts_thresholds(pattern):
+    """InferThresholdingLayer sorts thresholds per channel without changing the result."""
+    num_channels, num_steps = 4, 15
+    idt = DataType["INT4"]
+    thresholds = make_threshold_pattern(pattern, num_channels, num_steps, idt)
+    model = make_single_multithresholding_modelwrapper(
+        thresholds, idt, idt, DataType["UINT4"], 0, [1, 4, 4], num_channels
+    )
+    x = gen_finn_dt_tensor(idt, (1, 4, 4, num_channels))
+    input_dict = {model.get_first_global_in(): x}
+    y_expected = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
+
+    model = model.transform(InferThresholdingLayer())
+    node = model.get_nodes_by_op_type("Thresholding")[0]
+    np.testing.assert_array_equal(
+        model.get_initializer(node.input[1]), np.sort(thresholds, axis=-1)
+    )
+    y_produced = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
+    np.testing.assert_array_equal(y_produced, y_expected)
+
+
+@pytest.mark.fpgadataflow
+def test_thresholding_rtl_runtime_weight_file_sorts():
+    """The runtime weight file is sorted whatever order the thresholds come in."""
+    num_channels, num_steps = 4, 15
+    idt = DataType["INT8"]
+    thresholds = make_threshold_pattern("shuffled_duplicates", num_channels, num_steps, idt)
+    model = make_single_multithresholding_modelwrapper(
+        np.sort(thresholds, axis=-1), idt, idt, DataType["UINT4"], 0, [1], num_channels
+    )
+    model = model.transform(InferThresholdingLayer())
+    getCustomOp(model.graph.node[0]).set_nodeattr("preferred_impl_style", "rtl")
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    inst = getCustomOp(model.graph.node[0])
+    inst.set_nodeattr("PE", 2)
+    assert make_runtime_weight_stream(inst, thresholds) == make_runtime_weight_stream(
+        inst, np.sort(thresholds, axis=-1)
+    )
+
+
+# The binary search must count thresholds <= x correctly for non-decreasing
+# thresholds with duplicates; unsorted ones are sorted by inference.
+@pytest.mark.parametrize("pattern", ["shuffled", "duplicates", "shuffled_duplicates", "constant"])
+@pytest.mark.parametrize("pe", [1, 2])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+def test_fpgadataflow_thresholding_rtl_unsorted_duplicates(pattern, pe):
+    num_channels, num_steps = 4, 15
+    num_input_vecs = [1, 4, 4]
+    idt = DataType["INT4"]
+    thresholds = make_threshold_pattern(pattern, num_channels, num_steps, idt)
+    model = make_single_multithresholding_modelwrapper(
+        thresholds, idt, idt, DataType["UINT4"], 0, num_input_vecs, num_channels
+    )
+    x = generate_edge_input_tensor(idt, tuple(num_input_vecs + [num_channels]))
+    input_dict = {model.get_first_global_in(): x}
+    y_expected = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
+
+    model = model.transform(InferThresholdingLayer())
+    getCustomOp(model.graph.node[0]).set_nodeattr("preferred_impl_style", "rtl")
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    assert model.graph.node[0].op_type == "Thresholding_rtl"
+    getCustomOp(model.graph.node[0]).set_nodeattr("PE", pe)
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+    y_produced = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
+    np.testing.assert_array_equal(y_produced, y_expected)
+
+
+@pytest.mark.parametrize("impl_style", ["", "hls", "rtl"])
+@pytest.mark.fpgadataflow
+def test_specialize_thresholding_mlo_rtl_only(impl_style):
+    """MLO threshold sets (in1_V) exist in RTL only, so an MLO Thresholding node
+    becomes Thresholding_rtl, with a warning if HLS was preferred."""
+    num_channels, num_steps = 4, 15
+    idt = DataType["INT8"]
+    thresholds = make_threshold_pattern("duplicates", num_channels, num_steps, idt)
+    model = make_single_multithresholding_modelwrapper(
+        thresholds, idt, idt, DataType["UINT4"], 0, [1], num_channels
+    )
+    model = model.transform(InferThresholdingLayer())
+    inst = getCustomOp(model.graph.node[0])
+    inst.set_nodeattr("preferred_impl_style", impl_style)
+    inst.set_nodeattr("mlo_max_iter", 2)
+    if impl_style == "hls":
+        with pytest.warns(UserWarning, match="does not support MLO"):
+            model = model.transform(SpecializeLayers(test_fpga_part))
+    else:
+        model = model.transform(SpecializeLayers(test_fpga_part))
+    assert model.graph.node[0].op_type == "Thresholding_rtl"
+
+
+# (numSteps, PE, NumChannels, threshold bits) of the out-of-context study and the
+# BRAM36 and LUT counts measured post-route on xczu7ev with the default depth
+# triggers; LUTs are compared for the large configurations only, as Vivado packs
+# tiny constant memories into fewer LUTs
+@pytest.mark.parametrize(
+    "cfg,bram36,luts",
+    [
+        ((3, 16, 64, 8), 0, None),
+        ((15, 1, 64, 8), 0.5, None),
+        ((15, 4, 64, 8), 0, None),
+        ((15, 16, 512, 16), 0, 2507),
+        ((255, 4, 64, 16), 8, 826),
+        ((255, 16, 512, 16), 64, 3056),
+    ],
+)
+@pytest.mark.fpgadataflow
+def test_thresholding_rtl_memory_estimate(cfg, bram36, luts):
+    """Default depth triggers and the memory estimate follow the RTL's RAM_STYLE
+    selection: stage memories of 512 entries or more in BRAM, the others in LUTs."""
+    num_steps, pe, num_channels, wbits = cfg
+    dt = DataType["INT%d" % wbits]
+    thresholds = make_threshold_pattern("duplicates", num_channels, num_steps, dt)
+    model = make_single_multithresholding_modelwrapper(
+        thresholds,
+        dt,
+        dt,
+        DataType["UINT%d" % math.ceil(math.log2(num_steps + 1))],
+        0,
+        [1],
+        num_channels,
+    )
+    model = model.transform(InferThresholdingLayer())
+    getCustomOp(model.graph.node[0]).set_nodeattr("preferred_impl_style", "rtl")
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    inst = getCustomOp(model.graph.node[0])
+    inst.set_nodeattr("PE", pe)
+
+    assert inst.bram_estimation(test_fpga_part) == 2 * bram36  # in BRAM18
+    assert inst.uram_estimation(test_fpga_part) == 0
+    if luts is not None:
+        assert abs(inst.lut_estimation(test_fpga_part) - luts) <= 0.1 * luts
+    # a BRAM trigger alone must not move memories into URAM
+    inst.set_nodeattr("depth_trigger_bram", 64)
+    assert inst.uram_estimation(test_fpga_part) == 0

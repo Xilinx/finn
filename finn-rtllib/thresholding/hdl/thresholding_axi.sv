@@ -60,14 +60,16 @@ module thresholding_axi #(
 	int unsigned  DEPTH_TRIGGER_BRAM = 0,	// if non-zero, local mems of this depth or more go into BRAM
 	bit  DEEP_PIPELINE = 0,
 
+	// Output width, at least the default minimum; wider outputs are sign-extended for BIAS < 0
+	parameter int unsigned  O_BITS = BIAS >= 0?
+		/* unsigned */ $clog2(N+BIAS+1) :
+		/* signed */ 1+$clog2(-BIAS >= N+BIAS+1? -BIAS : N+BIAS+1),
+
 	localparam int unsigned  CF = C/PE,	// Channel Fold
 	localparam int unsigned  IP_ADDR_WIDTH = $clog2(CF) + $clog2(PE) + $clog2(N),
 	localparam int unsigned  ADDR_FOLD = 1 + (WT-1)/32,
 	localparam int unsigned  ADDR_WIDTH = IP_ADDR_WIDTH + $clog2(ADDR_FOLD) + 2,
-	localparam int unsigned  S_BITS = SETS > 2? $clog2(SETS) : 1,
-	localparam int unsigned  O_BITS = BIAS >= 0?
-		/* unsigned */ $clog2(N+BIAS+1) :
-		/* signed */ 1+$clog2(-BIAS >= N+BIAS+1? -BIAS : N+BIAS+1)
+	localparam int unsigned  S_BITS = SETS > 2? $clog2(SETS) : 1
 )(
 	//- Global Control ------------------
 	input	logic  ap_clk,
@@ -206,7 +208,8 @@ module thresholding_axi #(
 		.SETS(SETS),
 		.THRESHOLDS_PATH(THRESHOLDS_PATH), .USE_CONFIG(USE_AXILITE),
 		.DEPTH_TRIGGER_URAM(DEPTH_TRIGGER_URAM), .DEPTH_TRIGGER_BRAM(DEPTH_TRIGGER_BRAM),
-		.DEEP_PIPELINE(DEEP_PIPELINE)
+		.DEEP_PIPELINE(DEEP_PIPELINE),
+		.O_BITS(O_BITS)
 	) impl (
 		.clk(ap_clk), .rst(!ap_rst_n),
 
