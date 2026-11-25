@@ -373,7 +373,7 @@ class MVAU(HWCustomOp):
         return normal_output_shape
 
     def calc_wmem(self):
-        """Calculates and returns WMEM."""
+        """Calculates and returns WMEM, the depth of the weight memory."""
         mw = self.get_nodeattr("MW")
         mh = self.get_nodeattr("MH")
         pe = self.get_nodeattr("PE")
@@ -1381,11 +1381,16 @@ class MVAU(HWCustomOp):
 
     def get_tav_io_dict(self):
         io_dict = super().get_tav_io_dict()
-        # a dynamic node's rtlsim is the bare MVU without its dynamic_load, so
-        # its in1 also takes one weight tile per compute cycle
-        if self.get_nodeattr("mem_mode") in ["internal_decoupled", "external", "dynamic"]:
-            n_weight_inps = self.calc_wmem()
-            num_w_reps = int(np.prod(self.get_nodeattr("numInputVectors")))
+        if self.get_nodeattr("mem_mode") in [
+            "internal_decoupled",
+            "external",
+            "external_mem",
+            "dynamic",
+        ]:
+            pe_simd = self.get_nodeattr("PE") * self.get_nodeattr("SIMD")
+            n_weight_inps = self.calc_wmem() * (pe_simd // self.get_weight_stream_simd())
+            theight = self.get_nodeattr("TH")
+            num_w_reps = -(-int(np.prod(self.get_nodeattr("numInputVectors"))) // theight)
             io_dict["inputs"]["in1"] = [i for i in range(num_w_reps * n_weight_inps)]
         return io_dict
 
