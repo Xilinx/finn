@@ -32,8 +32,10 @@ import numpy as np
 import os
 import sys
 from bitstring import BitArray
+from numpy.typing import ArrayLike
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import roundup_to_integer_multiple
+from typing import Any, Sequence
 
 
 def hls_datatype_str(dtype):
@@ -51,7 +53,13 @@ def hls_datatype_str(dtype):
     return dtype.get_hls_datatype_str()
 
 
-def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False):
+def array2hexstring(
+    array: ArrayLike,
+    dtype: DataType,
+    pad_to_nbits: int,
+    prefix: str = "0x",
+    reverse: bool = False,
+) -> str:
     """
     Pack given one-dimensional NumPy array with FINN DataType dtype into a hex
     string.
@@ -114,7 +122,7 @@ def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False):
     return prefix + lineval.hex
 
 
-def hexstring2npbytearray(hexstring, remove_prefix="0x"):
+def hexstring2npbytearray(hexstring: str, remove_prefix: str = "0x") -> np.ndarray:
     """Convert a hex string into a NumPy array of dtype uint8.
 
     Example:
@@ -129,7 +137,7 @@ def hexstring2npbytearray(hexstring, remove_prefix="0x"):
     return np.asarray(bytearray.fromhex(hexstring), dtype=np.uint8)
 
 
-def npbytearray2hexstring(npbytearray, prefix="0x"):
+def npbytearray2hexstring(npbytearray: np.ndarray, prefix: str = "0x") -> str:
     """Convert a NumPy array of uint8 dtype into a hex string.
 
     Example:
@@ -140,8 +148,12 @@ def npbytearray2hexstring(npbytearray, prefix="0x"):
 
 
 def pack_innermost_dim_as_hex_string(
-    ndarray, dtype, pad_to_nbits, reverse_inner=False, prefix="0x"
-):
+    ndarray: ArrayLike,
+    dtype: DataType,
+    pad_to_nbits: int,
+    reverse_inner: bool = False,
+    prefix: str = "0x",
+) -> np.ndarray:
     """Pack the innermost dimension of the given numpy ndarray into hex
     strings using array2hexstring.
 
@@ -164,15 +176,19 @@ def pack_innermost_dim_as_hex_string(
         # try to convert to a float numpy array (container dtype is float)
         ndarray = np.asarray(ndarray, dtype=np.float32)
 
-    def fun(x):
+    def fun(x: np.ndarray) -> str:
         return array2hexstring(x, dtype, pad_to_nbits, reverse=reverse_inner, prefix=prefix)
 
     return np.apply_along_axis(fun, ndarray.ndim - 1, ndarray)
 
 
 def unpack_innermost_dim_from_hex_string(
-    ndarray, dtype, out_shape, packedBits, reverse_inner=False
-):
+    ndarray: np.ndarray,
+    dtype: DataType,
+    out_shape: Sequence[int],
+    packedBits: int,
+    reverse_inner: bool = False,
+) -> np.ndarray:
     """Convert a NumPy array of hex strings into a FINN NumPy array by unpacking
     the hex strings into the specified data type. out_shape can be specified
     such that any padding in the packing dimension is removed. If reverse_inner
@@ -197,25 +213,25 @@ def unpack_innermost_dim_from_hex_string(
         outer_dim_elems = outer_dim_elems * out_shape[dim]
     inner_dim_elems = out_shape[-1]
 
-    array = []
+    array: list[list[Any]] = []
     if dtype.is_fixed_point():
         # convert fixed point as signed integer
         conv_dtype = DataType["INT" + str(targetBits)]
     else:
         conv_dtype = dtype
     for outer_elem in range(outer_dim_elems):
-        ar_list = []
+        ar_list: list[Any] = []
         ar_elem = data[0]
         data.pop(0)
         ar_elem = ar_elem.split("x")
         ar_elem_bin = bin(int(ar_elem[1], 16))[2:].zfill(packedBits)
-        ar_elem_bin = [int(x) for x in ar_elem_bin]
+        ar_elem_bin_list = [int(x) for x in ar_elem_bin]
 
-        ar_elem_bin.reverse()
+        ar_elem_bin_list.reverse()
         for i in range(inner_dim_elems):
             upper_limit = (i + 1) * targetBits
             lower_limit = i * targetBits
-            elem = ar_elem_bin[lower_limit:upper_limit]
+            elem = ar_elem_bin_list[lower_limit:upper_limit]
             elem.reverse()
             elem_str = "".join(map(str, elem))
             if conv_dtype == DataType["FLOAT16"]:
@@ -242,14 +258,20 @@ def unpack_innermost_dim_from_hex_string(
 
         array.append(ar_list)
     npy_dtype = np.float16 if conv_dtype == DataType["FLOAT16"] else np.float32
-    array = np.asarray(array, dtype=npy_dtype).reshape(out_shape)
+    result = np.asarray(array, dtype=npy_dtype).reshape(out_shape)
     if dtype.is_fixed_point():
         # convert signed integer to fixed point by applying scale
-        array = array * dtype.scale_factor()
-    return array
+        result = result * dtype.scale_factor()
+    return result
 
 
-def numpy_to_hls_code(ndarray, dtype, hls_var_name, pack_innermost_dim=True, no_decl=False):
+def numpy_to_hls_code(
+    ndarray: ArrayLike,
+    dtype: DataType,
+    hls_var_name: str,
+    pack_innermost_dim: bool = True,
+    no_decl: bool = False,
+) -> str:
     """Return C++ code representation of a numpy ndarray with FINN DataType
     dtype, using hls_var_name as the resulting C++ variable name. If
     pack_innermost_dim is specified, the innermost dimension of the ndarray
@@ -279,7 +301,7 @@ def numpy_to_hls_code(ndarray, dtype, hls_var_name, pack_innermost_dim=True, no_
 
     # define a function to convert a single element into a C++ init string
     # a single element can be a hex string if we are using packing
-    def elem2str(x):
+    def elem2str(x: Any) -> str:
         if type(x) is str or type(x) is np.str_:
             return '%s("%s", 16)' % (hls_dtype, x)
         elif type(x) is np.float32:
@@ -300,7 +322,12 @@ def numpy_to_hls_code(ndarray, dtype, hls_var_name, pack_innermost_dim=True, no_
     return ret
 
 
-def npy_to_rtlsim_input(input_file, input_dtype, pad_to_nbits, reverse_inner=True):
+def npy_to_rtlsim_input(
+    input_file: str | np.ndarray,
+    input_dtype: DataType,
+    pad_to_nbits: int,
+    reverse_inner: bool = True,
+) -> list[int]:
     """Convert the multidimensional NumPy array of integers (stored as floats)
     from input_file into a flattened sequence of Python arbitrary-precision
     integers, packing the innermost dimension. See
@@ -308,7 +335,7 @@ def npy_to_rtlsim_input(input_file, input_dtype, pad_to_nbits, reverse_inner=Tru
     packing works. If reverse_inner is set, the innermost dimension will be
     reversed prior to packing."""
     pad_to_nbits = roundup_to_integer_multiple(pad_to_nbits, 4)
-    if issubclass(type(input_file), np.ndarray):
+    if isinstance(input_file, np.ndarray):
         inp = input_file
     elif os.path.isfile(input_file):
         inp = np.load(input_file)
@@ -325,18 +352,25 @@ def npy_to_rtlsim_input(input_file, input_dtype, pad_to_nbits, reverse_inner=Tru
         and input_dtype.get_canonical_name() != "BIPOLAR"
     ):
         mask = (1 << input_dtype.bitwidth()) - 1
-        packed_data = inp.flatten().astype(input_dtype.to_numpy_dt())
-        packed_data = [int(x) & mask for x in packed_data]
+        packed_ints = inp.flatten().astype(input_dtype.to_numpy_dt())
+        packed_data = [int(x) & mask for x in packed_ints]
     else:
-        packed_data = pack_innermost_dim_as_hex_string(
+        packed_hex = pack_innermost_dim_as_hex_string(
             inp, input_dtype, pad_to_nbits, reverse_inner=reverse_inner
         )
-        packed_data = packed_data.flatten()
-        packed_data = [int(x[2:], 16) for x in packed_data]
+        packed_data = [int(x[2:], 16) for x in packed_hex.flatten()]
     return packed_data
 
 
-def rtlsim_output_to_npy(output, path, dtype, shape, packedBits, targetBits, reverse_inner=True):
+def rtlsim_output_to_npy(
+    output: list[int],
+    path: str | None,
+    dtype: DataType,
+    shape: Sequence[int],
+    packedBits: int,
+    targetBits: int,
+    reverse_inner: bool = True,
+) -> np.ndarray:
     """Convert a flattened sequence of Python arbitrary-precision integers
     output into a NumPy array, saved as npy file at path. Each arbitrary-precision
     integer is assumed to be a packed array of targetBits-bit elements, which
@@ -344,9 +378,9 @@ def rtlsim_output_to_npy(output, path, dtype, shape, packedBits, targetBits, rev
     not None it will also be saved as a npy file."""
 
     # TODO should have its own testbench?
-    output = np.asarray([hex(int(x)) for x in output])
+    output_hex = np.asarray([hex(int(x)) for x in output])
     out_array = unpack_innermost_dim_from_hex_string(
-        output, dtype, shape, packedBits=packedBits, reverse_inner=reverse_inner
+        output_hex, dtype, shape, packedBits=packedBits, reverse_inner=reverse_inner
     )
     # make copy before saving the array
     out_array = out_array.copy()
@@ -547,7 +581,14 @@ def packed_bytearray_to_finnpy(
     if packed_bytearray.ndim == 0:
         raise Exception("packed_bytearray_to_finnpy expects at least 1D ndarray")
 
-    if (dtype.bitwidth() in [8, 16]) and (reverse_inner and reverse_endian):
+    # The fast path views the bytes as dtype.to_numpy_dt(), which only works if that
+    # numpy type has exactly the packed width: not for types mapped to float32, such
+    # as fixed point (#1773)
+    if (
+        (dtype.bitwidth() in [8, 16])
+        and dtype.to_numpy_dt().itemsize * 8 == dtype.bitwidth()
+        and (reverse_inner and reverse_endian)
+    ):
         # Fast mode from the previous implemenation
         data_unpacked = packed_bytearray_to_finnpy_fast(packed_bytearray, dtype, output_shape)
     elif dtype.name == "BIPOLAR":
@@ -711,7 +752,7 @@ def packed_bytearray_to_finnpy_float(
     return unpacked_float
 
 
-def to_external_tensor(init, w_dtype):
+def to_external_tensor(init: np.ndarray, w_dtype: DataType) -> np.ndarray:
     """Return an appropriately formatted and packed numpy byte array for given
     external parameter tensor."""
 

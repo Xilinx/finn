@@ -65,6 +65,9 @@ class Pool(HWCustomOp):
             "Padding": ("ints", False, [0, 0, 0, 0]),
             # Pad value (datatype min for MaxPool, 0 otherwise)
             "PadValue": ("i", False, 0),
+            # Emit the leading padding of a frame without waiting for its first input (1)
+            # or only once that input is available (0), see finn-hlslib pad.hpp.
+            "Eager": ("i", False, 1, {0, 1}),
             # FINN DataTypes for inputs/outputs
             "InputDataType": ("s", True, ""),
             "OutputDataType": ("s", True, ""),

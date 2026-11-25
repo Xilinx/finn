@@ -32,6 +32,7 @@ class Pad1D(HWCustomOp):
                 "SIMD": ("i", False, 1),
                 "inputDataType": ("s", True, ""),
                 "outputDataType": ("s", False, ""),
+                "Eager": ("i", False, 1, {0, 1}),
             }
         )
         return my_attrs

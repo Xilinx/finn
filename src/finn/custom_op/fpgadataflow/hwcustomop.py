@@ -36,6 +36,7 @@ from finn import xsi
 from finn.transformation.fpgadataflow.fifo_sizing.tav import save_tav_npy
 from finn.transformation.fpgadataflow.fifo_sizing.tree_models.base import get_tree_model
 from finn.util.basic import get_watchdog_timeout_cycles, is_versal
+from finn.util.mlo import DMA_DATA_BITS
 
 finnxsi = xsi if xsi.is_available() else None
 
@@ -479,6 +480,7 @@ class HWCustomOp(CustomOp):
                 "$SIMD$": [str(simd)],
                 "$N_REPS$": [str(n_reps)],
                 "$WEIGHT_WIDTH$": [str(wdt.bitwidth())],
+                "$DATA_BITS$": [str(DMA_DATA_BITS)],
                 "$N_LAYERS$": [str(n_max_layers)],
                 "$TH$": [str(theight)],
                 "$WSIMD$": [str(iwsimd)],

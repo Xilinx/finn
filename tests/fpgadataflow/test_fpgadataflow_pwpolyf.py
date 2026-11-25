@@ -29,6 +29,7 @@ from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODep
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.streamline import Streamline
 from finn.util.basic import get_finn_root
+from finn.util.test import tree_model_test
 from finn.util.torch_hw_modules import PWPolyFActivation
 
 TEST_FPGA_PART = "xcvc1902-vsva2197-2MP-e-S"
@@ -104,7 +105,7 @@ def make_silu_pattern_modelwrapper(num_channels, num_input_vecs, reverse_mul_inp
     return model
 
 
-def make_erf_gelu_modelwrapper(num_channels, num_input_vecs):
+def make_erf_gelu_modelwrapper(num_channels, num_input_vecs, muls_x_first=False):
     shape = num_input_vecs + [num_channels]
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape)
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, shape)
@@ -116,8 +117,13 @@ def make_erf_gelu_modelwrapper(num_channels, num_input_vecs):
     div_node = helper.make_node("Div", ["inp", "sqrt2"], ["div_out"], name="Div_0")
     erf_node = helper.make_node("Erf", ["div_out"], ["erf_out"], name="Erf_0")
     add_node = helper.make_node("Add", ["erf_out", "one"], ["add_out"], name="Add_0")
-    mul_half_node = helper.make_node("Mul", ["half", "add_out"], ["mul_half_out"], name="Mul_0")
-    mul_x_node = helper.make_node("Mul", ["inp", "mul_half_out"], ["outp"], name="Mul_1")
+    # Both export orders of the two final Muls occur
+    if muls_x_first:
+        mul_x_node = helper.make_node("Mul", ["inp", "add_out"], ["mul_x_out"], name="Mul_0")
+        mul_half_node = helper.make_node("Mul", ["half", "mul_x_out"], ["outp"], name="Mul_1")
+    else:
+        mul_half_node = helper.make_node("Mul", ["half", "add_out"], ["mul_half_out"], name="Mul_0")
+        mul_x_node = helper.make_node("Mul", ["inp", "mul_half_out"], ["outp"], name="Mul_1")
 
     graph = helper.make_graph(
         [div_node, erf_node, add_node, mul_half_node, mul_x_node],
@@ -242,6 +248,7 @@ def test_fpgadataflow_pwpolyf_stitched_ip(func):
         pytest.param("silu", "silu", 2, id="onnx-silu"),
         pytest.param("silu_reversed", "silu", 2, id="onnx-silu-reversed"),
         pytest.param("erf_gelu", "gelu", 2, id="onnx-erf-gelu"),
+        pytest.param("erf_gelu_x_first", "gelu", 2, id="onnx-erf-gelu-x-first"),
     ],
 )
 @pytest.mark.fpgadataflow
@@ -262,6 +269,8 @@ def test_fpgadataflow_pwpolyf_infer(pattern, expected_func, degree):
         model = make_silu_pattern_modelwrapper(num_channels, [1], reverse_mul_inputs=True)
     elif pattern == "erf_gelu":
         model = make_erf_gelu_modelwrapper(num_channels, [1])
+    elif pattern == "erf_gelu_x_first":
+        model = make_erf_gelu_modelwrapper(num_channels, [1], muls_x_first=True)
     else:
         raise ValueError(f"Unknown pattern {pattern}")
 
@@ -356,3 +365,38 @@ def test_fpgadataflow_pwpolyf_rtl_constants_match():
 
     # Check NUM_OCTAVES is used consistently
     assert NUM_OCTAVES == 5, f"NUM_OCTAVES should be 5, got {NUM_OCTAVES}"
+
+
+@pytest.mark.parametrize(
+    "num_channels,num_input_vecs,pe,degree",
+    [
+        pytest.param(16, [1, 8], 1, 2, id="pe1-deg2"),
+        pytest.param(16, [1, 8, 8], 4, 2, id="pe4-deg2"),
+        pytest.param(8, [1, 32], 2, 4, id="pe2-deg4"),
+        # pipeline deeper than TAV_PIPELINE_LATENCY (extra_latency > 0)
+        pytest.param(32, [1, 16], 8, 8, id="pe8-deg8"),
+    ],
+)
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_pwpolyf(num_channels, num_input_vecs, pe, degree):
+    model = make_pwpolyf_modelwrapper("gelu", 3, num_channels, num_input_vecs, pe=pe, degree=degree)
+    model = model.transform(SpecializeLayers(TEST_FPGA_PART))
+    # The model is exact: one word per cycle with no gaps. rtlsim's period
+    # carries a fifth of the pipeline fill (five frames, one fill) and its
+    # cycle count two cycles past the last output, so its stored window is
+    # 2 * ((latency + 2) // 5) cycles longer; within the overlap the token
+    # counts agree exactly.
+    latency = 4 * degree + 2
+    assert tree_model_test(
+        model,
+        ("PWPolyF", num_channels, num_input_vecs, pe, degree),
+        TEST_FPGA_PART,
+        TARGET_CLK_NS,
+        0,
+        0,
+        volume_const=0,
+        length_const=2 * ((latency + 2) // 5),
+    ), "characterized TAV does not match RTLsim'd one!"

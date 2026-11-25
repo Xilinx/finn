@@ -10,47 +10,12 @@
 #############################################################################
 
 import numpy as np
-import re
 import xsi
-
-
-class SimulationError(RuntimeError):
-    "The simulated design reported an $error or $fatal."
-
-
-# Message frames: @"<text>"\n from the design ($display, $error, ...), "<text>"\n
-# from the simulator kernel (e.g. "WARNING: File ... cannot be opened"). The
-# closing "\n must be followed by the end or the next frame. As kernel messages
-# never start with a newline, a following "\n is not taken as a frame start:
-# this keeps text ending in a quote, e.g. $display("say \"hi\""), in one piece.
-_FRAME = re.compile(r'@?"(.*?)"\n(?=@"|"(?!\n)|\Z)', re.DOTALL)
-
-
-def split_messages(info):
-    """Split the output of xsi_get_error_info() into individual messages.
-
-    The frames are not escaped, so splitting is best effort: a message that
-    itself contains a frame boundary is split in two. Anything from the first
-    incomplete frame on is kept verbatim.
-    """
-    msgs, pos = [], 0
-    while info and pos < len(info):
-        m = _FRAME.match(info, pos)
-        if m is None:
-            msgs.append(info[pos:])
-            break
-        msgs.append(m.group(1))
-        pos = m.end()
-    return msgs
-
-
-# Design $error/$fatal (incl. failed assertions) and simulator kernel errors
-_ERROR_PREFIXES = ("Error:", "Fatal:", "ERROR:", "FATAL_ERROR:")
-
-
-def is_error_message(msg):
-    "Whether a message reports an error."
-    return msg.startswith(_ERROR_PREFIXES)
+from finn_xsi.messages import (  # noqa: F401 (re-exported)
+    SimulationError,
+    is_error_message,
+    split_messages,
+)
 
 
 class SimEngine:
@@ -284,17 +249,28 @@ class SimEngine:
 
         self.enlist(InputStreamer(self, istream, values, throttle))
 
-    def collect_output(self, ostream, size, watchdog=None):
-        "Collect size outputs from the specified stream into the returned iterable buffer."
+    def collect_output(self, ostream, size, watchdog=None, frame_size=None):
+        """Collect output transactions and optionally record frame completions.
+
+        ``frame_size`` is the number of transactions in one output frame. When
+        provided, the returned collector exposes ``completion_ticks`` containing
+        the simulation tick at which each complete frame was accepted.
+        """
+
+        if frame_size is not None:
+            assert frame_size > 0, "Output frame size must be greater than zero"
+            assert size % frame_size == 0, "Output transaction count must contain whole frames"
 
         class OutputCollector:
-            def __init__(self, top, ostream, size, watchdog):
+            def __init__(self, top, ostream, size, watchdog, frame_size):
                 self.size = size
                 self.vld = top.get_bus_port(ostream, "tvalid")
                 self.rdy = top.get_bus_port(ostream, "tready")
                 self.dat = top.get_bus_port(ostream, "tdata")
                 self.buf = []
                 self.watchdog = watchdog
+                self.frame_size = frame_size
+                self.completion_ticks = []
 
             def __iter__(self):
                 return iter(self.buf)
@@ -307,6 +283,8 @@ class SimEngine:
                             self.watchdog.reset()
                         val = self.dat.read().as_hexstr()
                         self.buf.append(val)
+                        if self.frame_size is not None and len(self.buf) % self.frame_size == 0:
+                            self.completion_ticks.append(sim.ticks)
                         if len(self.buf) == size:
                             return {self.rdy: "0"}
                     return {}
@@ -315,7 +293,7 @@ class SimEngine:
                     return {self.rdy: "1"}
                 return None
 
-        ret = OutputCollector(self, ostream, size, watchdog)
+        ret = OutputCollector(self, ostream, size, watchdog, frame_size)
         self.enlist(ret)
         return ret
 

@@ -64,13 +64,6 @@ module mvu #(
 
 	import  mvu_pkg::*;
 
-	// For Verilator: always use behavioral code
-	localparam bit  BEHAVIORAL =
-`ifdef VERILATOR
-		1 ||
-`endif
-		FORCE_BEHAVIORAL;
-
 	//-----------------------------------------------------------------------
 	// Startup Recovery Watchdog
 	//  The DSP slice needs 100ns of recovery time after initial startup before
@@ -242,9 +235,7 @@ module mvu #(
 	// Pipeline for last indicator flag
 	// Depth: 4 cycles for DSP (B1/INMODE + AD/B2 + M + P) + external SIMD reduction
 	localparam int unsigned  PIPELINE_DEPTH = 4 + $clog2(SIMD) + (SIMD == 1) + 1;
-/* verilator lint_off LITENDIAN */
 	logic [1:PIPELINE_DEPTH] L = '0;
-/* verilator lint_on LITENDIAN */
 	always_ff @(posedge clk) begin
 		if(rst)      L <= '0;
 		else if(en)  L <= { last, L[1:PIPELINE_DEPTH-1] };
@@ -298,8 +289,7 @@ module mvu #(
 				for(genvar  pe = 0; pe < PE_END - PE_BEG; pe++) begin
 					assign	ww[pe] = $signed(w[PE_BEG + pe][s]);
 					if(pe > 0) begin
-						if(BEHAVIORAL)  assign  xx[pe + PE_REM] = zero? 0 : ww[pe] * a[s];
-`ifndef VERILATOR
+						if(FORCE_BEHAVIORAL)  assign  xx[pe + PE_REM] = zero? 0 : ww[pe] * a[s];
 						else begin
 							LUT6_2 #(.INIT(64'h0000_6AC0_0000_8888)) lut_x (
 								.O6(xx[pe + PE_REM][1]),
@@ -312,7 +302,6 @@ module mvu #(
 								.I0(a[s][0])
 							);
 						end
-`endif
 					end
 				end
 				always_comb begin
@@ -456,7 +445,7 @@ module mvu #(
 			//     Zero:   INMODE[1]=1 (A gated 0), INMODE[2]=0 (D off)    → AD = 0
 			//   INMODEREG=1 latches zero in stage 1, aligning with A1/B1/D1.
 			//   Stage 2 computes AD using the registered INMODE → no pipeline hazard.
-			if(BEHAVIORAL) begin : genBehav
+			if(FORCE_BEHAVIORAL) begin : genBehav
 
 				// Stage #1: Input Capture (A1REG, B1REG, DREG, INMODEREG)
 				logic signed [B_WIDTH-1:0]  B1 = 0;
@@ -516,7 +505,6 @@ module mvu #(
 				assign	pp = P4;
 
 				end : genBehav
-`ifndef VERILATOR
 			else begin : genDSP
 
 				// Dynamic OPMODE: clr toggles Z-mux between accumulation source and 0.
@@ -900,7 +888,6 @@ module mvu #(
 				end
 				endcase
 			end : genDSP
-`endif
 
 		end : genSIMD
 

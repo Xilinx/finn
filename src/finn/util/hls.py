@@ -34,21 +34,21 @@ from finn.util.launcher import run_tool
 class CallHLS:
     """Call vitis_hls to run HLS build tcl scripts."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.tcl_script = ""
         self.ipgen_path = ""
         self.code_gen_dir = ""
         self.ipgen_script = ""
 
-    def append_tcl(self, tcl_script):
+    def append_tcl(self, tcl_script: str) -> None:
         """Sets the tcl script to be executed."""
         self.tcl_script = tcl_script
 
-    def set_ipgen_path(self, path):
+    def set_ipgen_path(self, path: str) -> None:
         """Sets member variable ipgen_path to given path."""
         self.ipgen_path = path
 
-    def build(self, code_gen_dir):
+    def build(self, code_gen_dir: str) -> None:
         """Runs Vitis HLS on the tcl script, with code_gen_dir as the working
         directory. Also writes ipgen.sh in code_gen_dir, which repeats the run by
         hand. The output of HLS goes to ipgen.stdout.log and ipgen.stderr.log in

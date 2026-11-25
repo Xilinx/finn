@@ -7,8 +7,10 @@ import qonnx.util.basic as util
 import torch
 from brevitas.nn import QuantLinear
 from brevitas.quant import Int8ActPerTensorFloat, Int8WeightPerTensorFloat
+from onnx import TensorProto, helper
 from pathlib import Path
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import (
     ConvertDivToMul,
     ConvertSubToAdd,
@@ -364,4 +366,122 @@ def test_single_instance_loop_rolling_raises():
         model_wrapper = model_wrapper.transform(LoopRolling(loop_extraction.loop_body_template))
 
     # on success (the expected raise fired) drop the scratch dir, kept otherwise
+    robust_rmtree(out_dir)
+
+
+@pytest.mark.transform
+def test_loop_rolling_makes_upstream_pad_lazy():
+    # Padding ops anywhere upstream of a FINNLoop must be lazy (Eager=0) so they
+    # cannot block the loop input with their own data. The chain in front of the
+    # loop is Reshape -> Pad1D -> Pad1D -> Reshape: the second Pad1D is not a
+    # direct producer of the loop and a non-dataflow node sits in between.
+    input_size = 20
+    num_layers = 6
+    out_dir = Path(make_build_dir(prefix="test_loop_rolling_lazy_pad_"))
+
+    onnx_path, model = export_model_to_qonnx(out_dir, input_size, input_size, num_layers)
+    qonnx_cleanup(onnx_path, out_file=onnx_path)
+    model_wrapper = ModelWrapper(onnx_path)
+    model_wrapper = model_wrapper.transform(ConvertQONNXtoFINN())
+    model_wrapper = model_wrapper.transform(RaiseScalarToRank1())
+    model_wrapper = model_wrapper.transform(AbsorbScalarBiasIntoMultiThreshold())
+    model_wrapper = model_wrapper.transform(ConvertSubToAdd())
+    model_wrapper = model_wrapper.transform(ConvertDivToMul())
+    model_wrapper = model_wrapper.transform(MoveScalarMulPastMatMul())
+    model_wrapper = model_wrapper.transform(MoveScalarAddPastMatMul())
+    model_wrapper = model_wrapper.transform(CollapseRepeatedMul())
+    model_wrapper = model_wrapper.transform(MoveAddPastMul())
+    model_wrapper = model_wrapper.transform(CollapseRepeatedAdd())
+    model_wrapper = model_wrapper.transform(CollapseRepeatedMul())
+    model_wrapper = model_wrapper.transform(to_hw.InferThresholdingLayer())
+    model_wrapper = model_wrapper.transform(to_hw.InferQuantizedMatrixVectorActivation())
+    model_wrapper = model_wrapper.transform(to_hw.InferElementwiseBinaryOperation())
+    model_wrapper = model_wrapper.transform(SpecializeLayers("xcvc1902-vsva2197-2MP-e-S"))
+    model_wrapper = model_wrapper.transform(GiveUniqueNodeNames())
+    node_metadata = {
+        "pkg.torch.onnx.name_scopes": "['', 'layers.0']",
+        "pkg.torch.onnx.class_hierarchy": "['TestModule', 'test']",
+    }
+    node_range = (model_wrapper.graph.node[0], model_wrapper.graph.node[3])
+    model_wrapper = model_wrapper.transform(SetLoopBoundary(node_metadata, node_range=node_range))
+
+    # Insert the pad chain between the model input and its first consumer(s),
+    # all pad ops start out eager.
+    graph = model_wrapper.graph
+    idt = model_wrapper.get_tensor_datatype(graph.input[0].name)
+    inp = graph.input[0].name
+    consumers = model_wrapper.find_consumers(inp)
+    shape3 = [1, 1, input_size]
+    shape2 = [1, input_size]
+
+    def new_tensor(name, shape):
+        graph.value_info.append(helper.make_tensor_value_info(name, TensorProto.FLOAT, shape))
+        model_wrapper.set_tensor_datatype(name, idt)
+        return name
+
+    def new_shape_init(name, shape):
+        model_wrapper.set_initializer(name, np.array(shape, dtype=np.int64))
+        return name
+
+    t_r0 = new_tensor("lazy_test_r0", shape3)
+    t_p0 = new_tensor("lazy_test_p0", shape3)
+    t_p1 = new_tensor("lazy_test_p1", shape3)
+    t_r1 = new_tensor("lazy_test_r1", shape2)
+
+    def pad_node(name, tin, tout):
+        return helper.make_node(
+            "Pad1D_rtl",
+            [tin],
+            [tout],
+            domain="finn.custom_op.fpgadataflow.rtl",
+            backend="fpgadataflow",
+            name=name,
+            NumTokens=1,
+            NumChannels=input_size,
+            SIMD=1,
+            inputDataType=idt.name,
+            outputDataType=idt.name,
+            Eager=1,
+        )
+
+    chain = [
+        helper.make_node(
+            "Reshape", [inp, new_shape_init("lazy_test_s3", shape3)], [t_r0], name="lazy_rs0"
+        ),
+        pad_node("lazy_pad0", t_r0, t_p0),
+        pad_node("lazy_pad1", t_p0, t_p1),
+        helper.make_node(
+            "Reshape", [t_p1, new_shape_init("lazy_test_s2", shape2)], [t_r1], name="lazy_rs1"
+        ),
+    ]
+    for c in consumers:
+        for i, name in enumerate(c.input):
+            if name == inp:
+                c.input[i] = t_r1
+    for pos, n in enumerate(chain):
+        # like exported nodes outside of the loop body: top-level module scope
+        n.metadata_props.add(key="pkg.torch.onnx.name_scopes", value="['']")
+        n.metadata_props.add(key="pkg.torch.onnx.class_hierarchy", value="['TestModule']")
+        graph.node.insert(pos, n)
+    pad_names = ["lazy_pad0", "lazy_pad1"]
+    for n in model_wrapper.graph.node:
+        if n.name in pad_names:
+            assert getCustomOp(n).get_nodeattr("Eager") == 1
+
+    template_path = out_dir / "loop-body-template.onnx"
+    loop_extraction = LoopExtraction(
+        hierarchy_list=[["", "layers.0"]], loop_body_template_path=template_path
+    )
+    model_wrapper = model_wrapper.transform(loop_extraction)
+    model_wrapper = model_wrapper.transform(LoopRolling(loop_extraction.loop_body_template))
+
+    assert len(model_wrapper.get_nodes_by_op_type("FINNLoop")) == 1
+    seen = []
+    for n in model_wrapper.graph.node:
+        if n.name in pad_names:
+            seen.append(n.name)
+            assert getCustomOp(n).get_nodeattr("Eager") == 0, f"{n.name} must be lazy before loop"
+    assert sorted(seen) == sorted(pad_names), "pad nodes must survive loop rolling"
+
+    # on success drop the per-test scratch dir, kept on failure for debugging
     robust_rmtree(out_dir)

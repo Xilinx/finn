@@ -140,11 +140,19 @@ The following outputs will be generated regardless of which particular outputs a
 
 * ``build_dataflow.log`` is the build logfile. It holds the records of FINN's loggers and the Python warnings
   of the build, each with its level and the configured step or phase that produced it, and the output of
-  tools launched through ``finn.util.basic.launch_process_helper`` (such as the rtlsim compile and run).
+  tools launched through ``finn.util.launcher.run_tool(..., log_output=True)`` (such as xelab and the
+  C++ rtlsim compiler). The C++ rtlsim executable writes only its ``rtlsim_xsi.stdout.log`` and
+  ``rtlsim_xsi.stderr.log`` transcripts; its progress output is not copied to the console or build log.
   The console shows the step timeline, FINN's warnings and errors, and a count of Python warnings; with
   ``verbose`` it also shows the other INFO records, the tool output and each Python warning (DEBUG
   records stay in the file). Nothing redirects stdout/stderr: ``print()`` output and the logs of other
   libraries go to the console only, and ``breakpoint()`` or ``pdb`` work inside a step
+* External-tool transcripts use ``<stem>.stdout.log`` and ``<stem>.stderr.log`` beside the replay
+  script in the corresponding build directory. A tool failure quotes its diagnostic and names its
+  transcript, preferring stderr when stdout is empty and stderr has output.
+  Git utility logs and replays are stored in a separate
+  ``cpp_driver_logs_*`` build directory, recorded as ``cpp_driver_log_dir`` in model metadata,
+  so they are excluded from the generated C++ driver deliverable.
 * ``time_per_step.json`` will report the time (in seconds) each build step took
 * ``final_hw_config.json`` will contain the final (after parallelization, FIFO sizing etc) hardware configuration for the build. It is written by the FIFO sizing step, so it is not produced for estimate-only builds where FIFO sizing is skipped (see the note above)
 * ``template_specialize_layers_config.json`` is an example json file that can be used to set the specialize layers config
@@ -166,10 +174,16 @@ build configuration), and are detailed below.
 
   * ``stitched_ip/finn_vivado_stitch_proj.xpr`` -- Vivado project (including Vivado IP Integrator block design) to generate the stitched IP
   * ``stitched_ip/ip`` -- exported Vivado IP for the stitched design
+  * if the design has double-pumped nodes, the stitched IP exposes an ``ap_clk2x`` input for their double-speed clock, or derives it from ``ap_clk`` by an internal clock generator with ``clk2x_source = Clk2xSource.GENERATOR`` (see :ref:`double_pumping`)
 
 * :py:mod:`finn.builder.build_dataflow_config.DataflowOutputType.RTLSIM_PERFORMANCE`: measure latency and performance for the stitched IP in RTL simulation, using XSI
 
-  * ``report/rtlsim_performance.json`` -- accelerator throughput and latency from RTL simulation
+  * ``report/rtlsim_performance.json`` -- accelerator throughput and latency from RTL simulation.
+    MLO designs are measured in parts: each loop body's initiation interval II_body on the
+    standalone body IP, giving f_clk / (L * II_body) for L iterations, and each region outside
+    the loops on its own; the throughput is the minimum. It assumes that the loop controller
+    keeps the body fully busy, with ideal external memory, so it is an upper bound
+    (``"performance_interpretation": "upper_bound_body_fully_busy"``), and it has no latency.
 
 * :py:mod:`finn.builder.build_dataflow_config.DataflowOutputType.OOC_SYNTH` runs out-of-context synthesis for the stitched IP. This is useful for getting post-synthesis resource counts and achievable clock frequency without having to produce a full bitfile with DMA engines:
 
@@ -178,6 +192,7 @@ build configuration), and are detailed below.
 * :py:mod:`finn.builder.build_dataflow_config.DataflowOutputType.BITFILE` will run Vivado (for Zynq), Vitis, or Slash to insert the FINN accelerator inside a shell, with DMA engines instantiated to move data to/from main memory:
 
   * ``bitfile/finn-accel.(bit|xclbin|vbin)`` -- generated bitfile depending on platform
+  * double-pumped designs are supported by the Zynq and Vitis flows (see :ref:`double_pumping`)
   * ``report/post_synth_resources.xml`` -- FPGA resource utilization after synthesis
   * ``report/post_route_timing.rpt`` -- post-route timing report
 

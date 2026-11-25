@@ -37,7 +37,6 @@ import finn.custom_op.fpgadataflow.elementwise_binary as elementwise_binary
 from finn.custom_op.fpgadataflow.elementwise_binary import ElementwiseBinaryOperation
 from finn.custom_op.fpgadataflow.hls import register_custom_op
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
-from finn.transformation.fpgadataflow.loop_rolling import LoopBodyInputType
 from finn.util.basic import get_vivado_version, is_versal
 from finn.util.data_packing import (
     hls_datatype_str,
@@ -77,26 +76,6 @@ class ElementwiseBinaryOperation_hls(
         o_bits_max = self.get_outstream_width(ind=0)
         # Find the biggest of the inputs/outputs
         return max([i_bits_max, o_bits_max])
-
-    def adapt_for_loop_body(self, input_types):
-        """
-        Adapt elementwise binary operator for loop body execution.
-
-        When an elementwise operator is placed inside a loop, parameters that
-        are indexed per iteration (PARAMETER type) need to be received as
-        streaming inputs rather than embedded constants. This method changes
-        the lhs_style/rhs_style attributes from "const" to "input" as needed.
-        """
-        # If rhs (input[1]) is a PARAMETER (streamed per iteration),
-        # change its style to "input"
-        if len(input_types) > 1 and input_types[1] == LoopBodyInputType.PARAMETER:
-            if self.rhs_style == "const":
-                self.set_nodeattr("rhs_style", "input")
-
-        # Similarly for lhs if needed
-        if len(input_types) > 0 and input_types[0] == LoopBodyInputType.PARAMETER:
-            if self.lhs_style == "const":
-                self.set_nodeattr("lhs_style", "input")
 
     def _has_embedded_initializer(self, model):
         mem_mode = self.get_nodeattr("mem_mode")
@@ -150,7 +129,7 @@ class ElementwiseBinaryOperation_hls(
         ]
 
     # Generates C++ parameters file, i.e., constant initializer inputs
-    def generate_params(self, model: ModelWrapper, path: str):
+    def generate_params(self, model: ModelWrapper, path: str, fpgapart: str | None = None):
         # The code generation directory is specified as an argument, so this
         # will work for both RTL and C++ simulation
         code_gen_dir = path
@@ -839,7 +818,7 @@ out0_V.write(out_t);
                 # Convert inputs to RTL simulation format
                 io_dict["inputs"]["in1"] = npy_to_rtlsim_input(rhs_filename, rhs_dtype, rhs_width)
 
-            # Setup PyVerilator simulation of the node
+            # Set up the RTL simulation of the node
             sim = self.get_rtlsim()
             # Reset the RTL simulation; finnxsi toggles the clock
             super().reset_rtlsim(sim)

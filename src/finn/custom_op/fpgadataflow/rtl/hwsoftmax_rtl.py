@@ -12,7 +12,7 @@ import os
 
 from finn.custom_op.fpgadataflow.hwsoftmax import HWSoftmax
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.util.basic import fifo_rtl_files
+from finn.util.basic import arith_rtl_files, fifo_rtl_files
 
 
 class HWSoftmax_rtl(HWSoftmax, RTLBackend):
@@ -34,10 +34,8 @@ class HWSoftmax_rtl(HWSoftmax, RTLBackend):
         return [
             "softmaxf.sv",
             "softmaxf_pkg.sv",
-            "binopf.sv",
             "pwpolyf_k3_pkg.sv",
             "softmax_pwpolyf.sv",
-            "int_to_fp32.sv",
         ]
 
     def generate_hdl(self, model, fpgapart, clk):
@@ -97,7 +95,11 @@ class HWSoftmax_rtl(HWSoftmax, RTLBackend):
 
         verilog_files = [rtllib_dir + f for f in self._rtllib_files()]
         verilog_files.append(code_gen_dir + self.get_nodeattr("gen_top_module") + ".v")
-        return verilog_files + fifo_rtl_files(abspath)
+        return (
+            verilog_files
+            + arith_rtl_files(["binopf.sv", "int_to_fp32.sv"], abspath)
+            + fifo_rtl_files(abspath)
+        )
 
     def code_generation_ipi(self):
         cmd = []

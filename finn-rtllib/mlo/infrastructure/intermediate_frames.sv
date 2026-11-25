@@ -84,7 +84,7 @@ module intermediate_frames #(
 
     int unsigned                    FM_ELEMS,
 
-    int unsigned                    N_OUTSTANDING_DMAS = 128,
+    int unsigned                    N_OUTSTANDING_DMAS,
 
     int unsigned                    QDEPTH = 8,
     int unsigned                    N_DCPL_STGS = 1,
@@ -153,6 +153,7 @@ module intermediate_frames #(
     // Base Address
     input  logic [ADDR_BITS-1:0]        base_address
 );
+`default_nettype none
 
 // Derived: element counts per stream beat and DMA beat
 localparam int unsigned  OPE    = OLEN_BITS / ELEM_BITS;
@@ -560,4 +561,5 @@ skid #(.FEED_STAGES(N_DCPL_STGS), .DATA_WIDTH(ILEN_BITS)) inst_reg_rd (
     .odat(m_axis_tdata)
 );
 
+`default_nettype wire
 endmodule

@@ -32,17 +32,21 @@ import warnings
 from onnx import helper as oh
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
+from typing import ClassVar
 
 from finn.custom_op.fpgadataflow import register_custom_op
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.transformation.fpgadataflow.loop_rolling import LoopBodyInputType
 from finn.util.data_packing import hls_datatype_str
 
 
 # Generic implementation for elementwise binary operations
 class ElementwiseBinaryOperation(HWCustomOp):
     # Specifies the elementwise operation to be implemented
-    #   Format: (Identifier, Python, C++, RTL)
-    _operation: tuple[str, np.ufunc, str, str] | None = None
+    #   Format: (Identifier, Python, C++, RTL), RTL is None if there is no RTL
+    #   implementation. Set by each specialization which does not override
+    #   the properties below.
+    _operation: ClassVar[tuple[str, np.ufunc, str, str | None]]
 
     # Numpy operation available as property
     @property
@@ -56,7 +60,7 @@ class ElementwiseBinaryOperation(HWCustomOp):
 
     # RTL operation template available as property
     @property
-    def rtl_op(self) -> str:
+    def rtl_op(self) -> str | None:
         return self._operation[3]
 
     # Initializes the operator given an onnx graph node
@@ -154,6 +158,26 @@ class ElementwiseBinaryOperation(HWCustomOp):
     @property
     def rhs_style(self):
         return self.get_nodeattr("rhs_style")
+
+    def adapt_for_loop_body(self, input_types):
+        """
+        Adapt elementwise binary operator for loop body execution.
+
+        When an elementwise operator is placed inside a loop, parameters that
+        are indexed per iteration (PARAMETER type) need to be received as
+        streaming inputs rather than embedded constants. This method changes
+        the lhs_style/rhs_style attributes from "const" to "input" as needed.
+        """
+        # If rhs (input[1]) is a PARAMETER (streamed per iteration),
+        # change its style to "input"
+        if len(input_types) > 1 and input_types[1] == LoopBodyInputType.PARAMETER:
+            if self.rhs_style == "const":
+                self.set_nodeattr("rhs_style", "input")
+
+        # Similarly for lhs if needed
+        if len(input_types) > 0 and input_types[0] == LoopBodyInputType.PARAMETER:
+            if self.lhs_style == "const":
+                self.set_nodeattr("lhs_style", "input")
 
     # Number of parallel processed elements as property for convenience
     @property
@@ -534,7 +558,7 @@ class ElementwiseBinaryOperation(HWCustomOp):
 class ElementwiseAdd(ElementwiseBinaryOperation):
     # Specialize to implement the addition operation of left hand side and right
     # hand side input
-    _operation = "Add", np.add, "({0} + {1})", None
+    _operation = "Add", np.add, "({0} + {1})", '"ADD"'
 
     # Derives the output data type according to UG1399
     def _derive_out_dtype(self, model: ModelWrapper):
@@ -574,7 +598,7 @@ class ElementwiseAdd(ElementwiseBinaryOperation):
 class ElementwiseSub(ElementwiseBinaryOperation):
     # Specialize to implement the subtraction operation of left hand side and
     # right hand side input
-    _operation = "Sub", np.subtract, "({0} - {1})", None
+    _operation = "Sub", np.subtract, "({0} - {1})", '"SUB"'
 
     # Derives the output data type according to UG1399
     def _derive_out_dtype(self, model: ModelWrapper):
@@ -622,7 +646,7 @@ class ElementwiseAbsDiff(ElementwiseBinaryOperation):
 
     # RTL operation template available as property
     @property
-    def rtl_op(self) -> str:
+    def rtl_op(self) -> str | None:
         return None
 
     # Derives the output data type - AbsDiff result is always unsigned for integers
@@ -648,7 +672,7 @@ class ElementwiseAbsDiff(ElementwiseBinaryOperation):
 class ElementwiseMul(ElementwiseBinaryOperation):
     # Specialize to implement the multiplication operation of left hand side and
     # right hand side input
-    _operation = "Mul", np.multiply, "({0} * {1})", None
+    _operation = "Mul", np.multiply, "({0} * {1})", '"MUL"'
 
     # Derives the output data type according to UG1399
     def _derive_out_dtype(self, model: ModelWrapper):
@@ -897,7 +921,7 @@ class ElementwiseBitShift(ElementwiseBinaryOperation):
 
     # RTL operation template available as property
     @property
-    def rtl_op(self) -> str:
+    def rtl_op(self) -> str | None:
         return None
 
     # Derives the output data type just as annotated...
@@ -931,7 +955,7 @@ class ElementwiseMax(ElementwiseBinaryOperation):
 
     # RTL operation template available as property
     @property
-    def rtl_op(self) -> str:
+    def rtl_op(self) -> str | None:
         return None
 
     # Override minimize_weight_bit_width to prevent type incompatibility

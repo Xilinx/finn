@@ -13,8 +13,7 @@ from qonnx.core.datatype import DataType
 from finn.custom_op.fpgadataflow import elementwise_binary
 from finn.custom_op.fpgadataflow.elementwise_binary import ElementwiseBinaryOperation
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.transformation.fpgadataflow.loop_rolling import LoopBodyInputType
-from finn.util.basic import fifo_rtl_files, roundup_to_integer_multiple
+from finn.util.basic import arith_rtl_files, fifo_rtl_files, roundup_to_integer_multiple
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     pack_innermost_dim_as_hex_string,
@@ -48,26 +47,6 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             }
         )
         return my_attrs
-
-    def adapt_for_loop_body(self, input_types):
-        """
-        Adapt elementwise binary operator for loop body execution.
-
-        When an elementwise operator is placed inside a loop, parameters that
-        are indexed per iteration (PARAMETER type) need to be received as
-        streaming inputs rather than embedded constants. This method changes
-        the lhs_style/rhs_style attributes from "const" to "input" as needed.
-        """
-        # If rhs (input[1]) is a PARAMETER (streamed per iteration),
-        # change its style to "input"
-        if len(input_types) > 1 and input_types[1] == LoopBodyInputType.PARAMETER:
-            if self.rhs_style == "const":
-                self.set_nodeattr("rhs_style", "input")
-
-        # Similarly for lhs if needed
-        if len(input_types) > 0 and input_types[0] == LoopBodyInputType.PARAMETER:
-            if self.lhs_style == "const":
-                self.set_nodeattr("lhs_style", "input")
 
     def generate_hdl(self, model, fpgapart, clk):
         lhs_style = self.get_nodeattr("lhs_style")
@@ -187,13 +166,15 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             rtllib_dir = ""
 
         top_module = self.get_nodeattr("gen_top_module")
-        return [
-            f"{rtllib_dir}eltwise.sv",
-            f"{rtllib_dir}binopf.sv",
-            f"{rtllib_dir}binopi.sv",
-            f"{rtllib_dir}int_to_fp32.sv",
-            f"{code_gen_dir}{top_module}.v",
-        ] + fifo_rtl_files(abspath)
+        return (
+            [
+                f"{rtllib_dir}eltwise.sv",
+                f"{rtllib_dir}binopi.sv",
+                f"{code_gen_dir}{top_module}.v",
+            ]
+            + arith_rtl_files(["binopf.sv", "int_to_fp32.sv"], abspath)
+            + fifo_rtl_files(abspath)
+        )
 
     def get_verilog_top_module_intf_names(self):
         """
@@ -533,8 +514,6 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
 class ElementwiseAdd_rtl(ElementwiseBinary_rtl, elementwise_binary.ElementwiseAdd):
     """RTL implementation of elementwise addition."""
 
-    _operation = "Add", np.add, "({0} + {1})", '"ADD"'
-
     def _get_rtl_op_name(self):
         return '"ADD"'
 
@@ -542,16 +521,12 @@ class ElementwiseAdd_rtl(ElementwiseBinary_rtl, elementwise_binary.ElementwiseAd
 class ElementwiseSub_rtl(ElementwiseBinary_rtl, elementwise_binary.ElementwiseSub):
     """RTL implementation of elementwise subtraction."""
 
-    _operation = "Sub", np.subtract, "({0} - {1})", '"SUB"'
-
     def _get_rtl_op_name(self):
         return '"SUB"'
 
 
 class ElementwiseMul_rtl(ElementwiseBinary_rtl, elementwise_binary.ElementwiseMul):
     """RTL implementation of elementwise multiplication."""
-
-    _operation = "Mul", np.multiply, "({0} * {1})", '"MUL"'
 
     def _get_rtl_op_name(self):
         return '"MUL"'

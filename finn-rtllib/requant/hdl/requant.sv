@@ -101,16 +101,26 @@ module requant #(
 	localparam mul_widths_t  MUL_WIDTHS = derive_MUL_WIDTHS();
 
 	// Derive fixed-point parameters for requantization
+	//	A channel whose scale or bias cannot be represented is flagged in err and
+	//	reported by the elaboration-time checks below: system tasks inside this
+	//	constant function would not be executed by all tools (xsim skips them).
+	typedef enum int unsigned {
+		PARAM_OK = 0,
+		PARAM_SCALE_TOO_LARGE,
+		PARAM_SCALE_TOO_SMALL,
+		PARAM_BIAS_OVERFLOW
+	} param_err_t;
 	typedef struct {
 		bit signed   [MUL_WIDTHS.s               -1:0]  scale;
 		bit signed   [MUL_WIDTHS.s + MUL_WIDTHS.x  :0]  bias;
 		int unsigned  shift;
+		param_err_t   err;
 	} params_t;
 	typedef params_t  params_mat_t[PE][CF];
 	function automatic params_mat_t derive_PARAMS();
 		params_mat_t  res;
 		foreach(res[pe, cf]) begin
-			params_t  p;
+			params_t  p = '{ scale: 0, bias: 0, shift: 0, err: PARAM_OK };
 
 			// Decomposed Scale
 			bit [31:0]  s = $shortrealtobits(SCALES[pe][cf]);
@@ -124,15 +134,14 @@ module requant #(
 			bit [23:0]  bm = { 1'b1, b[0+:23] }; // * 2^-23
 			int         be = int'(bc) - 127;
 
-			// Shift amount from Product Datapath
-			p.shift = (MUL_WIDTHS.s - 2) - se;
-			if(p.shift < 0) begin
-				$error("%m: Scale is too large for the output precision.");
-				$finish;
-			end
-			if(MUL_WIDTHS.s + MUL_WIDTHS.x + 1 < p.shift+N) begin
-				$error("%m: Scale is too small for the output precision.");
-				$finish;
+			// Shift amount from Product Datapath, computed signed so that a scale
+			// too large for it is caught rather than wrapping around
+			int         shift = int'(MUL_WIDTHS.s) - 2 - se;
+
+			if(shift < 0)  p.err = PARAM_SCALE_TOO_LARGE;
+			else begin
+				p.shift = shift;
+				if(MUL_WIDTHS.s + MUL_WIDTHS.x + 1 < p.shift+N)  p.err = PARAM_SCALE_TOO_SMALL;
 			end
 
 			// Mantissa into Product Datapath
@@ -141,10 +150,10 @@ module requant #(
 			if(s[31])  p.scale = -p.scale;
 
 			// Align Bias Mantissa into Product Datapath
-			if(be > int'(MUL_WIDTHS.x - N)) begin
-				$error("%m: Bias overflows the output range.");
-				$finish;
+			if(p.err != PARAM_OK) begin
+				// unusable parameters, reported below
 			end
+			else if(be > int'(MUL_WIDTHS.x) - int'(N))  p.err = PARAM_BIAS_OVERFLOW;
 			else begin
 				// - p.shift identifies the number of fractional bits in the product datapath, bm comes with 23
 				// - a bias exponent equal to 23-p.shift requires no shifting of its mantissa for alignment
@@ -168,6 +177,17 @@ module requant #(
 		return  res;
 	endfunction : derive_PARAMS
 	localparam params_mat_t  PARAMS = derive_PARAMS();
+	for(genvar  pe = 0; pe < PE; pe++) begin : genParamChecks
+		for(genvar  cf = 0; cf < CF; cf++) begin : genCF
+			localparam param_err_t  ERR = PARAMS[pe][cf].err;
+			if(ERR == PARAM_SCALE_TOO_LARGE)
+				$error("%m: SCALES[%0d][%0d] is too large for the output precision.", pe, cf);
+			if(ERR == PARAM_SCALE_TOO_SMALL)
+				$error("%m: SCALES[%0d][%0d] is too small for the output precision.", pe, cf);
+			if(ERR == PARAM_BIAS_OVERFLOW)
+				$error("%m: BIASES[%0d][%0d] overflows the output range.", pe, cf);
+		end : genCF
+	end : genParamChecks
 	initial begin
 		for(int unsigned  pe = 0; pe < PE; pe++) begin
 			for(int unsigned  cf = 0; cf < CF; cf++) begin
@@ -175,7 +195,10 @@ module requant #(
 				if(s[22:0] != 0 && 25 > MUL_WIDTHS.s) begin
 					// Dense mantissa with S_WIDTH < 25: check for actual bit loss
 					automatic bit [24:0]  sm = { 1'b1, s[0+:23], 1'b0 };
-					if(sm[0+:25-MUL_WIDTHS.s] != 0)
+					// the 25-S_WIDTH dropped bits, shifted to the top; not a part-select,
+					// which would have zero width (and fail elaboration) for S_WIDTH=25
+					automatic bit [24:0]  lost = sm << MUL_WIDTHS.s;
+					if(lost != 0)
 						$warning("%m: SCALES[%0d][%0d] scale mantissa truncated (%0d to %0d bits).", pe, cf, 25, MUL_WIDTHS.s);
 				end
 			end

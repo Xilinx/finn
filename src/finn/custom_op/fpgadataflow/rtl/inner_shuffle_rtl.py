@@ -71,16 +71,16 @@ class InnerShuffle_rtl(InnerShuffle, RTLBackend):
     def get_rtl_file_list(self, abspath=False):
         if abspath:
             code_gen_dir = f"{self.get_nodeattr('code_gen_dir_ipgen')}/"
-            rtllib_dir = f'{os.environ["FINN_ROOT"]}/finn-rtllib/inner_shuffle'
+            rtllib_dir = f'{os.environ["FINN_ROOT"]}/finn-rtllib'
         else:
             code_gen_dir = ""
             rtllib_dir = ""
 
         top_module = self.get_nodeattr("gen_top_module")
         return [
-            f"{rtllib_dir}/inner_shuffle.sv",
-            f"{rtllib_dir}/skid.sv",
-            f"{rtllib_dir}/elasticmem.sv",
+            f"{rtllib_dir}/inner_shuffle/inner_shuffle.sv",
+            f"{rtllib_dir}/skid/skid.sv",
+            f"{rtllib_dir}/inner_shuffle/elasticmem.sv",
             f"{code_gen_dir}{top_module}.v",
         ] + fifo_rtl_files(abspath)
 

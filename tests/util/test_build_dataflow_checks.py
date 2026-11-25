@@ -7,6 +7,7 @@ import pytest
 
 import json
 import os
+import warnings
 from onnx import TensorProto, helper
 from unittest.mock import patch
 
@@ -419,11 +420,12 @@ class TestConfigCheckIntegration:
 @pytest.mark.util
 def test_auto_fifo_strategy_characterize_alias():
     """The deprecated "characterize" resolves to heuristic_rtlsim, from Python
-    and from a JSON config."""
+    and from a JSON config, without a warning of its own: the config check
+    reports the deprecation (see test_auto_fifo_strategy)."""
     build_cfg = cfg("unused", auto_fifo_strategy="characterize")
-    with pytest.warns(DeprecationWarning, match="characterize"):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
         assert build_cfg._resolve_auto_fifo_strategy() == AutoFIFOSizingMethod.HEURISTIC_RTLSIM
-    with pytest.warns(DeprecationWarning, match="characterize"):
         loaded = DataflowBuildConfig.from_json(build_cfg.to_json())
     assert loaded.auto_fifo_strategy == AutoFIFOSizingMethod.HEURISTIC_RTLSIM
     with pytest.raises(ValueError):
@@ -449,3 +451,75 @@ def test_vivado_version_checks_without_vivado(check_name, kw):
     check = next(c for c in report.checks if c.name == check_name)
     assert not check.passed
     assert "found unknown" in check.message
+
+
+@pytest.mark.util
+# config, failing check (None: neither fails), its severity
+@pytest.mark.parametrize(
+    "kw, check_name, severity",
+    [
+        ({"mlo_parallel_rtlsim": True}, "mlo_parallel_rtlsim", "WARNING"),
+        (
+            {
+                "mlo": True,
+                "mlo_parallel_rtlsim": True,
+                "verify_steps": ["stitched_ip_rtlsim"],
+                "verify_input_npy": None,
+            },
+            "mlo_parallel_rtlsim_input",
+            "ERROR",
+        ),
+        (
+            {
+                "mlo": True,
+                "mlo_parallel_rtlsim": True,
+                "verify_steps": ["stitched_ip_rtlsim"],
+                "verify_input_npy": "input.npy",
+            },
+            None,
+            None,
+        ),
+    ],
+)
+def test_mlo_parallel_rtlsim_checks(kw, check_name, severity):
+    """mlo_parallel_rtlsim is flagged without MLO, and rejected at config-check
+    time without the verification input it derives its golden frames from."""
+    output_dir = make_build_dir("test_config_check_mlo_parallel_")
+    report = run_all_config_checks(cfg(output_dir, **kw))
+    failed = {c.name: c.severity.value for c in report.checks if not c.passed}
+    for name in ("mlo_parallel_rtlsim", "mlo_parallel_rtlsim_input"):
+        if name == check_name:
+            assert failed[name] == severity
+        else:
+            assert name not in failed
+
+
+@pytest.mark.util
+@pytest.mark.parametrize(
+    "strategy, error",
+    [("largefifo_rtlsim", True), ("heuristic_rtlsim", False), ("heuristic_analytical", False)],
+)
+def test_mlo_auto_fifo_strategy(strategy, error):
+    """MLO is rejected at config-check time with largefifo_rtlsim, which cannot
+    size the FIFOs around a FINNLoop."""
+    output_dir = make_build_dir("test_config_check_mlo_fifo_")
+    report = run_all_config_checks(cfg(output_dir, mlo=True, auto_fifo_strategy=strategy))
+    failed = {c.name: c.severity.value for c in report.checks if not c.passed}
+    assert (failed.get("auto_fifo_strategy_mlo") == "ERROR") == error
+
+
+@pytest.mark.util
+# shell flow given explicitly, or inferred from the board
+@pytest.mark.parametrize("explicit_shell", [True, False])
+def test_shell_checks_use_inferred_shell_flow(explicit_shell):
+    """Checks keyed on the shell flow apply whether it is set or inferred from the
+    board, e.g. the Vitis environment check for board="U250" alone."""
+    output_dir = make_build_dir("test_config_check_inferred_shell_")
+    kw = {"board": "U250", "generate_outputs": [DataflowOutputType.BITFILE]}
+    if explicit_shell:
+        kw["shell_flow_type"] = ShellFlowType.VITIS_ALVEO
+    env = {k: v for k, v in os.environ.items() if k not in ("VITIS_PATH", "XILINX_XRT")}
+    with patch.dict("os.environ", env, clear=True):
+        report = run_all_config_checks(cfg(output_dir, **kw))
+    check = next(c for c in report.checks if c.name == "vitis_envvars")
+    assert not check.passed

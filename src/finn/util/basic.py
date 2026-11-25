@@ -27,27 +27,32 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import errno
+import glob
 import logging
 import os
 import re
+import shlex
 import shutil
-import subprocess
-import sys
 import tempfile
 import time
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.util.basic import gen_finn_dt_tensor, roundup_to_integer_multiple
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Sequence, Tuple, Union
 
-from finn.util.build_log import FILE_ONLY, in_run
 from finn.util.data_packing import finnpy_to_packed_bytearray
-from finn.util.launcher import TOOL_DIR_ENV, ToolUnavailable, xilinx_tool
+from finn.util.launcher import (
+    TOOL_DIR_ENV,
+    StrPath,
+    ToolUnavailable,
+    run_tool,
+    xilinx_tool,
+)
 
 log = logging.getLogger(__name__)
 
 # mapping from PYNQ board names to FPGA part names
-pynq_part_map = dict()
+pynq_part_map: dict[str, str] = dict()
 pynq_part_map["Ultra96"] = "xczu3eg-sbva484-1-e"
 pynq_part_map["Ultra96-V2"] = "xczu3eg-sbva484-1-i"
 pynq_part_map["Pynq-Z1"] = "xc7z020clg400-1"  # retired, see retired_pynq_boards
@@ -70,7 +75,7 @@ retired_pynq_boards = {"Pynq-Z1", "Pynq-Z2"}
 
 
 # native AXI HP port width (in bits) for PYNQ boards
-pynq_native_port_width = dict()
+pynq_native_port_width: dict[str, int] = dict()
 pynq_native_port_width["Pynq-Z1"] = 64
 pynq_native_port_width["Pynq-Z2"] = 64
 pynq_native_port_width["Ultra96"] = 128
@@ -86,13 +91,13 @@ pynq_native_port_width["AUP-ZU3_8GB"] = 128
 pynq_native_port_width["VCK190"] = 512
 
 # Vitis device and platform mappings
-vitis_part_map = dict()
+vitis_part_map: dict[str, str] = dict()
 vitis_part_map["U50"] = "xcu50-fsvh2104-2L-e"
 vitis_part_map["U200"] = "xcu200-fsgd2104-2-e"
 vitis_part_map["U250"] = "xcu250-figd2104-2L-e"
 vitis_part_map["U55C"] = "xcu55c-fsvh2892-2L-e"
 
-vitis_default_platform = dict()
+vitis_default_platform: dict[str, str] = dict()
 vitis_default_platform["U50"] = "xilinx_u50_gen3x16_xdma_5_202210_1"
 vitis_default_platform["U200"] = "xilinx_u200_gen3x16_xdma_2_202110_1"
 # 2024.2 shell (bumped from 2_1_202010_1). The lfc BNN design hits a
@@ -102,11 +107,11 @@ vitis_default_platform["U250"] = "xilinx_u250_gen3x16_xdma_4_1_202210_1"
 vitis_default_platform["U55C"] = "xilinx_u55c_gen3x16_xdma_3_202210_1"
 
 # Slash device mappings
-slash_part_map = dict()
+slash_part_map: dict[str, str] = dict()
 slash_part_map["V80"] = "xcv80-lsva4737-2MHP-e-s"
 
 # Create a joint part map, encompassing other boards too
-part_map = {**pynq_part_map, **vitis_part_map, **slash_part_map}
+part_map: dict[str, str] = {**pynq_part_map, **vitis_part_map, **slash_part_map}
 part_map["VEK280"] = "xcve2802-vsvh1760-2MP-e-S"
 
 # Boards that expose HBM. Note that U50 has only HBM (no DDR), while the other
@@ -115,7 +120,7 @@ part_map["VEK280"] = "xcve2802-vsvh1760-2MP-e-S"
 hbm_boards = {"U50", "U55C", "V80"}
 
 
-def get_rtlsim_trace_depth():
+def get_rtlsim_trace_depth() -> int:
     """Return the trace depth for rtlsim. Controllable
     via the RTLSIM_TRACE_DEPTH environment variable. If the env.var. is
     undefined, the default value of 1 is returned. A trace depth of 1
@@ -134,7 +139,7 @@ def get_rtlsim_trace_depth():
         return 1
 
 
-def get_finn_root():
+def get_finn_root() -> str:
     "Return the root directory that FINN is cloned into."
 
     try:
@@ -168,7 +173,16 @@ def fifo_rtl_files(abspath=True, gauge=False):
     return [os.path.join(rtlsrc, n) for n in names]
 
 
-def get_vivado_root():
+def arith_rtl_files(names, abspath=True):
+    """Return the shared arithmetic RTL sources (finn-rtllib/arith) named in
+    names, referenced in place like the FIFO sources."""
+    if not abspath:
+        return list(names)
+    rtlsrc = os.path.join(get_finn_root(), "finn-rtllib", "arith")
+    return [os.path.join(rtlsrc, n) for n in names]
+
+
+def get_vivado_root() -> str:
     "Return the root directory that Vivado is installed into."
 
     try:
@@ -204,7 +218,7 @@ def require_vivado_version() -> Tuple[int, int]:
     return version
 
 
-def get_liveness_threshold_cycles():
+def get_liveness_threshold_cycles() -> int:
     """Return the ``LIVENESS_THRESHOLD`` environment override (in cycles) for the
     rtlsim watchdog. Defaults to 10000 if unset."""
 
@@ -236,7 +250,7 @@ def get_rtlsim_timeout_error_message(threshold, cycles_estimate=None):
     )
 
 
-def make_build_dir(prefix=""):
+def make_build_dir(prefix: str = "") -> str:
     """Creates a folder with given prefix to be used as a build dir.
     Use this function instead of tempfile.mkdtemp to ensure any generated files
     will survive on the host after the FINN Docker container exits."""
@@ -278,98 +292,57 @@ def robust_rmtree(path, retries=6, initial_delay=0.1, backoff=2.0):
 
 
 class CppBuilder:
-    """Builds the g++ compiler command to produces the executable of the c++ code
-    in code_gen_dir which is passed to the function build() of this class."""
+    """Compile C++ sources with g++, retaining a replay and output transcripts."""
 
-    def __init__(self):
-        self.include_paths = []
-        self.cpp_files = []
-        self.executable_path = ""
-        self.code_gen_dir = ""
-        self.compile_components = []
-        self.compile_script = ""
+    def __init__(self) -> None:
+        self.include_paths: list[str | Sequence[StrPath]] = []
+        self.cpp_files: list[StrPath] = []
+        self.executable_path: StrPath = ""
+        self.code_gen_dir: StrPath = ""
+        self.compile_components: list[str] = []
+        self.compile_script: str = ""
 
-    def append_includes(self, library_path):
-        """Adds given library path to include_paths list."""
+    def append_includes(self, library_path: Union[str, Sequence[StrPath]]) -> None:
+        """Append compiler arguments, as tokens or a legacy shell-quoted fragment."""
         self.include_paths.append(library_path)
 
-    def append_sources(self, cpp_file):
-        """Adds given c++ file to cpp_files list."""
+    def append_sources(self, cpp_file: StrPath) -> None:
+        """Append a source path or glob, with environment variables expanded at build."""
         self.cpp_files.append(cpp_file)
 
-    def set_executable_path(self, path):
+    def set_executable_path(self, path: StrPath) -> None:
         """Sets member variable "executable_path" to given path."""
         self.executable_path = path
 
-    def build(self, code_gen_dir):
-        """Builds the g++ compiler command according to entries in include_paths
-        and cpp_files lists. Saves it in bash script in given folder and
-        executes it."""
-        # raise error if includes are empty
+    def build(self, code_gen_dir: StrPath) -> None:
+        """Compile directly, saving a replay and transcripts in ``code_gen_dir``."""
         self.code_gen_dir = code_gen_dir
-        self.compile_components.append("g++ -o " + str(self.executable_path))
+        command = ["g++", "-o", os.path.expandvars(os.fspath(self.executable_path))]
         for cpp_file in self.cpp_files:
-            self.compile_components.append(cpp_file)
+            source = os.path.expandvars(os.fspath(cpp_file))
+            if glob.has_magic(source):
+                matches = sorted(glob.glob(source))
+                if not matches:
+                    raise FileNotFoundError(f"No C++ sources match {source}")
+                command.extend(matches)
+            else:
+                command.append(source)
         for lib in self.include_paths:
-            self.compile_components.append(lib)
-        bash_compile = ""
-        for component in self.compile_components:
-            bash_compile += str(component) + " "
-        self.compile_script = str(self.code_gen_dir) + "/compile.sh"
-        with open(self.compile_script, "w") as f:
-            f.write("#!/bin/bash \n")
-            f.write(bash_compile + "\n")
-        bash_command = ["bash", self.compile_script]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
+            tokens = shlex.split(lib) if isinstance(lib, str) else lib
+            command.extend(os.path.expandvars(os.fspath(token)) for token in tokens)
+        self.compile_components = command
+        self.compile_script = os.path.join(code_gen_dir, "compile.sh")
+        # Historically compilation used the caller's CWD, including for relative
+        # sources. Retain that behavior and record it in the replay.
+        run_tool(command, cwd=os.getcwd(), replay=self.compile_script)
 
 
-def launch_process_helper(args, proc_env=None, cwd=None, check=False):
-    """Launch a process and capture its output for logging with Python loggers.
-
-    Returns ``(cmd_out, cmd_err)`` as UTF-8 strings, with undecodable bytes in
-    tool output replaced rather than raised. In a ``log_run`` (a build), both
-    streams are also logged at INFO, one record per line, marked ``FILE_ONLY``.
-    Otherwise, or if ``finn.util.basic`` does not log INFO, they are written
-    through to ``sys.stdout``/``sys.stderr``.
-
-    When ``check`` is True and the process exits non-zero, raises
-    ``subprocess.CalledProcessError`` with ``output`` and ``stderr`` set to the
-    captured strings. The write-through happens before the raise, so the tool
-    log is still visible on failure. That is why the return code is checked by
-    hand rather than relying on ``subprocess.run(check=True)``.
-    """
-    if proc_env is None:
-        proc_env = os.environ.copy()
-    proc = subprocess.run(
-        args,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env=proc_env,
-        cwd=cwd,
-        encoding="utf-8",
-        errors="replace",
-    )
-    cmd_out = proc.stdout
-    cmd_err = proc.stderr
-    if in_run() and log.isEnabledFor(logging.INFO):
-        for stream in (cmd_out, cmd_err):
-            for line in stream.splitlines():
-                log.info(line, extra=FILE_ONLY)
-    else:
-        sys.stdout.write(cmd_out)
-        sys.stderr.write(cmd_err)
-    if check and proc.returncode != 0:
-        raise subprocess.CalledProcessError(proc.returncode, args, cmd_out, cmd_err)
-    return (cmd_out, cmd_err)
-
-
-def which(program):
+def which(program: str) -> str | None:
     "Python equivalent of the shell cmd 'which'."
 
     # source:
     # https://stackoverflow.com/questions/377017/test-if-executable-exists-in-python
-    def is_exe(fpath):
+    def is_exe(fpath: str) -> bool:
         return os.path.isfile(fpath) and os.access(fpath, os.X_OK)
 
     fpath, fname = os.path.split(program)
@@ -430,8 +403,10 @@ mem_primitives_versal = {
 
 
 def get_memutil_alternatives(
-    req_mem_spec, mem_primitives=mem_primitives_versal, sort_min_waste=True
-):
+    req_mem_spec: tuple[int, int],
+    mem_primitives: dict[str, tuple[int, int]] = mem_primitives_versal,
+    sort_min_waste: bool = True,
+) -> list[tuple[str, tuple[int, float, int]]]:
     """Computes how many instances of a memory primitive are necessary to
     implement a desired memory size, where req_mem_spec is the desired
     size and the primitive_spec is the primitve size. The sizes are expressed
@@ -450,7 +425,9 @@ def get_memutil_alternatives(
     return ret
 
 
-def memutil(req_mem_spec, primitive_spec):
+def memutil(
+    req_mem_spec: tuple[int, int], primitive_spec: tuple[int, int]
+) -> tuple[int, float, int]:
     """Computes how many instances of a memory primitive are necessary to
     implemented a desired memory size, where req_mem_spec is the desired
     size and the primitive_spec is the primitve size. The sizes are expressed
@@ -471,7 +448,7 @@ def memutil(req_mem_spec, primitive_spec):
     return (count, eff, waste)
 
 
-def is_versal(fpgapart):
+def is_versal(fpgapart: str) -> bool:
     """Returns whether board is part of the Versal family"""
     return fpgapart[0:4] in ["xcvc", "xcve", "xcvp", "xcvm", "xqvc", "xqvm"] or fpgapart[0:5] in [
         "xqrvc",
@@ -491,13 +468,46 @@ def least_divisor_at_most(n, max_quotient):
     return n  # n always divides itself
 
 
-def get_dsp_block(fpgapart):
+def get_dsp_block(fpgapart: str) -> str:
     if is_versal(fpgapart):
         return "DSP58"
     elif fpgapart[2] == "7":
         return "DSP48E1"
     else:
         return "DSP48E2"
+
+
+#: VERSION parameter of the DSP-based RTL cores (mvu.sv, requant.sv) per DSP block
+DSP_VERSIONS = {"DSP48E1": 1, "DSP48E2": 2, "DSP58": 3}
+
+
+def resolve_dsp_block(inst, fpgapart=None, record=True):
+    """The DSP block (generation) an RTL node with a ``dsp_block`` attribute targets.
+
+    SpecializeLayers sets the attribute from the part it specializes for. Without
+    a part (Python execution), the attribute is the answer. Given a part (code
+    generation, estimation), it must agree with the attribute, so that a node
+    specialized for one DSP generation is not built for another; an unset
+    attribute is filled in from the part unless ``record`` is False (analyses
+    must not change the model).
+    """
+    block = inst.get_nodeattr("dsp_block")
+    if fpgapart is not None:
+        part_block = get_dsp_block(fpgapart)
+        if block and block != part_block:
+            raise ValueError(
+                f"{inst.onnx_node.name} was specialized for {block}, "
+                f"but is built for {fpgapart} ({part_block})"
+            )
+        if not block and record:
+            inst.set_nodeattr("dsp_block", part_block)
+        block = part_block
+    if not block:
+        raise ValueError(
+            f"{inst.onnx_node.name}: unknown DSP generation, "
+            "specialize with SpecializeLayers(fpgapart) first"
+        )
+    return block
 
 
 def get_dsp_datapath_limits(dsp_block):

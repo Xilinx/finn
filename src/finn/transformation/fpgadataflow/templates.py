@@ -28,15 +28,6 @@
 
 # flake8: noqa
 
-call_pynqshell_makefile_template = """
-#!/bin/bash
-cd %s
-export platform=%s
-export ip_config=%s
-make %s
-cd %s
-"""
-
 custom_zynq_shell_template = """
 set FREQ_MHZ @FREQ_MHZ@
 set NUM_AXILITE @NUM_AXILITE@
@@ -116,6 +107,14 @@ if {$ZYNQ_TYPE == "zynq_us+"} {
     puts "Unrecognized Zynq type"
 }
 
+#PL clock: the PS clock. Double-pumped kernels derive their ap_clk2x from it
+#internally (CreateStitchedIP clk2x_gen).
+if {$ZYNQ_TYPE == "zynq_us+"} {
+    set pl_clk /zynq_ps/pl_clk0
+} else {
+    set pl_clk /zynq_ps/FCLK_CLK0
+}
+
 #instantiate axi interconnect, axi smartconnect
 set interconnect_vlnv [get_property VLNV [get_ipdefs -all "xilinx.com:ip:axi_interconnect:*" -filter design_tool_contexts=~*IPI*]]
 set smartconnect_vlnv [get_property VLNV [get_ipdefs "xilinx.com:ip:smartconnect:*"]]
@@ -131,16 +130,16 @@ if {$ZYNQ_TYPE == "zynq_us+"} {
     connect_bd_intf_net [get_bd_intf_pins smartconnect_0/M00_AXI] [get_bd_intf_pins zynq_ps/S_AXI_HP0_FPD]
     connect_bd_intf_net [get_bd_intf_pins zynq_ps/M_AXI_HPM0_FPD] -boundary_type upper [get_bd_intf_pins axi_interconnect_0/S00_AXI]
     #connect interconnect clocks and resets
-    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/pl_clk0} Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}}  [get_bd_pins axi_interconnect_0/ACLK]
-    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/pl_clk0} Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}}  [get_bd_pins axi_interconnect_0/S00_ACLK]
-    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/pl_clk0} Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}}  [get_bd_pins zynq_ps/saxihp0_fpd_aclk]
+    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config [list Clk $pl_clk Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}]  [get_bd_pins axi_interconnect_0/ACLK]
+    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config [list Clk $pl_clk Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}]  [get_bd_pins axi_interconnect_0/S00_ACLK]
+    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config [list Clk $pl_clk Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}]  [get_bd_pins zynq_ps/saxihp0_fpd_aclk]
 } elseif {$ZYNQ_TYPE == "zynq_7000"} {
     set axi_peripheral_base 0x40000000
     connect_bd_intf_net -boundary_type upper [get_bd_intf_pins zynq_ps/M_AXI_GP0] [get_bd_intf_pins axi_interconnect_0/S00_AXI]
     connect_bd_intf_net [get_bd_intf_pins smartconnect_0/M00_AXI] [get_bd_intf_pins zynq_ps/S_AXI_HP0]
-    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/FCLK_CLK0} Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}}  [get_bd_pins axi_interconnect_0/ACLK]
-    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/FCLK_CLK0} Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}}  [get_bd_pins axi_interconnect_0/S00_ACLK]
-    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/FCLK_CLK0} Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}}  [get_bd_pins zynq_ps/S_AXI_HP0_ACLK]
+    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config [list Clk $pl_clk Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}]  [get_bd_pins axi_interconnect_0/ACLK]
+    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config [list Clk $pl_clk Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}]  [get_bd_pins axi_interconnect_0/S00_ACLK]
+    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config [list Clk $pl_clk Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}]  [get_bd_pins zynq_ps/S_AXI_HP0_ACLK]
 }
 connect_bd_net [get_bd_pins axi_interconnect_0/ARESETN] [get_bd_pins smartconnect_0/aresetn]
 
@@ -177,8 +176,8 @@ if {$ZYNQ_TYPE == "zynq_us+"} {
             connect_bd_intf_net $mlo_mm_pin [get_bd_intf_pins smartconnect_mlo/$mlo_si_name]
             incr mlo_si_idx
         }
-        connect_bd_net [get_bd_pins smartconnect_mlo/aclk] [get_bd_pins zynq_ps/pl_clk0]
-        connect_bd_net [get_bd_pins zynq_ps/saxihp1_fpd_aclk] [get_bd_pins zynq_ps/pl_clk0]
+        connect_bd_net [get_bd_pins smartconnect_mlo/aclk] [get_bd_pins $pl_clk]
+        connect_bd_net [get_bd_pins zynq_ps/saxihp1_fpd_aclk] [get_bd_pins $pl_clk]
         connect_bd_net [get_bd_pins smartconnect_mlo/aresetn] [get_bd_pins axi_interconnect_0/ARESETN]
     }
 }
@@ -196,11 +195,7 @@ if {@ENABLE_DEBUG@ == 1} {
 }
 
 #finalize clock and reset connections for interconnects
-if {$ZYNQ_TYPE == "zynq_us+"} {
-    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/pl_clk0} }  [get_bd_pins axi_interconnect_0/M*_ACLK]
-} elseif {$ZYNQ_TYPE == "zynq_7000"} {
-    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/FCLK_CLK0} }  [get_bd_pins axi_interconnect_0/M*_ACLK]
-}
+apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config [list Clk $pl_clk]  [get_bd_pins axi_interconnect_0/M*_ACLK]
 
 save_bd_design
 assign_bd_address
@@ -388,4 +383,48 @@ vitis_gen_xml_report_tcl_template = """
 open_project $VITIS_PROJ_PATH$/_x/link/vivado/vpl/prj/prj.xpr
 open_run impl_1
 report_utilization -hierarchical -hierarchical_depth 5 -file $VITIS_PROJ_PATH$/synth_report.xml -format xml
+"""
+
+
+# OPT_DESIGN pre-hook of VitisLink:
+# - constrain the kernel clock 0 of an Alveo platform (output of the UCS MMCM) to
+#   @F_MHZ@ MHz relative to the MMCM's reference clock, replacing the generated clock
+#   that v++ derived. Leaves a correct constraint and platforms without this clock
+#   alone.
+# - put the 1x and 2x clocks of each kernel-internal clock generator (CreateStitchedIP
+#   clk2x_gen) into a CLOCK_DELAY_GROUP of their own. The kernels carry this
+#   constraint, but Vivado does not read the implementation XDC of kernels packaged as
+#   synthesized checkpoints ("[Designutils 20-1275] Could not find cell 'inst'") and
+#   uses it instead of the constraints in their checkpoints.
+vitis_kernel_clk_tcl = """
+proc finn_gcd {a b} { while {$b} { set t $b; set b [expr {$a % $b}]; set a $t }; return $a }
+set kpin [get_pins -quiet -hierarchical -filter {NAME =~ */ulp_ucs/aclk_kernel_00}]
+set kclk [get_clocks -quiet -of_objects $kpin]
+set target_ns [expr {1000.0 / @F_MHZ@}]
+if {[llength $kclk] != 1 || ![get_property IS_GENERATED $kclk]} {
+    puts "INFO: \\[FINN\\] no generated Alveo kernel clock 0 found: constraints unchanged"
+} elseif {abs([get_property PERIOD $kclk] - $target_ns) < 0.001} {
+    puts "INFO: \\[FINN\\] kernel clock $kclk already constrained to $target_ns ns"
+} else {
+    set period [get_property PERIOD $kclk]
+    set src [get_property SOURCE $kclk]
+    set out [get_property SOURCE_PINS $kclk]
+    set ref_ns [get_property PERIOD [get_clocks -of_objects [get_pins $src]]]
+    set ref_khz [expr {round(1e6 / $ref_ns)}]
+    set f_khz [expr {round(@F_MHZ@ * 1000)}]
+    set g [finn_gcd $f_khz $ref_khz]
+    set ratio [list -multiply_by [expr {$f_khz / $g}] -divide_by [expr {$ref_khz / $g}]]
+    create_generated_clock -name [get_property NAME $kclk] {*}$ratio -source [get_pins $src] [get_pins $out]
+    set kclk [get_clocks -of_objects $kpin]
+    puts "INFO: \\[FINN\\] kernel clock $kclk re-constrained from $period ns to [get_property PERIOD $kclk] ns"
+}
+set n 0
+foreach gen [get_cells -quiet -hierarchical -filter {NAME =~ */clk2x_domain && IS_PRIMITIVE == 0}] {
+    set pins [get_pins -quiet -hierarchical -filter "NAME =~ $gen/*clk_buf/O || NAME =~ $gen/*clk2x_buf/O"]
+    set nets [get_nets -quiet -of_objects $pins]
+    if {[llength $nets] == 2} {
+        set_property CLOCK_DELAY_GROUP finn_clk2x_[incr n] $nets
+        puts "INFO: \\[FINN\\] clock generator $gen: CLOCK_DELAY_GROUP finn_clk2x_$n"
+    }
+}
 """

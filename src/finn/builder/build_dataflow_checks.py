@@ -16,6 +16,7 @@ from finn.builder.build_dataflow_config import (
     DataflowBuildConfig,
     DataflowOutputType,
     ShellFlowType,
+    VerificationStepType,
     verify_step_prereqs,
 )
 from finn.util.basic import (
@@ -82,6 +83,19 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
     alveo_boards = set(vitis_part_map.keys())
     pynq_boards = set(pynq_part_map.keys())
 
+    # Resolve the shell the build will actually use for the checks below: an unset
+    # shell_flow_type is inferred from the board. A board with no shell is only an
+    # error when a bitfile is requested, so leave resolved_shell as None here and let
+    # the has_bitfile-gated checks below report it.
+    try:
+        resolved_shell = (
+            cfg._resolve_shell_flow_type()
+            if (cfg.shell_flow_type is not None or cfg.board is not None)
+            else None
+        )
+    except Exception:
+        resolved_shell = None
+
     # === Vivado Version Checks ===
     if cfg.board == "V80":
         checks.append(
@@ -94,7 +108,7 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
             )
         )
 
-    if cfg.shell_flow_type == ShellFlowType.SLASH_ALVEO:
+    if resolved_shell == ShellFlowType.SLASH_ALVEO:
         checks.append(
             _check(
                 "slash_vivado",
@@ -179,19 +193,6 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                 "matching Platform class in util/platforms.py).",
             )
         )
-
-    # Resolve the shell the build will actually use for the bitfile-consistency
-    # checks below: an unset shell_flow_type is inferred from the board. A board
-    # with no shell is only an error when a bitfile is requested, so leave resolved_shell
-    # as None here and let the has_bitfile-gated checks below report it.
-    try:
-        resolved_shell = (
-            cfg._resolve_shell_flow_type()
-            if (cfg.shell_flow_type is not None or cfg.board is not None)
-            else None
-        )
-    except Exception:
-        resolved_shell = None
 
     if has_bitfile:
         is_v80 = cfg.board == "V80" or (cfg.fpga_part and cfg.fpga_part.startswith("xcv80"))
@@ -331,7 +332,7 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
         )
 
     # === Environment Variables ===
-    if has_bitfile and cfg.shell_flow_type == ShellFlowType.VITIS_ALVEO:
+    if has_bitfile and resolved_shell == ShellFlowType.VITIS_ALVEO:
         missing = [
             v for v in ["VITIS_PATH", "PLATFORM_REPO_PATHS", "XILINX_XRT"] if v not in os.environ
         ]
@@ -458,6 +459,20 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                     "Set auto_fifo_strategy to 'heuristic_rtlsim' or 'heuristic_analytical'",
                 )
             )
+        # InsertAndSetFIFODepths cannot simulate a FINNLoop as part of its stitched
+        # design; step_set_fifo_depths would only fail late in the build
+        if cfg.mlo and strategy == AutoFIFOSizingMethod.LARGEFIFO_RTLSIM:
+            checks.append(
+                _check(
+                    "auto_fifo_strategy_mlo",
+                    Severity.ERROR,
+                    False,
+                    "auto_fifo_strategy 'largefifo_rtlsim' (the default) cannot size the FIFOs "
+                    "around a FINNLoop; MLO models need a heuristic strategy. The FIFOs inside "
+                    "the loop bodies are sized by simulating each body, whatever the strategy",
+                    "Set auto_fifo_strategy to 'heuristic_rtlsim' or 'heuristic_analytical'",
+                )
+            )
 
     # === FIFO Debug Logging ===
     # fifo_log_flush_cycles reaches the RTL via int() in _attach_fifo_debug_logs and
@@ -475,7 +490,11 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
                 "or 0 to only flush the logs when the simulation ends",
             )
         )
-    elif cfg.debug_fifo and cfg.fifo_log_flush_cycles < 0:
+    elif (
+        cfg.debug_fifo
+        and isinstance(cfg.fifo_log_flush_cycles, int)
+        and cfg.fifo_log_flush_cycles < 0
+    ):
         checks.append(
             _check(
                 "fifo_log_flush_cycles",
@@ -547,29 +566,47 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
         )
 
     if cfg.mlo and cfg.generate_outputs:
-        if DataflowOutputType.ESTIMATE_REPORTS in cfg.generate_outputs:
+        if (
+            DataflowOutputType.ESTIMATE_REPORTS in cfg.generate_outputs
+            or DataflowOutputType.RTLSIM_PERFORMANCE in cfg.generate_outputs
+        ):
             checks.append(
                 _check(
-                    "mlo_estimates",
-                    Severity.WARNING,
+                    "mlo_performance",
+                    Severity.INFO,
                     False,
-                    "MLO enabled with ESTIMATE_REPORTS: Network performance cannot be "
-                    "estimated for MLO models. Individual layer estimates will still be "
-                    "generated",
+                    "MLO throughput (estimate and RTLSIM_PERFORMANCE) assumes that the loop "
+                    "controller keeps the loop body fully busy, with ideal external memory; "
+                    "it is an upper bound. The RTLSIM_PERFORMANCE latency is not available "
+                    "for MLO models",
                 )
             )
-        if DataflowOutputType.RTLSIM_PERFORMANCE in cfg.generate_outputs:
-            checks.append(
-                _check(
-                    "mlo_rtlsim",
-                    Severity.WARNING,
-                    False,
-                    "MLO enabled with RTLSIM_PERFORMANCE: RTL simulation performance "
-                    "measurement is skipped for MLO models",
-                    "Remove RTLSIM_PERFORMANCE from generate_outputs or disable MLO",
-                )
+    if cfg.mlo_parallel_rtlsim and not cfg.mlo:
+        checks.append(
+            _check(
+                "mlo_parallel_rtlsim",
+                Severity.WARNING,
+                False,
+                "mlo_parallel_rtlsim=True without mlo=True has no effect",
+                "Enable mlo or remove mlo_parallel_rtlsim",
             )
-
+        )
+    if (
+        cfg.mlo
+        and cfg.mlo_parallel_rtlsim
+        and VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps()
+        and not cfg.verify_input_npy
+    ):
+        checks.append(
+            _check(
+                "mlo_parallel_rtlsim_input",
+                Severity.ERROR,
+                False,
+                "mlo_parallel_rtlsim=True needs verify_input_npy: the parallel stitched-IP "
+                "rtlsim derives its per-iteration golden frames from it",
+                "Set verify_input_npy, or disable mlo_parallel_rtlsim",
+            )
+        )
     if cfg.mlo and cfg.verify_save_full_context:
         checks.append(
             _check(
@@ -628,7 +665,7 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
             )
         )
 
-    if cfg.shell_flow_type == ShellFlowType.SLASH_ALVEO:
+    if resolved_shell == ShellFlowType.SLASH_ALVEO:
         checks.append(
             _check(
                 "slash_external",

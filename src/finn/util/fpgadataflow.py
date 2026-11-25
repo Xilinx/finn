@@ -26,8 +26,10 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import onnx
 import os
 import warnings
+from onnx import NodeProto
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp, is_custom_op
@@ -42,7 +44,7 @@ def is_mlo(model: ModelWrapper) -> bool:
     return False
 
 
-def is_fpgadataflow_node(node):
+def is_fpgadataflow_node(node: NodeProto | None) -> bool:
     """Returns True if given node is fpgadataflow node. Otherwise False."""
     is_node = False
     if node is not None:
@@ -56,7 +58,7 @@ def is_fpgadataflow_node(node):
     return is_node
 
 
-def is_hls_node(node):
+def is_hls_node(node: NodeProto | None) -> bool:
     """Returns True if given node is hls node. Otherwise False."""
     is_node = False
     if node is not None:
@@ -70,7 +72,7 @@ def is_hls_node(node):
     return is_node
 
 
-def is_rtl_node(node):
+def is_rtl_node(node: NodeProto | None) -> bool:
     """Returns True if given node is rtl node. Otherwise False."""
     is_node = False
     if node is not None:
@@ -82,6 +84,31 @@ def is_rtl_node(node):
                     is_node = True
 
     return is_node
+
+
+def find_clk2x_nodes(model: ModelWrapper) -> list[str]:
+    """Names of the hardware nodes that need the double-speed clock ap_clk2x.
+
+    A node needs it if its IP interface lists a "clk2x" entry (e.g. an MVAU with
+    pumpedCompute or pumpedMemory). Composite nodes are searched rather than
+    asked: subgraph attributes (FINNLoop bodies, also before they are stitched)
+    and StreamingDataflowPartition models. Nested nodes are reported with their
+    enclosing node names as path prefix ("FINNLoop_0/MVAU_rtl_0").
+    """
+    names = []
+    for node in model.graph.node:
+        subgraphs = [a.g for a in node.attribute if a.type == onnx.AttributeProto.GRAPH]
+        if subgraphs:
+            for g in subgraphs:
+                sub = ModelWrapper(onnx.helper.make_model(g))
+                names += [f"{node.name}/{n}" for n in find_clk2x_nodes(sub)]
+        elif node.op_type == "StreamingDataflowPartition":
+            sub = ModelWrapper(getCustomOp(node).get_nodeattr("model"))
+            names += [f"{node.name}/{n}" for n in find_clk2x_nodes(sub)]
+        elif is_fpgadataflow_node(node):
+            if getCustomOp(node).get_verilog_top_module_intf_names().get("clk2x"):
+                names.append(node.name)
+    return names
 
 
 def detect_hls_rtl_dsp_conflict(model, check_subgraphs=True):
@@ -219,37 +246,3 @@ def warn_hls_rtl_dsp_conflict(model, verification_type, output_dir=None):
 
         return True
     return False
-
-
-def cleanup_characterization(model):
-    """Drop the characterization attributes once FIFO sizing is done.
-
-    The token access vectors are offloaded to sidecar .npy.gz files whose paths are
-    kept in the io_chrc_* attributes; unlink those files (and a ``tav_*`` build
-    dir they leave empty) before dropping the attributes, otherwise they are left
-    behind in the build directory with nothing referencing them."""
-
-    #: Node attributes holding token access vectors. Their values are paths to
-    #: sidecar .npy.gz files (see save_tav_npy), which are only needed while FIFO
-    #: sizing runs.
-    tav_attrs = [
-        "io_chrc_in",
-        "io_chrc_out",
-    ]
-
-    for node in model.graph.node:
-        for attr_name in tav_attrs:
-            attr = get_by_name(node.attribute, attr_name)
-            if attr is None:
-                continue
-            fname = attr.s.decode("utf-8")
-            if fname.endswith((".npy", ".npy.gz")) and os.path.isfile(fname):
-                os.remove(fname)
-                # the tav_* build dir of a node without a code generation dir
-                tav_dir = os.path.dirname(fname)
-                if os.path.basename(tav_dir).startswith("tav_") and not os.listdir(tav_dir):
-                    os.rmdir(tav_dir)
-            node.attribute.remove(attr)
-        attr = get_by_name(node.attribute, "io_chrc_period")
-        if attr is not None:
-            node.attribute.remove(attr)

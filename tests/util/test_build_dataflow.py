@@ -29,9 +29,11 @@
 
 import pytest
 
+import glob
 import json
 import numpy as np
 import os
+import re
 from qonnx.core.modelwrapper import ModelWrapper
 from shutil import copytree
 
@@ -70,6 +72,17 @@ def test_end2end_build_dataflow_directory():
     assert os.path.isfile(output_dir + "/portable_rtl/filelist.f")
     assert os.path.isfile(output_dir + "/portable_rtl/sources.tcl")
     assert os.path.isfile(output_dir + "/portable_rtl/README.md")
+    # every decoupled layer reads its own weights: the memstream wrappers' INIT_FILEs
+    # (all memblock.dat originally) must be distinct, exported files
+    src_dir = output_dir + "/portable_rtl/rtl/src"
+    init_files = []
+    for wrapper in glob.glob(src_dir + "/*_memstream_wrapper.v"):
+        with open(wrapper) as f:
+            init_files.append(re.search(r'INIT_FILE\s*=\s*"([^"]+)"', f.read()).group(1))
+    assert len(init_files) >= 2
+    assert len(set(init_files)) == len(init_files)
+    for init_file in init_files:
+        assert os.path.isfile(os.path.join(src_dir, init_file))
     assert os.path.isfile(output_dir + "/driver/driver.py")
     assert os.path.isfile(output_dir + "/report/estimate_layer_cycles.json")
     assert os.path.isfile(output_dir + "/report/estimate_layer_resources.json")

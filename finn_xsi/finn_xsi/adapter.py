@@ -16,12 +16,8 @@ from finn_xsi.sim_engine import SimEngine
 from finn_xsi.srcutil import order_pkg_first
 from typing import Optional
 
-from finn.util.basic import (
-    get_rtlsim_timeout_error_message,
-    launch_process_helper,
-    resolve_xilinx_tool,
-)
-from finn.util.launcher import ToolUnavailable
+from finn.util.basic import get_rtlsim_timeout_error_message
+from finn.util.launcher import ToolUnavailable, run_tool
 
 
 def locate_glbl() -> Optional[str]:
@@ -93,7 +89,7 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False, beha
     ]
 
     cmd_xelab = [
-        resolve_xilinx_tool("xelab"),
+        "xelab",
         "work." + top_module_name,
         "-relax",
         "-prj",
@@ -123,8 +119,12 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False, beha
     if locate_glbl() is not None:
         cmd_xelab.insert(1, "work.glbl")
 
-    # check=True so an xelab failure is raised here, not later as a missing xsimk.so
-    launch_process_helper(cmd_xelab, cwd=sim_out_dir, check=True)
+    run_tool(
+        cmd_xelab,
+        cwd=sim_out_dir,
+        replay=os.path.join(sim_out_dir, "compile_xelab.sh"),
+        log_output=True,
+    )
     out_so_relative_path = "xsim.dir/%s/xsimk.so" % top_module_name
     out_so_full_path = sim_out_dir + "/" + out_so_relative_path
 
@@ -221,6 +221,7 @@ def rtlsim_multi_io(
     sname="_V_V",
     liveness_threshold=10000,
     liveness_estimate=None,
+    output_frame_sizes=None,
 ):
     if len(io_dict["outputs"]) > 1:
         assert isinstance(
@@ -231,6 +232,13 @@ def rtlsim_multi_io(
         # outputs from the single output stream) - make into dict
         oname = list(io_dict["outputs"].keys())[0]
         num_out_values = {oname: num_out_values}
+
+    if output_frame_sizes is not None and not isinstance(output_frame_sizes, dict):
+        assert (
+            len(io_dict["outputs"]) == 1
+        ), "Output frame sizes must be a dict for multiple outputs"
+        oname = list(io_dict["outputs"].keys())[0]
+        output_frame_sizes = {oname: output_frame_sizes}
 
     # FINN XSI expects hex strings, while rtlsim_multi_io uses
     # lists of arbitrary-precision integers, so need to convert
@@ -253,6 +261,7 @@ def rtlsim_multi_io(
             stream_name,
             num_out_values[out],
             watchdog=watchdog,
+            frame_size=None if output_frame_sizes is None else output_frame_sizes[out],
         )
 
     start_ticks = sim.ticks
@@ -276,5 +285,14 @@ def rtlsim_multi_io(
         for watchdog in watchdogs:
             if watchdog in sim.watchdogs:
                 sim.remove_watchdog(watchdog)
+
+    if output_frame_sizes is not None:
+        # cycles (relative to the start of this pass) at which each output
+        # stream completed a frame
+        completion_cycles = {
+            out: [int(tick - start_ticks) for tick in collector.completion_ticks]
+            for out, collector in hex_output_streams.items()
+        }
+        return end_ticks - start_ticks, completion_cycles
 
     return end_ticks - start_ticks

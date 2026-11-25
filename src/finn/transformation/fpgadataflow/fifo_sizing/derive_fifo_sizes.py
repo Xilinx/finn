@@ -218,7 +218,7 @@ def node_latency(node):
     """Cycles a node's writes trail its TAV: ``TAV_PIPELINE_LATENCY`` plus the
     node's own ``tree_models.extra_latency`` (e.g. an ``InnerShuffle`` page)."""
     extra = int(tree_models.extra_latency(registry.getCustomOp(node)))
-    return TAV_PIPELINE_LATENCY + max(0, extra)
+    return tree_models.TAV_PIPELINE_LATENCY + max(0, extra)
 
 
 def burst_above_rate(read_times, rate):
@@ -246,14 +246,6 @@ THROTTLED_CAP = 256
 #: peak by this factor; an allowance that only just covers the peak is a
 #: first-order estimate that cannot be trusted.
 CAP_MARGIN = 1.25
-
-#: Pipeline latency in cycles assumed for every characterized node, added to
-#: its write times. A TAV records the steady state at an arbitrary phase, so a
-#: node's latency is in no TAV; it only matters where paths of different
-#: latency meet (joins, reconvergent shortcuts), where under-estimating it
-#: starves the join. Conservative: rtlsim measures 1 to 69 cycles (DWC 1,
-#: ElementwiseMul 11, Split 16, Thresholding_rtl 18, MVAU_rtl 22 to 69).
-TAV_PIPELINE_LATENCY = 32
 
 #: What the pass knows about an edge once its producer has been scheduled:
 #: ``writes`` are the per-token wall-clock write times, ``per_frame`` the tokens
@@ -769,10 +761,14 @@ def join_window_floors(model, nodes, period=None):
                     if producer(x) is None:
                         continue
                     idx = input_need(inst, i, k)
-                    up = walk(x, int(idx[-1]))
+                    up = walk(x, max(int(idx[-1]), 1))
                     if up is None:
                         continue
-                    n_i, t_i = up[0][idx - 1], up[1][idx - 1]
+                    # a token that needs no input word (eager leading padding)
+                    # waits for nothing
+                    some, pos = idx > 0, np.maximum(idx, 1) - 1
+                    n_i = np.where(some, up[0][pos], 0)
+                    t_i = np.where(some, up[1][pos], 0)
                     need = n_i if need is None else np.maximum(need, n_i)
                     ready = t_i if ready is None else np.maximum(ready, t_i)
                 if need is None:

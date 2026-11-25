@@ -62,7 +62,7 @@ from finn.transformation.qonnx.quant_act_to_multithreshold import (
     default_filter_function_generator,
 )
 from finn.transformation.streamline.absorb import AbsorbScalarBiasIntoMultiThreshold
-from finn.util.basic import make_build_dir, pynq_part_map
+from finn.util.basic import get_dsp_block, make_build_dir, pynq_part_map
 from finn.util.test import tree_model_test
 
 test_pynq_board = "ZCU104"
@@ -847,3 +847,149 @@ def test_requant_small_scales_are_exact(impl_style, part):
     y_rtlsim = oxe.execute_onnx(model, {"inp": inp})["outp"]
     # a fused multiply-add may round a product sitting on a .5 boundary differently
     assert np.abs(y_rtlsim - y_expected).max() <= 1
+
+
+# float input on a non-Versal part specializes to HLS, an integer input to RTL
+@pytest.mark.parametrize(
+    "idt,impl_style", [("FLOAT32", "hls"), ("INT8", "rtl")], ids=["hls", "rtl"]
+)
+@pytest.mark.fpgadataflow
+def test_requant_adapt_for_loop_body(idt, impl_style):
+    """Per-iteration Requant parameters in an MLO loop body: the RTL backend
+    streams them, any other backend must refuse instead of keeping constants."""
+    model = make_requant_modelwrapper((1, 4, 8), 8, 2, DataType[idt], DataType["INT8"], impl_style)
+    model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
+    node = model.graph.node[0]
+    assert node.op_type == "Requant_" + impl_style
+    inst = getCustomOp(node)
+
+    # parameters constant across iterations: nothing to adapt
+    inst.adapt_for_loop_body([])
+    # LoopRolling flags per-iteration parameters by setting mlo_max_iter
+    inst.set_nodeattr("mlo_max_iter", 3)
+    if impl_style == "rtl":
+        inst.adapt_for_loop_body([])
+        assert inst.get_nodeattr("mem_mode") == "internal_decoupled"
+    else:
+        with pytest.raises(Exception, match="RTL Requant"):
+            inst.adapt_for_loop_body([])
+
+
+# part: one DSP generation each (DSP58, DSP48E2, DSP48E1)
+# idt: the widest input per part is 2 bits wider than its multiplier input (27 or
+# 25 bits), so the core drops low input bits
+# mem_mode: embedded parameters for all inputs, the decoupled memstream for the widest
+@pytest.mark.parametrize(
+    "part,idt,mem_mode",
+    [
+        (part, idt, mem_mode)
+        for part, widest in [
+            ("xcvc1902-vsva2197-2MP-e-S", "INT29"),
+            ("xczu7ev-ffvc1156-2-e", "INT29"),
+            ("xc7z020clg400-1", "INT27"),
+        ]
+        for idt, mem_mode in [
+            ("INT8", "internal_embedded"),
+            ("UINT20", "internal_embedded"),
+            (widest, "internal_embedded"),
+            (widest, "internal_decoupled"),
+        ]
+    ],
+)
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_requant_rtl_python_model_is_exact(part, idt, mem_mode):
+    """The Python execution of Requant_rtl matches its rtlsim bit for bit.
+
+    The core computes x * scale + bias exactly in fixed point. A float32 model
+    rounds twice and can land on the other side of a .5 boundary, so the inputs
+    include, per channel, the ones whose exact result is closest to a boundary.
+    """
+    ishape, num_channels, pe = (1, 256, 8), 8, 2
+    idt, odt = DataType[idt], DataType["INT8"]
+    model = make_requant_modelwrapper(ishape, num_channels, pe, idt, odt, "rtl")
+    rng = np.random.default_rng(0)
+    scale = (rng.uniform(0.5, 1.0, num_channels) * 127 / 2 ** (idt.bitwidth() - 1)).astype(
+        np.float32
+    )
+    bias = rng.uniform(-0.5, 0.5, num_channels).astype(np.float32)
+    model.set_initializer("scale", scale)
+    model.set_initializer("bias", bias)
+    # per channel: half random inputs, half the ones closest to a rounding boundary,
+    # within +-2^24 so that the float32 input tensor holds them exactly
+    lo, hi = max(idt.min(), -(1 << 24)), min(idt.max(), 1 << 24)
+    cand = rng.integers(lo, hi, size=(1 << 16, num_channels), endpoint=True)
+    exact = cand * scale.astype(np.float64) + bias.astype(np.float64)
+    dist = np.abs(exact - np.floor(exact) - 0.5)
+    nearest = np.take_along_axis(cand, np.argsort(dist, axis=0)[: ishape[1] // 2], axis=0)
+    inp = np.concatenate([cand[: ishape[1] // 2], nearest]).reshape(ishape).astype(np.float32)
+
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(GiveUniqueNodeNames())
+    assert model.graph.node[0].op_type == "Requant_rtl"
+    inst = getCustomOp(model.graph.node[0])
+    inst.set_nodeattr("mem_mode", mem_mode)
+    # SpecializeLayers records the DSP generation the Python model needs
+    assert inst.get_nodeattr("dsp_block") == get_dsp_block(part)
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareIP(part, 5))
+    model = model.transform(PrepareRTLSim())
+    y_rtlsim = oxe.execute_onnx(model, {"inp": inp})["outp"]
+    # an empty exec_mode selects the Python model (SetExecMode only accepts sim modes)
+    getCustomOp(model.graph.node[0]).set_nodeattr("exec_mode", "")
+    y_python = oxe.execute_onnx(model, {"inp": inp})["outp"]
+    assert np.array_equal(y_python, y_rtlsim)
+
+
+@pytest.mark.fpgadataflow
+def test_requant_rtl_dsp_block_must_match_the_part():
+    """Code generation for another DSP generation than the node was specialized
+    for is refused: its Python model would no longer describe the hardware."""
+    idt, odt = DataType["INT8"], DataType["INT8"]
+    model = make_requant_modelwrapper((1, 4, 8), 8, 2, idt, odt, "rtl")
+    model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
+    inst = getCustomOp(model.graph.node[0])
+    assert inst.get_nodeattr("dsp_block") == "DSP48E2"
+    assert inst._dsp_version() == 2
+    with pytest.raises(ValueError, match="specialized for DSP48E2"):
+        inst._dsp_version("xcvc1902-vsva2197-2MP-e-S")
+
+
+@pytest.mark.fpgadataflow
+def test_check_uniform_thresholds():
+    """Uniform thresholds are recognised through their float32 noise, others are not.
+
+    The first gap carries the rounding of two thresholds, so a step taken from it
+    drifts over 255 steps. The least-squares step stays within float32 noise.
+    """
+    rng = np.random.default_rng(0)
+    num_channels, num_thresholds = 4, 255
+    step = rng.uniform(1000, 2000, num_channels)
+    first = rng.uniform(1e5, 2e5, num_channels)
+    idx = np.arange(num_thresholds)
+    # computed in float32, as streamlining does
+    first32, step32 = first.astype(np.float32), step.astype(np.float32)
+    thresholds = first32[:, None] + idx.astype(np.float32) * step32[:, None]
+
+    is_uniform, step_sizes, first_thresholds = to_hw._check_uniform_thresholds(thresholds)
+    assert is_uniform
+    assert np.allclose(step_sizes, step32, rtol=1e-6)
+    assert np.allclose(first_thresholds, first32, rtol=1e-6)
+
+    # rounded to integers with a non-integer step: not uniform (InferRequantLayer
+    # sees the float thresholds, it runs before RoundAndClipThresholds)
+    assert not to_hw._check_uniform_thresholds(np.ceil(thresholds))[0]
+    # one gap 0.5 % wider: not uniform
+    uneven = thresholds.copy()
+    uneven[:, 128:] += np.float32(0.005) * step32[:, None]
+    assert not to_hw._check_uniform_thresholds(uneven)[0]
+    # a single threshold is trivially uniform
+    assert to_hw._check_uniform_thresholds(thresholds[:, :1])[0]
+    # equal thresholds have no step to derive a scale from, also as the only such
+    # channel next to uniform ones; np.polyfit returns a tiny step of either sign
+    for ch in range(num_channels):
+        dead = thresholds.copy()
+        dead[ch] = first32[ch]
+        assert not to_hw._check_uniform_thresholds(dead)[0]
+        assert not to_hw._check_uniform_thresholds(dead[ch : ch + 1])[0]

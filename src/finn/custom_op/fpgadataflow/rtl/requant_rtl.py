@@ -3,17 +3,18 @@
 
 import numpy as np
 import os
-from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.requant import Requant, float32_literal
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.util.basic import (
+    DSP_VERSIONS,
     fifo_rtl_files,
-    get_dsp_block,
     make_build_dir,
+    resolve_dsp_block,
     roundup_to_integer_multiple,
 )
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from finn.util.mlo import mlo_set_select_bits
 
 
 def _twos(value, width):
@@ -55,6 +56,9 @@ class Requant_rtl(Requant, RTLBackend):
                     {"internal_embedded", "internal_decoupled"},
                 ),
                 "runtime_writeable_weights": ("i", False, 0, {0, 1}),
+                # DSP generation of the target part, which fixes the core's operand
+                # widths. Set by SpecializeLayers from the part ("": not specialized).
+                "dsp_block": ("s", False, "", {"", "DSP48E1", "DSP48E2", "DSP58"}),
             }
         )
         return my_attrs
@@ -79,12 +83,10 @@ class Requant_rtl(Requant, RTLBackend):
         """Byte-padded width of the per-iteration set-select stream.
 
         Must match the FINNLoop stream_tap ``$DATA_WIDTH$``
-        (finn_loop.py:548-550) so that the tap's ``m_axis`` connects cleanly to
+        (``FINNLoop.generate_hdl_stream_tap``) so that the tap's ``m_axis`` connects cleanly to
         the ``in1_V`` set-select slave pin.
         """
-        iteration = self.get_nodeattr("mlo_max_iter")
-        data_width = DataType.get_smallest_possible(iteration).bitwidth()
-        return roundup_to_integer_multiple(data_width, 8)
+        return mlo_set_select_bits(self.get_nodeattr("mlo_max_iter"))
 
     def get_verilog_top_module_intf_names(self):
         """Interface names for the Requant top module.
@@ -111,16 +113,10 @@ class Requant_rtl(Requant, RTLBackend):
         intf_names["ap_none"] = []
         return intf_names
 
-    def _resolve_dsp_version(self, fpgapart):
-        """Determine DSP version based on FPGA part."""
-        dsp_block = get_dsp_block(fpgapart)
-        match dsp_block:
-            case "DSP58":
-                return 3
-            case "DSP48E2":
-                return 2
-            case _:
-                return 1
+    def _dsp_version(self, fpgapart=None):
+        """The DSP version (requant.sv's VERSION) of this node's DSP block,
+        see ``resolve_dsp_block``."""
+        return DSP_VERSIONS[resolve_dsp_block(self, fpgapart)]
 
     def _derive_decoupled_widths(self, model, fpgapart):
         """Derive the fixed-point stream layout for decoupled mode.
@@ -138,8 +134,8 @@ class Requant_rtl(Requant, RTLBackend):
         if self.get_input_datatype(0) == "FLOAT32":
             return self._derive_decoupled_widths_float(model)
 
-        version = self._resolve_dsp_version(fpgapart)
-        params = self.decompose_params(model, version)
+        version = self._dsp_version(fpgapart)
+        params = self.decompose_params(self.get_scale(model), self.get_bias(model), version)
         s_width = params["s_width"]
         x_width = params["x_width"]
         shift_min = params["shift_min"]
@@ -329,6 +325,7 @@ class Requant_rtl(Requant, RTLBackend):
             code_gen_dir = make_build_dir("requant_rtl_ipgen_")
             self.set_nodeattr("code_gen_dir_ipgen", code_gen_dir)
 
+        self._dsp_version(fpgapart)  # check against, or record, the target part
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "internal_embedded":
             if self.get_input_datatype(0) == "FLOAT32":
@@ -357,7 +354,7 @@ class Requant_rtl(Requant, RTLBackend):
         k = idt.bitwidth()  # Input precision
         n = odt.bitwidth()  # Output precision
 
-        version = self._resolve_dsp_version(fpgapart)
+        version = self._dsp_version(fpgapart)
 
         # Get scale and bias from model
         scale = self.get_scale(model)
@@ -831,5 +828,38 @@ class Requant_rtl(Requant, RTLBackend):
                 context[node.output[0]].shape == exp_oshape
             ), "Output shape doesn't match expected shape."
         else:
-            # Use base class Python execution
-            Requant.execute_node(self, context, graph)
+            if self.get_input_datatype(0).is_integer():
+                self._execute_node_integer(context)
+            else:
+                # Use base class Python execution
+                Requant.execute_node(self, context, graph)
+
+    def _execute_node_integer(self, context):
+        """Bit-exact model of requant.sv: clip((x * scale + bias) >> shift) on the
+        fixed-point parameters from decompose_params for this node's DSP version."""
+        node = self.onnx_node
+        k = self.get_core_input_bitwidth()
+        if self.get_nodeattr("dsp_block") == "" and k <= 18:
+            # Up to 18 input bits, all DSP generations use the same operand widths
+            # (see _derive_mul_widths), so a node built without SpecializeLayers
+            # (e.g. by hand in a test graph) is still modelled exactly.
+            version = DSP_VERSIONS["DSP48E1"]
+        else:
+            version = self._dsp_version()
+        params = self.decompose_params(
+            self._flat_param(context.get, 1, 1.0),
+            self._flat_param(context.get, 2, 0.0),
+            version,
+        )
+        # [PE][CF] -> channel cf * PE + pe, the order in which requant.sv rotates
+        scale, bias, shift = (
+            np.asarray(params[key], dtype=np.int64).T.reshape(-1)
+            for key in ("scale", "bias", "shift")
+        )
+        x = context[node.input[0]].astype(np.int64)
+        if k > params["x_width"]:
+            # the core drops the low input bits that exceed its multiplier port
+            x = x >> (k - params["x_width"])
+        y = (x * scale + bias) >> shift
+        odt = self.get_output_datatype()
+        context[node.output[0]] = np.clip(y, odt.min(), odt.max()).astype(np.float32)

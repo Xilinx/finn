@@ -11,7 +11,6 @@ import warnings
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
-from finn.custom_op.fpgadataflow.shuffle import auto_size_simd
 
 
 class InnerShuffle(HWCustomOp):
@@ -19,16 +18,6 @@ class InnerShuffle(HWCustomOp):
 
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
-
-        # SIMD must divide I, the axis that becomes the output's innermost axis.
-        I_dim = self.get_nodeattr("transpose_in_shape")[-2]
-        SIMD = self.get_nodeattr("SIMD")
-        if I_dim % SIMD != 0:
-            new_simd = auto_size_simd(I_dim, SIMD)
-            if new_simd is not None:
-                self.set_nodeattr("SIMD", new_simd)
-            else:
-                raise RuntimeError("Unable to determine a new SIMD value for this transpose.")
 
     def get_nodeattr_types(self):
         my_attrs = {

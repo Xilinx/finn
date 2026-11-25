@@ -1,6 +1,7 @@
 # Copyright Advanced Micro Devices, Inc.
 # SPDX-License-Identifier: BSD-3-Clause
 
+import filecmp
 import os
 import re
 import shutil
@@ -15,8 +16,14 @@ class ExportPortableRTL(Transformation):
 
     This transformation copies all Verilog source files and memory initialization
     files (.dat) to a single directory structure with relative paths, suitable for
-    use in external simulators (QuestaSim, ModelSim, Verilator) or non-IPI Vivado
+    use in external simulators (QuestaSim, ModelSim) or non-IPI Vivado
     projects.
+
+    The export is the synthesizable design. If the stitched IP has an internal
+    ap_clk2x generator (CreateStitchedIP clk2x_gen), its clock domain module
+    (clk2x_domain.v) also holds the ideal clock model used in simulation, selected
+    by the SYNTHESIS macro, and the generator's clock constraint is exported to
+    constraints/clk2x_gen.xdc. The README describes both.
 
     Parameters
     ----------
@@ -88,6 +95,34 @@ class ExportPortableRTL(Transformation):
 
         # 2. Collect .dat files from nodes and scan src files for additional references
         dat_mapping = {}  # old_abs_path -> new_rel_path (relative to src_dir)
+        dat_names = set()  # file names taken in data_dir
+
+        def export_dat(src_dat, prefix):
+            """Copy src_dat into data_dir and map it.
+
+            A name may only be shared by identical files: HLS keeps copies of
+            the same ROM file in several places of its project, but every
+            decoupled node has its own, different memblock.dat. A name taken by
+            different content gets the node name as prefix, then a counter."""
+            if src_dat in dat_mapping:
+                return
+            name = os.path.basename(src_dat)
+            stem, ext = os.path.splitext(name)
+            candidates = [name, f"{prefix}_{name}"]
+            i = 1
+            while True:
+                for cand in candidates:
+                    dest_dat = os.path.join(data_dir, cand)
+                    if cand not in dat_names:
+                        dat_names.add(cand)
+                        shutil.copy2(src_dat, dest_dat)
+                    elif not filecmp.cmp(src_dat, dest_dat, shallow=False):
+                        continue
+                    # Relative path from src_dir to data_dir
+                    dat_mapping[src_dat] = os.path.relpath(dest_dat, src_dir)
+                    return
+                candidates = [f"{prefix}_{stem}_{i}{ext}"]
+                i += 1
 
         # Collect .dat files from all nodes
         for node in model.graph.node:
@@ -95,17 +130,9 @@ class ExportPortableRTL(Transformation):
                 continue
 
             node_inst = getCustomOp(node)
-            dat_files = self._get_node_dat_files(node_inst)
-
-            for src_dat in dat_files:
-                if os.path.isfile(src_dat) and src_dat not in dat_mapping:
-                    dat_basename = os.path.basename(src_dat)
-                    dest_dat = os.path.join(data_dir, dat_basename)
-                    if not os.path.exists(dest_dat):
-                        shutil.copy2(src_dat, dest_dat)
-                    # Relative path from src_dir to data_dir
-                    rel_path = os.path.relpath(dest_dat, src_dir)
-                    dat_mapping[src_dat] = rel_path
+            for src_dat in self._get_node_dat_files(node_inst):
+                if os.path.isfile(src_dat):
+                    export_dat(src_dat, node.name)
 
         # Scan src files for any additional $readmemh references
         for root, dirs, files in os.walk(src_dir):
@@ -119,21 +146,22 @@ class ExportPortableRTL(Transformation):
                     matches = re.findall(pattern, content)
                     for match in matches:
                         if os.path.isabs(match) and os.path.isfile(match):
-                            if match not in dat_mapping:
-                                dat_basename = os.path.basename(match)
-                                dest_dat = os.path.join(data_dir, dat_basename)
-                                if not os.path.exists(dest_dat):
-                                    shutil.copy2(match, dest_dat)
-                                rel_path = os.path.relpath(dest_dat, src_dir)
-                                dat_mapping[match] = rel_path
+                            export_dat(match, os.path.splitext(f)[0])
 
         # 3. Rewrite absolute paths in all src Verilog files
         self._rewrite_verilog_paths(src_dir, dat_mapping)
 
-        # 4. Generate file lists
+        # 4. Constraints of an internal ap_clk2x generator
+        clk2x_gen_xdc = os.path.join(vivado_stitch_proj, "clk2x_gen.xdc")
+        has_clk2x_gen = os.path.isfile(clk2x_gen_xdc)
+        if has_clk2x_gen:
+            os.makedirs(os.path.join(self.export_dir, "constraints"), exist_ok=True)
+            shutil.copy2(clk2x_gen_xdc, os.path.join(self.export_dir, "constraints"))
+
+        # 5. Generate file lists
         self._generate_filelist_f(all_rtl_files)
         self._generate_sources_tcl(all_rtl_files)
-        self._generate_readme()
+        self._generate_readme(has_clk2x_gen)
 
         return (model, False)
 
@@ -143,23 +171,17 @@ class ExportPortableRTL(Transformation):
 
         # Try get_all_meminit_filenames if available (some RTL nodes)
         if hasattr(node_inst, "get_all_meminit_filenames"):
-            try:
-                dat_files = node_inst.get_all_meminit_filenames(abspath=True)
-            except Exception:
-                pass
+            dat_files = list(node_inst.get_all_meminit_filenames(abspath=True))
 
         # Also scan code_gen_dir_ipgen for .dat files
-        try:
-            ipgen_path = node_inst.get_nodeattr("code_gen_dir_ipgen")
-            if ipgen_path and os.path.isdir(ipgen_path):
-                for root, dirs, files in os.walk(ipgen_path):
-                    for f in files:
-                        if f.endswith(".dat"):
-                            full_path = os.path.join(root, f)
-                            if full_path not in dat_files:
-                                dat_files.append(full_path)
-        except Exception:
-            pass
+        ipgen_path = node_inst.get_nodeattr("code_gen_dir_ipgen")
+        if ipgen_path and os.path.isdir(ipgen_path):
+            for root, dirs, files in os.walk(ipgen_path):
+                for f in files:
+                    if f.endswith(".dat"):
+                        full_path = os.path.join(root, f)
+                        if full_path not in dat_files:
+                            dat_files.append(full_path)
 
         return dat_files
 
@@ -180,30 +202,39 @@ class ExportPortableRTL(Transformation):
                             content = content.replace(old_path, new_path)
                             modified = True
 
-                    # Handle any remaining absolute paths by basename matching
+                    # Map any remaining absolute path (e.g. to a file that has
+                    # since moved) by its basename, but only if that is unambiguous:
+                    # many nodes share names like memblock.dat
                     pattern = r'\$readmemh\s*\(\s*"([^"]+)"'
                     matches = re.findall(pattern, content)
                     for match in matches:
-                        if os.path.isabs(match):
+                        if os.path.isabs(match) and match not in path_mapping:
                             basename = os.path.basename(match)
-                            for old, new in path_mapping.items():
-                                if os.path.basename(old) == basename:
-                                    content = content.replace(match, new)
-                                    modified = True
-                                    break
+                            candidates = [
+                                new
+                                for old, new in path_mapping.items()
+                                if os.path.basename(old) == basename
+                            ]
+                            if len(candidates) > 1:
+                                raise Exception(
+                                    f"ExportPortableRTL: {fpath} reads {match}, whose name "
+                                    "matches several exported .dat files"
+                                )
+                            if candidates:
+                                content = content.replace(match, candidates[0])
+                                modified = True
 
                     if modified:
                         with open(fpath, "w") as file:
                             file.write(content)
 
     def _generate_filelist_f(self, rtl_files):
-        """Generate filelist.f for Verilator/QuestaSim/ModelSim."""
+        """Generate filelist.f for QuestaSim/ModelSim."""
         filelist_path = os.path.join(self.export_dir, "filelist.f")
         with open(filelist_path, "w") as f:
             f.write("// FINN Portable RTL Export - File List\n")
-            f.write("// For use with Verilator, QuestaSim, ModelSim\n")
-            f.write("// Usage: verilator -f filelist.f --top-module finn_design_wrapper\n")
-            f.write("//        vlog -f filelist.f\n\n")
+            f.write("// For use with QuestaSim, ModelSim\n")
+            f.write("// Usage: vlog -f filelist.f\n\n")
 
             # Add include directories
             f.write("// Include directories\n")
@@ -242,7 +273,7 @@ class ExportPortableRTL(Transformation):
             f.write('    "${script_dir}/rtl/src" \\\n')
             f.write("] [current_fileset]\n")
 
-    def _generate_readme(self):
+    def _generate_readme(self, has_clk2x_gen=False):
         """Generate README with usage instructions."""
         readme_path = os.path.join(self.export_dir, "README.md")
         with open(readme_path, "w") as f:
@@ -260,10 +291,6 @@ class ExportPortableRTL(Transformation):
             f.write("└── README.md       # This file\n")
             f.write("```\n\n")
             f.write("## Usage\n\n")
-            f.write("### Verilator\n")
-            f.write("```bash\n")
-            f.write("verilator -f filelist.f --top-module finn_design_wrapper\n")
-            f.write("```\n\n")
             f.write("### QuestaSim / ModelSim\n")
             f.write("```bash\n")
             f.write("vlog -f filelist.f\n")
@@ -278,3 +305,16 @@ class ExportPortableRTL(Transformation):
             f.write("- All `$readmemh` paths have been converted to relative paths\n")
             f.write("- Memory initialization files (.dat) are in the data/ directory\n")
             f.write("- The design uses FINN's streaming dataflow architecture\n")
+            if has_clk2x_gen:
+                f.write(
+                    "\n## Internal ap_clk2x generator\n\n"
+                    "The design derives the clocks of its logic from ap_clk by a Clocking "
+                    "Wizard (MMCM, unisim primitives). `clk2x_domain.v` selects them by "
+                    "the `SYNTHESIS` macro:\n\n"
+                    "- defined (synthesis): the MMCM clocks.\n"
+                    "- undefined (simulation): ideal clocks derived from ap_clk, with the "
+                    "MMCM held in reset. Simulators still need the unisim library to "
+                    "compile the MMCM.\n\n"
+                    "For implementation, add `constraints/clk2x_gen.xdc`: it balances the "
+                    "clock trees of the 1x and 2x clocks.\n"
+                )

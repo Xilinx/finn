@@ -8,6 +8,7 @@
 ############################################################################
 import logging
 import numpy as np
+import warnings
 from collections import deque
 from onnx import helper
 from operator import itemgetter
@@ -80,7 +81,7 @@ def get_all_possible_moves(
     operation_type is either 'inner_shuffle' or 'outer_shuffle'
     operation_params is None for inner_shuffle, (i, j) for outer_shuffle
     """
-    moves = []
+    moves: List[Tuple[List[int], str, Optional[Tuple[int, int]]]] = []
     n = len(perm)
 
     # Try inner_shuffle operation
@@ -91,9 +92,9 @@ def get_all_possible_moves(
     # Try all valid outer_shuffle operations
     for i in range(n):
         for j in range(i + 1, n):
-            new_perm = apply_outer_shuffle_operation(perm, i, j)
-            if new_perm is not None and new_perm != perm:
-                moves.append((new_perm, "outer_shuffle", (i, j)))
+            swapped_perm = apply_outer_shuffle_operation(perm, i, j)
+            if swapped_perm is not None and swapped_perm != perm:
+                moves.append((swapped_perm, "outer_shuffle", (i, j)))
 
     return moves
 
@@ -149,7 +150,9 @@ def find_minimal_operation_sequence(
     if start_perm == target_perm:
         return []
 
-    queue = deque([(start_perm, [])])
+    queue: deque[Tuple[List[int], List[Tuple[str, Optional[Tuple[int, int]]]]]] = deque(
+        [(start_perm, [])]
+    )
     visited = {tuple(start_perm)}
 
     while queue:
@@ -187,6 +190,7 @@ def convert_operations_to_permutations(
     permutations = []
 
     for op_type, op_params in operations:
+        new_perm: Optional[List[int]]
         if op_type == "inner_shuffle":
             new_perm = apply_inner_shuffle_operation(current_perm)
         elif op_type == "outer_shuffle" and op_params is not None:
@@ -410,10 +414,57 @@ def _is_inner_shuffle(perm, shape):
     return perm == expected_perm
 
 
+def shuffle_stage_simd_dim(perm, shape):
+    """The dimension that SIMD must divide for one decomposed Shuffle stage.
+
+    InnerShuffle streams the axis it moves to the innermost position (the second
+    to last axis of its input), OuterShuffle cannot move the innermost axis, so
+    its SIMD divides the last axis of its input.
+    """
+    return int(shape[-2]) if _is_inner_shuffle(list(perm), list(shape)) else int(shape[-1])
+
+
+def shuffle_simd_dims(perm, transpose_in_shape):
+    """The dimensions that SIMD must divide in every stage of the decomposition of
+    a transpose with the given permutation, so that no stage needs its SIMD adjusted.
+    Empty for the identity permutation."""
+    perm = list(perm)
+    current_shape = list(transpose_in_shape)
+    stage_perms, _ = decompose_transpose_with_constraints(perm)
+    dims = []
+    for stage_perm in stage_perms:
+        dims.append(shuffle_stage_simd_dim(stage_perm, current_shape))
+        current_shape = list(itemgetter(*stage_perm)(current_shape))
+    return dims
+
+
+def legalize_stage_simd(simd, dim, node_name):
+    """Return simd if it divides dim, else the next larger divisor of dim.
+
+    Raises a RuntimeError naming node_name if dim has no divisor larger than simd.
+    This is the one place where a Shuffle stage's SIMD may be rounded; callers that
+    apply it to a configured value are expected to warn when the result differs.
+    """
+    for candidate in range(max(simd, 1), dim + 1):
+        if dim % candidate == 0:
+            return candidate
+    raise RuntimeError(
+        f"{node_name}: Unable to determine a new SIMD value for this transpose "
+        f"(SIMD={simd}, dim={dim})."
+    )
+
+
 class InferInnerOuterShuffles(Transformation):
     """
     Infers Inner and Outer Shuffles from Shuffle operators.
     This should run after the ShuffleDecomposition transformation.
+
+    The SIMD of an InnerShuffle / OuterShuffle has to divide one dimension of its
+    input (see shuffle_stage_simd_dim). A configured SIMD that does not is rounded up
+    to the next divisor here, with a warning, and nowhere else: the nodes' constructors
+    never change SIMD. SetFolding only picks values that need no rounding, so this only
+    applies to SIMD values that were configured by hand. The configured value stays in
+    original_simd for the config export.
     """
 
     def __init__(self):
@@ -438,14 +489,28 @@ class InferInnerOuterShuffles(Transformation):
                 perm = f_inst.get_nodeattr("perm")
                 simd = f_inst.get_nodeattr("SIMD")
 
-                if _is_inner_shuffle(perm, in_reshaped):
-                    # Get original node name if it exists, otherwise use current node name
-                    try:
-                        original_name = f_inst.get_nodeattr("original_node_name") or node.name
-                        original_simd = f_inst.get_nodeattr("original_simd") or simd
-                    except (AttributeError, KeyError):
-                        original_name = node.name
-                        original_simd = simd
+                # The Shuffle this stage came from and its configured SIMD, for the config
+                # export. ShuffleDecomposition sets both; a Shuffle it left alone has
+                # neither (original_simd then holds its default, not a configured value).
+                original_name = f_inst.get_nodeattr("original_node_name")
+                if original_name:
+                    original_simd = f_inst.get_nodeattr("original_simd")
+                else:
+                    original_name, original_simd = node.name, simd
+
+                is_inner = _is_inner_shuffle(perm, in_reshaped)
+                stage_dim = shuffle_stage_simd_dim(perm, in_reshaped)
+                new_simd = legalize_stage_simd(simd, stage_dim, node.name)
+                if new_simd != simd:
+                    stage = "InnerShuffle" if is_inner else "OuterShuffle"
+                    warnings.warn(
+                        f"{node.name}: SIMD={simd} does not divide {stage_dim}, the dimension "
+                        f"that the {stage} stage of this Shuffle has to fold. "
+                        f"Using SIMD={new_simd}."
+                    )
+                simd = new_simd
+
+                if is_inner:
                     new_node = helper.make_node(
                         "InnerShuffle",
                         [new_in_tensor],
@@ -464,13 +529,6 @@ class InferInnerOuterShuffles(Transformation):
                         J=in_reshaped[-1],  # Last dim
                     )
                 else:
-                    # Get original node name if it exists, otherwise use current node name
-                    try:
-                        original_name = f_inst.get_nodeattr("original_node_name") or node.name
-                        original_simd = f_inst.get_nodeattr("original_simd") or simd
-                    except (AttributeError, KeyError):
-                        original_name = node.name
-                        original_simd = simd
                     new_node = helper.make_node(
                         "OuterShuffle",
                         [new_in_tensor],

@@ -333,10 +333,11 @@ def phase_build_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     # Must happen after loop body stitched IPs so FINNLoop can be characterized
     if is_mlo(model):
         model = _execute_step(step_set_fifo_depths, model, cfg)
-        # The FIFO nodes have no generated code yet: step_set_fifo_depths runs
-        # its own PrepareIP before characterizing, but inserts the FIFOs after
-        # it, and RemoveShallowFIFOs then removes some of them. This has to
-        # come after all of that, which is why it is here rather than at the
+        # The FIFO nodes have no generated code yet, nor have the DWCs that
+        # step_set_fifo_depths inserts unless it characterized them with rtlsim:
+        # it generates code only for the nodes it simulates, inserts the FIFOs
+        # after that, and RemoveShallowFIFOs then removes some of them. This has
+        # to come after all of that, which is why it is here rather than at the
         # end of the step. Everything else is already
         # generated and PrepareIP skips it -- though it still walks the graph
         # and every subgraph to find that out, warning per node as it goes.

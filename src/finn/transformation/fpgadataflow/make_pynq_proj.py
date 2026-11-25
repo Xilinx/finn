@@ -56,6 +56,7 @@ from finn.util.basic import (
     pynq_native_port_width,
     pynq_part_map,
 )
+from finn.util.fpgadataflow import find_clk2x_nodes
 from finn.util.launcher import run_tool
 
 from . import templates
@@ -90,6 +91,24 @@ def collect_ip_dirs(model, ipstitch_path):
     return ip_dirs
 
 
+def check_versal_shell_clk2x(model: ModelWrapper, platform: str | None):
+    """Reject double-pumped designs for the Versal (golden reference) shell.
+
+    That shell clocks the whole overlay from pl0_ref_clk and has no phase-aligned
+    2x clock for ap_clk2x. The internal clock generator of the stitched IP
+    (CreateStitchedIP clk2x_gen) is the intended path, but has not been verified
+    with this shell.
+    """
+    clk2x_nodes = find_clk2x_nodes(model)
+    if clk2x_nodes:
+        raise Exception(
+            "The Versal shell for %s does not support double-pumped kernels yet (a "
+            "kernel-internal ap_clk2x generator is the intended path, but unverified), "
+            "but these nodes need ap_clk2x (pumpedCompute/pumpedMemory): %s. Disable "
+            "clock pumping for this board." % (platform, ", ".join(clk2x_nodes))
+        )
+
+
 class MakePYNQProject(Transformation):
     """Create a Vivado overlay project (including the shell infrastructure)
     from the already-stitched IP block for this graph.
@@ -98,6 +117,10 @@ class MakePYNQProject(Transformation):
     the graph. For Zynq this creates a fully custom block design. For Versal
     it builds on the PYNQ golden reference (requires FINN_VCK190_GOLDEN=1).
     However, this transform requires DMAs in the accelerator design.
+
+    The shells provide no double-speed clock ap_clk2x: kernels with
+    double-pumped nodes must derive it internally (CreateStitchedIP clk2x_gen).
+    The Versal shell rejects double-pumped designs altogether.
 
     Outcome if successful: sets the vivado_pynq_proj attribute in the ONNX
     ModelProto's metadata_props field, with the created project dir as the
@@ -126,6 +149,7 @@ class MakePYNQProject(Transformation):
                     "Golden reference files missing from %s: %s." % (golden_dir, ", ".join(missing))
                 )
             template = templates.custom_versal_shell_template
+            check_versal_shell_clk2x(model, self.platform)
         else:
             clk_pin = "smartconnect_0/aclk"
             rst_pin = "smartconnect_0/aresetn"
@@ -165,6 +189,11 @@ class MakePYNQProject(Transformation):
             config.append("update_ip_catalog -rebuild -scan_changes")
 
             ifnames = eval(kernel_model.get_metadata_prop("vivado_stitch_ifnames"))
+            if ifnames.get("clk2x"):
+                raise Exception(
+                    "Kernel %s has an ap_clk2x input, which the shell cannot drive: "
+                    "stitch it with the internal clock generator (clk2x_gen)." % node.name
+                )
 
             # gather info on connectivity
             # assume each node connected to outputs/inputs is DMA:
@@ -337,8 +366,9 @@ class MakePYNQProject(Transformation):
 
 class PYNQBuild(Transformation):
     """Best-effort attempt at building the accelerator for Pynq.
-    It assumes the model has only fpgadataflow nodes
-
+    It assumes the model has only fpgadataflow nodes. Kernels with double-pumped
+    nodes derive their ap_clk2x from the PL clock by an internal clock generator
+    (CreateStitchedIP clk2x_gen); the Versal shell rejects them.
     """
 
     def __init__(
@@ -357,6 +387,8 @@ class PYNQBuild(Transformation):
         self.partition_model_dir = partition_model_dir
 
     def apply(self, model):
+        if is_versal(self.fpga_part):
+            check_versal_shell_clk2x(model, self.platform)
         # first infer layouts
         model = model.transform(InferDataLayouts())
         # prepare at global level, then break up into kernels
@@ -385,7 +417,9 @@ class PYNQBuild(Transformation):
             kernel_model = kernel_model.transform(PrepareIP(self.fpga_part, self.period_ns))
             kernel_model = kernel_model.transform(HLSSynthIP())
             kernel_model = kernel_model.transform(
-                CreateStitchedIP(self.fpga_part, self.period_ns, sdp_node.onnx_node.name)
+                CreateStitchedIP(
+                    self.fpga_part, self.period_ns, sdp_node.onnx_node.name, clk2x_gen=True
+                )
             )
             kernel_model.set_metadata_prop("platform", "pynq-iodma")
             kernel_model.save(dataflow_model_filename)

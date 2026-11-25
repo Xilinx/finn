@@ -243,14 +243,15 @@ class LabelSelectHlsModel(TreeModel):
     def schedule(self, op):
         """The HLS ``LabelSelect_Batch`` schedule: read the frame, then write K.
 
-        The structure is that of ``finn-hlslib/maxpool.h``: per frame the top-K
-        array is initialised, then one ``II=1`` loop reads ``Labels / PE`` folded
-        words back to back, then a second loop writes the K labels, one per
-        cycle. So a frame is three runs -- wind-up, a solid read run, a solid
-        write run -- and the only part of it that scales with ``Labels`` is the
-        length of the read run. The comparison network is over the K top entries
-        and is unrolled inside the read loop, so it costs no cycles that grow
-        with the label count.
+        ``finn-hlslib/topk.hpp`` is a function-pipelined (``II=1``) two-state
+        machine. In its capture state it reads one of the ``Labels / PE`` folded
+        words per cycle, initialising the top-K buffer with the first, and
+        inserts each word into the ordered buffer. In its emit state it writes
+        the K labels, one per cycle, and then returns to capture. So a frame is
+        three runs -- wind-up, a solid read run, a solid write run -- and the only
+        part of it that scales with ``Labels`` is the length of the read run. The
+        comparison network over the K top entries is unrolled within a cycle, so
+        it costs no cycles that grow with the label count.
 
         As offsets into one frame:
 
@@ -333,108 +334,172 @@ class PoolHlsModel(TreeModel):
         windows. Input acceptance follows the buffer's free pointer, which is
         exact as ``input_gen`` is sized for stall-free reads.
 
+        A lazy ``pad<>`` (``Eager`` = 0) holds its leading padding until the
+        first input word has passed the input register slice, which delays the
+        whole schedule without changing it. An eager ``pad<>`` emits that
+        padding from cycle 0 and is only held up when it reaches the first data
+        word before the input is visible, so the shift of lazy against eager is
+        ``min(LAZY_PAD_START_LATENCY, leading padding words)`` (see
+        ``lazy_pad_start_latency`` below), 0 without top/left padding.
+
         Checked against node rtlsim (exact tiling, overlap, floor remainders,
-        symmetric/ceil/asymmetric padding, global and 1D pools): exact period
-        and per-period token counts; cumulative error at most 3 input and 1
-        output tokens.
+        symmetric/ceil/asymmetric padding, global and 1D pools, both ``Eager``
+        settings): exact period and per-period token counts; cumulative error
+        at most 3 input and 1 output tokens.
         """
         k_h, k_w = op.get_nodeattr("KernelSize")
         cf = op.get_nodeattr("Channels") // op.get_nodeattr("PE")
         batch = op.get_nodeattr("BatchSize")
+        ifm_dim = tuple(op.get_nodeattr("IFMDim"))
+        pad = tuple(op.get_nodeattr("Padding"))
+        start_latency = (
+            0
+            if op.get_nodeattr("Eager")
+            else self.lazy_pad_start_latency(ifm_dim[1] + pad[1] + pad[3], pad, cf)
+        )
         rd, wr = pool_schedule(
-            tuple(op.get_nodeattr("IFMDim")),
+            ifm_dim,
             (k_h, k_w),
             tuple(op.get_nodeattr("Stride")),
             cf,
-            tuple(op.get_nodeattr("Padding")),
+            pad,
+            start_latency=start_latency,
         )
         if batch > 1:
             rd, wr = np.tile(rd, batch), np.tile(wr, batch)
         return flat_characteristic_leaf(rd, wr, "Pool_hls schedule")
 
+    def lazy_pad_start_latency(self, padded_width, padding, cf):
+        """Shift of the lazy ``pad<>`` inside ``Pool_hls`` against an eager one,
+        with the node input always valid.
+
+        An eager pad emits its leading padding from cycle 0 and only waits for
+        the input when it reaches the first data word, a lazy one starts once
+        the first input word is visible. The shift is therefore capped by the
+        number of padding words ahead of the first data word,
+        ``(top * padded_width + left) * cf``: 0 without top/left padding,
+        ``LAZY_PAD_START_LATENCY`` once there are enough leading words.
+
+        ``padding`` is ``(top, left, bottom, right)``, ``padded_width`` the
+        width of the padded feature map in pixels and ``cf`` the channel fold.
+        """
+        # Cycles the lazy pad waits before the first input word is visible: the
+        # input AXI-stream register slice accepts one cycle after reset and
+        # presents the word one cycle later, and the pad's own pipeline adds one
+        # more.
+        LAZY_PAD_START_LATENCY = 3
+
+        lead_words = (padding[0] * padded_width + padding[1]) * cf
+        return min(LAZY_PAD_START_LATENCY, lead_words)
+
+
+#: Cycles from the start of an rtlsim characterization until the first input
+#: word is visible to the node: the stream driver raises TVALID with its first
+#: update, after the first clock edge. ``pad.sv`` has no input register slice,
+#: so this is also when a lazy pad issues its first position.
+PAD_INPUT_LATENCY = 1
+
+
+def pad_schedule(fwd, eager):
+    """Steady-state token schedule of ``finn-rtllib/pad/hdl/pad.sv`` with the
+    input always valid and the output always ready.
+
+    ``fwd`` is the 0/1 position mask of one period (the folded output words, 1
+    where a word passes an input word through, 0 for padding), ``eager`` the
+    ``Eager`` attribute.
+
+    The pad issues one position per cycle and never stalls (``sen``,
+    ``pad.sv:192``), so the output is solid. The input moves through the
+    sidestep register ``A`` (``pad.sv:173-185``): an image position takes the
+    word straight from the input, but the first padding position after a run of
+    image positions already accepts the next input word into ``A`` and holds it
+    through the padding (``AVld <= in_avail && !fwd``, ``irdy = !AVld``). The
+    first word of every run of image positions is therefore read at the first
+    padding position following the previous run, every other word at its own
+    position. Its output appears one cycle after it is issued (output register
+    ``B``, ``pad.sv:198-204``), which does not show in a solid output.
+
+    The steady state is the same for both ``Eager`` settings, only its phase in
+    the stored window differs. A lazy pad holds the first position of the first
+    frame until the input is visible (``Lead``/``pad_ok``,
+    ``pad.sv:113-120``), ``PAD_INPUT_LATENCY`` cycles into the run; in steady
+    state the next frame's first word is always already visible (in ``A`` or
+    at the input), so ``Lead`` costs nothing more. An eager pad issues leading
+    padding from cycle 0 and waits for the input only at the first image
+    position. The schedule is thus delayed by ``PAD_INPUT_LATENCY`` lazily and
+    by ``PAD_INPUT_LATENCY - min(PAD_INPUT_LATENCY, leading padding words)``
+    eagerly.
+
+    Returns ``(rd, wr)``: 0/1 arrays over one period, phased like the stored
+    window of an rtlsim characterization (which starts at a multiple of the
+    period). None without image positions.
+    """
+    fwd = np.asarray(fwd, dtype=bool)
+    period = fwd.size
+    data = np.flatnonzero(fwd)
+    if data.size == 0:
+        return None
+    # the last image position before each one, cyclic over the period
+    prev = np.concatenate(([data[-1] - period], data[:-1]))
+    run_start = prev != data - 1
+    read_at = np.where(run_start, prev + 1, data)
+    lead = int(data[0])
+    start = PAD_INPUT_LATENCY - (min(PAD_INPUT_LATENCY, lead) if eager else 0)
+    rd = np.bincount((read_at + start) % period, minlength=period)
+    wr = np.ones(period, dtype=np.int8)
+    return rd.astype(np.int8), wr
+
+
+def pad_input_need(fwd, eager):
+    """``input_need`` of ``pad.sv`` over one frame with position mask ``fwd``:
+    an image position needs the input up to its own word, a padding position
+    the input up to the last word before it. Leading padding needs no input
+    of its own frame when eager; a lazy pad issues it only once the frame's
+    first word is visible (``pad.sv:113-120``), so it needs that word."""
+    need = np.cumsum(np.asarray(fwd, dtype=np.int64))
+    return need if eager else np.maximum(need, 1)
+
 
 @register("FMPadding")
 class FMPaddingModel(TreeModel):
-    def input_need(self, op, ind=0):
-        """Output word *j* needs the input up to its own pixel, a padding word
-        the input up to the last pixel before it."""
+    def position_mask(self, op):
+        """0/1 mask over the folded output words of one frame, 1 where a word
+        passes an input word through."""
         h, w = op.get_nodeattr("ImgDim")
         top, left = op.get_nodeattr("Padding")[:2]
         ho, wo = op.get_padded_odim()
-        words = int(np.prod(op.get_folded_input_shape()[:-1])) // (h * w)
+        fold = op.get_nodeattr("NumChannels") // op.get_nodeattr("SIMD")
         row, col = np.divmod(np.arange(ho * wo), wo)
-        inside = (row >= top) & (row < top + h)
-        pixels = np.clip(row - top, 0, h) * w + np.where(inside, np.clip(col - left + 1, 0, w), 0)
-        return np.repeat(np.maximum(pixels * words, 1), words)
+        inside = (row >= top) & (row < top + h) & (col >= left) & (col < left + w)
+        return np.repeat(inside, fold)
+
+    def input_need(self, op, ind=0):
+        """See ``pad_input_need``."""
+        return pad_input_need(self.position_mask(op), op.get_nodeattr("Eager"))
 
 
 @register("FMPadding_rtl")
 class FMPaddingRtlModel(FMPaddingModel):
     def schedule(self, op):
-        """One nested loop per padding dimension, exactly as the hardware writes it.
+        """``pad_schedule`` of the padded frame, ``numInputVectors`` frames a
+        period.
 
-        FMPadding emits a full padded frame row by row. A row is either an
-        *outer* row -- entirely padding, so it writes ``NF`` words per pixel and
-        reads nothing -- or an *inner* row, which pads ``x_padding_left`` pixels,
-        passes ``x_dim`` pixels through (one read and one write each), then pads
-        ``x_padding_right``. The frame is ``y_padding_top`` outer rows, ``y_dim``
-        inner rows, ``y_padding_bottom`` outer rows, repeated ``numInputVectors``
-        times.
+        FMPadding emits a full padded frame row by row, one folded word a cycle:
+        ``top`` rows of padding, ``h`` rows of ``left`` padding pixels, ``w``
+        image pixels and ``right`` padding pixels, then ``bottom`` rows of
+        padding. The reads are not aligned to the image pixels -- the first
+        word of each image row is read ahead, at the first padding position
+        after the previous one -- so the schedule is a flat leaf, not a tree
+        nested along the rows.
 
-        The tree mirrors that nesting one level per loop, which is why this one is
-        nested where MVAU's and Pool's are flat: here the reads and the writes are
-        aligned to the *same* loop structure, so the nesting expresses the schedule
-        rather than fighting it.
-
-        The RTL backend pays no per-pixel loop overhead.
+        Checked against node rtlsim (symmetric, asymmetric and row-only
+        padding, folded and unfolded channels, both ``Eager`` settings): exact.
         """
-        IMGDIM = op.get_nodeattr("ImgDim")
-        PADDING = op.get_nodeattr("Padding")
-        NUMCHANNELS = op.get_nodeattr("NumChannels")
-        SIMD = op.get_nodeattr("SIMD")
-        batch_size = op.get_nodeattr("numInputVectors")
-
-        # compute new parameters
-        NF = int(NUMCHANNELS / SIMD)
-        y_padding_top, x_padding_left, y_padding_bottom, x_padding_right = PADDING
-        y_dim = IMGDIM[0]
-        x_dim = IMGDIM[1]
-
-        loop_overhead = 0
-
-        ch_pad = CharacteristicNode("Channel_Pad", [(NF, [0, 1]), (loop_overhead, [0, 0])], True)
-
-        ch_pass = CharacteristicNode("Channel_Pass", [(NF, [1, 1]), (loop_overhead, [0, 0])], True)
-
-        x_inner_line = CharacteristicNode(
-            "Fill X full inner line",
-            [(x_padding_left, ch_pad), (x_dim, ch_pass), (x_padding_right, ch_pad)],
-            False,
-        )
-
-        x_outer_line = CharacteristicNode(
-            "Pad X outer line", [(x_padding_left + x_dim + x_padding_right, ch_pad)], False
-        )
-
-        fmpadding = CharacteristicNode(
-            "FMPadding FM",
-            [
-                (y_padding_top, x_outer_line),
-                (y_dim, x_inner_line),
-                (y_padding_bottom, x_outer_line),
-            ],
-            False,
-        )
-
-        fmpadding_top = CharacteristicNode(
-            "FMPadding FM",
-            [
-                (batch_size, fmpadding),
-            ],
-            False,
-        )
-
-        return fmpadding_top  # top level phase of this node
+        mask = np.tile(self.position_mask(op), op.get_nodeattr("numInputVectors"))
+        sched = pad_schedule(mask, op.get_nodeattr("Eager"))
+        if sched is None:
+            return None
+        return flat_characteristic_leaf(*sched, "FMPadding frame")
 
 
 @register("FMPadding_Pixel_hls")
@@ -490,7 +555,7 @@ class FMPaddingPixelHlsModel(TreeModel):
 
 class CropModel(TreeModel):
     #: cycles from reading a kept fold to writing it, per backend (see below)
-    latency = None
+    latency: int | None = None
 
     def schedule(self, op):
         """Every input fold is read; the ones inside the crop are written on.
@@ -593,48 +658,51 @@ class SelectTokenRtlModel(TreeModel):
         return flat_characteristic_leaf(rd, wr, "SelectToken raster")
 
 
-@register("Pad1D_rtl")
-class Pad1DRtlModel(TreeModel):
-    def schedule(self, op):
-        """Emits the left pad, then the input sequence, then the right pad.
-
-        The layer writes one folded word every cycle for the whole output
-        sequence and never stalls: the pad words come from constants held in the
-        design, so the input stream is read only while the sequence itself is
-        being passed through. That splits one period into three back-to-back
-        phases -- ``PadLeft`` tokens written with nothing read, ``NumTokens``
-        tokens read and written, ``PadRight`` tokens written with nothing read --
-        each token being ``NumChannels / SIMD`` folded words. The period is the
-        output frame, which is what ``get_exp_cycles`` returns.
-
-        The single-cycle output register between reading a word and writing it is
-        not modelled; the wind-up is shorter than one cycle of the period rtlsim
-        measures and so contributes nothing to it.
-
-        Valid for the RTL implementation at any SIMD dividing NumChannels and any
-        pad widths. Assumes the module accepts a word every cycle, as
-        ``get_exp_cycles`` does.
-        """
+@register("Pad1D")
+class Pad1DModel(TreeModel):
+    def position_mask(self, op):
+        """0/1 mask over the folded output words of one sequence, 1 where a word
+        passes an input word through; None for an unsupported configuration."""
         simd = op.get_nodeattr("SIMD")
         num_channels = op.get_nodeattr("NumChannels")
         num_tokens = op.get_nodeattr("NumTokens")
         pad_left = op.get_nodeattr("PadLeft")
         pad_right = op.get_nodeattr("PadRight")
-        if simd < 1 or num_channels % simd != 0:
+        if simd < 1 or num_channels % simd != 0 or num_channels < 1 or num_tokens < 1:
             return None
-        folds = num_channels // simd
-        if folds < 1 or num_tokens < 1 or min(pad_left, pad_right) < 0:
+        if min(pad_left, pad_right) < 0:
             return None
-        phases = []
-        if pad_left > 0:
-            left = CharacteristicNode("emit the left pad", [(pad_left * folds, [0, 1])], True)
-            phases.append((1, left))
-        thru = CharacteristicNode("pass the sequence on", [(num_tokens * folds, [1, 1])], True)
-        phases.append((1, thru))
-        if pad_right > 0:
-            right = CharacteristicNode("emit the right pad", [(pad_right * folds, [0, 1])], True)
-            phases.append((1, right))
-        return CharacteristicNode("pad a sequence", phases, False)
+        tokens = np.repeat([0, 1, 0], [pad_left, num_tokens, pad_right])
+        return np.repeat(tokens, num_channels // simd)
+
+    def input_need(self, op, ind=0):
+        """See ``pad_input_need``; the pad inputs are constants."""
+        mask = self.position_mask(op)
+        if ind != 0 or mask is None:
+            return None
+        return pad_input_need(mask, op.get_nodeattr("Eager"))
+
+
+@register("Pad1D_rtl")
+class Pad1DRtlModel(Pad1DModel):
+    def schedule(self, op):
+        """``pad_schedule`` of the left pad, the input sequence and the right
+        pad, each token ``NumChannels / SIMD`` folded words. The period is the
+        output sequence, which is what ``get_exp_cycles`` returns.
+
+        Without padding ``pad1d.sv`` is a wire, whose solid read and write match
+        ``pad_schedule`` of a mask without padding positions.
+
+        Checked against node rtlsim (left, right, both and no padding, SIMD 1 to
+        NumChannels, both ``Eager`` settings): exact.
+        """
+        mask = self.position_mask(op)
+        if mask is None:
+            return None
+        sched = pad_schedule(mask, op.get_nodeattr("Eager"))
+        if sched is None:
+            return None
+        return flat_characteristic_leaf(*sched, "Pad1D sequence")
 
 
 @register("StreamingReshape")
