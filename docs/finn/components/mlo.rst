@@ -368,4 +368,4 @@ See Also
 ========
 
 - :ref:`rtl_swg` - RTL ConvolutionInputGenerator component
-- `finn-rtllib MLO <https://github.com/Xilinx/finn-rtllib/tree/main/mlo>`_ - RTL implementation source code
+- `finn-rtllib/mlo <https://github.com/Xilinx/finn/tree/dev/finn-rtllib/mlo>`_ - RTL implementation source code
