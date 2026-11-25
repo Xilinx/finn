@@ -6,22 +6,23 @@
  *
  * @description
  *	Runs a set of geometries (2D, 1D with token tables, single fold, no leading
- *	padding) for both EAGER settings in two modes:
+ *	padding, counters at a power of 2, no padding at all) for both EAGER
+ *	settings in two modes:
  *	  - continuous:	Always ready output.
  *	  - random:	Input bubbles, output back-pressure, and idle gaps before each frame.
  *	Every output is compared with the expected padded frame.
  ***************************************************************************/
 
 module pad_test #(
-	int unsigned  XIMG,	// image columns
-	int unsigned  YIMG,	// image rows
+	int unsigned  IW,	// image columns
+	int unsigned  IH,	// image rows
 	int unsigned  PAD_W,
 	int unsigned  PAD_E,
 	int unsigned  PAD_N,
 	int unsigned  PAD_S,
-	int unsigned  NUM_CHANNELS,
-	int unsigned  SIMD,
-	int unsigned  ELEM_BITS,
+	int unsigned  C,
+	int unsigned  PE,
+	int unsigned  W,
 	bit           USE_TOKENS,	// tokens on the W/E edges rather than zeros, requires PAD_N = PAD_S = 0
 	bit           EAGER,
 	bit           RANDOM,
@@ -34,28 +35,26 @@ module pad_test #(
 );
 `default_nettype none
 
-	localparam int unsigned  SF = NUM_CHANNELS/SIMD;
+	localparam int unsigned  CF = C/PE;
 	localparam int unsigned  XON  = PAD_W;
-	localparam int unsigned  XOFF = PAD_W + XIMG;
-	localparam int unsigned  XEND = PAD_W + XIMG + PAD_E - 1;
+	localparam int unsigned  XOFF = PAD_W + IW;
+	localparam int unsigned  XEND = PAD_W + IW + PAD_E - 1;
 	localparam int unsigned  YON  = PAD_N;
-	localparam int unsigned  YOFF = PAD_N + YIMG;
-	localparam int unsigned  YEND = PAD_N + YIMG + PAD_S - 1;
-	localparam int unsigned  XBITS = $clog2(XEND+2);
-	localparam int unsigned  YBITS = $clog2(YEND+2);
+	localparam int unsigned  YOFF = PAD_N + IH;
+	localparam int unsigned  YEND = PAD_N + IH + PAD_S - 1;
 
-	localparam int unsigned  FRAME_FOLDS = (XEND+1) * (YEND+1) * SF;
-	localparam int unsigned  LEAD_FOLDS  = (PAD_N*(XEND+1) + PAD_W) * SF;
+	localparam int unsigned  FRAME_FOLDS = (XEND+1) * (YEND+1) * CF;
+	localparam int unsigned  LEAD_FOLDS  = (PAD_N*(XEND+1) + PAD_W) * CF;
 	localparam int unsigned  NEXT_FOLDS  = EAGER? LEAD_FOLDS : 0;	// emitted ahead of the next frame
 	localparam int unsigned  GAP = 3*FRAME_FOLDS + 100;	// idle cycles that suffice to settle
 
-	typedef logic [ELEM_BITS-1:0]  elem_t;
-	typedef logic [SIMD-1:0][ELEM_BITS-1:0]  fold_t;
+	typedef logic [W-1:0]  elem_t;
+	typedef logic [PE-1:0][W-1:0]  fold_t;
 
 	// Stimulus and Expectation
 	function automatic elem_t datum(int unsigned  f, int unsigned  y, int unsigned  x, int unsigned  ch);
 		automatic elem_t  r = elem_t'((f*131 + y*31 + x*7 + ch*3) % 251 + 1);
-		if(ELEM_BITS >= 32)  r |= elem_t'(32'h40000000);
+		if(W >= 32)  r |= elem_t'(32'h40000000);
 		return  r;
 	endfunction : datum
 
@@ -63,23 +62,23 @@ module pad_test #(
 		return  elem_t'(32'hC0DE0001 + (east << 12) + (t << 6) + ch);
 	endfunction : token
 
-	localparam int unsigned  TOKENS_W = USE_TOKENS? PAD_W : 0;
-	localparam int unsigned  TOKENS_E = USE_TOKENS? PAD_E : 0;
-	localparam int unsigned  TOKENS_W_DEPTH = (TOKENS_W > 0)? TOKENS_W : 1;
-	localparam int unsigned  TOKENS_E_DEPTH = (TOKENS_E > 0)? TOKENS_E : 1;
-	typedef logic [TOKENS_W_DEPTH-1:0][NUM_CHANNELS-1:0][ELEM_BITS-1:0]  tokens_w_t;
-	typedef logic [TOKENS_E_DEPTH-1:0][NUM_CHANNELS-1:0][ELEM_BITS-1:0]  tokens_e_t;
+	localparam int unsigned  NUM_TOKENS_W = USE_TOKENS? PAD_W : 0;
+	localparam int unsigned  NUM_TOKENS_E = USE_TOKENS? PAD_E : 0;
+	localparam int unsigned  TOKENS_W_DEPTH = (PAD_W > 0)? PAD_W : 1;
+	localparam int unsigned  TOKENS_E_DEPTH = (PAD_E > 0)? PAD_E : 1;
+	typedef logic [TOKENS_W_DEPTH-1:0][C-1:0][W-1:0]  tokens_w_t;
+	typedef logic [TOKENS_E_DEPTH-1:0][C-1:0][W-1:0]  tokens_e_t;
 	function automatic tokens_w_t init_tokens_w();
 		automatic tokens_w_t  r = '0;
-		for(int unsigned  t = 0; t < TOKENS_W; t++)
-			for(int unsigned  ch = 0; ch < NUM_CHANNELS; ch++)
+		for(int unsigned  t = 0; t < NUM_TOKENS_W; t++)
+			for(int unsigned  ch = 0; ch < C; ch++)
 				r[t][ch] = token(0, t, ch);
 		return  r;
 	endfunction : init_tokens_w
 	function automatic tokens_e_t init_tokens_e();
 		automatic tokens_e_t  r = '0;
-		for(int unsigned  t = 0; t < TOKENS_E; t++)
-			for(int unsigned  ch = 0; ch < NUM_CHANNELS; ch++)
+		for(int unsigned  t = 0; t < NUM_TOKENS_E; t++)
+			for(int unsigned  ch = 0; ch < C; ch++)
 				r[t][ch] = token(1, t, ch);
 		return  r;
 	endfunction : init_tokens_e
@@ -87,8 +86,8 @@ module pad_test #(
 	// Fold of a position of the padded frame
 	function automatic fold_t expected(int unsigned  f, int unsigned  y, int unsigned  x, int unsigned  s);
 		automatic fold_t  r;
-		for(int unsigned  i = 0; i < SIMD; i++) begin
-			automatic int unsigned  ch = s*SIMD + i;
+		for(int unsigned  i = 0; i < PE; i++) begin
+			automatic int unsigned  ch = s*PE + i;
 			if((XON <= x) && (x < XOFF) && (YON <= y) && (y < YOFF))  r[i] = datum(f, y-YON, x-XON, ch);
 			else if(USE_TOKENS && (x < XON))    r[i] = token(0, x, ch);
 			else if(USE_TOKENS && (x >= XOFF))  r[i] = token(1, x-XOFF, ch);
@@ -102,7 +101,7 @@ module pad_test #(
 		for(int unsigned  f = 0; f <= FRAMES; f++) begin
 			for(int unsigned  y = 0; y <= YEND; y++)
 				for(int unsigned  x = 0; x <= XEND; x++)
-					for(int unsigned  s = 0; s < SF; s++)
+					for(int unsigned  s = 0; s < CF; s++)
 						exp_q.push_back(expected(f, y, x, s));
 		end
 	end
@@ -116,15 +115,13 @@ module pad_test #(
 	uwire fold_t  odat;
 
 	pad #(
-		.NUM_CHANNELS(NUM_CHANNELS), .SIMD(SIMD), .ELEM_BITS(ELEM_BITS),
-		.XCOUNTER_BITS(XBITS), .YCOUNTER_BITS(YBITS),
+		.C(C), .PE(PE), .W(W),
+		.IH(IH), .IW(IW),
+		.PAD_W(PAD_W), .PAD_E(PAD_E), .PAD_N(PAD_N), .PAD_S(PAD_S),
 		.EAGER(EAGER),
-		.TOKENS_W(TOKENS_W), .TOKENS_E(TOKENS_E),
-		.TOKENS_W_DATA(init_tokens_w()), .TOKENS_E_DATA(init_tokens_e())
+		.TOKENS(USE_TOKENS), .TOKENS_W(init_tokens_w()), .TOKENS_E(init_tokens_e())
 	) dut (
 		.clk, .rst,
-		.xon(XBITS'(XON)), .xoff(XBITS'(XOFF)), .xend(XBITS'(XEND)),
-		.yon(YBITS'(YON)), .yoff(YBITS'(YOFF)), .yend(YBITS'(YEND)),
 		.irdy, .ivld, .idat,
 		.ordy, .ovld, .odat
 	);
@@ -151,7 +148,7 @@ module pad_test #(
 			end
 			for(int unsigned  y = YON; y < YOFF; y++)
 				for(int unsigned  x = XON; x < XOFF; x++)
-					for(int unsigned  s = 0; s < SF; s++) begin
+					for(int unsigned  s = 0; s < CF; s++) begin
 						ivld <= 1;
 						idat <= expected(f, y, x, s);
 						@(posedge clk iff irdy);
@@ -223,8 +220,8 @@ module pad_tb;
 		rst <= 0;
 	end
 
-	// Test configurations: X/Y image size, W/E/N/S padding, channels, SIMD, element bits, tokens
-	localparam int unsigned  NUM_CONFIGS = 7;
+	// Test configurations: X/Y image size, W/E/N/S padding, channels, PE, element bits, tokens
+	localparam int unsigned  NUM_CONFIGS = 9;
 	typedef struct {
 		int unsigned  xi, yi, pw, pe, pn, ps, nch, simd, bits;
 		bit  tokens;
@@ -236,7 +233,9 @@ module pad_tb;
 		'{ xi: 6, yi: 1, pw: 2, pe: 1, pn: 0, ps: 0, nch: 6, simd: 2, bits: 32, tokens: 1 },  // 1D, tokens, float patterns
 		'{ xi: 5, yi: 1, pw: 0, pe: 3, pn: 0, ps: 0, nch: 4, simd: 4, bits: 32, tokens: 1 },  // 1D, tokens, right only
 		'{ xi: 4, yi: 1, pw: 1, pe: 0, pn: 0, ps: 0, nch: 3, simd: 1, bits: 16, tokens: 1 },  // 1D, tokens, left only
-		'{ xi: 2, yi: 2, pw: 1, pe: 1, pn: 1, ps: 1, nch: 8, simd: 2, bits: 12, tokens: 0 }   // 2D, minimal image
+		'{ xi: 2, yi: 2, pw: 1, pe: 1, pn: 1, ps: 1, nch: 8, simd: 2, bits: 12, tokens: 0 },  // 2D, minimal image
+		'{ xi: 7, yi: 3, pw: 1, pe: 0, pn: 1, ps: 0, nch: 2, simd: 1, bits:  8, tokens: 0 },  // 2D, image ends at a power of 2 (8 columns, 4 rows)
+		'{ xi: 3, yi: 2, pw: 0, pe: 0, pn: 0, ps: 0, nch: 4, simd: 2, bits:  8, tokens: 0 }   // no padding: pass-through
 	};
 
 	localparam int unsigned  NUM_TESTS = NUM_CONFIGS * 2 * 2;
@@ -247,9 +246,9 @@ module pad_tb;
 			for(genvar  r = 0; r < 2; r++) begin : genRandom
 				localparam int unsigned  IDX = 4*c + 2*e + r;
 				pad_test #(
-					.XIMG(CFGS[c].xi), .YIMG(CFGS[c].yi),
+					.IW(CFGS[c].xi), .IH(CFGS[c].yi),
 					.PAD_W(CFGS[c].pw), .PAD_E(CFGS[c].pe), .PAD_N(CFGS[c].pn), .PAD_S(CFGS[c].ps),
-					.NUM_CHANNELS(CFGS[c].nch), .SIMD(CFGS[c].simd), .ELEM_BITS(CFGS[c].bits),
+					.C(CFGS[c].nch), .PE(CFGS[c].simd), .W(CFGS[c].bits),
 					.USE_TOKENS(CFGS[c].tokens), .EAGER(e), .RANDOM(r)
 				) test (
 					.clk, .rst, .done(done[IDX]), .errors(test_errors[IDX])

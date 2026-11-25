@@ -153,6 +153,14 @@ finn.util.imagenet
   :undoc-members:
   :show-inheritance:
 
+finn.util.pad
+--------------
+
+.. automodule:: finn.util.pad
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.util.platforms
 --------------------
 
