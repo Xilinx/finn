@@ -10,5 +10,6 @@ This section provides detailed documentation for specific FINN hardware componen
    :maxdepth: 2
 
    rtl-swg
+   mlo
    pwpolyf
    streaming-fifo
