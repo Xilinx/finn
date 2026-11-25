@@ -110,7 +110,7 @@ def __getattr__(name: str) -> Any:
     """Dynamically wrap finn_xsi.adapter functions."""
     if name in _ADAPTER_FUNCTIONS:
 
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             if not _load_modules():
                 raise ImportError("finn_xsi not available. Run: python -m finn.xsi.setup")
             return getattr(_adapter_module, name)(*args, **kwargs)
@@ -130,10 +130,11 @@ def __getattr__(name: str) -> Any:
 class SimEngine:
     """Wrapper for finn_xsi.sim_engine.SimEngine."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         if not _load_modules():
             raise ImportError("finn_xsi not available. Run: python -m finn.xsi.setup")
+        assert _sim_engine_module is not None
         self._engine = _sim_engine_module.SimEngine(*args, **kwargs)
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> Any:
         return getattr(self._engine, name)
