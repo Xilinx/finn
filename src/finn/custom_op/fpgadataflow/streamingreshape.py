@@ -6,6 +6,7 @@ Unsqueeze."""
 
 import numpy as np
 import warnings
+from collections.abc import Sequence
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
@@ -36,15 +37,15 @@ class StreamingReshape(HWCustomOp):
         return my_attrs
 
     def get_normal_input_shape(self, ind=0):
-        return list(self.get_nodeattr("in_shape"))
+        return tuple(self.get_nodeattr("in_shape"))
 
     def get_normal_output_shape(self, ind=0):
-        return list(self.get_nodeattr("out_shape"))
+        return tuple(self.get_nodeattr("out_shape"))
 
-    def _folded(self, shape):
+    def _folded(self, shape: Sequence[int]) -> tuple[int, ...]:
         pe = self.get_nodeattr("PE")
         assert shape[-1] % pe == 0, "PE must divide the innermost dimension %s" % str(shape)
-        return tuple(shape[:-1] + [shape[-1] // pe, pe])
+        return tuple(shape[:-1]) + (shape[-1] // pe, pe)
 
     def get_folded_input_shape(self, ind=0):
         return self._folded(self.get_normal_input_shape())
@@ -81,5 +82,5 @@ class StreamingReshape(HWCustomOp):
     def execute_node(self, context, graph):
         node = self.onnx_node
         inp = context[node.input[0]]
-        assert list(inp.shape) == self.get_normal_input_shape(), "Input shape mismatch"
+        assert inp.shape == self.get_normal_input_shape(), "Input shape mismatch"
         context[node.output[0]] = inp.reshape(self.get_normal_output_shape())

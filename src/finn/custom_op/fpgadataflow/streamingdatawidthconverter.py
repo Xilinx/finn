@@ -62,18 +62,16 @@ class StreamingDataWidthConverter(HWCustomOp):
         return DataType[self.get_nodeattr("dataType")]
 
     def get_normal_input_shape(self, ind=0):
-        ishape = self.get_nodeattr("shape")
-        return ishape
+        return tuple(self.get_nodeattr("shape"))
 
     def get_normal_output_shape(self, ind=0):
-        oshape = self.get_nodeattr("shape")
-        return oshape
+        return tuple(self.get_nodeattr("shape"))
 
     def _folded_shape_for_width(self, width):
         """Compute folded shape for a given stream width.
 
         When the number of channels divides evenly by the number of elements
-        per stream word, returns shape[:-1] + [channels // elems, elems].
+        per stream word, returns shape[:-1] + (channels // elems, elems).
 
         When channels don't divide evenly (e.g., wide streams spanning multiple
         spatial dimensions), falls back to flattening the entire tensor:
@@ -88,7 +86,7 @@ class StreamingDataWidthConverter(HWCustomOp):
         elems = int(width // bits)
         channels = shape[-1]
         if channels % elems == 0:
-            return tuple(shape[:-1] + [int(channels // elems), elems])
+            return tuple(shape[:-1]) + (int(channels // elems), elems)
 
         total_elems = int(np.prod(shape))
         assert (

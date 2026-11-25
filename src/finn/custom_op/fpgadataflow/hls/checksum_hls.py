@@ -91,10 +91,10 @@ class CheckSum_hls(HWCustomOp, HLSBackend):
         return self.get_instream_width()
 
     def get_folded_input_shape(self, ind=0):
-        return self.get_nodeattr("folded_shape")
+        return tuple(self.get_nodeattr("folded_shape"))
 
     def get_folded_output_shape(self, ind=0):
-        return self.get_nodeattr("folded_shape")
+        return tuple(self.get_nodeattr("folded_shape"))
 
     def get_normal_input_shape(self, ind=0):
         # derive normal shape from folded shape
@@ -117,7 +117,7 @@ class CheckSum_hls(HWCustomOp, HLSBackend):
             normal_ishape.append(folded_shape[i])
         normal_ishape.append(folding_factor)
 
-        return normal_ishape
+        return tuple(normal_ishape)
 
     def get_ap_int_max_w(self):
         return max(super().get_ap_int_max_w(), 32)

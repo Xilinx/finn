@@ -10,6 +10,7 @@ import logging
 import numpy as np
 import warnings
 from collections import deque
+from collections.abc import Sequence
 from onnx import helper
 from operator import itemgetter
 from qonnx.custom_op.registry import getCustomOp
@@ -21,7 +22,7 @@ from typing import List, Optional, Tuple
 log = logging.getLogger(__name__)
 
 
-def shuffle_perfect_loopnest_coeffs(shape: tuple[int], perm: tuple[int]) -> tuple[int]:
+def shuffle_perfect_loopnest_coeffs(shape: Sequence[int], perm: Sequence[int]) -> tuple[int, ...]:
     """
     Given an input shape and permutation matrix calculate the
     coefficients for the perfect loop nest for HLS generation.

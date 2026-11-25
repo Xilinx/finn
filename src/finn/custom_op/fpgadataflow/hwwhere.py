@@ -4,6 +4,7 @@
 import math
 import numpy as np
 import warnings
+from collections.abc import Sequence
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
@@ -85,7 +86,7 @@ class HWWhere(HWCustomOp):
             return 1
         return self.get_nodeattr("PE")
 
-    def _folded_shape(self, shape, stream_pe):
+    def _folded_shape(self, shape: Sequence[int], stream_pe: int) -> tuple[int, ...]:
         rtl_shape = self._rtl_shape(shape)
         *outer, channels = rtl_shape
         assert channels % stream_pe == 0, "Stream PE must divide the innermost dimension"

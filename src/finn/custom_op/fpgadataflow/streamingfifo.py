@@ -119,7 +119,7 @@ class StreamingFIFO(HWCustomOp):
 
     def get_normal_input_shape(self, ind=0):
         assert self.get_nodeattr("depth") >= 1, """Depth is too low"""
-        return self.get_nodeattr("normal_shape")
+        return tuple(self.get_nodeattr("normal_shape"))
 
     def get_normal_output_shape(self, ind=0):
         return self.get_normal_input_shape()

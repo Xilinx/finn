@@ -43,7 +43,7 @@ class Crop(HWCustomOp):
         else:
             img_dim = [h, w]
         ch = self.get_nodeattr("NumChannels")
-        return num_vec + img_dim + [ch] if num_vec != [0] else img_dim + [ch]
+        return tuple(num_vec + img_dim + [ch] if num_vec != [0] else img_dim + [ch])
 
     def get_normal_output_shape(self, ind=0):
         num_vec = self.get_nodeattr("numInputVectors")
@@ -59,7 +59,7 @@ class Crop(HWCustomOp):
             o_img_dim = [owidth]
         else:
             o_img_dim = [oheight, owidth]
-        return num_vec + o_img_dim + [ch] if num_vec != [0] else o_img_dim + [ch]
+        return tuple(num_vec + o_img_dim + [ch] if num_vec != [0] else o_img_dim + [ch])
 
     def execute_node(self, context, graph):
         node = self.onnx_node

@@ -277,20 +277,23 @@ class HWCustomOp(CustomOp):
     def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output stream ind."""
 
+    # Shapes are tuples; ONNX ints attributes and qonnx tensor shapes are lists,
+    # so implementations convert them (refs #57).
+
     @abstractmethod
-    def get_normal_input_shape(self, ind=0):
+    def get_normal_input_shape(self, ind: int = 0) -> tuple[int, ...]:
         """Returns normal input shape if implemented."""
 
     @abstractmethod
-    def get_normal_output_shape(self, ind=0):
-        """Returns folded output shape if implemented."""
+    def get_normal_output_shape(self, ind: int = 0) -> tuple[int, ...]:
+        """Returns normal output shape if implemented."""
 
     @abstractmethod
-    def get_folded_input_shape(self, ind=0):
+    def get_folded_input_shape(self, ind: int = 0) -> tuple[int, ...]:
         """Returns folded input shape (according to synapse folding), if implemented."""
 
     @abstractmethod
-    def get_folded_output_shape(self, ind=0):
+    def get_folded_output_shape(self, ind: int = 0) -> tuple[int, ...]:
         """Returns folded output shape (according to neuron folding), if implemented."""
 
     @abstractmethod

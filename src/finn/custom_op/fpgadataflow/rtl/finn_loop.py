@@ -168,7 +168,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 ishape = inst.get_normal_input_shape(1)
             else:
                 ishape = loop_body.get_tensor_shape(tensor)
-        return ishape
+        return tuple(ishape)
 
     def get_normal_output_shape(self, ind=0):
         loop_body = self.get_nodeattr("body")
@@ -180,7 +180,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
             oshape = inst.get_normal_output_shape(0)
         else:
             oshape = loop_body.get_tensor_shape(node.output[0])
-        return oshape
+        return tuple(oshape)
 
     def get_folded_input_shape(self, ind=0):
         loop_body = self.get_nodeattr("body")

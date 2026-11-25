@@ -57,7 +57,7 @@ class LayerNorm(HWCustomOp):
         context[node.output[0]] = np.asarray(out_act, dtype=np.float32).reshape(oshape)
 
     def get_normal_input_shape(self, ind=0):
-        return self.get_nodeattr("ifm_dim")
+        return tuple(self.get_nodeattr("ifm_dim"))
 
     def get_normal_output_shape(self, ind=0):
         return self.get_normal_input_shape()
