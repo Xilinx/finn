@@ -31,7 +31,89 @@ In some cases, a neural network cannot be implemented without MLO.
 MLO Build flow
 ===================
 
-TODO
+MLO is part of the regular FINN build flow and is enabled in the build configuration.
+Besides turning MLO on, the user specifies which layers of the model form
+the repeating block, the loop body. FINN does not detect the repeated layers on its own.
+This is done with the following fields of the ``DataflowBuildConfig``:
+
+* ``mlo`` enables the MLO flow.
+* ``loop_body_hierarchy`` is the PyTorch module hierarchy of the layers that belong to the loop
+  body. It is a list of entries, each one a list of module names from the outermost (the root,
+  ``""``) to the innermost scope, as stored in the ``pkg.torch.onnx.name_scopes`` metadata of the
+  nodes. For example ``[["", "layers.0"]]``.
+* ``loop_body_range`` is the first and last node of one instance of the loop body. It is used to
+  mark the nodes of the loop body, until the PyTorch metadata can be preserved by the model
+  export. The marked nodes get the hierarchy ``layers.0``, so ``loop_body_hierarchy`` has to
+  refer to it, ``[["", "layers.0"]]``. The range is given as a tuple of two nodes of the
+  cleaned-up FINN-ONNX model, for example
+  ``(model.graph.node[1], model.graph.node[4])``.
+
+Both ``loop_body_hierarchy`` and ``loop_body_range`` are currently required when ``mlo`` is
+enabled. The build check fails without them.
+
+MLO requires Vivado 2024.2 or later.
+
+Loop rolling
+-----------------
+
+After the layers have been specialized, FINN identifies the loop body in the model, extracts it
+as a template and replaces every occurrence of it with a single ``FINNLoop``. The number of
+occurrences becomes the number of iterations. The parameters that differ between the occurrences
+are what the index selects between. Everything that follows, such as folding, FIFO sizing and
+code generation, operates on the one physical copy of the loop body. All iterations therefore
+share the same parallelization.
+
+In the build, this is ``step_loop_rolling``, the last step of ``phase_convert_to_hardware``.
+It requires the loop body to occur at least twice in the model.
+
+Not every layer can be part of the loop body. The parameters of the operators in the loop body
+change with every iteration, so they have to be streamed to the operator. Only the MVAU,
+Elementwise, Thresholding and Requant operators support this parameter streaming (see
+:ref:`mlo_parameter_streaming`). The MVAU streams its weights from external memory, while the
+Elementwise, Thresholding and Requant operators keep their parameters on-chip. The instances of the loop
+body have to follow each other directly, so that the output of one instance is the input of the
+next one.
+
+Building the loop body
+---------------------------------
+
+The loop body is a design of its own, wrapped by the loop controller. The rest of the design,
+and in particular its FIFO sizing, depends on the finished loop body, because the ``FINNLoop``
+has to be simulated as part of it. The build therefore handles the loop body first. FINN sizes its
+FIFOs, generates its code and creates its IP. Only then it builds the remaining design around it,
+with the ``FINNLoop`` as a single block. For this reason, FIFO sizing of the main design is deferred
+to the hardware build in MLO builds.
+
+FIFO sizing has to use ``heuristic_rtlsim`` or ``heuristic_analytical``, because
+``largefifo_rtlsim`` cannot simulate a ``FINNLoop``.
+
+Deployment
+----------------
+
+The external memory is chosen based on the target board, HBM if the board has it and DDR otherwise.
+For DDR, the flow connects the ``FINNLoop`` and the MVAUs with external weights to the
+external DDR memory. The generated PYNQ driver contains the weights in the ``mlo_weights/``
+folder. At startup, it places them in one contiguous memory region and writes the physical address of
+this region to the address offset registers of the design. For HBM, FINN generates the stitched IP,
+but the integration into a complete system is currently not automated.
+
+Verification
+------------------
+
+The ``FINNLoop`` is a single IP block after IP generation, so the tensors inside the loop
+are not accessible to the node-by-node simulation. This is why ``verify_save_full_context``
+cannot save the intermediate tensors inside the loop.
+
+For the stitched-IP rtlsim verification, the iterations of the loop can optionally be simulated
+in parallel instead of one after another, by setting ``mlo_parallel_rtlsim``. The option has no
+effect without ``mlo``. Each iteration is then simulated on its own with the stream taps and the
+loop body, without the loop controller. It receives the input of its iteration and the index, and
+its output is compared to a reference computed with cppsim. The regions outside the loop are simulated
+separately. This is only supported for a batch size of 1 and needs ``verify_input_npy``.
+
+The throughput from the estimate reports and from the rtlsim performance measurement of an MLO
+model is an upper bound, because it assumes a fully busy loop body and ideal external memory, and
+the latency is not available.
 
 Hardware
 ========
@@ -182,6 +264,8 @@ parameters, tells the demux when to stop, and increments for the next iteration.
 |
 
 
+.. _mlo_parameter_streaming:
+
 Parameter streaming
 ------------------------
 
@@ -209,6 +293,10 @@ These are the supported parameter-holding operators with their respective parame
    * - **Thresholding**
      - RTL
      - Native
+     - internal
+   * - **Requant**
+     - RTL
+     - Memstream
      - internal
 
 All of the different parameter-holding operators follow a similar idea. They receive the index as an
