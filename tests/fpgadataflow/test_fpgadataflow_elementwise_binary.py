@@ -457,6 +457,37 @@ def test_elementwise_binary_cppsim_broadcast_last_axis(op_type, lhs_shape, rhs_s
     assert np.all(o_produced == o_expected)
 
 
+def _specialized_broadcast_node(lhs_shape, rhs_shape, pe):
+    model = create_elementwise_binary_operation_onnx(
+        "ElementwiseAdd", "INT8", "INT8", "INT9", lhs_shape, rhs_shape
+    )
+    model = model.transform(InferShapes())
+    model = model.transform(InferElementwiseBinaryOperation())
+    model = model.transform(InferShapes())
+    model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
+    inst = getCustomOp(model.graph.node[0])
+    inst.set_nodeattr("PE", pe)
+    return inst
+
+
+# Both broadcast directions on the last axis
+@pytest.mark.parametrize(
+    "lhs_shape, rhs_shape", [([3, 1, 7, 1], [3, 32, 1, 16]), ([3, 32, 1, 16], [3, 1, 7, 1])]
+)
+@pytest.mark.parametrize("pe", [2, 4])
+@pytest.mark.fpgadataflow
+def test_elementwise_binary_hls_broadcast_stream_width(lhs_shape, rhs_shape, pe):
+    # A runtime operand with a broadcast last axis streams one element per beat:
+    # its stream width, its folded shape (which its producer follows) and its
+    # declared port agree, so the stream check before stitching passes.
+    inst = _specialized_broadcast_node(lhs_shape, rhs_shape, pe)
+    ports = dict(inst.get_verilog_top_module_intf_names()["s_axis"])
+    for ind, port in enumerate(["in0_V", "in1_V"]):
+        *_, elems = inst.get_folded_input_shape(ind)
+        assert inst.get_instream_width(ind) == elems * 8
+        assert ports[port] == inst.get_instream_width_padded(ind)
+
+
 # A broadcast const operand is npy-fed in internal_decoupled but baked into params
 # in internal_embedded, so the two modes exercise the two sides of the fold guard
 @pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])

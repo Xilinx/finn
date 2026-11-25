@@ -439,7 +439,9 @@ class ElementwiseBinaryOperation_hls(
         # Generate code for unpacking elements read from the stream into the PE-
         # parallel buffer according to broadcasting semantics
         def unpack_buffer(shape):
-            if shape[-1] == 1 and self.pe != self.out_shape[-1]:
+            # A broadcast last axis holds a single element per stream word,
+            # replicated across the PE lanes here
+            if shape[-1] == 1:
                 return "buffer[0]"
             return "buffer[pe]"
 
@@ -746,12 +748,24 @@ out0_V.write(out_t);
             return super().code_generation_ipi()
         return cmd
 
+    def get_instream_width(self, ind=0):
+        # A runtime input with a broadcast last axis delivers one element per
+        # beat, as its folded shape and its producer have it; the kernel
+        # replicates it across the PE lanes. Operands fed by the memstream
+        # inside the node keep their PE-wide words: an internal_decoupled
+        # const, and the per-iteration rhs in a loop body (see
+        # code_generation_ipi).
+        style = [self.lhs_style, self.rhs_style][ind]
+        memstream_fed = ind == 1 and self.get_nodeattr("mlo_max_iter")
+        if style == "input" and not memstream_fed and self.get_normal_input_shape(ind)[-1] == 1:
+            return self.get_input_datatype(ind).bitwidth()
+        return super().get_instream_width(ind)
+
     def fold_input_for_npy(self, inp_val, ind):
-        # A broadcast operand's folded inner axis is 1 but its stream word is PE
-        # wide, so the cppsim feeder over-reads the scalar npy. Widen it to the
-        # stream word, but only for an npy-fed operand (runtime input or
-        # internal_decoupled const). An embedded const is read from params, not
-        # the npy, so there is nothing to widen.
+        # A broadcast internal_decoupled const has a folded inner axis of 1 but
+        # PE-wide stream words, so the cppsim feeder over-reads the scalar npy.
+        # Widen it to the stream word. Runtime inputs carry one element per
+        # beat, and an embedded const is read from params, not the npy.
         folded = super().fold_input_for_npy(inp_val, ind)
         style = [self.lhs_style, self.rhs_style][ind]
         stream_fed = style == "input" or (
