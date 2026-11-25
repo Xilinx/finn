@@ -1218,25 +1218,35 @@ def test_fpgadataflow_analytical_characterization_mvau_tiled(mw_pe_simd_th, mem_
     ), "tiled MVAU characterized TAV does not match RTLsim'd one!"
 
 
-@pytest.mark.parametrize("mem_mode,simd", [("external_mem", 1), ("dynamic", 32)])
-@pytest.mark.fpgadataflow
-def test_mvau_tree_model_declines_unmodelled_mem_modes(mem_mode, simd):
-    """``external_mem`` changes when weights arrive, and so does ``dynamic``
-    when its ``dynamic_load`` cannot refill a matrix while the other one is
-    replayed (``numInputVectors[-1] < SIMD``).
-
-    the tree model must decline them and let the node fall back to rtlsim
-    rather than hand out the internal_decoupled shape. No Vivado: this only asks
-    what the tree model returns.
-    """
-    mw, mh, pe = 32, 18, 9
+def _specialized_mvau(mw, mh, pe, simd, **attrs):
+    """A single specialized ``MVAU_rtl``. ``MVAUModel`` itself has no
+    ``schedule``, so a test that asks ``get_tree_model`` anything must
+    specialize first or the answer is ``None`` whatever the attributes say."""
     idt = wdt = DataType["INT4"]
     W = gen_finn_dt_tensor(wdt, (mw, mh))
     model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, DataType["INT32"], None, None)
     inst = getCustomOp(model.graph.node[0])
+    inst.set_nodeattr("preferred_impl_style", "rtl")
     inst.set_nodeattr("numInputVectors", [18])
-    inst.set_nodeattr("mem_mode", mem_mode)
-    assert get_tree_model(inst) is None
+    for k, v in attrs.items():
+        inst.set_nodeattr(k, v)
+    model = model.transform(SpecializeLayers("xcvc1902-vsva2197-2MP-e-S"))
+    return getCustomOp(model.graph.node[0])
+
+
+@pytest.mark.fpgadataflow
+def test_mvau_tree_model_declines_unmodelled_mem_modes():
+    """``dynamic`` is declined when its ``dynamic_load`` cannot refill a matrix
+    while the other one is replayed (``numInputVectors[-1] < SIMD``).
+
+    ``external_mem`` is *not* declined: its schedules were measured against
+    rtlsim on bert's and tinyvit's foldings and reproduce them, so it is here as
+    the negative case. What external memory changes is when the weights arrive
+    at the node, which is a property of the composition rather than of this
+    schedule. No Vivado: this only asks what the tree model returns.
+    """
+    assert get_tree_model(_specialized_mvau(32, 18, 9, 32, mem_mode="dynamic")) is None
+    assert get_tree_model(_specialized_mvau(32, 18, 9, 1, mem_mode="external_mem")) is not None
 
 
 def make_dynamic_mvau_model(heads, n_vec, mw, mh, pe, simd, impl_style):

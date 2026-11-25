@@ -47,14 +47,17 @@ class MVAUModel(TreeModel):
 
     Two configurations are declined outright rather than approximated:
 
-    * ``mem_mode="external_mem"``. It fetches the weights over AXI-MM, so they
-      cannot be assumed to keep pace with the compute, and the schedules
-      all assume they do. ``internal_embedded``, ``internal_decoupled`` and
-      ``external`` present the weights as an always-ready stream, which is
-      the regime the constants here hold in. So does ``dynamic`` as long as
-      its ``dynamic_load`` refills a bank faster than the compute replays the
-      other one (``numInputVectors[-1] >= SIMD``); its own streamed input is
-      added by ``derive_token_access_vectors``.
+    * ``mem_mode="dynamic"`` when its ``dynamic_load`` cannot refill a bank
+      faster than the compute replays the other one
+      (``numInputVectors[-1] < SIMD``); its own streamed input is added by
+      ``derive_token_access_vectors``. The other modes present the weights as
+      an always-ready stream, which is the regime the constants here hold in.
+      ``external_mem`` is not declined: fetching the weights over AXI-MM only
+      changes *when* a word arrives at the node, which stalls the whole
+      schedule uniformly rather than reshaping it -- a property of the
+      composition, not of this node's steady state. Its schedules were
+      measured against rtlsim on bert's and tinyvit's foldings and reproduce
+      them.
     * a folding whose period cannot hold the schedule at one transaction per
       cycle, or a single output for the whole node. See the guards in the
       subclasses.
@@ -64,8 +67,6 @@ class MVAUModel(TreeModel):
         """True for the memory modes the schedules do not describe (see above)."""
         mem_mode = op.get_nodeattr("mem_mode")
         n_reps = op.get_nodeattr("numInputVectors")[-1]
-        if mem_mode == "external_mem":
-            return True
         return mem_mode == "dynamic" and n_reps < op.get_nodeattr("SIMD")
 
     def folding(self, op):
