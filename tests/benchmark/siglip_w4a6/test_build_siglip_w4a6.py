@@ -13,7 +13,8 @@ from benchmark_helpers import (
 )
 from custom_steps_siglip import (
     step_assign_ddr_weight_offsets_for_loops,
-    step_force_uram_attention_fifos,
+    step_remove_patch_embed_shuffle_roundtrip,
+    step_threshold_before_attention_shuffles,
 )
 
 import finn.builder.build_dataflow as build
@@ -38,7 +39,13 @@ def test_siglip_w4a6(bench_recorder):
         benchmark_root(), "siglip_w4a6", "folding_config", "siglip_w4a6_folding_config_VCK190.json"
     )
     # the prepared model is already rolled, so the flow starts at the optimize phase
-    steps = ["phase_optimize_hardware", "phase_build_hardware", "phase_generate_outputs"]
+    steps = [
+        step_remove_patch_embed_shuffle_roundtrip,
+        step_threshold_before_attention_shuffles,
+        "phase_optimize_hardware",
+        "phase_build_hardware",
+        "phase_generate_outputs",
+    ]
     cfg = make_benchmark_cfg(
         "VCK190",
         output_dir,
@@ -59,11 +66,6 @@ def test_siglip_w4a6(bench_recorder):
         inject_steps_after={
             "step_assign_ddr_weight_offsets": [step_assign_ddr_weight_offsets_for_loops],
         },
-        inject_steps_before=(
-            {}
-            if os.environ.get("SIGLIP_W4A6_NO_URAM", "0") == "1"
-            else {"step_hw_codegen": [step_force_uram_attention_fifos]}
-        ),
     )
     assert build.build_dataflow_cfg(prepared_model, cfg) == 0
     bench_recorder("siglip-w4a6", "VCK190", output_dir)

@@ -27,13 +27,13 @@
     "runtime_writeable_weights": 0
   },
   "ElementwiseMul_rtl_0": {
-    "PE": 14,
+    "PE": 4,
     "ram_style": "auto",
     "mem_mode": "internal_decoupled",
     "runtime_writeable_weights": 0
   },
   "ElementwiseAdd_rtl_0": {
-    "PE": 14,
+    "PE": 4,
     "ram_style": "auto",
     "mem_mode": "internal_decoupled",
     "runtime_writeable_weights": 0
@@ -311,12 +311,6 @@
     "ram_style": "auto",
     "mem_mode": "internal_decoupled",
     "runtime_writeable_weights": 0
-  },
-  "Shuffle_0": {
-    "SIMD": 2
-  },
-  "Shuffle_1": {
-    "SIMD": 2
   },
   "FINNLoop_0_body_FINNLoop_0_Shuffle_0": {
     "SIMD": 64
