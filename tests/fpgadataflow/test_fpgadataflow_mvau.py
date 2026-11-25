@@ -1249,6 +1249,41 @@ def test_mvau_tree_model_declines_unmodelled_mem_modes():
     assert get_tree_model(_specialized_mvau(32, 18, 9, 1, mem_mode="external_mem")) is not None
 
 
+# (SF, NF, TH) straddling NF == SF*TH at two SF, plus the widest group of the
+# set. Measured against rtlsim at PE=3, SIMD=4, numInputVectors=18: the schedule
+# is exact on the configs marked False and walks away from the hardware by ~10 %
+# of a group, cumulatively, on the ones marked True.
+TILED_DRAIN_CONFIGS = [
+    ((2, 4, 3), False),  # NF < fm = 6
+    ((2, 8, 3), True),  # NF > fm
+    ((4, 8, 3), False),  # NF < fm = 12
+    ((4, 16, 3), True),
+    ((8, 27, 3), True),  # NF > fm = 24
+    ((27, 27, 3), False),  # fm = 81, the widest group of the set
+]
+
+
+@pytest.mark.parametrize("sf_nf_th,declined", TILED_DRAIN_CONFIGS)
+@pytest.mark.fpgadataflow
+def test_mvau_tiled_tree_model_declines_long_reorder_drain(sf_nf_th, declined):
+    """The tiled schedule is declined once the output reorder drain outgrows
+    what the next group's production can overlap.
+
+    The reorder buffer releases a group's tail as one run of ``TH*NF - (NF-1)``
+    words and can only overlap it with the next group's production, ``SF*TH``
+    cycles per fold. Past that the drain stops having the shape
+    ``tiled_schedule`` draws -- the writes within a group land wrong by ~10 % of
+    it and every group repeats the error -- so the node must fall back to
+    rtlsim. ``tiled_schedule``'s ``out_stall`` and drain-overlap guards place
+    that boundary; this pins it at the configurations it was measured at.
+    No Vivado: this only asks what the tree model returns.
+    """
+    sf, nf, th = sf_nf_th
+    pe, simd = 3, 4
+    inst = _specialized_mvau(sf * simd, nf * pe, pe, simd, TH=th, resType="dsp")
+    assert (get_tree_model(inst) is None) == declined
+
+
 def make_dynamic_mvau_model(heads, n_vec, mw, mh, pe, simd, impl_style):
     """A ``[1, heads, n_vec, mw] x [1, heads, mw, mh]`` dynamic MVAU, the shape of
     an attention matmul."""
