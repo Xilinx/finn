@@ -27,13 +27,15 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
+from typing import Any
 
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
-def dataflow_performance(model, use_characterized=False):
+def dataflow_performance(model: ModelWrapper, use_characterized: bool = False) -> dict[str, Any]:
     """Extract key performance indicators from given model with dataflow nodes.
     Note that the latency (critical path) analysis is very pessimistic, it
     assumes no overlap between executions and simply sums the expected cycles
@@ -59,7 +61,7 @@ def dataflow_performance(model, use_characterized=False):
     - max_cycles_node_name : name of slowest node
     - critical_path_cycles : pessimistic expected latency from input to output
     """
-    latency_at_node_output = {}
+    latency_at_node_output: dict[str, Any] = {}
     max_cycles = 0
     max_node_name = ""
 
@@ -94,7 +96,7 @@ def dataflow_performance(model, use_characterized=False):
     }
 
 
-def mlo_dataflow_performance(model):
+def mlo_dataflow_performance(model: ModelWrapper) -> dict[str, Any]:
     """Estimate the throughput of a model with FINNLoop (MLO) nodes.
 
     A FINNLoop runs its body once per iteration on every feature map, with the
