@@ -1481,6 +1481,12 @@ class FINNLoop(HWCustomOp, RTLBackend):
         cmd.append("create_bd_cell -type ip -vlnv %s %s" % (vlnv, self.onnx_node.name))
         return cmd
 
+    def get_xdc_files(self) -> list[tuple[str, str]]:
+        """The module constraints of the loop body's nodes: the IP stitched around
+        this node must carry them, as it drops those of the body's IP (subcore)."""
+        body = self.get_nodeattr("body")
+        return [xdc for node in body.graph.node for xdc in getCustomOp(node).get_xdc_files()]
+
     def get_rtl_file_list(self, abspath=False):
         pass
 

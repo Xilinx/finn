@@ -392,10 +392,13 @@ report_utilization -hierarchical -hierarchical_depth 5 -file $VITIS_PROJ_PATH$/s
 #   that v++ derived. Leaves a correct constraint and platforms without this clock
 #   alone.
 # - put the 1x and 2x clocks of each kernel-internal clock generator (CreateStitchedIP
-#   clk2x_gen) into a CLOCK_DELAY_GROUP of their own. The kernels carry this
-#   constraint, but Vivado does not read the implementation XDC of kernels packaged as
-#   synthesized checkpoints ("[Designutils 20-1275] Could not find cell 'inst'") and
-#   uses it instead of the constraints in their checkpoints.
+#   clk2x_gen) into a CLOCK_DELAY_GROUP of their own. The kernels used to carry this
+#   constraint as unscoped IP XDC, which Vivado cannot apply to kernels packaged as
+#   synthesized checkpoints ("[Designutils 20-1275] Could not find cell 'inst'").
+#   They now carry it as module constraint scoped to clk2x_domain (clk2x_domain.xdc),
+#   which Vivado applies to checkpoint IPs in block designs.
+#   TODO: confirm in a U55C link that impl_1/runme.log shows "Parsing XDC
+#   File [.../clk2x_domain.xdc] for cell" for every kernel and remove this part.
 vitis_kernel_clk_tcl = """
 proc finn_gcd {a b} { while {$b} { set t $b; set b [expr {$a % $b}]; set a $t }; return $a }
 set kpin [get_pins -quiet -hierarchical -filter {NAME =~ */ulp_ucs/aclk_kernel_00}]

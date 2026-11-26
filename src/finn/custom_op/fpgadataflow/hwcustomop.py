@@ -125,6 +125,22 @@ class HWCustomOp(CustomOp):
 
         return prefixed_top_name
 
+    def get_xdc_files(self) -> list[tuple[str, str]]:
+        """Module-specific implementation constraints of the node's hardware, as
+        pairs (absolute path of an XDC file, name of the HDL module it applies to).
+
+        CreateStitchedIP adds each file to the stitching project and packages it
+        with the stitched IP, scoped to the module (SCOPED_TO_REF) and for
+        implementation only (USED_IN implementation): Vivado reads it once for every
+        instance of the module, with the instance as current instance, in the
+        stitching project (run_pnr) and in every design that integrates the IP.
+
+        Return a file only in configurations whose hardware contains the module and
+        the objects its constraints select. The constraints should not use -quiet,
+        so that a miss, e.g. after a change of the HDL, shows up as a warning
+        rather than going unnoticed. A module gets at most one file."""
+        return []
+
     def get_verilog_top_module_intf_names(self):
         """Return a dict of names of input and output interfaces.
         The keys reflect the protocols each interface implements:
