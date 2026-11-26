@@ -62,8 +62,8 @@ module thresholding_axi #(
 
 	// Output width, at least the default minimum; wider outputs are sign-extended for BIAS < 0
 	parameter int unsigned  O_BITS = BIAS >= 0?
-		/* unsigned */ $clog2(N+BIAS+1) :
-		/* signed */ 1+$clog2(-BIAS >= N+BIAS+1? -BIAS : N+BIAS+1),
+		/* unsigned */ $clog2(int'(N)+BIAS+1) :
+		/* signed */ 1+$clog2(-BIAS >= int'(N)+BIAS+1? -BIAS : int'(N)+BIAS+1),
 
 	localparam int unsigned  CF = C/PE,	// Channel Fold
 	localparam int unsigned  IP_ADDR_WIDTH = $clog2(CF) + $clog2(PE) + $clog2(N),

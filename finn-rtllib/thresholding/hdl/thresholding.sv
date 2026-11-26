@@ -86,8 +86,8 @@ module thresholding #(
 
 	// Output width, at least the default minimum; wider outputs are sign-extended for BIAS < 0
 	parameter int unsigned  O_BITS = BIAS >= 0?
-		/* unsigned */ $clog2(N+BIAS+1) :
-		/* signed */ 1+$clog2(-BIAS >= N+BIAS+1? -BIAS : N+BIAS+1),
+		/* unsigned */ $clog2(int'(N)+BIAS+1) :
+		/* signed */ 1+$clog2(-BIAS >= int'(N)+BIAS+1? -BIAS : int'(N)+BIAS+1),
 
 	localparam int unsigned  CF = C/PE,  // Channel fold
 	localparam int unsigned  S_BITS = SETS > 2? $clog2(SETS) : 1
@@ -126,7 +126,7 @@ module thresholding #(
 			$error("Threshold precision KT=%0d must be within [1, K=%0d], and equal K for floating-point.", KT, K);
 			$finish;
 		end
-		if(O_BITS < (BIAS >= 0? $clog2(N+BIAS+1) : 1+$clog2(-BIAS >= N+BIAS+1? -BIAS : N+BIAS+1))) begin
+		if(O_BITS < (BIAS >= 0? $clog2(int'(N)+BIAS+1) : 1+$clog2(-BIAS >= int'(N)+BIAS+1? -BIAS : int'(N)+BIAS+1))) begin
 			$error("Output width O_BITS=%0d too narrow for N=%0d and BIAS=%0d.", O_BITS, N, BIAS);
 			$finish;
 		end
