@@ -66,7 +66,7 @@ module thresholding_axi #(
 		/* signed */ 1+$clog2(-BIAS >= int'(N)+BIAS+1? -BIAS : int'(N)+BIAS+1),
 
 	localparam int unsigned  CF = C/PE,	// Channel Fold
-	localparam int unsigned  IP_ADDR_WIDTH = $clog2(CF) + $clog2(PE) + $clog2(N),
+	localparam int unsigned  IP_ADDR_WIDTH = $clog2(SETS) + $clog2(CF) + $clog2(PE) + $clog2(N),
 	localparam int unsigned  ADDR_FOLD = 1 + (WT-1)/32,
 	localparam int unsigned  ADDR_WIDTH = IP_ADDR_WIDTH + $clog2(ADDR_FOLD) + 2,
 	localparam int unsigned  S_BITS = SETS > 2? $clog2(SETS) : 1
