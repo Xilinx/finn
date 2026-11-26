@@ -132,6 +132,16 @@ def sort_thresholds_increasing(thresholds):
     return np.sort(thresholds, axis=1)
 
 
+def thresholds_all_constant(thresholds, input_data_type):
+    """Whether every threshold is always or never met by inputs of the given
+    integer or fixed-point type, after rounding up to its grid."""
+    if not (input_data_type.is_integer() or input_data_type.is_fixed_point()):
+        return False
+    step = 1 if input_data_type.is_integer() else input_data_type.scale_factor()
+    rounded = np.ceil(np.asarray(thresholds, dtype=np.float64) / step) * step
+    return bool(np.all((rounded <= input_data_type.min()) | (rounded > input_data_type.max())))
+
+
 def make_single_multithresholding_modelwrapper(
     thresholds,
     input_data_type,
@@ -435,6 +445,11 @@ def test_fpgadataflow_thresholding(
     if impl_style == "hls":
         inst.set_nodeattr("mem_mode", mem_mode)
     if round_thresh is True:
+        if thresholds_all_constant(thresholds, input_data_type):
+            # the output would not depend on the input: rejected
+            with pytest.raises(ValueError, match="output is constant"):
+                model.transform(RoundAndClipThresholds())
+            return
         model = model.transform(RoundAndClipThresholds())
     model = model.transform(MinimizeWeightBitWidth())
     model = model.transform(GiveUniqueNodeNames())

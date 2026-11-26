@@ -40,7 +40,17 @@ import finn.core.onnx_exec as oxe
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
 )
-from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
+from finn.transformation.streamline.round_thresholds import (
+    RoundAndClipThresholds,
+    widened_datatype,
+)
+
+
+def expected_threshold_datatype(model, i_dtype):
+    """The input type, or the widened one if a threshold is never met."""
+    step = 1 if i_dtype.is_integer() else i_dtype.scale_factor()
+    never = model.get_initializer("thresholds") == np.float32(i_dtype.max() + step)
+    return widened_datatype(i_dtype) if np.any(never) else i_dtype
 
 
 def float32_floor(x):
@@ -164,11 +174,8 @@ def test_round_and_clip_thresholds_ints(op_type, i_dtype, o_dtype, n_elems):
     model = model.transform(RoundAndClipThresholds())
 
     # After this transformation, the thresholds and output data type should be
-    # inferred correctly
-    if not i_dtype.signed():
-        new_tdt = DataType.get_smallest_possible(i_dtype.max() + 1)
-    else:
-        new_tdt = DataType.get_smallest_possible(-(i_dtype.max() + 1) - 1)
+    # inferred correctly: the input type, widened only for never-met thresholds
+    new_tdt = expected_threshold_datatype(model, i_dtype)
     assert model.get_tensor_datatype("thresholds") == new_tdt
     assert model.get_tensor_datatype("out") == o_dtype
 
@@ -309,10 +316,7 @@ def test_round_and_clip_thresholds_floats(op_type, i_dtype, o_dtype, n_elems):
 
     model = model.transform(RoundAndClipThresholds())
 
-    if not i_dtype.signed():
-        new_tdt = DataType.get_smallest_possible(i_dtype.max() + 1)
-    else:
-        new_tdt = DataType.get_smallest_possible(-(i_dtype.max() + 1) - 1)
+    new_tdt = expected_threshold_datatype(model, i_dtype)
     assert model.get_tensor_datatype("thresholds") == new_tdt
     assert model.get_tensor_datatype("out") == o_dtype
 
@@ -438,11 +442,7 @@ def test_round_and_clip_thresholds_fxp(op_type, i_dtype, o_dtype, n_elems):
 
     model = model.transform(RoundAndClipThresholds())
 
-    max_val = i_dtype.max() / i_dtype.scale_factor() + 1
-    new_tdt_int = DataType.get_smallest_possible(-max_val - 1)
-    new_tdt = DataType[
-        f"FIXED<{new_tdt_int.bitwidth()},{new_tdt_int.bitwidth() - i_dtype.frac_bits()}>"
-    ]
+    new_tdt = expected_threshold_datatype(model, i_dtype)
     assert model.get_tensor_datatype("thresholds") == new_tdt
     assert model.get_tensor_datatype("out") == o_dtype
 
@@ -570,11 +570,7 @@ def test_round_and_clip_thresholds_fxp_float(op_type, i_dtype, o_dtype, n_elems)
 
     model = model.transform(RoundAndClipThresholds())
 
-    max_val = i_dtype.max() / i_dtype.scale_factor() + 1
-    new_tdt_int = DataType.get_smallest_possible(-max_val - 1)
-    new_tdt = DataType[
-        f"FIXED<{new_tdt_int.bitwidth()},{new_tdt_int.bitwidth() - i_dtype.frac_bits()}>"
-    ]
+    new_tdt = expected_threshold_datatype(model, i_dtype)
     assert model.get_tensor_datatype("thresholds") == new_tdt
     assert model.get_tensor_datatype("out") == o_dtype
 
@@ -753,3 +749,86 @@ def test_round_and_clip_thresholds_mvau_vvau(op_type, i_dtype, o_dtype, wdt, n_c
     assert np.all(
         output_before == output_after
     ), "Output changed after RoundAndClipThresholds transformation"
+
+
+@pytest.mark.parametrize("op_type", ["MultiThreshold", "Thresholding"])
+@pytest.mark.parametrize(
+    "thresholds,kept,num_always,widened",
+    [
+        # columns never met in all channels are dropped, always met ones go into the bias
+        ([[-200, -3, 5, 300], [-129, 0, 9, 128]], [[-3, 5], [0, 9]], 1, False),
+        # a channel keeps a never-met threshold: the type needs one more value
+        ([[-3, 5, 128], [0, 9, 10]], [[-3, 5, 128], [0, 9, 10]], 0, True),
+        # every column constant: the output does not depend on the input
+        ([[-200, 300], [-129, 128]], None, 0, False),
+        ([[300, 400], [128, 500]], None, 0, False),
+        # mixed across channels, yet every channel constant
+        ([[-200, -150], [300, 400]], None, 0, False),
+        # unsorted thresholds are sorted per channel
+        ([[5, -3, 300], [9, 0, 200]], [[-3, 5], [0, 9]], 0, False),
+    ],
+)
+@pytest.mark.streamline
+def test_round_and_clip_thresholds_drop_constant(op_type, thresholds, kept, num_always, widened):
+    """Threshold columns constant over all channels are removed: never-met ones
+    without trace, always-met ones into the output bias. The threshold type is
+    the input type unless a channel keeps a never-met threshold. A node whose
+    thresholds are all constant is rejected."""
+    i_dtype, o_dtype = DataType["INT8"], DataType["INT4"]
+    thresholds = np.asarray(thresholds, dtype=np.float32)
+    n_elems, n_thresholds = thresholds.shape
+    bias = -8
+    if op_type == "MultiThreshold":
+        node = helper.make_node(
+            "MultiThreshold",
+            domain="qonnx.custom_op.general",
+            inputs=["inp", "thresholds"],
+            outputs=["out"],
+            out_dtype=str(o_dtype),
+            out_bias=float(bias),
+        )
+    else:
+        node = helper.make_node(
+            "Thresholding",
+            ["inp", "thresholds"],
+            ["out"],
+            domain="finn.custom_op.fpgadataflow",
+            backend="fpgadataflow",
+            NumChannels=n_elems,
+            PE=1,
+            inputDataType=i_dtype.name,
+            weightDataType="INT32",
+            outputDataType=o_dtype.name,
+            numInputVectors=[1],
+            numSteps=n_thresholds,
+            ActVal=bias,
+        )
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, n_elems])
+    out = helper.make_tensor_value_info("out", TensorProto.FLOAT, [1, n_elems])
+    graph = helper.make_graph([node], "thresholds", [inp], [out])
+    model = ModelWrapper(helper.make_model(graph))
+    model.set_tensor_datatype("inp", i_dtype)
+    model.set_tensor_datatype("out", o_dtype)
+    model.set_initializer("thresholds", thresholds)
+    model.set_tensor_datatype("thresholds", DataType["INT32"])
+
+    inputs = [np.full((1, n_elems), v, dtype=np.float32) for v in (-128, -4, 0, 5, 9, 10, 127)]
+    out_expected = [oxe.execute_onnx(model, {"inp": x})["out"] for x in inputs]
+
+    if kept is None:
+        with pytest.raises(ValueError, match="output is constant"):
+            model.transform(RoundAndClipThresholds())
+        return
+    model = model.transform(RoundAndClipThresholds())
+
+    assert np.array_equal(model.get_initializer("thresholds"), np.asarray(kept, np.float32))
+    expected_tdt = widened_datatype(i_dtype) if widened else i_dtype
+    assert model.get_tensor_datatype("thresholds") == expected_tdt
+    inst = getCustomOp(model.graph.node[0])
+    if op_type == "MultiThreshold":
+        assert inst.get_nodeattr("out_bias") == bias + num_always
+    else:
+        assert inst.get_nodeattr("ActVal") == bias + num_always
+        assert inst.get_nodeattr("numSteps") == len(kept[0])
+    for x, y in zip(inputs, out_expected):
+        assert np.array_equal(oxe.execute_onnx(model, {"inp": x})["out"], y)

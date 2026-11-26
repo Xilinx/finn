@@ -28,11 +28,60 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
+from onnx import NodeProto
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.infer_datatypes import InferDataTypes
+
+def widened_datatype(dtype: DataType) -> DataType:
+    """The type of dtype extended by one value above its maximum (max + step)."""
+    if dtype.is_integer():
+        max_val = dtype.max() + 1
+        if not dtype.signed():
+            return DataType.get_smallest_possible(max_val)
+        return DataType.get_smallest_possible(-(max_val) - 1)
+    # smallest underlying integer representation of max + step
+    max_val = dtype.max() / dtype.scale_factor() + 1
+    tdt_int = DataType.get_smallest_possible(-max_val - 1)
+    return DataType[f"FIXED<{tdt_int.bitwidth()},{tdt_int.bitwidth() - dtype.frac_bits()}>"]
+
+
+def drop_constant_thresholds(
+    thresholds: np.ndarray, always: float, never: float, name: str
+) -> tuple[np.ndarray, int]:
+    """Sorts the thresholds of each channel and removes the threshold columns
+    that are constant for all channels: those never met (>= never) and those
+    always met (<= always). Returns the remaining thresholds and the number of
+    removed always-met columns, which the caller adds to the output bias.
+
+    Counting thresholds is invariant under their order, so sorting changes no
+    result. If every threshold is always or never met, the output of each
+    channel does not depend on the input, which a thresholding node cannot
+    implement: raises a ValueError.
+    """
+    if np.all((thresholds <= always) | (thresholds >= never)):
+        # every channel's output is a constant, even if columns are mixed
+        raise ValueError(
+            f"{name}: every threshold is always or never met over the input range, "
+            "so the output is constant"
+        )
+    thresholds = np.sort(thresholds, axis=-1)
+    num = thresholds.shape[-1]
+    num_always = int(np.all(thresholds <= always, axis=0).sum())
+    num_never = int(np.all(thresholds >= never, axis=0).sum())
+    return thresholds[..., num_always : num - num_never], num_always
+
+
+def shift_output_bias(node: NodeProto, num_always: int) -> None:
+    """Adds the count of removed always-met thresholds to the output bias."""
+    inst = getCustomOp(node)
+    if node.op_type == "MultiThreshold":
+        bias = inst.get_nodeattr("out_bias") + num_always * inst.get_nodeattr("out_scale")
+        inst.set_nodeattr("out_bias", float(bias))
+    else:
+        inst.set_nodeattr("ActVal", inst.get_nodeattr("ActVal") + num_always)
 
 
 class RoundAndClipThresholds(Transformation):
@@ -56,42 +105,38 @@ class RoundAndClipThresholds(Transformation):
                 # operating on integer inputs
                 if not (dtype.is_integer() or dtype.is_fixed_point()):
                     continue
-                if dtype.is_integer():
-                    # Round thresholds up to nearest integer and clip thresholds
-                    # outside the input range
-                    #   Note: This might promote the thresholds to float64 and
-                    #   introduce extra inaccuracies due to large integers not being
-                    #   exactly representable in floating-point representation.
-                    #   See for example: np.ceil(np.float32(16777217)) == 16777216
-                    new_thresholds = np.clip(np.ceil(thresholds), dtype.min(), dtype.max() + 1)
-                    # Convert back to the preferred float32 container type
-                    new_thresholds = new_thresholds.astype(np.float32)
-                    # Insert the rounded and clipped thresholds back into the model
-                    model.set_initializer(node.input[1], new_thresholds)
-                    # The rounded and clipped thresholds now fit into a data type
-                    # that is one bit bigger than the input datatype
-                    # Determine new max_value
-                    max_val = dtype.max() + 1
-                    if not dtype.signed():
-                        tdt = DataType.get_smallest_possible(max_val)
-                    else:
-                        tdt = DataType.get_smallest_possible(-(max_val) - 1)
-                elif dtype.is_fixed_point():
-                    # Round thresholds up to nearest representable value
-                    # of the input datatype
-                    new_thresholds = np.clip(
-                        np.ceil(thresholds / dtype.scale_factor()) * dtype.scale_factor(),
-                        dtype.min(),
-                        dtype.max() + dtype.scale_factor(),
+                # Round thresholds up to the nearest value of the input type and
+                # clip them to [min, max + step]: a threshold at or below min is
+                # always met, one above max never.
+                #   Note: This might promote the thresholds to float64 and
+                #   introduce extra inaccuracies due to large integers not being
+                #   exactly representable in floating-point representation.
+                #   See for example: np.ceil(np.float32(16777217)) == 16777216
+                step = 1 if dtype.is_integer() else dtype.scale_factor()
+                never = dtype.max() + step
+                new_thresholds = np.clip(np.ceil(thresholds / step) * step, dtype.min(), never)
+                runtime = op_type.startswith("Thresholding") and (
+                    getCustomOp(node).get_nodeattr("runtime_writeable_weights")
+                    or getCustomOp(node).get_nodeattr("mlo_max_iter")
+                )
+                if not runtime:
+                    new_thresholds, num_always = drop_constant_thresholds(
+                        new_thresholds, dtype.min(), never, node.name or node.op_type
                     )
-                    new_thresholds = new_thresholds.astype(np.float32)
-                    model.set_initializer(node.input[1], new_thresholds)
-                    # find smallest underlying integer representation for the thresholds
-                    max_val = dtype.max() / dtype.scale_factor() + 1
-                    tdt_int = DataType.get_smallest_possible(-max_val - 1)
-                    tdt = DataType[
-                        f"FIXED<{tdt_int.bitwidth()},{tdt_int.bitwidth() - dtype.frac_bits()}>"
-                    ]
+                    if num_always > 0:
+                        shift_output_bias(node, num_always)
+                    if op_type.startswith("Thresholding"):
+                        getCustomOp(node).set_nodeattr("numSteps", new_thresholds.shape[-1])
+                # Convert back to the preferred float32 container type
+                new_thresholds = new_thresholds.astype(np.float32)
+                model.set_initializer(node.input[1], new_thresholds)
+                # The thresholds fit the input type unless a channel keeps a
+                # threshold that is never met; it needs one more value, max + step.
+                # Thresholds written at runtime may take any value.
+                if runtime or np.any(new_thresholds == never):
+                    tdt = widened_datatype(dtype)
+                else:
+                    tdt = dtype
 
                 model.set_tensor_datatype(node.input[1], tdt)
                 # If hw op we need to set the weight data type attribute as well
@@ -99,7 +144,7 @@ class RoundAndClipThresholds(Transformation):
                     inst = getCustomOp(node)
                     inst.set_nodeattr("weightDataType", tdt.name)
                 # ones
-                if np.any(new_thresholds != thresholds):
+                if new_thresholds.shape != thresholds.shape or np.any(new_thresholds != thresholds):
                     # Track the graph has been modified to inform the transform
                     # container to exhaustively repeat this transformation until
                     # no changes are possible
