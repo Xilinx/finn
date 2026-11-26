@@ -35,7 +35,6 @@ from qonnx.core.datatype import DataType
 from qonnx.custom_op.general.multithreshold import multithreshold
 from qonnx.util.basic import (
     calculate_matvec_accumulator_range,
-    get_by_name,
     interleave_matrix_outer_dim_from_partitions,
     roundup_to_integer_multiple,
 )
@@ -1066,7 +1065,7 @@ class MVAU(HWCustomOp):
                 intf_names["aximm"].append(("axi_mm", 64))
                 if self.get_nodeattr("mlo_max_iter") > 0:
                     intf_names["s_axis"].append(("in_idx0_V", 32))
-                    if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
+                    if self.get_nodeattr("mem_bank") == 0:
                         intf_names["ap_none"].append("base_address")
             case "dynamic" | "external":
                 intf_names["s_axis"].append(("in1_V", self.get_instream_width_padded(1)))
@@ -1197,7 +1196,7 @@ class MVAU(HWCustomOp):
                             % (node_name, "in_idx0_V")
                         )
 
-                        if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
+                        if self.get_nodeattr("mem_bank") == 0:
                             ba_name = self.get_verilog_top_module_intf_names()["ap_none"][0]
                             cmd.append(
                                 "create_bd_pin -dir I -from 63 -to 0 /%s/%s" % (node_name, ba_name)
@@ -1298,7 +1297,7 @@ class MVAU(HWCustomOp):
                             % (node_name, "in_idx0_V", node_name, strm_inst, "in_idx0_V")
                         )
 
-                        if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
+                        if self.get_nodeattr("mem_bank") == 0:
                             cmd.append(
                                 "connect_bd_net [get_bd_pins %s/%s] "
                                 "[get_bd_pins %s/%s/%s]"
@@ -1432,3 +1431,12 @@ class MVAU(HWCustomOp):
         size = n_words * (data_bits // 8)
         offs = size  # already AXI bus-width aligned
         return size, offs
+
+    def get_mlo_traffic_bytes(self):
+        """Bytes fetched from external memory per iteration of the loop. The weight
+        matrix once for TH=1 (the local weight buffer replays it) and
+        numInputVectors/TH times for TH>1, as in get_exp_weight_fetch_cycles."""
+        th = self.get_nodeattr("TH")
+        n_vec = int(np.prod(self.get_nodeattr("numInputVectors")))
+        fetches = max(1, n_vec // th) if th > 1 else 1
+        return fetches * self.get_weight_mem_bytes()[1]

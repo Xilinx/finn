@@ -40,7 +40,7 @@ import warnings
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
-from qonnx.util.basic import get_by_name, roundup_to_integer_multiple
+from qonnx.util.basic import roundup_to_integer_multiple
 from string import Template
 from typing import Dict, Optional, Sequence, Tuple, Union
 
@@ -534,7 +534,7 @@ class MakePYNQDriver(Transformation):
                 idma_idx += 1
 
         mlo_weight_entries = []
-        mlo_total_bytes = 0
+        mlo_buffer_ends = []
         mlo_axilite_ips = []
         for sdp_node in model.graph.node:
             dataflow_model = ModelWrapper(getCustomOp(sdp_node).get_nodeattr("model"))
@@ -542,7 +542,7 @@ class MakePYNQDriver(Transformation):
                 if node.op_type != "FINNLoop":
                     continue
                 fl_inst = getCustomOp(node)
-                if get_by_name(node.attribute, "address_offset") is None:
+                if fl_inst.get_nodeattr("mem_bank") < 0:
                     continue
                 fl_code_gen_dir = fl_inst.get_nodeattr("code_gen_dir_ipgen")
                 fl_body = fl_inst.get_nodeattr("body")
@@ -553,7 +553,9 @@ class MakePYNQDriver(Transformation):
                     dat_src = "%s/memblock_MVAU_rtl_id_%d.dat" % (fl_code_gen_dir, idx)
                     if not os.path.isfile(dat_src):
                         continue
-                    address_offset = int(getCustomOp(consumer).get_nodeattr("address_offset"))
+                    mvau_inst = getCustomOp(consumer)
+                    bank = mvau_inst.get_nodeattr("mem_bank")
+                    address = mvau_inst.get_nodeattr("address_offset")
                     num_bytes = int(dat_file_to_numpy_array(dat_src).shape[0])
                     dat_name = "%s_memblock_MVAU_rtl_id_%d.dat" % (node.name, idx)
                     os.makedirs(mlo_weights_dir, exist_ok=True)
@@ -561,21 +563,30 @@ class MakePYNQDriver(Transformation):
                     mlo_weight_entries.append(
                         {
                             "dat_file": dat_name,
-                            "address_offset": address_offset,
+                            "bank": int(bank),
+                            "address": int(address),
                             "num_bytes": num_bytes,
                         }
                     )
+                    if bank == 0:
+                        mlo_buffer_ends.append(address + num_bytes)
                     if sdp_node.name not in mlo_axilite_ips:
                         mlo_axilite_ips.append(sdp_node.name)
-                # full buffer size = weight regions + intermediate-frame region
-                loop_address_offset = int(fl_inst.get_nodeattr("address_offset"))
-                mlo_total_bytes = loop_address_offset + fl_inst.intermediate_frame_bytes()
+                # the buffer also holds the intermediate frames, unless they have a
+                # fixed address as well
+                if fl_inst.get_nodeattr("mem_bank") == 0:
+                    mlo_buffer_ends.append(
+                        fl_inst.get_nodeattr("address_offset") + fl_inst.intermediate_frame_bytes()
+                    )
 
         if len(mlo_weight_entries) > 0:
             mlo_config = {
-                "total_size_bytes": int(roundup_to_integer_multiple(mlo_total_bytes, 32)),
+                "total_size_bytes": int(
+                    roundup_to_integer_multiple(max(mlo_buffer_ends, default=0), 32)
+                ),
                 "weights": mlo_weight_entries,
                 "address_config_ips": mlo_axilite_ips,
+                "cdma_ip": "mlo_cdma" if any(e["bank"] > 0 for e in mlo_weight_entries) else "",
             }
         else:
             mlo_config = {}

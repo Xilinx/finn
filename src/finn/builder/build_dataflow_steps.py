@@ -106,9 +106,7 @@ from finn.transformation.fpgadataflow.alveo_build import (
     check_no_clk2x,
 )
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
-from finn.transformation.fpgadataflow.assign_ddr_weight_offsets import (
-    AssignMemoryOffset,
-)
+from finn.transformation.fpgadataflow.assign_ddr_weight_offsets import AssignMemory
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
@@ -178,7 +176,7 @@ from finn.transformation.streamline.reorder import (
     MoveTransposePastJoinAdd,
 )
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import get_rtlsim_trace_depth, robust_rmtree
+from finn.util.basic import get_mlo_memory, get_rtlsim_trace_depth, robust_rmtree
 from finn.util.config import (
     extract_model_config_consolidate_shuffles,
     extract_model_config_to_json,
@@ -1832,7 +1830,7 @@ def step_assign_ddr_weight_offsets(model: ModelWrapper, cfg: DataflowBuildConfig
     Must run before step_hw_codegen, because PrepareIP bakes the assigned
     address_offset into the generated RTL, and after folding/bit-width
     minimization, because the offsets depend on the final weight layout.
-    No-op unless MLO is enabled. AssignMemoryOffset itself skips any FINNLoop
+    No-op unless MLO is enabled. AssignMemory itself skips any FINNLoop
     node whose mem_type attribute is not "DDR".
 
     Any FINNLoop whose mem_type is still unset is resolved here
@@ -1851,7 +1849,8 @@ def step_assign_ddr_weight_offsets(model: ModelWrapper, cfg: DataflowBuildConfig
                         "for boards with DDR. Set mem_type in the folding config to "
                         "override." % (node.name, cfg.board)
                     )
-        model = model.transform(AssignMemoryOffset())
+        memory = get_mlo_memory(cfg.board)
+        model = model.transform(AssignMemory(banks=memory["banks"], ports=memory["ports"]))
     return model
 
 

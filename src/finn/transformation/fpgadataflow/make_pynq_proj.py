@@ -37,6 +37,7 @@ from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.util.basic import get_num_default_workers
 from shutil import copy
 
+from finn.transformation.fpgadataflow.assign_ddr_weight_offsets import mlo_regions
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
@@ -162,6 +163,10 @@ class MakePYNQProject(Transformation):
         aximm_idx = 0
         axilite_idx = 0
         instance_names = {}
+        # AXI-MM masters of the kernels other than the I/O DMAs (MLO weights and frames),
+        # as the pins on every memory port
+        masters = {}
+        need_cdma = False
         for node in model.graph.node:
             assert node.op_type == "StreamingDataflowPartition", "Invalid link graph"
             sdp_node = getCustomOp(node)
@@ -261,6 +266,21 @@ class MakePYNQProject(Transformation):
                         % (instance_names[node.name], axilite_intf_name)
                     )
                     axilite_idx += 1
+                # the masters are connected below, once all of them are known. The port
+                # is the one chosen by AssignMemory (in mem_port_id), a master that is not
+                # an MLO region (or has none assigned) uses port 0
+                regions = mlo_regions(kernel_model)
+                port_of_intf = {
+                    r["intf_name"]: max(r["inst"].get_nodeattr("mem_port_id"), 0) for r in regions
+                }
+                for intf_name, _ in ifnames["aximm"]:
+                    masters.setdefault(port_of_intf.get(intf_name, 0), []).append(
+                        "%s/%s" % (instance_names[node.name], intf_name)
+                    )
+                # weights in a fixed-address bank are loaded by an AXI CDMA
+                need_cdma |= any(
+                    "body" not in r and r["inst"].get_nodeattr("mem_bank") > 0 for r in regions
+                )
             sdp_node.set_nodeattr("instance_name", instance_names[node.name])
 
             config.append(
@@ -287,6 +307,49 @@ class MakePYNQProject(Transformation):
                                 j,
                             )
                         )
+
+        for port, pins in sorted(masters.items()):
+            if port == 0:
+                for pin in pins:
+                    config.append(
+                        "connect_bd_intf_net [get_bd_intf_pins %s] "
+                        "[get_bd_intf_pins smartconnect_0/S%02d_AXI]" % (pin, aximm_idx)
+                    )
+                    aximm_idx += 1
+                continue
+            sc = "smartconnect_mlo%d" % port
+            config.append("create_bd_cell -type ip -vlnv $smartconnect_vlnv %s" % sc)
+            config.append(
+                "set_property -dict [list CONFIG.NUM_SI {%d} CONFIG.NUM_MI {1}] "
+                "[get_bd_cells %s]" % (len(pins), sc)
+            )
+            config.append(
+                "connect_bd_intf_net [get_bd_intf_pins %s/M00_AXI] [mlo_port %d]" % (sc, port)
+            )
+            for i, pin in enumerate(pins):
+                config.append(
+                    "connect_bd_intf_net [get_bd_intf_pins %s] "
+                    "[get_bd_intf_pins %s/S%02d_AXI]" % (pin, sc, i)
+                )
+            config.append("connect_bd_net [get_bd_pins %s] [get_bd_pins %s/aclk]" % (clk_pin, sc))
+            config.append(
+                "connect_bd_net [get_bd_pins %s] [get_bd_pins %s/aresetn]" % (rst_pin, sc)
+            )
+
+        if need_cdma:
+            assert versal, "Only the Versal shell has an AXI CDMA for fixed-address memory banks"
+            config.append(
+                "add_mlo_cdma mlo_cdma %d %s %s %d %d"
+                % (
+                    pynq_native_port_width[self.platform],
+                    clk_pin,
+                    rst_pin,
+                    aximm_idx,
+                    axilite_idx,
+                )
+            )
+            aximm_idx += 1
+            axilite_idx += 1
 
         # create a temporary folder for the project
         vivado_pynq_proj_dir = make_build_dir(prefix="vivado_pynq_proj_")

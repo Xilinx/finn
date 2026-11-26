@@ -402,8 +402,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         code_gen_dict["$OLEN_BITS$"] = [str(self.get_outstream_width(0))]
         code_gen_dict["$DATA_BITS$"] = [str(DMA_DATA_BITS)]
         code_gen_dict["$N_OUTSTANDING_DMAS$"] = [str(N_OUTSTANDING_DMAS)]
-        # Intermediate frame address offset
-        code_gen_dict["$ADDRESS_OFFSET$"] = [str(self.get_nodeattr("address_offset"))]
+        code_gen_dict["$ADDRESS_OFFSET$"] = ["64'h%x" % self.get_nodeattr("address_offset")]
 
         input_elements = int(np.prod(self.get_normal_input_shape(0)))
         code_gen_dict["$INPUT_ELEMS$"] = [str(input_elements)]
@@ -415,7 +414,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
             # transform list into long string separated by '\n'
             code_gen_line = "\n".join(value)
             template_wrapper = template_wrapper.replace(key, code_gen_line)
-        if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
+        if self.get_nodeattr("mem_bank") == 0:
             template_wrapper = "`define HAS_BASE_ADDRESS\n" + template_wrapper
         with open(
             os.path.join(code_gen_dir, self.onnx_node.name + "_wrapper.v"),
@@ -424,7 +423,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
             f.write(template_wrapper)
 
     def generate_params(self, model, path, fpgapart=None):
-        if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
+        if self.get_nodeattr("mem_bank") >= 0:
             ac_template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mlo/address_config_wrapper.v"
             ac_module_name = self.onnx_node.name + "_address_config_wrapper"
             with open(ac_template_path, "r") as f:
@@ -1231,7 +1230,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
             % (block_name, finn_ip_name)
         )
 
-        if not parallel and get_by_name(self.onnx_node.attribute, "address_offset") is not None:
+        if not parallel and self.get_nodeattr("mem_bank") >= 0:
             ac_module_name = self.onnx_node.name + "_address_config_wrapper"
             ac_inst_name = f"{self.onnx_node.name}/address_config"
             cmd.append("add_files -norecurse %s/%s.v" % (code_gen_dir, ac_module_name))
@@ -1246,14 +1245,18 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
                 % (self.onnx_node.name, clk_name, ac_inst_name, clk_name)
             )
-            cmd.append(
-                "connect_bd_net [get_bd_pins %s/base_address] [get_bd_pins %s/base_address]"
-                % (ac_inst_name, finn_ip_name)
-            )
-            cmd.append(
-                "connect_bd_net [get_bd_pins %s/base_address] [get_bd_pins %s/base_address]"
-                % (ac_inst_name, loop_shell_name)
-            )
+            # the base address only goes to the data that is addressed relative to it:
+            # weights and frames in a fixed-address bank have no base_address port
+            if "base_address" in loop_body_intf_names.get("ap_none", []):
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/base_address] [get_bd_pins %s/base_address]"
+                    % (ac_inst_name, finn_ip_name)
+                )
+            if self.get_nodeattr("mem_bank") == 0:
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/base_address] [get_bd_pins %s/base_address]"
+                    % (ac_inst_name, loop_shell_name)
+                )
             cmd.append(
                 "create_bd_intf_pin -mode Slave "
                 "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/s_axilite" % self.onnx_node.name
@@ -1337,7 +1340,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 "set_property name m_axi_intermediate_frame "
                 "[get_bd_intf_ports m_axi_intermediate_frame_0]"
             )
-            if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
+            if self.get_nodeattr("mem_bank") >= 0:
                 cmd.append("set_property name s_axilite [get_bd_intf_ports s_axilite_0]")
         # set property name for aximm interfaces
         ext_signals = loop_body_intf_names["aximm"]
@@ -1450,7 +1453,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         intf_names["aximm"] = []
         # AXI4 master interface for intermediate buffering between layers
         intf_names["aximm"].append(["m_axi_intermediate_frame", str(addr_bits)])
-        offset_attr = get_by_name(self.onnx_node.attribute, "address_offset") is not None
+        offset_attr = self.get_nodeattr("mem_bank") >= 0
         intf_names["axilite"] = ["s_axilite"] if offset_attr else []
 
         intf_names["ap_none"] = []
@@ -1495,3 +1498,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
         dma_beat_bytes = DMA_DATA_BITS // 8
         slot_bytes = dma_beats * dma_beat_bytes
         return N_OUTSTANDING_DMAS * slot_bytes
+
+    def get_mlo_traffic_bytes(self):
+        """Bytes moved to and from external memory per iteration of the loop: one
+        intermediate frame (one slot) is written and read back."""
+        return 2 * self.intermediate_frame_bytes() // N_OUTSTANDING_DMAS

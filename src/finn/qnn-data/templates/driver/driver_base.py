@@ -174,16 +174,24 @@ class FINNExampleOverlay(Overlay):
                 + "Is runtime_weight_dir pointing to the correct folder?"
             )
 
-    def load_mlo_weights(self):
-        """Load DDR weights for MLO/FINNLoop accelerators."""
+    def load_mlo_weights(self, verify=True):
+        """Load DDR weights for MLO/FINNLoop accelerators.
+
+        Weights with a relative address go into one buffer that is allocated here,
+        and whose physical address is written to the base address register of the
+        accelerator. Weights with an absolute address live in a memory bank at a
+        fixed address (LPDDR on the VCK190). The AXI CDMA of the design copies them
+        there from a staging buffer.
+        """
         self.mlo_weight_buffer = None
         mlo_cfg = self._io_shape_dict.get("mlo_weight_config")
         if not mlo_cfg:
             return
         total_size = mlo_cfg["total_size_bytes"]
-        # allocate one big contiguous buffer for all MLO weights
-        weight_buf = allocate(shape=(total_size,), dtype=np.uint8)
+        # allocate one big contiguous buffer for all MLO weights with a relative address
+        weight_buf = allocate(shape=(max(total_size, 1),), dtype=np.uint8)
         weight_buf[:] = 0
+        absolute_weights = []
         for entry in mlo_cfg["weights"]:
             dat_path = os.path.join(self.mlo_weight_dir, entry["dat_file"])
             with open(dat_path, "r") as f:
@@ -194,13 +202,80 @@ class FINNExampleOverlay(Overlay):
                     tok = "0" + tok
                 raw += bytes.fromhex(tok)[::-1]
             layer_bytes = np.frombuffer(bytes(raw), dtype=np.uint8)
-            offset = entry["address_offset"]
+            if entry["bank"] > 0:
+                absolute_weights.append((entry["address"], layer_bytes))
+                continue
+            offset = entry["address"]
             assert offset + layer_bytes.shape[0] <= total_size, (
                 "MLO weight %s does not fit in the allocated DDR buffer" % entry["dat_file"]
             )
             weight_buf[offset : offset + layer_bytes.shape[0]] = layer_bytes
         weight_buf.flush()
         self.mlo_weight_buffer = weight_buf
+
+        if absolute_weights:
+            cdma_name = mlo_cfg.get("cdma_ip")
+            if not cdma_name or cdma_name not in self.ip_dict.keys():
+                raise RuntimeError(
+                    "MLO weights live in a fixed-address memory bank, but the design has "
+                    "no AXI CDMA (%s) to load them" % cdma_name
+                )
+            cdma = getattr(self, cdma_name)
+            # bytes per CDMA transfer, below the BTT limit
+            chunk_bytes = 32 * 1024 * 1024
+            images = []
+            for address, data in sorted(absolute_weights, key=lambda w: w[0]):
+                start = address // 64 * 64
+                if not images or start - (images[-1][0] + len(images[-1][1])) >= chunk_bytes:
+                    images.append([start, bytearray()])
+                start, image = images[-1]
+                image += bytes(address - start - len(image)) + data.tobytes()
+            for start, image in images:
+                image += bytes(-len(image) % 64)
+                image = np.frombuffer(image, dtype=np.uint8)
+                # stage the image in a DDR buffer and copy it chunk by chunk with the CDMA
+                chunk = min(chunk_bytes, image.shape[0])
+                staging = allocate(shape=(chunk,), dtype=np.uint8)
+                try:
+                    for do_verify in (False, True) if verify else (False,):
+                        for off in range(0, image.shape[0], chunk):
+                            m = min(chunk, image.shape[0] - off)
+                            if do_verify:
+                                staging[:] = 0
+                                src, dst = start + off, int(staging.device_address)
+                            else:
+                                staging[:m] = image[off : off + m]
+                                src, dst = int(staging.device_address), start + off
+                            staging.flush()
+                            # soft reset, clears itself
+                            cdma.write(0x00, 0x4)
+                            t0 = time.time()
+                            while cdma.read(0x00) & 0x4 or not cdma.read(0x04) & 0x2:
+                                if time.time() - t0 > 1.0:
+                                    raise RuntimeError("AXI CDMA reset did not complete")
+                            cdma.write(0x18, src & 0xFFFFFFFF)
+                            cdma.write(0x1C, (src >> 32) & 0xFFFFFFFF)
+                            cdma.write(0x20, dst & 0xFFFFFFFF)
+                            cdma.write(0x24, (dst >> 32) & 0xFFFFFFFF)
+                            cdma.write(0x28, m)  # bytes to transfer, starts the transfer
+                            t0 = time.time()
+                            sr = cdma.read(0x04)
+                            while sr & 0x2 == 0:
+                                assert time.time() - t0 < 10.0, "AXI CDMA timeout, status 0x%x" % sr
+                                sr = cdma.read(0x04)
+                            # on an error the CDMA halts and goes idle with the error bit
+                            # set, so the status is checked once the transfer has ended
+                            assert sr & 0x70 == 0, (
+                                "AXI CDMA error, status 0x%x (4: internal, 5: slave, "
+                                "6: decode)" % sr
+                            )
+                            if do_verify:
+                                staging.invalidate()
+                                assert np.array_equal(
+                                    np.asarray(staging[:m]), image[off : off + m]
+                                ), "MLO weight verification failed at address 0x%x" % (start + off)
+                finally:
+                    staging.freebuffer()
 
         # write buffer physical DDR address
         phys_addr = int(weight_buf.device_address)
