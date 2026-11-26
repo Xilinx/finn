@@ -163,7 +163,8 @@ module thresholding_tb;
 				void'(std::randomize(r));
 				// thresholds of KT bits, extended to the input precision
 				foreach(row[i])  row[i] = SIGNED? val_t'($signed(r[i])) : val_t'(r[i]);
-				row.sort with (reord(item));
+				// Key inlined: xelab 2024.2 crashes on reord(item) here
+				row.sort with (item ^ {SIGNED, {(K-1){SIGNED && FPARG && item[K-1]}}});
 				THRESHS[c] = row;
 			end
 
