@@ -439,10 +439,13 @@ class ElementwiseBinaryOperation_hls(
 
         # Generate code for unpacking elements read from the stream into the PE-
         # parallel buffer according to broadcasting semantics
-        def unpack_buffer(shape):
+        def unpack_buffer(ind):
             # A broadcast last axis holds a single element per stream word,
-            # replicated across the PE lanes here
-            if shape[-1] == 1:
+            # replicated across the PE lanes here. Decided by the unfolded
+            # shape: the folded one also ends in 1 for any operand whose last
+            # axis is covered by PE in a single beat.
+            shape = self.get_normal_input_shape(ind)
+            if len(shape) == 0 or shape[-1] == 1:
                 return "buffer[0]"
             return "buffer[pe]"
 
@@ -510,7 +513,7 @@ if({lhs_read_cond}) {{
     const auto buffer = in0_V.read();
     for(std::size_t pe = 0; pe < {self.pe}; ++pe) {{
     #pragma HLS unroll
-        lhs{lhs_index}[pe] = {unpack_buffer(lhs_shape)};
+        lhs{lhs_index}[pe] = {unpack_buffer(0)};
     }}
 }}
 """
@@ -522,7 +525,7 @@ if({rhs_read_cond}) {{
     const auto buffer = in1_V.read();
     for(std::size_t pe = 0; pe < {self.pe}; ++pe) {{
     #pragma HLS unroll
-        rhs{rhs_index}[pe] = {unpack_buffer(rhs_shape)};
+        rhs{rhs_index}[pe] = {unpack_buffer(1)};
     }}
 }}
 """
