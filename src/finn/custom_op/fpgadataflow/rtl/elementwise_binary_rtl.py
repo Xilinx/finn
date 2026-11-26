@@ -6,7 +6,6 @@
 #
 # @author       Shane T. Fleming <shane.fleming@amd.com>
 ############################################################################
-import math
 import numpy as np
 import os
 from qonnx.core.datatype import DataType
@@ -20,6 +19,7 @@ from finn.util.data_packing import (
     pack_innermost_dim_as_hex_string,
     rtlsim_output_to_npy,
 )
+
 
 class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
     """Base CustomOp wrapper for the finn-rtllib eltwise component.
@@ -359,7 +359,8 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
 
     def get_tav_io_dict(self):
         n_inps = np.prod(self.get_folded_input_shape(0)[:-1])
-        n_rhs = self.calc_wmem() * self.calc_wmem_reps() #fewer than beats if the core replays them itself
+        # fewer than beats if the core replays them itself
+        n_rhs = self.calc_wmem() * self.calc_wmem_reps()
         return {
             "inputs": {
                 "in0": [i for i in range(n_inps)],
