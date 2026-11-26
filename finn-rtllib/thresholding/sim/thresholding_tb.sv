@@ -129,17 +129,25 @@ module thresholding_tb;
 		uwire  ovld;
 		uwire output_t  odat;
 
-		thresholding #(.N(N), .K(K), .KT(KT), .C(C), .PE(PE), .SIGNED(SIGNED), .FPARG(FPARG), .USE_CONFIG(1), .DEEP_PIPELINE(DEEP_PIPELINE)) dut (
-			.clk, .rst,
-
-			// Configuration
-			.cfg_en, .cfg_we, .cfg_a, .cfg_d,
-			.cfg_rack, .cfg_q,
-
-			// Stream Processing
-			.irdy, .ivld, .idat,
-			.ordy, .ovld, .odat
-		);
+		// Comparison policy bound per data type as by thresholding_axi
+		if(FPARG) begin : genFloat
+			thresholding #(
+				.CMP(thresholding_pkg::cmp_float_t#(K)),
+				.N(N), .K(K), .KT(KT), .C(C), .PE(PE), .USE_CONFIG(1), .DEEP_PIPELINE(DEEP_PIPELINE)
+			) dut (.iset('x), .*);
+		end : genFloat
+		else if(SIGNED) begin : genSigned
+			thresholding #(
+				.CMP(thresholding_pkg::cmp_sfixed_t#(K, KT)),
+				.N(N), .K(K), .KT(KT), .C(C), .PE(PE), .USE_CONFIG(1), .DEEP_PIPELINE(DEEP_PIPELINE)
+			) dut (.iset('x), .*);
+		end : genSigned
+		else begin : genUnsigned
+			thresholding #(
+				.CMP(thresholding_pkg::cmp_ufixed_t#(K, KT)),
+				.N(N), .K(K), .KT(KT), .C(C), .PE(PE), .USE_CONFIG(1), .DEEP_PIPELINE(DEEP_PIPELINE)
+			) dut (.iset('x), .*);
+		end : genUnsigned
 
 		// Expected Ordering
 		function val_t reord(input val_t  x);

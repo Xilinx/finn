@@ -43,6 +43,12 @@
  *  threshold configuration relies on a channel address prefix. Inputs are
  *  accompanied by a channel selector.
  *
+ *  Comparison:
+ *  The order of thresholds and inputs is not characterized by flags but
+ *  passed as a policy class CMP (see thresholding_pkg), which also prepares
+ *  each input once for all its comparisons, e.g. narrows it to the precision
+ *  needed against thresholds narrower than K.
+ *
  *  Parameter Layout as seen on AXI-Lite (row by row):
  *            | Base                \    Offs           |   0    1    2  ...   N-1   ...
  *   ---------+-----------------------------------------+---------------------------------
@@ -69,9 +75,8 @@ module thresholding #(
 	int unsigned  C,  // number of channels
 	int unsigned  PE, // parallel processing elements
 
-	bit  SIGNED = 1,  // signed inputs
-	bit  FPARG  = 0,  // floating-point inputs: [sign] | exponent | mantissa
-	int  BIAS   = 0,  // offsetting the output [0, N] -> [BIAS, N+BIAS]
+	type CMP,  // comparison policy, e.g. thresholding_pkg::cmp_sfixed_t#(K, KT)
+	int  BIAS = 0,  // offsetting the output [0, N] -> [BIAS, N+BIAS]
 
 	int unsigned  SETS = 1,  // Number of independent threshold sets
 
@@ -122,8 +127,8 @@ module thresholding #(
 			$error("Parallelism PE=%0d is not a multiple of channel count C=%0d.", PE, C);
 			$finish;
 		end
-		if((KT < 1) || (KT > K) || (FPARG && (KT != K))) begin
-			$error("Threshold precision KT=%0d must be within [1, K=%0d], and equal K for floating-point.", KT, K);
+		if((KT < 1) || (KT > K)) begin
+			$error("Threshold precision KT=%0d must be within [1, K=%0d].", KT, K);
 			$finish;
 		end
 		if(O_BITS < (BIAS >= 0? $clog2(int'(N)+BIAS+1) : 1+$clog2(-BIAS >= int'(N)+BIAS+1? -BIAS : int'(N)+BIAS+1))) begin
@@ -152,34 +157,23 @@ module thresholding #(
 
 	// Pipeline Link Type
 	typedef logic [$clog2(SETS)+$clog2(CF)+M-1:0]  ptr_t;
-	//	Narrow Thresholds: With thresholds narrower than the input (KT < K),
-	//	the pipeline compares in KI = KT + SIGNED bits. An input outside this
-	//	range is clamped to its nearest end once at the feed, which preserves
-	//	every comparison: the upper end is not below any threshold, and the
-	//	lower end of a signed range, min(KT) - 1 or below, is below all of them.
-	localparam int unsigned  KI = (KT + SIGNED < K)? KT + SIGNED : K;
-	typedef logic [KI                       -1:0]  val_t;
-	typedef logic [KT                       -1:0]  thr_t;
-	// Extend a stored threshold to the comparison precision
-	function automatic val_t extend(input thr_t  t);
-		return  SIGNED? val_t'($signed(t)) : val_t'(t);
-	endfunction : extend
+	//	The pipeline carries inputs as prepared once at the feed by the policy,
+	//	e.g. narrowed to the comparison precision KI for thresholds narrower
+	//	than the input (KT < K). Written thresholds and readbacks travel
+	//	zero-extended in val_t; only CMP::le interprets them. KI is taken from
+	//	the result of CMP::prep as xsim cannot resolve CMP::val_t.
+	localparam int unsigned  KI = $bits(CMP::prep(0));
+	initial begin
+		if(KI > K) begin
+			$error("Comparison precision KI=%0d of the policy exceeds the input precision K=%0d.", KI, K);
+			$finish;
+		end
+	end
+	typedef logic [KI-1:0]  val_t;
+	typedef logic [KT-1:0]  thr_t;
 
-	// Inputs clamped to the comparison precision
 	uwire val_t  ival[PE];
-	for(genvar  pe = 0; pe < PE; pe++) begin : genClamp
-		uwire [K-1:0]  x = idat[pe];
-		if(KI == K) begin : genFull
-			assign	ival[pe] = x;
-		end : genFull
-		else if(!SIGNED) begin : genUnsigned
-			assign	ival[pe] = |x[K-1:KI]? '1 : x[KI-1:0];
-		end : genUnsigned
-		else begin : genSigned
-			uwire  in_range = &x[K-1:KI-1] || !(|x[K-1:KI-1]);
-			assign	ival[pe] = in_range? x[KI-1:0] : {x[K-1], {(KI-1){!x[K-1]}}};
-		end : genSigned
-	end : genClamp
+	for(genvar  pe = 0; pe < PE; pe++)  assign  ival[pe] = CMP::prep(idat[pe]);
 	typedef struct packed {
 		op_e   op;
 		ptr_t  ptr;	// WR/RB: address;         TH: result
@@ -252,7 +246,7 @@ module thresholding #(
 					(!cfg_sel[pe]? NOP : cfg_we? WR : RB) :
 					(ivld && !th_full? TH : NOP),
 				ptr: iptr,
-				val: !(USE_CONFIG && cfg_en)? ival[pe] : cfg_we? extend(cfg_d) : 0
+				val: !(USE_CONFIG && cfg_en)? ival[pe] : cfg_we? val_t'(cfg_d) : 0
 			};
 		end
 
@@ -348,30 +342,14 @@ module thresholding #(
 			end
 
 			// Mask comparisons beyond specified threshold count
-			uwire val_t  thresh_ext = extend(Thresh);
-			logic  cmp;
-			if(!SIGNED)		assign	cmp = $unsigned(thresh_ext) <= $unsigned(P.val);
-			else if(!FPARG)	assign	cmp =   $signed(thresh_ext) <=   $signed(P.val);
-			else begin : blkSignedFloat
-				uwire  mag_eq = Thresh[K-2:0] == P.val[K-2:0];
-				uwire  mag_le = Thresh[K-2:0] <= P.val[K-2:0];
-				always_comb begin
-					unique case({Thresh[K-1], P.val[K-1]})
-					2'b00:  cmp = mag_le;
-					2'b01:  cmp = 0;
-					2'b10:  cmp = 1;
-					2'b11:  cmp = !mag_le || mag_eq;
-					default: cmp = 'x;
-					endcase
-				end
-			end : blkSignedFloat
+			uwire  cmp = CMP::le(Thresh, P.val);
 
 			// Pipeline State Update
 			pipe_t  pp;
 			always_comb begin
 				pp = P;
 				if(P.op !=? CFG)  pp.ptr[SN] = scope && cmp;
-				if(Reval)         pp.val = thresh_ext;
+				if(Reval)         pp.val = val_t'(Thresh);
 			end
 
 			// Pipeline State Forward (potentially additional register)

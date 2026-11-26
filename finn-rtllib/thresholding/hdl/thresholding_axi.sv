@@ -34,8 +34,12 @@
  * @description
  *	This AXI adapter fits the core thresholding functionality:
  *	- with AXI stream data interfaces with flow control
- *	- with implicit round-robin channel rotation as used by FINN, and
- *	- performs aligned byte address to parameter word address translation.
+ *	- with implicit round-robin channel rotation as used by FINN,
+ *	- performs aligned byte address to parameter word address translation, and
+ *	- binds the comparison policy of the kernel for the data type that FINN
+ *	  characterizes by SIGNED and FPARG. This binding needs SystemVerilog,
+ *	  so it cannot move into the plain Verilog wrapper that Vivado requires
+ *	  as the top of a block design module reference.
  *****************************************************************************/
 
 module thresholding_axi #(
@@ -192,23 +196,42 @@ module thresholding_axi #(
 
 	//-----------------------------------------------------------------------
 	// Kernel Implementation
-	thresholding #(
-		.K(K), .KT(WT), .N(N), .C(C), .PE(PE),
-		.SIGNED(SIGNED), .FPARG(FPARG), .BIAS(BIAS),
-		.SETS(SETS),
-		.THRESHOLDS_PATH(THRESHOLDS_PATH), .USE_CONFIG(USE_AXILITE),
-		.DEPTH_TRIGGER_URAM(DEPTH_TRIGGER_URAM), .DEPTH_TRIGGER_BRAM(DEPTH_TRIGGER_BRAM),
-		.DEEP_PIPELINE(DEEP_PIPELINE),
-		.O_BITS(O_BITS)
-	) impl (
-		.clk(ap_clk), .rst(!ap_rst_n),
-
-		.cfg_en, .cfg_we, .cfg_a, .cfg_d,
-		.cfg_rack, .cfg_q,
-
-		.irdy, .ivld, .iset, .idat,
-		.ordy(m_axis_tready), .ovld(m_axis_tvalid), .odat(m_axis_tdata[PE*O_BITS-1:0])
-	);
+	//	A type cannot be selected by an expression, so each comparison policy
+	//	gets its own otherwise identical kernel instance, connected by name.
+	uwire  clk = ap_clk;
+	uwire  rst = !ap_rst_n;
+	uwire  ordy = m_axis_tready;
+	uwire  ovld;
+	uwire [PE-1:0][O_BITS-1:0]  odat;
+	if(FPARG) begin : genFloat
+		thresholding #(
+			.CMP(thresholding_pkg::cmp_float_t#(K)),
+			.K(K), .KT(WT), .N(N), .C(C), .PE(PE), .BIAS(BIAS), .SETS(SETS),
+			.THRESHOLDS_PATH(THRESHOLDS_PATH), .USE_CONFIG(USE_AXILITE),
+			.DEPTH_TRIGGER_URAM(DEPTH_TRIGGER_URAM), .DEPTH_TRIGGER_BRAM(DEPTH_TRIGGER_BRAM),
+			.DEEP_PIPELINE(DEEP_PIPELINE), .O_BITS(O_BITS)
+		) impl (.*);
+	end : genFloat
+	else if(SIGNED) begin : genSigned
+		thresholding #(
+			.CMP(thresholding_pkg::cmp_sfixed_t#(K, WT)),
+			.K(K), .KT(WT), .N(N), .C(C), .PE(PE), .BIAS(BIAS), .SETS(SETS),
+			.THRESHOLDS_PATH(THRESHOLDS_PATH), .USE_CONFIG(USE_AXILITE),
+			.DEPTH_TRIGGER_URAM(DEPTH_TRIGGER_URAM), .DEPTH_TRIGGER_BRAM(DEPTH_TRIGGER_BRAM),
+			.DEEP_PIPELINE(DEEP_PIPELINE), .O_BITS(O_BITS)
+		) impl (.*);
+	end : genSigned
+	else begin : genUnsigned
+		thresholding #(
+			.CMP(thresholding_pkg::cmp_ufixed_t#(K, WT)),
+			.K(K), .KT(WT), .N(N), .C(C), .PE(PE), .BIAS(BIAS), .SETS(SETS),
+			.THRESHOLDS_PATH(THRESHOLDS_PATH), .USE_CONFIG(USE_AXILITE),
+			.DEPTH_TRIGGER_URAM(DEPTH_TRIGGER_URAM), .DEPTH_TRIGGER_BRAM(DEPTH_TRIGGER_BRAM),
+			.DEEP_PIPELINE(DEEP_PIPELINE), .O_BITS(O_BITS)
+		) impl (.*);
+	end : genUnsigned
+	assign	m_axis_tvalid = ovld;
+	assign	m_axis_tdata[PE*O_BITS-1:0] = odat;
 	if($bits(m_axis_tdata) > PE*O_BITS) begin : genPadOut
 		assign	m_axis_tdata[$left(m_axis_tdata):PE*O_BITS] = '0;
 	end : genPadOut

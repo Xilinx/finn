@@ -332,6 +332,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
 
         verilog_files = [
             axi_dir + "axilite.sv",
+            rtllib_dir + "thresholding_pkg.sv",
             rtllib_dir + "thresholding.sv",
             rtllib_dir + "thresholding_axi.sv",
             code_gen_dir + self.get_nodeattr("gen_top_module") + ".v",
