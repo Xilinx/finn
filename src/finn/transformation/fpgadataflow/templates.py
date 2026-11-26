@@ -158,29 +158,21 @@ proc assign_axi_addr_proc {axi_intf_path} {
     set axi_peripheral_base [expr $offset + $range]
 }
 
+#procedure that opens memory port idx of the PS for the MLO (Multi-Layer Offload)
+#masters and returns it. Port 0 is S_AXI_HP0_FPD, which smartconnect_0 already uses
+proc mlo_port {idx} {
+    global ZYNQ_TYPE pl_clk
+    if {$ZYNQ_TYPE != "zynq_us+" || $idx < 1 || $idx > 3} {
+        error "No memory port $idx for MLO on $ZYNQ_TYPE"
+    }
+    #S_AXI_HP<idx>_FPD is S_AXI_GP<idx+2> in the PS configuration
+    set_property CONFIG.PSU__USE__S_AXI_GP[expr {$idx + 2}] {1} [get_bd_cells zynq_ps]
+    connect_bd_net [get_bd_pins zynq_ps/saxihp${idx}_fpd_aclk] [get_bd_pins $pl_clk]
+    return [get_bd_intf_pins zynq_ps/S_AXI_HP${idx}_FPD]
+}
+
 #custom IP instantiations/connections start here
 @CONFIG@
-
-#MLO (Multi-Layer Offload) weight streaming
-if {$ZYNQ_TYPE == "zynq_us+"} {
-    set mlo_mm_pins [get_bd_intf_pins -quiet -of_objects [get_bd_cells] \
-        -filter {MODE == Master && (NAME == m_axi_intermediate_frame || NAME =~ m_axi_MVAU_*)}]
-    if {[llength $mlo_mm_pins] > 0} {
-        set_property -dict [list CONFIG.PSU__USE__S_AXI_GP3 {1}] [get_bd_cells zynq_ps]
-        create_bd_cell -type ip -vlnv $smartconnect_vlnv smartconnect_mlo
-        set_property -dict [list CONFIG.NUM_SI [llength $mlo_mm_pins]] [get_bd_cells smartconnect_mlo]
-        connect_bd_intf_net [get_bd_intf_pins smartconnect_mlo/M00_AXI] [get_bd_intf_pins zynq_ps/S_AXI_HP1_FPD]
-        set mlo_si_idx 0
-        foreach mlo_mm_pin $mlo_mm_pins {
-            set mlo_si_name [format "S%02d_AXI" $mlo_si_idx]
-            connect_bd_intf_net $mlo_mm_pin [get_bd_intf_pins smartconnect_mlo/$mlo_si_name]
-            incr mlo_si_idx
-        }
-        connect_bd_net [get_bd_pins smartconnect_mlo/aclk] [get_bd_pins $pl_clk]
-        connect_bd_net [get_bd_pins zynq_ps/saxihp1_fpd_aclk] [get_bd_pins $pl_clk]
-        connect_bd_net [get_bd_pins smartconnect_mlo/aresetn] [get_bd_pins axi_interconnect_0/ARESETN]
-    }
-}
 
 # set up debug
 if {@ENABLE_DEBUG@ == 1} {
@@ -289,26 +281,33 @@ proc assign_axi_addr_proc {axi_intf_path} {
     set axi_peripheral_base [expr $offset + $range]
 }
 
+# Procedure that opens memory port idx for the MLO (Multi-Layer Offload) masters and
+# returns it. The ports are the four PL NMUs of the golden NoC (noc_pl/S00..S03_AXI),
+# each of which reaches DDR4, LPDDR0 and LPDDR1. Port 0 is the one smartconnect_0
+# already uses, FINN puts a SmartConnect smartconnect_mlo<idx> on every further one.
+proc mlo_port {idx} {
+    if {$idx < 1 || $idx > 3} {
+        error "No memory port $idx for MLO"
+    }
+    delete_bd_objs [get_bd_cells tieoff_pl$idx]
+    return [get_bd_intf_pins noc_pl/S0${idx}_AXI]
+}
+
+# Procedure that adds an AXI CDMA next to the I/O DMAs. It copies the staged MLO weights
+# into the fixed-address memory banks (LPDDR). Its master takes slot aximm_idx of
+# smartconnect_0, its control port slot axilite_idx of axi_interconnect_0.
+proc add_mlo_cdma {name data_width clk rst aximm_idx axilite_idx} {
+    create_bd_cell -type ip -vlnv [get_property VLNV [get_ipdefs xilinx.com:ip:axi_cdma:*]] $name
+    set_property -dict [list CONFIG.C_INCLUDE_SG {0} CONFIG.C_ADDR_WIDTH {64} CONFIG.C_M_AXI_DATA_WIDTH $data_width CONFIG.C_M_AXI_MAX_BURST_LEN {64} CONFIG.C_INCLUDE_DRE {0}] [get_bd_cells $name]
+    connect_bd_intf_net [get_bd_intf_pins $name/M_AXI] [get_bd_intf_pins [format "smartconnect_0/S%02d_AXI" $aximm_idx]]
+    connect_bd_intf_net [get_bd_intf_pins $name/S_AXI_LITE] [get_bd_intf_pins [format "axi_interconnect_0/M%02d_AXI" $axilite_idx]]
+    assign_axi_addr_proc $name/S_AXI_LITE
+    connect_bd_net [get_bd_pins $clk] [get_bd_pins $name/s_axi_lite_aclk] [get_bd_pins $name/m_axi_aclk]
+    connect_bd_net [get_bd_pins $rst] [get_bd_pins $name/s_axi_lite_aresetn]
+}
+
 # custom IP instantiations/connections start here
 @CONFIG@
-
-# MLO (Multi-Layer Offload) weight streaming -> noc_pl/S01_AXI
-set mlo_mm_pins [get_bd_intf_pins -quiet -of_objects [get_bd_cells] \
-    -filter {MODE == Master && (NAME == m_axi_intermediate_frame || NAME =~ m_axi_MVAU_*)}]
-if {[llength $mlo_mm_pins] > 0} {
-    delete_bd_objs [get_bd_cells tieoff_pl1]
-    create_bd_cell -type ip -vlnv $smartconnect_vlnv smartconnect_mlo
-    set_property -dict [list CONFIG.NUM_SI [llength $mlo_mm_pins] CONFIG.NUM_MI {1}] [get_bd_cells smartconnect_mlo]
-    connect_bd_intf_net [get_bd_intf_pins smartconnect_mlo/M00_AXI] [get_bd_intf_pins noc_pl/S01_AXI]
-    set mlo_si_idx 0
-    foreach mlo_mm_pin $mlo_mm_pins {
-        set mlo_si_name [format "S%02d_AXI" $mlo_si_idx]
-        connect_bd_intf_net $mlo_mm_pin [get_bd_intf_pins smartconnect_mlo/$mlo_si_name]
-        incr mlo_si_idx
-    }
-    connect_bd_net [get_bd_pins versal_cips_0/pl0_ref_clk] [get_bd_pins smartconnect_mlo/aclk]
-    connect_bd_net [get_bd_pins rst_pl0/peripheral_aresetn] [get_bd_pins smartconnect_mlo/aresetn]
-}
 
 # clock/reset for the control + DDR SmartConnects
 connect_bd_net [get_bd_pins versal_cips_0/pl0_ref_clk] \
@@ -318,8 +317,45 @@ connect_bd_net [get_bd_pins rst_pl0/peripheral_aresetn] \
     [get_bd_pins axi_interconnect_0/aresetn] \
     [get_bd_pins smartconnect_0/aresetn]
 
-# Map the memory reachable through noc_pl into the FINN DMA and MLO masters.
-assign_bd_address
+# Map the memories that the golden NoC routes to NMU S0<nmu> into a PL master. The
+# offsets are the ones of the golden reference (PS and PL see DDR4 at the same address,
+# LPDDR0 and LPDDR1 sit at fixed windows). Which NoC ports lead to which memory depends on
+# the NMU: S00/S02 use noc_lpddr0/S01_INI and noc_lpddr1_pl_only/S00_INI, S01/S03 use
+# noc_lpddr0/S02_INI and noc_lpddr1_pl_only/S01_INI.
+proc assign_mem_segs {master_pin nmu_idx} {
+    set space [get_bd_addr_spaces -of_objects [get_bd_intf_pins $master_pin]]
+    if {$nmu_idx % 2 == 0} {
+        set lpddr0_seg noc_lpddr0/S01_INI/C1_DDR_CH2
+        set lpddr1_seg noc_lpddr1_pl_only/S00_INI/C0_DDR_CH1
+    } else {
+        set lpddr0_seg noc_lpddr0/S02_INI/C2_DDR_CH2
+        set lpddr1_seg noc_lpddr1_pl_only/S01_INI/C1_DDR_CH1
+    }
+    assign_bd_address -offset 0x00000000 -range 0x80000000 \
+        -target_address_space $space [get_bd_addr_segs noc_ddr/S04_INI/C0_DDR_LOW0] -force
+    assign_bd_address -offset 0x000800000000 -range 0x000180000000 \
+        -target_address_space $space [get_bd_addr_segs noc_ddr/S04_INI/C0_DDR_LOW1] -force
+    assign_bd_address -offset 0x060000000000 -range 0x000100000000 \
+        -target_address_space $space [get_bd_addr_segs $lpddr0_seg] -force
+    assign_bd_address -offset 0x050000000000 -range 0x000100000000 \
+        -target_address_space $space [get_bd_addr_segs $lpddr1_seg] -force
+}
+
+# Apply it to every master that is connected to a SmartConnect feeding an NMU.
+proc assign_sc_masters {sc_name nmu_idx} {
+    foreach si [get_bd_intf_pins -quiet $sc_name/S*_AXI] {
+        set net [get_bd_intf_nets -quiet -of_objects $si]
+        foreach master_pin [get_bd_intf_pins -of_objects $net -filter {MODE == Master}] {
+            assign_mem_segs $master_pin $nmu_idx
+        }
+    }
+}
+assign_sc_masters smartconnect_0 0
+foreach nmu_idx {1 2 3} {
+    if {[get_bd_cells -quiet smartconnect_mlo$nmu_idx] ne ""} {
+        assign_sc_masters smartconnect_mlo$nmu_idx $nmu_idx
+    }
+}
 
 # set up debug
 if {@ENABLE_DEBUG@ == 1} {

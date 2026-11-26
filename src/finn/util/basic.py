@@ -119,6 +119,49 @@ part_map["VEK280"] = "xcve2802-vsvh1760-2MP-e-S"
 # be DDR-only (this includes U200/U250 and all Zynq/RFSoC boards).
 hbm_boards = {"U50", "U55C", "V80"}
 
+# External memory that MLO (multi-layer offload) data can live in, per board.
+#   banks  the memories, in bank-index order. Bank 0 is the one the PYNQ driver
+#          allocates its buffer in, so its address is only known at runtime.
+#            name  label used in the build log
+#            base  fixed physical address of the bank in the PL address map (not for
+#                  bank 0). The bank must be big enough for what is placed in it
+#   ports  number of shell ports the AXI masters of the PL are spread over
+# VCK190: the addresses are the ones of the golden reference, the ports are noc_pl/S00..S03_AXI.
+mlo_memory = {
+    "VCK190": {
+        "banks": [
+            {"name": "DDR4"},
+            {"name": "LPDDR0", "base": 0x0600_0000_0000},
+            {"name": "LPDDR1", "base": 0x0500_0000_0000},
+        ],
+        "ports": 4,
+    },
+}
+# ZynqMP and RFSoC boards: the PS DDR behind the four high-performance ports
+# S_AXI_HP0..3_FPD
+mlo_memory.update(
+    {
+        board: {"banks": [{"name": "DDR"}], "ports": 4}
+        for board in (
+            "Ultra96",
+            "Ultra96-V2",
+            "ZCU102",
+            "ZCU104",
+            "ZCU111",
+            "RFSoC2x2",
+            "RFSoC4x2",
+            "KV260_SOM",
+            "AUP-ZU3_8GB",
+        )
+    }
+)
+
+
+def get_mlo_memory(board):
+    """Entry of the mlo_memory table for a board. Boards that are not listed have
+    one memory behind one port."""
+    return mlo_memory.get(board, {"banks": [{"name": "DDR"}], "ports": 1})
+
 
 def get_rtlsim_trace_depth() -> int:
     """Return the trace depth for rtlsim. Controllable
