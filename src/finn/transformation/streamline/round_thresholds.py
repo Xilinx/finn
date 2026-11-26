@@ -35,6 +35,24 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.infer_datatypes import InferDataTypes
 
+# numpy types of the float input types whose grid thresholds are rounded into
+FLOAT_GRIDS = {"FLOAT16": np.float16, "FLOAT32": np.float32}
+
+
+def round_up_to_float(thresholds: np.ndarray, grid: type) -> np.ndarray:
+    """Rounds thresholds up to the nearest value of the float type grid, which
+    keeps every comparison T <= x with an input x of that type exact.
+
+    Thresholds above the largest finite value become +inf, those below the
+    smallest one become its value. Returned in the float32 container type.
+    """
+    with np.errstate(over="ignore"):
+        nearest = thresholds.astype(grid)
+    below = nearest.astype(np.float64) < thresholds.astype(np.float64)
+    rounded = np.where(below, np.nextafter(nearest, grid(np.inf)), nearest)
+    return rounded.astype(np.float32)
+
+
 def widened_datatype(dtype: DataType) -> DataType:
     """The type of dtype extended by one value above its maximum (max + step)."""
     if dtype.is_integer():
@@ -101,8 +119,21 @@ class RoundAndClipThresholds(Transformation):
                 if thresholds is None:
                     continue
                 dtype = model.get_tensor_datatype(node.input[0])
-                # This transformation only applies to thresholding operations
-                # operating on integer inputs
+                if dtype.name in FLOAT_GRIDS:
+                    # Round thresholds up into the grid of the float input type,
+                    # which then also holds them: beyond its finite range, +inf
+                    # and -inf serve as never and always met thresholds.
+                    new_thresholds = round_up_to_float(thresholds, FLOAT_GRIDS[dtype.name])
+                    model.set_initializer(node.input[1], new_thresholds)
+                    model.set_tensor_datatype(node.input[1], dtype)
+                    if op_type.startswith("Thresholding"):
+                        getCustomOp(node).set_nodeattr("weightDataType", dtype.name)
+                    if not np.array_equal(new_thresholds, thresholds, equal_nan=True):
+                        graph_modified = True
+                        break
+                    continue
+                # Otherwise, this transformation only applies to thresholding
+                # operations operating on integer or fixed-point inputs
                 if not (dtype.is_integer() or dtype.is_fixed_point()):
                     continue
                 # Round thresholds up to the nearest value of the input type and

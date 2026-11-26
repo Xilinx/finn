@@ -832,3 +832,65 @@ def test_round_and_clip_thresholds_drop_constant(op_type, thresholds, kept, num_
         assert inst.get_nodeattr("numSteps") == len(kept[0])
     for x, y in zip(inputs, out_expected):
         assert np.array_equal(oxe.execute_onnx(model, {"inp": x})["out"], y)
+
+
+@pytest.mark.parametrize("op_type", ["MultiThreshold", "Thresholding"])
+@pytest.mark.streamline
+def test_round_and_clip_thresholds_float16_input(op_type):
+    """Float32 thresholds of a FLOAT16 input are rounded up into the float16
+    grid; round-to-nearest would count an input equal to the rounded value.
+    Beyond the finite range, +inf takes the never-met thresholds."""
+    i_dtype, o_dtype = DataType["FLOAT16"], DataType["UINT3"]
+    thresholds = np.array([[1.0001, 2.0, 70000.0], [-70000.0, 0.1, 1.0]], dtype=np.float32)
+    n_elems, n_thresholds = thresholds.shape
+    if op_type == "MultiThreshold":
+        node = helper.make_node(
+            "MultiThreshold",
+            domain="qonnx.custom_op.general",
+            inputs=["inp", "thresholds"],
+            outputs=["out"],
+            out_dtype=str(o_dtype),
+        )
+    else:
+        node = helper.make_node(
+            "Thresholding",
+            ["inp", "thresholds"],
+            ["out"],
+            domain="finn.custom_op.fpgadataflow",
+            backend="fpgadataflow",
+            NumChannels=n_elems,
+            PE=1,
+            inputDataType=i_dtype.name,
+            weightDataType="FLOAT32",
+            outputDataType=o_dtype.name,
+            numInputVectors=[1],
+            numSteps=n_thresholds,
+            ActVal=0,
+        )
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, n_elems])
+    out = helper.make_tensor_value_info("out", TensorProto.FLOAT, [1, n_elems])
+    graph = helper.make_graph([node], "thresholds", [inp], [out])
+    model = ModelWrapper(helper.make_model(graph))
+    model.set_tensor_datatype("inp", i_dtype)
+    model.set_tensor_datatype("out", o_dtype)
+    model.set_initializer("thresholds", thresholds)
+    model.set_tensor_datatype("thresholds", DataType["FLOAT32"])
+
+    values = [1.0, 1.0009765625, 2.0, 0.1, 65504.0, -65504.0, np.inf, -np.inf]
+    inputs = [np.full((1, n_elems), np.float16(v), dtype=np.float32) for v in values]
+    out_expected = [oxe.execute_onnx(model, {"inp": x})["out"] for x in inputs]
+
+    model = model.transform(RoundAndClipThresholds())
+
+    rounded = model.get_initializer("thresholds")
+    assert rounded.dtype == np.float32
+    assert np.array_equal(rounded.astype(np.float16).astype(np.float32), rounded)
+    assert np.all(rounded >= thresholds)
+    assert model.get_tensor_datatype("thresholds") == i_dtype
+    if op_type == "Thresholding":
+        assert getCustomOp(model.graph.node[0]).get_nodeattr("weightDataType") == "FLOAT16"
+    for x, y in zip(inputs, out_expected):
+        # the rounded thresholds compared in the float16 type of the input
+        y_half = (rounded[None, :, :] <= x[:, :, None].astype(np.float16)).sum(axis=-1)
+        assert np.array_equal(y_half, y)
+        assert np.array_equal(oxe.execute_onnx(model, {"inp": x})["out"], y)
