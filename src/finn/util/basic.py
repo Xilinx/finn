@@ -28,6 +28,8 @@
 
 import errno
 import glob
+import hashlib
+import json
 import logging
 import os
 import re
@@ -44,6 +46,7 @@ from finn.util.data_packing import finnpy_to_packed_bytearray
 from finn.util.launcher import (
     TOOL_DIR_ENV,
     StrPath,
+    ToolFailed,
     ToolUnavailable,
     run_tool,
     xilinx_tool,
@@ -314,22 +317,75 @@ class CppBuilder:
         """Sets member variable "executable_path" to given path."""
         self.executable_path = path
 
-    def build(self, code_gen_dir: StrPath) -> None:
-        """Compile directly, saving a replay and transcripts in ``code_gen_dir``."""
-        self.code_gen_dir = code_gen_dir
-        command = ["g++", "-o", os.path.expandvars(os.fspath(self.executable_path))]
+    def get_sources(self) -> list[str]:
+        """Return the source paths, with environment variables and globs expanded."""
+        sources = []
         for cpp_file in self.cpp_files:
             source = os.path.expandvars(os.fspath(cpp_file))
             if glob.has_magic(source):
                 matches = sorted(glob.glob(source))
                 if not matches:
                     raise FileNotFoundError(f"No C++ sources match {source}")
-                command.extend(matches)
+                sources.extend(matches)
             else:
-                command.append(source)
+                sources.append(source)
+        return sources
+
+    def get_flags(self) -> list[str]:
+        """Return the compiler arguments, with environment variables expanded."""
+        flags: list[str] = []
         for lib in self.include_paths:
             tokens = shlex.split(lib) if isinstance(lib, str) else lib
-            command.extend(os.path.expandvars(os.fspath(token)) for token in tokens)
+            flags.extend(os.path.expandvars(os.fspath(token)) for token in tokens)
+        return flags
+
+    def get_fingerprint(self) -> Optional[str]:
+        """Return a hash of the command line and of the contents of the sources and of
+        all headers they include, as listed by ``g++ -MM`` (without system headers).
+        Returns None if the dependencies cannot be determined."""
+        sources = self.get_sources()
+        flags = self.get_flags()
+        command = ["g++", "-o", os.path.expandvars(os.fspath(self.executable_path))]
+        cpp_sources = [s for s in sources if s.endswith((".c", ".cc", ".cpp", ".cxx"))]
+        try:
+            deps = run_tool(["g++", "-MM", *cpp_sources, *flags], cwd=os.getcwd()).stdout
+        except (ToolFailed, ToolUnavailable):
+            return None
+        deps = deps.decode() if isinstance(deps, bytes) else deps
+        # make rules "target.o: dep dep \\" with line continuations
+        dep_files = [t for t in deps.replace("\\\n", " ").split() if not t.endswith(":")]
+        fingerprint = hashlib.sha256(json.dumps(command + sources + flags).encode())
+        for dep in sorted(set(dep_files + sources)):
+            fingerprint.update(dep.encode())
+            with open(os.path.join(os.getcwd(), dep), "rb") as f:
+                fingerprint.update(hashlib.sha256(f.read()).digest())
+        return fingerprint.hexdigest()
+
+    def build_if_changed(self, code_gen_dir: StrPath) -> bool:
+        """Build like ``build``, unless the executable exists and was built from the
+        same command line, sources and headers, recorded in ``<executable>.fingerprint``.
+        Returns True if the executable was built."""
+        executable = os.path.expandvars(os.fspath(self.executable_path))
+        stamp = executable + ".fingerprint"
+        fingerprint = self.get_fingerprint()
+        if fingerprint is not None and os.path.isfile(executable) and os.path.isfile(stamp):
+            with open(stamp) as f:
+                if f.read() == fingerprint:
+                    self.code_gen_dir = code_gen_dir
+                    return False
+        if os.path.isfile(stamp):
+            os.remove(stamp)
+        self.build(code_gen_dir)
+        if fingerprint is not None:
+            with open(stamp, "w") as f:
+                f.write(fingerprint)
+        return True
+
+    def build(self, code_gen_dir: StrPath) -> None:
+        """Compile directly, saving a replay and transcripts in ``code_gen_dir``."""
+        self.code_gen_dir = code_gen_dir
+        command = ["g++", "-o", os.path.expandvars(os.fspath(self.executable_path))]
+        command += self.get_sources() + self.get_flags()
         self.compile_components = command
         self.compile_script = os.path.join(code_gen_dir, "compile.sh")
         # Historically compilation used the caller's CWD, including for relative

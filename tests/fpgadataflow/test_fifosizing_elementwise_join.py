@@ -63,10 +63,10 @@ def make_fork_join_model(op_type, ch, pe, n_vec, rhs_style="input"):
     ]:
         nodes.append(
             helper.make_node(
-                "StreamingDataWidthConverter_hls",
+                "StreamingDataWidthConverter_rtl",
                 [src],
                 [dst],
-                domain="finn.custom_op.fpgadataflow.hls",
+                domain="finn.custom_op.fpgadataflow.rtl",
                 backend="fpgadataflow",
                 shape=shape,
                 inWidth=inw,

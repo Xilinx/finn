@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import fcntl
 import glob
 import numpy as np
 import os
@@ -45,6 +46,24 @@ from finn.util.hls import CallHLS
 from finn.util.launcher import run_tool
 
 finnxsi = xsi if xsi.is_available() else None
+
+
+def _get_cnpy_object(hls_path: str) -> str:
+    """Return the object file of cnpy.cpp, the npy I/O library of the cppsim
+    executables, compiled once per FINN_BUILD_DIR rather than once per node."""
+    obj_dir = os.path.join(os.environ["FINN_BUILD_DIR"], "cppsim_cnpy")
+    os.makedirs(obj_dir, exist_ok=True)
+    builder = CppBuilder()
+    builder.append_sources("$FINN_ROOT/src/finn/qnn-data/cpp/cnpy.cpp")
+    builder.append_includes(["-c", "-I", "$FINN_ROOT/src/finn/qnn-data/cpp"])
+    builder.append_includes(["-I", os.path.join(hls_path, "include")])
+    builder.append_includes(["--std=c++17", "-O3", "-fno-builtin", "-fno-inline"])
+    builder.set_executable_path(os.path.join(obj_dir, "cnpy.o"))
+    # CompileCppSim compiles nodes in parallel processes
+    with open(os.path.join(obj_dir, "cnpy.lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        builder.build_if_changed(obj_dir)
+    return os.fspath(builder.executable_path)
 
 
 class HLSBackend(ABC):
@@ -253,7 +272,8 @@ class HLSBackend(ABC):
         return cmd
 
     def compile_singlenode_code(self):
-        """Compile the cppsim executable, retaining a replay and transcripts."""
+        """Compile the cppsim executable, retaining a replay and transcripts.
+        An executable built from the same command line, sources and headers is kept."""
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         # From 2024.2, the HLS headers are in the Vitis installation (VITIS_PATH).
         vivado_version = get_vivado_version()
@@ -273,7 +293,7 @@ class HLSBackend(ABC):
         builder.append_includes("--std=c++17")
         builder.append_includes("-O3")
         builder.append_sources(code_gen_dir + "/*.cpp")
-        builder.append_sources("$FINN_ROOT/src/finn/qnn-data/cpp/cnpy.cpp")
+        builder.append_sources(_get_cnpy_object(hls_path))
         builder.append_includes("-lz")
         builder.append_includes(["-fno-builtin", "-fno-inline"])
         builder.append_includes([f"-Wl,-rpath,{hls_path}/lnx64/lib/csim"])
@@ -282,7 +302,7 @@ class HLSBackend(ABC):
         builder.append_includes(["-L", f"{hls_path}/lnx64/tools/fpo_v7_1", "-lgmp", "-lmpfr"])
         builder.append_includes("-lIp_floating_point_v7_1_bitacc_cmodel")
         builder.set_executable_path(code_gen_dir + "/node_model")
-        builder.build(code_gen_dir)
+        builder.build_if_changed(code_gen_dir)
         self.set_nodeattr("executable_path", builder.executable_path)
 
     def npy_to_dynamic_output(self, context):
@@ -527,6 +547,43 @@ compilation transformations?
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out0_V")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS DATAFLOW disable_start_propagation")
+
+    def threshold_memory_pragmas(self, tmem: int, ram_style: str = "auto") -> list[str]:
+        """Return the pragmas for the embedded threshold memory threshs.m_thresholds.
+
+        The array is TA [PE][TMEM][N_THRES] and is read at a dynamic TMEM index.
+        Each PE gets its own ROM (dim 1 partitioned), TMEM deep with all N_THRES
+        thresholds of a channel packed into one word (dim 3 reshaped), mirroring
+        the embedded weight memory. Do not partition dim 3 completely instead:
+        Vitis HLS then expands every dynamically indexed access over all
+        PE*N_THRES partitions, so instruction count and front-end memory grow
+        with (PE*N_THRES)**2 (issue #1214: >40 GB for PE=80, N_THRES=127).
+
+        ram_style selects the memory implementation: "distributed" (LUTRAM),
+        "block" (BRAM), "ultra" (URAM, initialized only on Versal) or "auto". HLS
+        left to itself maps the wide reshaped words to BRAM even when TMEM is
+        tiny, so "auto" binds LUTRAM up to a depth of 64 (one LUT per bit) and
+        leaves deeper memories to HLS. A memory of depth 1 is not bound: HLS
+        keeps its single word in registers.
+        """
+        pragmas = [
+            "#pragma HLS array_partition variable=threshs.m_thresholds complete dim=1",
+            "#pragma HLS array_reshape variable=threshs.m_thresholds complete dim=3",
+        ]
+        if tmem <= 1:
+            return pragmas
+        # ram_style values are restricted by the node attribute definitions
+        storage = {
+            "distributed": ("rom_1p", "lutram"),
+            "block": ("rom_1p", "bram"),
+            "ultra": ("ram_s2p", "uram"),
+            "auto": ("rom_1p", "lutram") if tmem <= 64 else None,
+        }[ram_style]
+        if storage is not None:
+            pragmas.append(
+                "#pragma HLS bind_storage variable=threshs.m_thresholds type=%s impl=%s" % storage
+            )
+        return pragmas
 
     def get_ap_int_max_w(self):
         """Return the maximum width of any ap_int used in this module. Used to set the

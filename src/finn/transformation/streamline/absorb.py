@@ -215,8 +215,9 @@ class AbsorbScalarBiasIntoMultiThreshold(Transformation):
                     break
         # As we might have changes types and removed nodes better redo some
         # annotations
-        model = model.transform(InferDataTypes())
-        model = model.transform(InferShapes())
+        if graph_modified:
+            model = model.transform(InferDataTypes())
+            model = model.transform(InferShapes())
         # Transformed model and indication whether the transformation should be
         # applied again
         return model, graph_modified

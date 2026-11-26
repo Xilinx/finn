@@ -50,7 +50,7 @@ from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.test import tree_model_test
 
 
-def make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_style):
+def make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_style=""):
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape)
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, shape)
 
@@ -107,19 +107,13 @@ def prepare_inputs(input_tensor, dt):
         pytest.param(([1, 2, 8], 8, 16, DataType["INT2"]), id="deserialize-8to16"),
         # Wide stream spanning multiple spatial dimensions
         pytest.param(([1, 2, 8], 32, 16, DataType["INT2"]), id="wide-input-stream"),
-        # lcm(128, 130) = 8320 > 8191, exercises HLS element-width splitting
-        pytest.param(
-            ([1, 65, 128], 128, 130, DataType["BINARY"]),
-            id="oversized-lcm-hls-splitting",
-        ),
     ],
 )
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
-@pytest.mark.parametrize("impl_style", ["hls", "rtl"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_dwc(config, exec_mode, impl_style):
+def test_fpgadataflow_dwc(config, exec_mode):
     shape, inWidth, outWidth, finn_dtype = config
 
     test_fpga_part = "xc7z020clg400-1"
@@ -127,7 +121,7 @@ def test_fpgadataflow_dwc(config, exec_mode, impl_style):
     x = gen_finn_dt_tensor(finn_dtype, shape)
     input_dict = prepare_inputs(x, finn_dtype)
 
-    model = make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_style)
+    model = make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype)
     # verify abstraction level execution
     y = oxe.execute_onnx(model, input_dict)["outp"]
     assert (
@@ -167,11 +161,10 @@ def test_fpgadataflow_dwc(config, exec_mode, impl_style):
         ([1, 4, 48], 32, 24, DataType["INT8"]),
     ],
 )
-@pytest.mark.parametrize("impl_style", ["hls", "rtl"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_dwc_stitched_rtlsim(config, impl_style):
+def test_fpgadataflow_dwc_stitched_rtlsim(config):
     shape, inWidth, outWidth, finn_dtype = config
 
     test_fpga_part = "xc7z020clg400-1"
@@ -180,7 +173,7 @@ def test_fpgadataflow_dwc_stitched_rtlsim(config, impl_style):
     x = gen_finn_dt_tensor(finn_dtype, shape)
     input_dict = prepare_inputs(x, finn_dtype)
 
-    model = make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_style)
+    model = make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype)
     model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(InsertFIFO(create_shallow_fifos=True))
     model = model.transform(SpecializeLayers(test_fpga_part))
@@ -208,19 +201,18 @@ def test_fpgadataflow_dwc_stitched_rtlsim(config, impl_style):
         ([1, 2, 8], 8, 16, DataType["INT2"]),
     ],
 )
-@pytest.mark.parametrize("impl_style", ["hls", "rtl"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.node_tree_modeling
-def test_fpgadataflow_analytical_characterization_dwc(config, impl_style):
+def test_fpgadataflow_analytical_characterization_dwc(config):
     shape, inWidth, outWidth, finn_dtype = config
 
     part = "xc7z020clg400-1"
-    model = make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_style)
+    model = make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype)
     model = model.transform(SpecializeLayers(part))
 
-    node_details = ("DWC", config, impl_style)
+    node_details = ("DWC", config)
 
     target_clk_ns = 4
 
@@ -264,15 +256,12 @@ def test_fpgadataflow_analytical_characterization_dwc(config, impl_style):
         pytest.param(([1, 64, 32], 64, 16, DataType["INT8"]), id="serialize-64to16"),
         pytest.param(([1, 64, 32], 16, 64, DataType["INT8"]), id="deserialize-16to64"),
         pytest.param(([1, 64, 32], 32, 32, DataType["INT8"]), id="wire-through"),
-        # lcm(128, 130) > 8191: HLS converts through a one-element stream
-        pytest.param(([1, 65, 128], 128, 130, DataType["BINARY"]), id="oversized-lcm"),
     ],
 )
-@pytest.mark.parametrize("impl_style", ["hls", "rtl"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_dwc_throughput(config, impl_style):
+def test_fpgadataflow_dwc_throughput(config):
     shape, inWidth, outWidth, finn_dtype = config
 
     test_fpga_part = "xc7z020clg400-1"
@@ -280,7 +269,7 @@ def test_fpgadataflow_dwc_throughput(config, impl_style):
     x = gen_finn_dt_tensor(finn_dtype, shape)
     input_dict = prepare_inputs(x, finn_dtype)
 
-    model = make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_style)
+    model = make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype)
     model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, 5))
@@ -295,14 +284,24 @@ def test_fpgadataflow_dwc_throughput(config, impl_style):
         input values anymore."""
 
     node = model.graph.node[0]
-    assert node.op_type == "StreamingDataWidthConverter_" + impl_style
+    assert node.op_type == "StreamingDataWidthConverter_rtl"
     inst = getCustomOp(node)
     # With a free-running source and sink, the interface with more beats
-    # sustains one beat per cycle (HLS with an oversized LCM: one element per
-    # cycle). get_exp_cycles() must model this, also for non-integer ratios.
+    # sustains one beat per cycle. get_exp_cycles() must model this, also for
+    # non-integer ratios.
     exp_cycles = inst.get_exp_cycles()
     cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
     assert np.isclose(exp_cycles, cycles_rtlsim, atol=15), (
         f"DWC {inWidth}->{outWidth} took {cycles_rtlsim} cycles, "
         f"get_exp_cycles() expects {exp_cycles}"
     )
+
+
+@pytest.mark.fpgadataflow
+def test_fpgadataflow_dwc_hls_preference_falls_back_to_rtl():
+    """There is no HLS DWC: a DWC that prefers HLS, e.g. from an old
+    specialize_layers config, is specialized to RTL with a warning."""
+    model = make_single_dwc_modelwrapper([1, 4], 8, 4, DataType["UINT4"], impl_style="hls")
+    with pytest.warns(UserWarning, match="There is no HLS variant of StreamingDataWidthConverter"):
+        model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+    assert [n.op_type for n in model.graph.node] == ["StreamingDataWidthConverter_rtl"]

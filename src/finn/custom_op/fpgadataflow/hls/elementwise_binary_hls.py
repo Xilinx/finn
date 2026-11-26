@@ -45,6 +45,7 @@ from finn.util.data_packing import (
     pack_innermost_dim_as_hex_string,
     rtlsim_output_to_npy,
 )
+from finn.util.mlo import mlo_set_select_bits
 
 # Mapping of memory resource attributes to the corresponding C++ HLS
 # pragma directives
@@ -118,7 +119,7 @@ class ElementwiseBinaryOperation_hls(
         super().code_generation_ipgen(model, fpgapart, clk)
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "internal_decoupled" or self.get_nodeattr("mlo_max_iter"):
-            self.generate_hdl_memstream(fpgapart)
+            self.generate_hdl_memstream(fpgapart, clk)
 
     # Generates list of C++ includes to be placed at the top of the generated
     # code
@@ -438,8 +439,13 @@ class ElementwiseBinaryOperation_hls(
 
         # Generate code for unpacking elements read from the stream into the PE-
         # parallel buffer according to broadcasting semantics
-        def unpack_buffer(shape):
-            if shape[-1] == 1 and self.pe != self.out_shape[-1]:
+        def unpack_buffer(ind):
+            # A broadcast last axis holds a single element per stream word,
+            # replicated across the PE lanes here. Decided by the unfolded
+            # shape: the folded one also ends in 1 for any operand whose last
+            # axis is covered by PE in a single beat.
+            shape = self.get_normal_input_shape(ind)
+            if len(shape) == 0 or shape[-1] == 1:
                 return "buffer[0]"
             return "buffer[pe]"
 
@@ -507,7 +513,7 @@ if({lhs_read_cond}) {{
     const auto buffer = in0_V.read();
     for(std::size_t pe = 0; pe < {self.pe}; ++pe) {{
     #pragma HLS unroll
-        lhs{lhs_index}[pe] = {unpack_buffer(lhs_shape)};
+        lhs{lhs_index}[pe] = {unpack_buffer(0)};
     }}
 }}
 """
@@ -519,7 +525,7 @@ if({rhs_read_cond}) {{
     const auto buffer = in1_V.read();
     for(std::size_t pe = 0; pe < {self.pe}; ++pe) {{
     #pragma HLS unroll
-        rhs{rhs_index}[pe] = {unpack_buffer(rhs_shape)};
+        rhs{rhs_index}[pe] = {unpack_buffer(1)};
     }}
 }}
 """
@@ -622,12 +628,18 @@ out0_V.write(out_t);
         # need to be inserted
         if self.lhs_style == "input":
             intf_names["s_axis"] += [("in0_V", self.get_instream_width_padded(ind=0))]
-            if self.rhs_style == "const" and self.get_nodeattr("mlo_max_iter"):
-                intf_names["s_axis"] += [("in1_V", self.get_instream_width_padded(ind=0))]
         # If the right-hand-side is provided as runtime input interface names
         # need to be inserted
         if self.rhs_style == "input":
-            intf_names["s_axis"] += [("in1_V", self.get_instream_width_padded(ind=1))]
+            mlo_max_iter = self.get_nodeattr("mlo_max_iter")
+            if mlo_max_iter:
+                # In a loop body, the per-iteration rhs comes from the memstream
+                # inside the node's hierarchy (see code_generation_ipi); its in1_V
+                # is the set-select stream of the FINNLoop stream tap.
+                in1_width = mlo_set_select_bits(mlo_max_iter)
+            else:
+                in1_width = self.get_instream_width_padded(ind=1)
+            intf_names["s_axis"] += [("in1_V", in1_width)]
         # AXI stream output interfaces
         intf_names["m_axis"] = [("out0_V", self.get_outstream_width_padded(ind=0))]
         # No AXI-MM, AXI-Lite or protocol-less interfaces
@@ -746,12 +758,24 @@ out0_V.write(out_t);
             return super().code_generation_ipi()
         return cmd
 
+    def get_instream_width(self, ind=0):
+        # A runtime input with a broadcast last axis delivers one element per
+        # beat, as its folded shape and its producer have it; the kernel
+        # replicates it across the PE lanes. Operands fed by the memstream
+        # inside the node keep their PE-wide words: an internal_decoupled
+        # const, and the per-iteration rhs in a loop body (see
+        # code_generation_ipi).
+        style = [self.lhs_style, self.rhs_style][ind]
+        memstream_fed = ind == 1 and self.get_nodeattr("mlo_max_iter")
+        if style == "input" and not memstream_fed and self.get_normal_input_shape(ind)[-1] == 1:
+            return self.get_input_datatype(ind).bitwidth()
+        return super().get_instream_width(ind)
+
     def fold_input_for_npy(self, inp_val, ind):
-        # A broadcast operand's folded inner axis is 1 but its stream word is PE
-        # wide, so the cppsim feeder over-reads the scalar npy. Widen it to the
-        # stream word, but only for an npy-fed operand (runtime input or
-        # internal_decoupled const). An embedded const is read from params, not
-        # the npy, so there is nothing to widen.
+        # A broadcast internal_decoupled const has a folded inner axis of 1 but
+        # PE-wide stream words, so the cppsim feeder over-reads the scalar npy.
+        # Widen it to the stream word. Runtime inputs carry one element per
+        # beat, and an embedded const is read from params, not the npy.
         folded = super().fold_input_for_npy(inp_val, ind)
         style = [self.lhs_style, self.rhs_style][ind]
         stream_fed = style == "input" or (

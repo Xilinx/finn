@@ -179,7 +179,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
                     ), """Layer with URAM thresholds must have runtime_writeable_weights=1
                         if Ultrascale device is targeted."""
         if mem_mode == "internal_decoupled":
-            self.generate_hdl_memstream(fpgapart)
+            self.generate_hdl_memstream(fpgapart, clk)
 
     def get_template_param_values(self):
         """Returns the template parameter values according to input, output and weight
@@ -590,42 +590,11 @@ class Thresholding_hls(Thresholding, HLSBackend):
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS DATAFLOW disable_start_propagation")
 
         if self.get_nodeattr("mem_mode") == "internal_embedded":
-            # the threshold tensor is acc_type [PE][TMEM][N_THRES]
-            # partition for parallel access along PE and N_THRES
-            # dimensions (dims 1 and 3)
-            self.code_gen_dict["$PRAGMAS$"].append(
-                ("#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds " "complete dim=1")
+            # the threshold tensor is acc_type [PE][TMEM][N_THRES], see
+            # HLSBackend.threshold_memory_pragmas for its partitioning and binding
+            self.code_gen_dict["$PRAGMAS$"] += self.threshold_memory_pragmas(
+                self.calc_tmem(), self.get_nodeattr("ram_style")
             )
-            self.code_gen_dict["$PRAGMAS$"].append(
-                ("#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds " "complete dim=3")
-            )
-            # set resource type
-            ram_style = self.get_nodeattr("ram_style")
-            pe = self.get_nodeattr("PE")
-            ich = self.get_nodeattr("NumChannels")
-            # if PE less than NumChannels, assign cores according to ram_style;
-            # otherwise if PE == NumChannels, Vivado HLS will unroll to FFs
-            if pe < ich:
-                if ram_style == "distributed":
-                    self.code_gen_dict["$PRAGMAS$"].append(
-                        ("#pragma HLS RESOURCE variable=threshs.m_thresholds " "core=ROM_2P_LUTRAM")
-                    )
-                elif ram_style == "block":
-                    self.code_gen_dict["$PRAGMAS$"].append(
-                        ("#pragma HLS RESOURCE variable=threshs.m_thresholds " "core=ROM_2P_BRAM")
-                    )
-                elif ram_style == "ultra":
-                    self.code_gen_dict["$PRAGMAS$"].append(
-                        "#pragma HLS BIND_STORAGE variable=threshs.m_thresholds "
-                        "type=RAM_S2P impl=URAM"
-                    )
-                else:
-                    raise Exception(
-                        """Invalid value for attribute ram_style! Is currently set to: {}
-                    has to be set to one of ("block", "distributed", "ultra")""".format(
-                            ram_style
-                        )
-                    )
         elif self.get_nodeattr("mem_mode") == "internal_decoupled":
             self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=in1_V")
 

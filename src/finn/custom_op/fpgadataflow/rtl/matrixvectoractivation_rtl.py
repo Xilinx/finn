@@ -333,7 +333,7 @@ class MVAU_rtl(MVAU, RTLBackend):
             f.write(template_wrapper)
 
         # generate the weight-infrastructure HDL (shared MVAU helper)
-        self.generate_infra_hdl(fpgapart)
+        self.generate_infra_hdl(fpgapart, clk)
 
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain

@@ -68,22 +68,25 @@ CLK2X_GEN_TCL = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/clk2x_gen/clk
 
 def run_vivado_tcl(tcl, prefix, files={}):
     """Run a Tcl script in Vivado batch mode in a new build directory, next to the
-    given files (name: content), and return its transcript."""
+    given files (name: content), and return its log."""
     work_dir = make_build_dir(prefix)
     for name, content in dict(files, **{"check.tcl": tcl}).items():
         with open(work_dir + "/" + name, "w") as f:
             f.write(content)
-    run = run_tool(
+    run_tool(
         ["vivado", "-mode", "batch", "-nojournal", "-source", "check.tcl"],
         cwd=work_dir,
         replay=work_dir + "/check.sh",
     )
-    with open(run.transcript) as f:
+    # Read Vivado's own log rather than the transcript: a tool dispatcher may hand
+    # back the tool's standard output incompletely (finn-lsf copies the LSF job
+    # output before it is complete on NFS).
+    with open(work_dir + "/vivado.log") as f:
         return f.read()
 
 
 def result_lines(log, tag):
-    "The JSON payloads of the lines starting with tag in a transcript."
+    "The JSON payloads of the lines starting with tag in a log."
     return [json.loads(line[len(tag) :]) for line in log.splitlines() if line.startswith(tag)]
 
 
@@ -216,18 +219,26 @@ foreach pin [get_pins -hierarchical -filter {NAME =~ *clk2x_domain/*clk_buf/O ||
 }
 dict set res groups "\\[[join $groups ,]\\]"
 set skew 0.0
+set slack(max) inf
+set slack(min) inf
 foreach a $clks {
     foreach b $clks {
         if {$a eq $b} continue
         foreach dt {max min} {
             set p [get_timing_paths -quiet -from $a -to $b -delay_type $dt -max_paths 1]
-            if {[llength $p] && abs([get_property SKEW $p]) > $skew} {
+            if {![llength $p]} continue
+            if {abs([get_property SKEW $p]) > $skew} {
                 set skew [expr {abs([get_property SKEW $p])}]
+            }
+            if {[get_property SLACK $p] < $slack($dt)} {
+                set slack($dt) [get_property SLACK $p]
             }
         }
     }
 }
 dict set res max_crossing_skew $skew
+dict set res crossing_setup_slack [expr {$slack(max) eq "inf" ? "null" : $slack(max)}]
+dict set res crossing_hold_slack [expr {$slack(min) eq "inf" ? "null" : $slack(min)}]
 set paths [get_timing_paths -quiet -max_paths 1 -delay_type max]
 dict set res wns [get_property SLACK $paths]
 puts "ROUTED_CHECK {[join [lmap {k v} $res {format {"%s": %s} $k $v}] {, }]}"
@@ -267,8 +278,13 @@ def test_clk2x_gen_ooc_pnr(part, clk_ns):
     proj = model.get_metadata_prop("vivado_stitch_proj")
     res = check_routed(glob.glob(proj + "/*_routed.dcp")[0], "clk2x_gen_ooc_check_")
     assert [res[k] for k in ("M", "D", "O1", "O2")] == [mmcm[k] for k in ("M", "D", "O1", "O2")]
-    # skew of the crossings: up to 0.86 ns without the delay group
-    assert res["max_crossing_skew"] < 0.4
+    # The crossings between ap_clk and ap_clk2x must meet setup and hold. Their
+    # skew depends on where placement puts the endpoints (0.31 to 0.46 ns with
+    # the delay group, up to 0.86 ns without it), so it is reported, not bounded;
+    # the delay group itself is checked in check_routed.
+    assert res["crossing_setup_slack"] is not None and res["crossing_hold_slack"] is not None
+    assert res["crossing_setup_slack"] >= 0, "clock crossing setup not met: %s" % res
+    assert res["crossing_hold_slack"] >= 0, "clock crossing hold not met: %s" % res
     assert res["wns"] >= 0, "timing not met at %s ns" % clk_ns
 
 
@@ -646,14 +662,17 @@ def test_clk2x_gen_gates_axi_lite_and_mm():
     # copy of its working directory and copy that back afterwards, which would
     # replace the transcript written meanwhile by its stale copy (finn-lsf).
     log_dir = make_build_dir("clk2x_gate_tb_log_")
-    run = run_tool(
+    run_tool(
         ["xelab", "-relax", "-prj", "tb.prj", "-L", "unisims_ver", "-L", "xpm"]
         + ["work.clk2x_gate_tb", "work.glbl", "-s", "tb", "-R"],
         cwd=sim_dir,
         replay=sim_dir + "/sim.sh",
         transcript=log_dir + "/sim",
     )
-    with open(run.transcript) as f:
+    # Read the simulator's own log rather than the transcript: a tool dispatcher may
+    # hand back the tool's standard output incompletely (finn-lsf copies the LSF job
+    # output before it is complete on NFS), but it copies the working directory back.
+    with open(sim_dir + "/xsim.log") as f:
         log = f.read()
     assert "Error" not in log and "FAILED" not in log, log[-3000:]
     assert "clk2x_gate_tb PASSED" in log, log[-3000:]

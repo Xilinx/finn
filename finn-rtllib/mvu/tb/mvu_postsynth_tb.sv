@@ -1,17 +1,15 @@
 /******************************************************************************
- * Copyright (C) 2026, Advanced Micro Devices, Inc.
- * All rights reserved.
- *
+ * Copyright (C) Advanced Micro Devices, Inc.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * @brief	Minimal self-checking testbench for post-synthesis simulation of mvu_vvu_axi (DSP58).
  * @details
  *	Run with mvu_postsynth.sh (synthesis + xsim), it compiles this testbench against the netlist.
- *	Prints "TEST PASSED" or "TEST FAILED".
+ *	Prints "TEST PASSED", or reports each mismatch, a timeout and the verdict
+ *	as $error.
  *****************************************************************************/
-`timescale 1ns/1ps
-
 module mvu_postsynth_tb;
+`default_nettype none
 
 	// Small INT8-core MVU: PE=2 lanes, SIMD=8 (3 DSP58 per chain), 4 input vectors
 	localparam int unsigned  PE = 2, SIMD = 8, MW = 32, MH = 4, NV = 4;
@@ -119,23 +117,24 @@ module mvu_postsynth_tb;
 	// Output checker
 	int unsigned  oi = 0, errors = 0;
 	always @(posedge clk) if(rst_n && m_vld && m_rdy) begin
-		if(m_dat[PE*ACCU-1:0] !== exp_beat[oi][PE*ACCU-1:0]) begin
+		assert(m_dat[PE*ACCU-1:0] === exp_beat[oi][PE*ACCU-1:0]) else begin
 			errors++;
-			$display("MISMATCH output #%0d (vector %0d, rows %0d..%0d): got %h expected %h",
+			$error("MISMATCH output #%0d (vector %0d, rows %0d..%0d): got %h expected %h",
 				oi, oi/NF, (oi%NF)*PE, (oi%NF)*PE + PE-1, m_dat[PE*ACCU-1:0], exp_beat[oi][PE*ACCU-1:0]);
 		end
 		oi++;
 		if(oi == NV*NF) begin
 			if(errors == 0)  $display("TEST PASSED: %0d output beats match the matrix product", oi);
-			else             $display("TEST FAILED: %0d of %0d output beats differ from the matrix product", errors, oi);
+			else             $error("TEST FAILED: %0d of %0d output beats differ from the matrix product", errors, oi);
 			#50ns $finish;
 		end
 	end
 
 	initial begin
 		#1ms;
-		$display("TEST FAILED: timeout after %0d of %0d output beats", oi, NV*NF);
+		$error("TEST FAILED: timeout after %0d of %0d output beats", oi, NV*NF);
 		$finish;
 	end
 
+`default_nettype wire
 endmodule : mvu_postsynth_tb

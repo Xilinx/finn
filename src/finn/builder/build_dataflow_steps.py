@@ -145,6 +145,9 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
+from finn.transformation.fpgadataflow.resolve_mem_high_performance import (
+    ResolveMemHighPerformance,
+)
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import (
     CapConvolutionFIFODepths,
@@ -1103,6 +1106,11 @@ def step_hw_codegen(model: ModelWrapper, cfg: DataflowBuildConfig):
     And fills RTL templates for RTLBackend nodes."""
     check_shell_clk2x_support(model, cfg)
     model = model.transform(GiveUniqueNodeNames())
+    # The memstreams run on the synthesis clock (or its pumped double).
+    model = model.transform(
+        ResolveMemHighPerformance(cfg.synth_clk_period_ns, cfg.mem_high_performance),
+        apply_to_subgraphs=True,
+    )
     model = model.transform(
         PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()),
         apply_to_subgraphs=True,

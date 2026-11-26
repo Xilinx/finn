@@ -102,8 +102,9 @@ class MoveAddPastMul(Transformation):
                     graph_modified = True
         # Running shape and data type inference is necessary as annotations
         # might be outdated after moving around tensors
-        model = model.transform(InferShapes())
-        model = model.transform(InferDataTypes())
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
         return model, graph_modified
 
 
@@ -161,7 +162,8 @@ class MoveScalarMulPastMatMul(Transformation):
                         graph.node.remove(n)
                         graph.node.remove(consumer)
                         graph_modified = True
-        model = model.transform(InferShapes())
+        if graph_modified:
+            model = model.transform(InferShapes())
         return model, graph_modified
 
 
@@ -218,7 +220,8 @@ class MoveScalarAddPastMatMul(Transformation):
                         graph.node.remove(n)
                         graph.node.remove(consumer)
                         graph_modified = True
-        model = model.transform(InferShapes())
+        if graph_modified:
+            model = model.transform(InferShapes())
         return (model, graph_modified)
 
 
@@ -298,7 +301,8 @@ class MoveAddPastConv(Transformation):
                         graph.node.insert(node_ind, add_node)
                         graph_modified = True
 
-        model = model.transform(InferShapes())
+        if graph_modified:
+            model = model.transform(InferShapes())
         return (model, graph_modified)
 
 
@@ -347,7 +351,8 @@ class MoveScalarMulPastConv(Transformation):
                         graph.node.remove(mul_node)
                         graph.node.insert(node_ind, mul_node)
                         graph_modified = True
-        model = model.transform(InferShapes())
+        if graph_modified:
+            model = model.transform(InferShapes())
         return (model, graph_modified)
 
 
@@ -396,7 +401,8 @@ class MoveScalarMulPastConvTranspose(Transformation):
                         graph.node.remove(mul_node)
                         graph.node.insert(node_ind, mul_node)
                         graph_modified = True
-        model = model.transform(InferShapes())
+        if graph_modified:
+            model = model.transform(InferShapes())
         return (model, graph_modified)
 
 
@@ -457,7 +463,8 @@ class MoveMulPastDWConv(Transformation):
                         graph.node.remove(mul_node)
                         graph.node.insert(node_ind, mul_node)
                         graph_modified = True
-        model = model.transform(InferShapes())
+        if graph_modified:
+            model = model.transform(InferShapes())
         return (model, graph_modified)
 
 
@@ -525,7 +532,8 @@ class MoveMulPastMaxPool(Transformation):
                         graph.node.remove(mul_node)
                         graph.node.insert(node_ind, mul_node)
                         graph_modified = True
-        model = model.transform(InferShapes())
+        if graph_modified:
+            model = model.transform(InferShapes())
         return (model, graph_modified)
 
 
@@ -858,7 +866,8 @@ class MoveOpPastFork(Transformation):
 
                 graph_modified = True
 
-        model = model.transform(InferShapes())
+        if graph_modified:
+            model = model.transform(InferShapes())
         return (model, graph_modified)
 
 
@@ -939,7 +948,8 @@ class MoveTransposePastEltwise(Transformation):
             model.set_tensor_shape(mid, None)
             graph_modified = True
             break
-        model = model.transform(InferShapes())
+        if graph_modified:
+            model = model.transform(InferShapes())
         return model, graph_modified
 
 
@@ -1114,7 +1124,8 @@ class MoveMaxPoolPastMultiThreshold(Transformation):
 
                     graph_modified = True
 
-        model = model.transform(InferShapes())
+        if graph_modified:
+            model = model.transform(InferShapes())
         return (model, graph_modified)
 
 
@@ -1175,7 +1186,8 @@ class MoveFlattenPastTopK(Transformation):
 
                     graph_modified = True
 
-        model = model.transform(InferShapes())
+        if graph_modified:
+            model = model.transform(InferShapes())
         return (model, graph_modified)
 
 
@@ -1259,9 +1271,10 @@ class MoveFlattenPastAffine(Transformation):
                     graph.node.remove(consumer)
                     graph_modified = True
 
-        model = model.transform(InferShapes())
-        model = model.transform(InferDataTypes())
-        model = model.transform(InferDataLayouts())
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+            model = model.transform(InferDataLayouts())
         return (model, graph_modified)
 
 

@@ -217,7 +217,7 @@ class VVAU_rtl(VVAU, RTLBackend):
                     runtime_writeable == 1
                 ), """Layer with URAM weights must have runtime_writeable_weights=1
                     if Ultrascale device is targeted."""
-            self.generate_hdl_memstream(fpgapart)
+            self.generate_hdl_memstream(fpgapart, clk)
 
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain

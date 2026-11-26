@@ -28,8 +28,9 @@
 
 import math
 import numpy as np
-from onnx import TensorProto
+from onnx import NodeProto, TensorProto
 from onnx import helper as oh
+from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import SortGraph
@@ -38,7 +39,12 @@ from qonnx.util.basic import get_by_name
 
 class InsertIODMA(Transformation):
     """Insert DMA nodes on inputs and outputs, or as specified by filters in
-    the constructor."""
+    the constructor.
+
+    Each graph input must feed exactly one node input and each graph output must
+    not be consumed inside the graph, since a stream cannot fan out; insert
+    DuplicateStreams first otherwise. Inputs and outputs at any stream index of
+    multi-input or multi-output nodes are supported."""
 
     def __init__(
         self,
@@ -119,8 +125,8 @@ class InsertIODMA(Transformation):
         conversion.
 
         Floorplan assigns these DWCs to the partition of their IODMA, so the
-        DMA and its DWC end up in the same kernel (as separate IPs, since the
-        free-running DWC cannot live inside the ap_ctrl_hs DMA function).
+        DMA and its DWC end up in the same kernel (as separate IPs: the DWC is
+        the free-running RTL converter, the DMA an ap_ctrl_hs HLS function).
         """
         dma_inst = getCustomOp(dma_node)
         intfw = dma_inst.get_nodeattr("intfWidth")
@@ -195,6 +201,43 @@ class InsertIODMA(Transformation):
         dma_inst.set_nodeattr("NumChannels", new_nc)
         dma_inst.set_nodeattr("numInputVectors", [total_elems // new_nc])
 
+    @staticmethod
+    def _get_single_consumer(model: ModelWrapper, graph_in_name: str) -> NodeProto:
+        """Returns the only consumer of graph input graph_in_name.
+
+        An AXI stream cannot fan out, so a graph input read by several nodes (or
+        twice by one node) cannot be served by a single IODMA. Raises ValueError
+        for such inputs and for unused ones."""
+        consumers = model.find_consumers(graph_in_name)
+        if len(consumers) != 1:
+            names = [n.name or n.op_type for n in consumers]
+            raise ValueError(
+                f"InsertIODMA: graph input {graph_in_name} must feed exactly one node input, "
+                f"but feeds {names}. Insert DuplicateStreams for a fan-out "
+                "(InferDuplicateStreamsLayer) or remove an unused input."
+            )
+        return consumers[0]
+
+    @staticmethod
+    def _get_producer(model: ModelWrapper, graph_out_name: str) -> NodeProto:
+        """Returns the producer of graph output graph_out_name.
+
+        Raises ValueError if the output has no producer or is also consumed
+        inside the graph, since the stream to the IODMA cannot fan out."""
+        producer = model.find_producer(graph_out_name)
+        if producer is None:
+            raise ValueError(f"InsertIODMA: graph output {graph_out_name} has no producer")
+        consumers = model.find_consumers(graph_out_name)
+        if consumers:
+            names = [n.name or n.op_type for n in consumers]
+            producer_name = producer.name or producer.op_type
+            raise ValueError(
+                f"InsertIODMA: graph output {graph_out_name} of {producer_name} "
+                f"is also consumed by {names}. Insert DuplicateStreams for the fan-out "
+                "(InferDuplicateStreamsLayer)."
+            )
+        return producer
+
     def apply(self, model):
         modified = False
         # only makes sense for a pure fpgadataflow graph -- so we check!
@@ -207,19 +250,20 @@ class InsertIODMA(Transformation):
         if self.insert_input:
             graph_in_names = [x.name for x in model.graph.input]
             for graph_in_name in graph_in_names:
-                first_node = model.find_consumer(graph_in_name)
+                first_node = self._get_single_consumer(model, graph_in_name)
                 if first_node.op_type == "IODMA_hls":
                     # IODMA already inserted for this input
                     continue
                 else:
+                    in_ind = list(first_node.input).index(graph_in_name)
                     in_shape = model.get_tensor_shape(graph_in_name)
                     in_dtype = model.get_tensor_datatype(graph_in_name)
                     first_node_inst = getCustomOp(first_node)
-                    in_folded_shape = first_node_inst.get_folded_input_shape()
+                    in_folded_shape = first_node_inst.get_folded_input_shape(in_ind)
                     # take advantage of AXI stream width padding for DMA alignment
                     # (AXI streams are always padded to 8 bits)
                     # this is the width of stream output expected from the DMA
-                    padded_instream_width = first_node_inst.get_instream_width_padded()
+                    padded_instream_width = first_node_inst.get_instream_width_padded(in_ind)
                     padded_instream_bytes = padded_instream_width // 8
                     # determine the feasible interface width
                     transfer_bits = padded_instream_width * np.prod(in_folded_shape[:-1])
@@ -232,7 +276,7 @@ class InsertIODMA(Transformation):
                     model.graph.value_info.append(first_node_in)
                     model.set_tensor_datatype(first_node_in.name, in_dtype)
                     # reroute first node input
-                    first_node.input[0] = first_node_in.name
+                    first_node.input[in_ind] = first_node_in.name
                     dma_node = oh.make_node(
                         "IODMA_hls",
                         [graph_in_name],
@@ -254,18 +298,19 @@ class InsertIODMA(Transformation):
         if self.insert_output:
             graph_out_names = [x.name for x in model.graph.output]
             for graph_out_name in graph_out_names:
-                final_node = model.find_producer(graph_out_name)
+                final_node = self._get_producer(model, graph_out_name)
                 if final_node.op_type == "IODMA_hls":
                     continue
                 else:
+                    out_ind = list(final_node.output).index(graph_out_name)
                     out_shape = model.get_tensor_shape(graph_out_name)
                     out_dtype = model.get_tensor_datatype(graph_out_name)
                     final_node_inst = getCustomOp(final_node)
-                    out_folded_shape = final_node_inst.get_folded_output_shape()
+                    out_folded_shape = final_node_inst.get_folded_output_shape(out_ind)
                     # take advantage of AXI stream width padding for DMA alignment
                     # (AXI streams are always padded to 8 bits)
                     # this is the width of stream input to DMA
-                    padded_outstream_width = final_node_inst.get_outstream_width_padded()
+                    padded_outstream_width = final_node_inst.get_outstream_width_padded(out_ind)
                     padded_outstream_bytes = padded_outstream_width // 8
                     # determine the feasible interface width
                     transfer_bits = padded_outstream_width * np.prod(out_folded_shape[:-1])
@@ -278,7 +323,7 @@ class InsertIODMA(Transformation):
                     model.graph.value_info.append(final_node_out)
                     model.set_tensor_datatype(final_node_out.name, out_dtype)
                     # reroute final node output to final_node_out_name
-                    final_node.output[0] = final_node_out.name
+                    final_node.output[out_ind] = final_node_out.name
                     dma_node = oh.make_node(
                         "IODMA_hls",
                         [final_node_out.name],

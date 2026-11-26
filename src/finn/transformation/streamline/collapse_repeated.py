@@ -90,7 +90,8 @@ class CollapseRepeatedOp(Transformation):
                     graph.node.remove(n)
                     graph.node.remove(consumer)
                     graph_modified = True
-        model = model.transform(InferShapes())
+        if graph_modified:
+            model = model.transform(InferShapes())
         return (model, graph_modified)
 
 

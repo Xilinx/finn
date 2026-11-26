@@ -143,7 +143,7 @@ class MVAU_hls(MVAU, HLSBackend):
         """Generates c++ code and tcl script for ip generation."""
         super().code_generation_ipgen(model, fpgapart, clk)
         # generate the weight-infrastructure HDL (shared MVAU helper)
-        self.generate_infra_hdl(fpgapart)
+        self.generate_infra_hdl(fpgapart, clk)
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "activations.hpp"', '#include "mvau.hpp"']
@@ -340,31 +340,12 @@ class MVAU_hls(MVAU, HLSBackend):
                 currently no other parameter value is supported!"""
             )
 
-        # the threshold tensor is acc_type [PE][TMEM][N_THRES]
-        # partition for parallel access along PE and N_THRES
-        # dimensions (dims 1 and 3)
-        if self.calc_tmem() != 0:
+        tmem = self.calc_tmem()
+        if tmem != 0:
             # TODO find a better way of checking for no pregenerated thresholds
-            self.code_gen_dict["$PRAGMAS$"].append(
-                ("#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds " "complete dim=1")
+            self.code_gen_dict["$PRAGMAS$"] += self.threshold_memory_pragmas(
+                tmem, ram_style_thresholds
             )
-            self.code_gen_dict["$PRAGMAS$"].append(
-                ("#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds " "complete dim=3")
-            )
-            # add resource pragma for thresholds if set
-            if ram_style_thresholds == "distributed":
-                self.code_gen_dict["$PRAGMAS$"].append(
-                    ("#pragma HLS RESOURCE variable=threshs.m_thresholds " "core=ROM_2P_LUTRAM")
-                )
-            elif ram_style_thresholds == "block":
-                self.code_gen_dict["$PRAGMAS$"].append(
-                    ("#pragma HLS RESOURCE variable=threshs.m_thresholds " "core=ROM_2P_BRAM")
-                )
-            elif ram_style_thresholds == "auto":
-                # no pragma needed
-                pass
-            else:
-                raise Exception("Unrecognized ram_style_thresholds value:" + ram_style_thresholds)
 
     def get_ap_int_max_w(self):
         # base class impl (max of inp/out stream widths)

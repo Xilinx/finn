@@ -37,6 +37,7 @@ module $MODULE_NAME$_memstream_wrapper #(
 	parameter  INIT_FILE = "$INIT_FILE$",
 	parameter  RAM_STYLE = "$RAM_STYLE$",
 	parameter  PUMPED_MEMORY = $PUMPED_MEMORY$,
+	parameter  HIGH_PERFORMANCE = $HIGH_PERFORMANCE$,
 
 	parameter  AXILITE_ADDR_WIDTH = $clog2(SETS * DEPTH * (2**$clog2((WIDTH+31)/32))) + 2,
 	parameter  SET_BITS = SETS > 2? $clog2(SETS) : 1
@@ -79,7 +80,7 @@ module $MODULE_NAME$_memstream_wrapper #(
 	// Set selector stream (ignored for SETS = 1)
 	output	s_axis_0_tready,
 	input	s_axis_0_tvalid,
-	input	[SET_BITS-1:0]  s_axis_0_tdata,
+	input	[((SET_BITS+7)/8)*8-1:0]  s_axis_0_tdata,
 
 	// Continuous output stream
 	input	m_axis_0_tready,
@@ -92,7 +93,8 @@ module $MODULE_NAME$_memstream_wrapper #(
 		.DEPTH(DEPTH), .WIDTH(WIDTH),
 		.INIT_FILE(INIT_FILE),
 		.RAM_STYLE(RAM_STYLE),
-		.PUMPED_MEMORY(PUMPED_MEMORY)
+		.PUMPED_MEMORY(PUMPED_MEMORY),
+		.HIGH_PERFORMANCE(HIGH_PERFORMANCE)
 	) core (
 		.clk(ap_clk), .clk2x(ap_clk2x), .rst(!ap_rst_n),
 

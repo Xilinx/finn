@@ -87,14 +87,6 @@ finn.custom\_op.fpgadataflow.pool\_hls
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.fpgadataflow.streamingdatawidthconverter\_hls
-----------------------------------------------------------------------
-
-.. automodule:: finn.custom_op.fpgadataflow.hls.streamingdatawidthconverter_hls
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 finn.custom\_op.fpgadataflow.thresholding\_hls
 -------------------------------------------------------
 

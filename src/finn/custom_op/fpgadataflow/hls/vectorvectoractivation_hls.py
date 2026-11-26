@@ -245,7 +245,7 @@ class VVAU_hls(VVAU, HLSBackend):
                     runtime_writeable == 1
                 ), """Layer with URAM weights must have runtime_writeable_weights=1
                     if Ultrascale device is targeted."""
-            self.generate_hdl_memstream(fpgapart)
+            self.generate_hdl_memstream(fpgapart, clk)
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "activations.hpp"', '#include "vvau.hpp"']
@@ -422,14 +422,10 @@ class VVAU_hls(VVAU, HLSBackend):
                 currently no other parameter value is supported!"""
             )
 
-        if self.calc_tmem() != 0:
+        tmem = self.calc_tmem()
+        if tmem != 0:
             # TODO find a better way of checking for no pregenerated thresholds
-            self.code_gen_dict["$PRAGMAS$"].append(
-                ("#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds " "complete dim=1")
-            )
-            self.code_gen_dict["$PRAGMAS$"].append(
-                ("#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds " "complete dim=3")
-            )
+            self.code_gen_dict["$PRAGMAS$"] += self.threshold_memory_pragmas(tmem)
 
     def minimize_weight_bit_width(self, model, datatype_only=False):
         """Minimize weight and threshold datatypes, with HLS-specific adjustments.

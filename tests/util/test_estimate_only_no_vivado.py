@@ -153,10 +153,10 @@ def test_estimate_only_heuristic_analytical_without_synthesis(monkeypatch):
     dwcs = [(8, 32, "inp", "mid"), (32, 24, "mid", "outp")]
     nodes = [
         helper.make_node(
-            "StreamingDataWidthConverter_hls",
+            "StreamingDataWidthConverter_rtl",
             [src],
             [dst],
-            domain="finn.custom_op.fpgadataflow.hls",
+            domain="finn.custom_op.fpgadataflow.rtl",
             backend="fpgadataflow",
             shape=shape,
             inWidth=inw,

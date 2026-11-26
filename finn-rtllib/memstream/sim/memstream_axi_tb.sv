@@ -30,12 +30,18 @@
  * @author	Thomas B. Preußer <thomas.preusser@amd.com>
  */
 
-module memstream_axi_tb;
-	localparam int unsigned  DEPTH = 912;
-	localparam int unsigned  WIDTH =  73;
-	localparam bit  PUMPED_MEMORY = 1;
+module memstream_axi_tb #(
+	int unsigned  SETS = 3,
+	int unsigned  DEPTH = 912,
+	int unsigned  WIDTH = 73,
+	bit  PUMPED_MEMORY = 1,
+	bit  HIGH_PERFORMANCE = 0
+);
 
-	localparam int unsigned  AXILITE_ADDR_WIDTH = $clog2(DEPTH * (2**$clog2((WIDTH+31)/32))) + 2;
+	localparam int unsigned  WORDS = SETS * DEPTH;
+	localparam int unsigned  FOLD = 1 + (WIDTH-1)/32;
+	localparam int unsigned  AXILITE_ADDR_WIDTH = $clog2(WORDS * (2**$clog2(FOLD))) + 2;
+	localparam int unsigned  SET_BITS = SETS > 2? $clog2(SETS) : 1;
 
 	//- Global Control ------------------
 	logic  clk = 1;
@@ -72,14 +78,23 @@ module memstream_axi_tb;
 	uwire [ 1:0]  rresp;
 	uwire [31:0]  rdata;
 
+	// Set Selection
+	uwire  srdy;
+	logic  svld;
+	logic [SET_BITS-1:0]  sidx;
+	uwire [((SET_BITS+7)/8)*8-1:0]  sidx_ba = sidx;
+
 	// Streamed Output
 	logic  ordy;
 	uwire  ovld;
-	uwire [WIDTH-1:0]  odat;
+	uwire [((WIDTH+7)/8)*8-1:0]  odat;
 
 	//-----------------------------------------------------------------------
 	// DUT
-	memstream_axi #(.DEPTH(DEPTH), .WIDTH(WIDTH), .PUMPED_MEMORY(PUMPED_MEMORY)) dut (
+	memstream_axi #(
+		.SETS(SETS), .DEPTH(DEPTH), .WIDTH(WIDTH),
+		.PUMPED_MEMORY(PUMPED_MEMORY), .HIGH_PERFORMANCE(HIGH_PERFORMANCE)
+	) dut (
 		// Global Control
 		.clk, .clk2x, .rst,
 
@@ -92,6 +107,9 @@ module memstream_axi_tb;
 		.arready, .arvalid, .araddr, .arprot('x),
 		.rready,  .rvalid,  .rdata,  .rresp,
 
+		// Set selector stream (ignored for SETS = 1)
+		.s_axis_0_tready(srdy), .s_axis_0_tvalid(svld), .s_axis_0_tdata(sidx_ba),
+
 		// Continuous output stream
 		.m_axis_0_tready(ordy), .m_axis_0_tvalid(ovld), .m_axis_0_tdata(odat)
 	);
@@ -103,8 +121,52 @@ module memstream_axi_tb;
 		end
 	end
 
+	//-----------------------------------------------------------------------
+	// Stimuli and Checking
+
+	// Memory word w holds the 32-bit values (w << $clog2(FOLD)) + j in its folds j.
+	function logic [WIDTH-1:0] word(input int unsigned  w);
+		automatic logic [32*FOLD-1:0]  res;
+		for(int unsigned  j = 0; j < FOLD; j++)  res[32*j+:32] = (w << $clog2(FOLD)) + j;
+		return  res[WIDTH-1:0];
+	endfunction : word
+
+	// Stream the given sequence of sets and check the output, optionally with random backpressure.
+	task automatic stream_sets(input int unsigned  sets[$], input bit  throttle);
+		fork
+			if(SETS > 1) begin
+				svld <= 1;
+				foreach(sets[k]) begin
+					sidx <= sets[k];
+					@(posedge clk iff srdy);
+				end
+				svld <= 0;
+				sidx <= 'x;
+			end
+			begin
+				ordy <= !throttle;
+				foreach(sets[k]) begin
+					for(int unsigned  i = 0; i < DEPTH; i++) begin
+						automatic logic [WIDTH-1:0]  exp = word(sets[k]*DEPTH + i);
+						if(throttle) begin
+							while($urandom()%13 == 0) @(posedge clk);
+							ordy <= 1;
+						end
+						@(posedge clk iff ovld);
+						if(throttle)  ordy <= 0;
+						assert(odat[WIDTH-1:0] == exp) else begin
+							$error("Unexpected output of set %0d: %0x instead of %0x", sets[k], odat, exp);
+							$stop;
+						end
+					end
+				end
+				ordy <= 0;
+			end
+		join
+	endtask : stream_sets
+
 	initial begin
-		localparam int unsigned  FOLD = 1 + (WIDTH-1)/32;
+		automatic int unsigned  sets[$];
 
 		awvalid = 0;
 		awaddr = 'x;
@@ -113,6 +175,8 @@ module memstream_axi_tb;
 		arvalid = 0;
 		araddr = 'x;
 		rready = 0;
+		svld = 0;
+		sidx = 'x;
 		ordy = 0;
 		@(posedge clk iff !rst);
 
@@ -120,7 +184,7 @@ module memstream_axi_tb;
 		fork
 			begin
 				awvalid <= 1;
-				for(int unsigned  i = 0; i < DEPTH; i++) begin
+				for(int unsigned  i = 0; i < WORDS; i++) begin
 					automatic type(awaddr)  addr = i << $clog2(FOLD);
 					for(int unsigned  j = 0; j < FOLD; j++) begin
 						awaddr <= { addr++, 2'b00 };
@@ -131,7 +195,7 @@ module memstream_axi_tb;
 			end
 			begin
 				wvalid <= 1;
-				for(int unsigned  i = 0; i < DEPTH; i++) begin
+				for(int unsigned  i = 0; i < WORDS; i++) begin
 					automatic type(wdata)  data = i << $clog2(FOLD);
 					for(int unsigned  j = 0; j < FOLD; j++) begin
 						wdata <= data++;
@@ -144,7 +208,7 @@ module memstream_axi_tb;
 
 		// Read Last Entry for Sync
 		arvalid <= 1;
-		araddr <= { (DEPTH-1) << $clog2(FOLD), 2'b00 };
+		araddr <= { (WORDS-1) << $clog2(FOLD), 2'b00 };
 		@(posedge clk iff arready);
 		arvalid <= 0;
 		araddr <= 'x;
@@ -152,7 +216,8 @@ module memstream_axi_tb;
 		rready <= 1;
 		@(posedge clk iff rvalid);
 		rready <= 0;
-		assert(!rresp && (rdata == (DEPTH-1) << $clog2(FOLD))) else begin
+		// Fold 0 of the last entry, which retains only WIDTH bits if WIDTH < 32
+		assert(!rresp && (rdata == ((WORDS-1) << $clog2(FOLD) & (FOLD > 1? '1 : 2**WIDTH-1)))) else begin
 			$error("Read back error.");
 			$stop;
 		end
@@ -162,62 +227,28 @@ module memstream_axi_tb;
 		@(posedge clk);
 		rst <= 0;
 
-		// One Round of Unimpeded Stream Read
-		ordy <= 1;
-		for(int unsigned  i = 0; i < DEPTH; i++) begin
-			automatic int unsigned  base = i << $clog2(FOLD);
-			automatic type(odat)  exp;
-			for(int unsigned  j = 0; j < FOLD; j++)  exp[32*j+:32] = base+j;
+		// One Round of Unimpeded Stream Reads of all Sets in Sequence
+		sets = {};
+		for(int unsigned  s = 0; s < SETS; s++)  sets.push_back(s);
+		stream_sets(sets, 0);
 
-			@(posedge clk iff ovld);
-			assert(odat[WIDTH-1:0] == exp[WIDTH-1:0]) else begin
-				$error("Unexpected output: %0x instead of %0x [%0b]", odat, exp, odat == exp);
-				$stop;
-			end
-		end
-		ordy <= 0;
+		// Another Round in reverse Order with Intermittent Backpressure
+		sets.reverse();
+		stream_sets(sets, 1);
 
-		// Another Round with Intermittent Backpressure
-		for(int unsigned  i = 0; i < DEPTH; i++) begin
-			automatic int unsigned  base = i << $clog2(FOLD);
-			automatic type(odat)  exp;
-			for(int unsigned  j = 0; j < FOLD; j++)  exp[32*j+:32] = base+j;
-
-			while($urandom()%13 == 0) @(posedge clk);
-			ordy <= 1;
-			@(posedge clk iff ovld);
-			ordy <= 0;
-
-			assert(odat[WIDTH-1:0] == exp[WIDTH-1:0]) else begin
-				$error("Unexpected output: %0x instead of %0x", odat, exp);
-				$stop;
-			end
-		end
-
-		// Yet Another Round Adding Intermittent Readbacks
+		// Yet Another Round of Random Sets Adding Intermittent Readbacks
+		sets = {};
+		repeat(SETS < 2? 1 : 2*SETS)  sets.push_back($urandom()%SETS);
 		fork
 			automatic bit  done = 0;
 
 			begin
-				for(int unsigned  i = 0; i < DEPTH; i++) begin
-					automatic logic [WIDTH-1:0]  exp;
-					for(int unsigned  j = 0; j < FOLD; j++)  exp[32*j+:32] = (i << $clog2(FOLD)) + j;
-
-					while($urandom()%13 == 0) @(posedge clk);
-					ordy <= 1;
-					@(posedge clk iff ovld);
-					ordy <= 0;
-
-					assert(odat[WIDTH-1:0] == exp[WIDTH-1:0]) else begin
-						$error("Unexpected output: %0x instead of %0x", odat, exp);
-						$stop;
-					end
-				end
+				stream_sets(sets, 1);
 				done = 1;
 			end
 			begin
 				while(!done) begin
-					automatic int  av = $urandom() % DEPTH;
+					automatic int unsigned  av = $urandom() % WORDS;
 					repeat($urandom()%19) @(posedge clk);
 
 					for(int unsigned  j = 0; j < FOLD; j++) begin
