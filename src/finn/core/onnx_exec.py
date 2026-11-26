@@ -28,14 +28,75 @@
 
 import copy
 import numpy as np
+import os
 import qonnx.analysis.topology as ta
 from collections.abc import Callable
 from onnx import NodeProto
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.core.onnx_exec import execute_onnx as execute_onnx_base
+from qonnx.custom_op.registry import getCustomOp
 from typing import Any
 
 from finn.core.rtlsim_exec import rtlsim_exec
+
+
+def expect_node_simulations(
+    model: ModelWrapper, start_node: NodeProto | None = None, end_node: NodeProto | None = None
+) -> list[tuple[str, str, int | None]]:
+    """Prepares the simulation check of node-by-node execution.
+
+    Returns, for every hardware node between start_node and end_node that is to
+    be simulated, its name, exec_mode and the evidence before execution: rtlsim
+    resets cycles_rtlsim to 0, cppsim notes the modification time of the first
+    output npy (None if absent). Ops with node_simulation = False are skipped,
+    as are RTL nodes in cppsim, which execute their Python model.
+    """
+    # imported here: the custom ops import this module themselves
+    from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend  # noqa: PLC0415
+    from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp  # noqa: PLC0415
+    from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend  # noqa: PLC0415
+
+    nodes = list(model.graph.node)
+    start = 0 if start_node is None else model.get_node_index(start_node)
+    end = len(nodes) if end_node is None else model.get_node_index(end_node) + 1
+    expected: list[tuple[str, str, int | None]] = []
+    for node in nodes[start:end]:
+        if not node.domain.startswith("finn.custom_op.fpgadataflow"):
+            continue
+        inst = getCustomOp(node)
+        backend = isinstance(inst, (HLSBackend, RTLBackend))
+        if not backend or not isinstance(inst, HWCustomOp) or not inst.node_simulation:
+            continue
+        mode = inst.get_nodeattr("exec_mode")
+        is_hls = isinstance(inst, HLSBackend)
+        if mode == "rtlsim":
+            inst.set_nodeattr("cycles_rtlsim", 0)
+            expected.append((node.name, mode, None))
+        elif mode == "cppsim" and is_hls:
+            # only HLS nodes have a cppsim code generation directory
+            out_npy = os.path.join(inst.get_nodeattr("code_gen_dir_cppsim"), "output_0.npy")
+            mtime = os.stat(out_npy).st_mtime_ns if os.path.exists(out_npy) else None
+            expected.append((node.name, mode, mtime))
+    return expected
+
+
+def check_node_simulations(
+    model: ModelWrapper, expected: list[tuple[str, str, int | None]]
+) -> None:
+    """Raises if a node listed by expect_node_simulations was not simulated:
+    rtlsim must have counted cycles, cppsim must have (re)written its output."""
+    for name, mode, before in expected:
+        inst = getCustomOp(model.get_node_from_name(name))
+        if mode == "rtlsim":
+            simulated = inst.get_nodeattr("cycles_rtlsim") > 0
+        else:
+            out_npy = os.path.join(inst.get_nodeattr("code_gen_dir_cppsim"), "output_0.npy")
+            simulated = os.path.exists(out_npy) and os.stat(out_npy).st_mtime_ns != before
+        if not simulated:
+            raise RuntimeError(
+                f"{name}: exec_mode {mode} did not simulate the node; does its "
+                "execute_node dispatch to the HLS/RTL backend?"
+            )
 
 
 def execute_onnx(
@@ -72,7 +133,10 @@ def execute_onnx(
     # if set to "rtlsim" execute model using xsi
     model_exec_mode = model.get_metadata_prop("exec_mode")
     if (model_exec_mode is None) or (model_exec_mode == ""):
-        return execute_onnx_base(model, input_dict, return_full_exec_context, start_node, end_node)
+        expected = expect_node_simulations(model, start_node, end_node)
+        ret = execute_onnx_base(model, input_dict, return_full_exec_context, start_node, end_node)
+        check_node_simulations(model, expected)
+        return ret
     elif model_exec_mode == "rtlsim":
         # check sanity of model and then use stitched IP for rtlsim
         if not model.check_all_tensor_shapes_specified():
