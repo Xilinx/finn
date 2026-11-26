@@ -63,7 +63,8 @@
  *
  *****************************************************************************/
 module thresholding #(
-	int unsigned  K,  // input/threshold precision
+	int unsigned  K,  // input precision, at least the threshold precision
+	int unsigned  KT = K,  // threshold precision, at most K (see "Narrow Thresholds")
 	int unsigned  N,  // number of thresholds
 	int unsigned  C,  // number of channels
 	int unsigned  PE, // parallel processing elements
@@ -99,9 +100,9 @@ module thresholding #(
 	input	logic  cfg_en,
 	input	logic  cfg_we,
 	input	logic [$clog2(SETS)+$clog2(CF)+$clog2(PE)+$clog2(N)-1:0]  cfg_a,
-	input	logic [K-1:0]  cfg_d,
+	input	logic [KT-1:0]  cfg_d,
 	output	logic  cfg_rack,
-	output	logic [K-1:0]  cfg_q,
+	output	logic [KT-1:0]  cfg_q,
 
 	// Input Stream
 	output	logic  irdy,
@@ -119,6 +120,10 @@ module thresholding #(
 	initial begin
 		if(CF*PE != C) begin
 			$error("Parallelism PE=%0d is not a multiple of channel count C=%0d.", PE, C);
+			$finish;
+		end
+		if((KT < 1) || (KT > K) || (FPARG && (KT != K))) begin
+			$error("Threshold precision KT=%0d must be within [1, K=%0d], and equal K for floating-point.", KT, K);
 			$finish;
 		end
 		if(O_BITS < (BIAS >= 0? $clog2(N+BIAS+1) : 1+$clog2(-BIAS >= N+BIAS+1? -BIAS : N+BIAS+1))) begin
@@ -147,7 +152,34 @@ module thresholding #(
 
 	// Pipeline Link Type
 	typedef logic [$clog2(SETS)+$clog2(CF)+M-1:0]  ptr_t;
-	typedef logic [K                        -1:0]  val_t;
+	//	Narrow Thresholds: With thresholds narrower than the input (KT < K),
+	//	the pipeline compares in KI = KT + SIGNED bits. An input outside this
+	//	range is clamped to its nearest end once at the feed, which preserves
+	//	every comparison: the upper end is not below any threshold, and the
+	//	lower end of a signed range, min(KT) - 1 or below, is below all of them.
+	localparam int unsigned  KI = (KT + SIGNED < K)? KT + SIGNED : K;
+	typedef logic [KI                       -1:0]  val_t;
+	typedef logic [KT                       -1:0]  thr_t;
+	// Extend a stored threshold to the comparison precision
+	function automatic val_t extend(input thr_t  t);
+		return  SIGNED? val_t'($signed(t)) : val_t'(t);
+	endfunction : extend
+
+	// Inputs clamped to the comparison precision
+	uwire val_t  ival[PE];
+	for(genvar  pe = 0; pe < PE; pe++) begin : genClamp
+		uwire [K-1:0]  x = idat[pe];
+		if(KI == K) begin : genFull
+			assign	ival[pe] = x;
+		end : genFull
+		else if(!SIGNED) begin : genUnsigned
+			assign	ival[pe] = |x[K-1:KI]? '1 : x[KI-1:0];
+		end : genUnsigned
+		else begin : genSigned
+			uwire  in_range = &x[K-1:KI-1] || !(|x[K-1:KI-1]);
+			assign	ival[pe] = in_range? x[KI-1:0] : {x[K-1], {(KI-1){!x[K-1]}}};
+		end : genSigned
+	end : genClamp
 	typedef struct packed {
 		op_e   op;
 		ptr_t  ptr;	// WR/RB: address;         TH: result
@@ -220,7 +252,7 @@ module thresholding #(
 					(!cfg_sel[pe]? NOP : cfg_we? WR : RB) :
 					(ivld && !th_full? TH : NOP),
 				ptr: iptr,
-				val: !(USE_CONFIG && cfg_en)? idat[pe] : cfg_we? cfg_d : 0
+				val: !(USE_CONFIG && cfg_en)? ival[pe] : cfg_we? extend(cfg_d) : 0
 			};
 		end
 
@@ -245,11 +277,11 @@ module thresholding #(
 
 			// Threshold Memory
 			(* RAM_STYLE = RAM_STYLE *)
-			val_t  Thresh;	// Read-out register
+			thr_t  Thresh;	// Read-out register
 			if(1) begin : blkThresh
 
 				(* DONT_TOUCH = USE_CONFIG? "TRUE" : "FALSE", RAM_STYLE = RAM_STYLE *)
-				val_t  Threshs[DEPTH];
+				thr_t  Threshs[DEPTH];
 				if(THRESHOLDS_PATH != "") begin
 					initial  $readmemh($sformatf("%sthreshs_%0d_%0d.dat", THRESHOLDS_PATH, pe, stage), Threshs);
 				end
@@ -258,13 +290,13 @@ module thresholding #(
 					uwire  we = (p.op ==? WR) && cs;
 					if((SETS == 1) && (CF == 1) && (stage == 0)) begin
 						always @(posedge clk) begin
-							if(we)  Threshs[0] <= p.val;
+							if(we)  Threshs[0] <= thr_t'(p.val);
 						end
 					end
 					else begin
 						uwire [$clog2(SETS)+$clog2(CF)+stage-1:0]  addr = p.ptr[$clog2(SETS)+$clog2(CF)+M-1:SN+1];
 						always @(posedge clk) begin
-							if(we)  Threshs[addr] <= p.val;
+							if(we)  Threshs[addr] <= thr_t'(p.val);
 						end
 					end
 				end : genThreshMem
@@ -306,9 +338,10 @@ module thresholding #(
 			end
 
 			// Mask comparisons beyond specified threshold count
+			uwire val_t  thresh_ext = extend(Thresh);
 			logic  cmp;
-			if(!SIGNED)		assign	cmp = $unsigned(Thresh) <= $unsigned(P.val);
-			else if(!FPARG)	assign	cmp =   $signed(Thresh) <=   $signed(P.val);
+			if(!SIGNED)		assign	cmp = $unsigned(thresh_ext) <= $unsigned(P.val);
+			else if(!FPARG)	assign	cmp =   $signed(thresh_ext) <=   $signed(P.val);
 			else begin : blkSignedFloat
 				uwire  mag_eq = Thresh[K-2:0] == P.val[K-2:0];
 				uwire  mag_le = Thresh[K-2:0] <= P.val[K-2:0];
@@ -328,7 +361,7 @@ module thresholding #(
 			always_comb begin
 				pp = P;
 				if(P.op !=? CFG)  pp.ptr[SN] = Scope && cmp;
-				if(Reval)         pp.val = Thresh;
+				if(Reval)         pp.val = thresh_ext;
 			end
 
 			// Pipeline State Forward (potentially additional register)
@@ -361,7 +394,7 @@ module thresholding #(
 		foreach(pipe[pe]) begin
 			automatic pipe_t  p = pipe[pe][M];
 			cfg_rack |= p.op ==? RB;
-			cfg_q    |= p.val;
+			cfg_q    |= thr_t'(p.val);
 		end
 	end
 

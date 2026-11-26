@@ -1137,3 +1137,41 @@ def test_thresholding_rtl_memory_estimate(cfg, bram36, luts):
     # a BRAM trigger alone must not move memories into URAM
     inst.set_nodeattr("depth_trigger_bram", 64)
     assert inst.uram_estimation(test_fpga_part) == 0
+
+
+@pytest.mark.parametrize("impl_style", ["rtl", "hls"])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_fpgadataflow_thresholding_threshold_at_type_minimum(impl_style):
+    """A threshold equal to the minimum of the threshold type, which is narrower
+    than the input type, must not count for inputs below that minimum.
+
+    The thresholds {-8, 3, 5} fit INT4 exactly, so MinimizeWeightBitWidth picks
+    INT4 for an INT8 input. An RTL saturating its input into the threshold type
+    maps x = -100 to -8 and counts -8 <= -8.
+    """
+    num_channels, pe = 2, 1
+    input_data_type, output_data_type = DataType["INT8"], DataType["UINT2"]
+    thresholds = np.array([[-8, 3, 5], [-8, 3, 5]], dtype=np.float32)
+    model = make_single_multithresholding_modelwrapper(
+        thresholds, input_data_type, DataType["INT8"], output_data_type, 0, [1], num_channels
+    )
+    x = np.array([[-100, -9]], dtype=np.float32)
+    y_expected = oxe.execute_onnx(model, {"inp": x})["outp"]
+    assert (y_expected == 0).all()
+
+    model = model.transform(InferThresholdingLayer())
+    getCustomOp(model.graph.node[0]).set_nodeattr("preferred_impl_style", impl_style)
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    getCustomOp(model.graph.node[0]).set_nodeattr("PE", pe)
+    model = model.transform(RoundAndClipThresholds())
+    model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareRTLSim())
+
+    y_produced = oxe.execute_onnx(model, {"inp": x})["outp"]
+    assert (y_produced == y_expected).all()

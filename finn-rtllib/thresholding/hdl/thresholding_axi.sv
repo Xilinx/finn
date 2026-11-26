@@ -40,7 +40,7 @@
 
 module thresholding_axi #(
 	int unsigned  WI,	// input precision
-	int unsigned  WT,	// threshold precision
+	int unsigned  WT,	// threshold precision, may be narrower than the input
 	int unsigned  N,	// number of thresholds
 	int unsigned  C = 1,	// Channels
 	int unsigned  PE = 1,	// Processing Parallelism, requires C = k*PE
@@ -169,41 +169,31 @@ module thresholding_axi #(
 	end
 
 	//-----------------------------------------------------------------------
-	// Cast Inputs into Threshold Data Type
-	uwire [PE-1:0][WT-1:0]  idat;
+	// Comparison Precision
+	//	Thresholds narrower than the input are extended for comparison by the
+	//	kernel; an input narrower than the thresholds is extended here. Both
+	//	are exact, so no input is ever saturated.
+	localparam int unsigned  K = WI > WT? WI : WT;
+	initial begin
+		if(FPARG && (WI != WT)) begin
+			$error("%m: Floating-point inputs and thresholds must have the same precision.");
+			$finish;
+		end
+	end
+	uwire [PE-1:0][K-1:0]  idat;
 	for(genvar  pe = 0; pe < PE; pe++) begin
-		if(WT == WI) begin : genCopy
+		if(K == WI) begin : genCopy
 			assign	idat[pe] = s_axis_tdata[pe*WI+:WI];
 		end : genCopy
-		else begin
-			initial begin
-				if(FPARG) begin
-					$error("%m: Can't cast floating-point type.");
-					$finish;
-				end
-			end
-
-			if(WT > WI) begin : genWiden
-				assign	idat[pe] = { {(WT-WI){SIGNED? s_axis_tdata[(pe+1)*WI-1] : 1'b0}}, s_axis_tdata[pe*WI+:WI] };
-			end : genWiden
-			else begin : genNarrow
-				// Saturate for clipping inputs
-				if(!SIGNED) begin
-					assign	idat[pe] = |s_axis_tdata[pe*WI+WT+:WI-WT]? '1 : s_axis_tdata[pe*WI+:WT];
-				end
-				else begin
-					assign	idat[pe] =
-						(s_axis_tdata[pe*WI+WT+:WI-WT] == {(WI-WT){s_axis_tdata[pe*WI+WT-1]}})? s_axis_tdata[pe*WI+:WT] :
-						{s_axis_tdata[(pe+1)*WI-1], {(WT-1){!s_axis_tdata[(pe+1)*WI-1]}}};
-				end
-			end : genNarrow
-		end
+		else begin : genWiden
+			assign	idat[pe] = { {(K-WI){SIGNED? s_axis_tdata[(pe+1)*WI-1] : 1'b0}}, s_axis_tdata[pe*WI+:WI] };
+		end : genWiden
 	end
 
 	//-----------------------------------------------------------------------
 	// Kernel Implementation
 	thresholding #(
-		.K(WT), .N(N), .C(C), .PE(PE),
+		.K(K), .KT(WT), .N(N), .C(C), .PE(PE),
 		.SIGNED(SIGNED), .FPARG(FPARG), .BIAS(BIAS),
 		.SETS(SETS),
 		.THRESHOLDS_PATH(THRESHOLDS_PATH), .USE_CONFIG(USE_AXILITE),
