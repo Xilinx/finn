@@ -317,22 +317,32 @@ module thresholding #(
 			localparam int unsigned  SCOPE_REDUCE = (2**(M-stage-1) + 2**M-1-N) >> (M-stage);
 			pipe_t  P = '{ op: NOP, default: 'x };
 			logic  Reval = 'x;	// Replace value by readback
-			logic  Scope = 'x;	// Comparison in scope of specified threshold count
 			always_ff @(posedge clk) begin
 				if(rst) begin
 					P <= '{ op: NOP, default: 'x };
 					Reval <= 'x;
-					Scope <= 'x;
 				end
 				else begin
 					P <= p;
 					Reval <= (p.op ==? RB) && cs;
-					Scope <= (SCOPE_REDUCE == 0)? 1 : p.ptr[M-1:SN+1] < 2**stage - SCOPE_REDUCE;
 				end
 			end
 
+			// Comparison in scope of specified threshold count: a constant unless
+			// the stage has slots beyond N. A register here, even reset, would be
+			// merged into one high-fanout flip-flop on the critical path.
+			uwire  scope;
+			if(SCOPE_REDUCE == 0) begin : genScopeAll
+				assign	scope = 1;
+			end : genScopeAll
+			else begin : genScope
+				logic  Scope = 'x;
+				always_ff @(posedge clk)  Scope <= p.ptr[M-1:SN+1] < 2**stage - SCOPE_REDUCE;
+				assign	scope = Scope;
+			end : genScope
+
 			always_ff @(posedge clk) begin
-				assert((P.op !=? TH) || (Scope !== 1'bx)) else begin
+				assert((P.op !=? TH) || (scope !== 1'bx)) else begin
 					$error("%m: [%0d.%0d] Broken Scope.", pe, stage);
 				end
 			end
@@ -360,7 +370,7 @@ module thresholding #(
 			pipe_t  pp;
 			always_comb begin
 				pp = P;
-				if(P.op !=? CFG)  pp.ptr[SN] = Scope && cmp;
+				if(P.op !=? CFG)  pp.ptr[SN] = scope && cmp;
 				if(Reval)         pp.val = thresh_ext;
 			end
 
