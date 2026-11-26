@@ -3,10 +3,12 @@
 
 import numpy as np
 import onnx
+from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
+from typing import Any
 
 
-def _has_fifos(model):
+def _has_fifos(model: ModelWrapper) -> bool:
     if any(n.op_type.startswith("StreamingFIFO") for n in model.graph.node):
         return True
     for node in model.graph.node:
@@ -17,7 +19,9 @@ def _has_fifos(model):
     return False
 
 
-def fifo_transaction_counts(model, apply_to_subgraphs=False):
+def fifo_transaction_counts(
+    model: ModelWrapper, apply_to_subgraphs: bool = False
+) -> dict[str, Any]:
     """Return the expected number of stream transactions each FIFO should carry.
 
     Requires a model that already has FIFOs inserted. Returns a dict mapping FIFO
@@ -36,8 +40,8 @@ def fifo_transaction_counts(model, apply_to_subgraphs=False):
     return _count(model, apply_to_subgraphs)
 
 
-def _count(model, apply_to_subgraphs):
-    ret = {}
+def _count(model: ModelWrapper, apply_to_subgraphs: bool) -> dict[str, Any]:
+    ret: dict[str, Any] = {}
     for node in model.graph.node:
         if node.op_type.startswith("StreamingFIFO"):
             folded_shape = getCustomOp(node).get_nodeattr("folded_shape")

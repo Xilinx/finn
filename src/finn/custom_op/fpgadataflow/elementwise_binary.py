@@ -271,12 +271,12 @@ class ElementwiseBinaryOperation(HWCustomOp):
     # Gets the shape of the input at index ind without folding
     def get_normal_input_shape(self, ind=0):
         # Input shapes are stored as a node attributes
-        return [self.lhs_shape, self.rhs_shape][ind]
+        return tuple([self.lhs_shape, self.rhs_shape][ind])
 
     # Gets the shape of the output at index ind without folding
     def get_normal_output_shape(self, ind=0):
         # The output shape is stored as a node attribute
-        return self.out_shape
+        return tuple(self.out_shape)
 
     # Gets the shape of the input at index ind with folding
     def get_folded_input_shape(self, ind=0):

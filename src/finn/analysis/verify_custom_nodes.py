@@ -27,9 +27,11 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import qonnx.custom_op.registry as registry
+from qonnx.core.modelwrapper import ModelWrapper
+from typing import Any
 
 
-def verify_nodes(model):
+def verify_nodes(model: ModelWrapper) -> dict[str, Any]:
     """Checks if custom ops in graph are correctly built, with all attributes
     and inputs. Please note that many FINN CustomOps don't yet implement the
     verify_node function required for this analysis pass to work correctly.

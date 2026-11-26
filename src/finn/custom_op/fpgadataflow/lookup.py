@@ -80,7 +80,7 @@ class Lookup(HWCustomOp):
 
     def get_normal_input_shape(self, ind=0):
         if ind == 0:
-            return self.get_nodeattr("InputShape")
+            return tuple(self.get_nodeattr("InputShape"))
         elif ind == 1:
             return tuple([self.get_nodeattr("NumEmbeddings"), self.get_nodeattr("EmbeddingDim")])
         else:

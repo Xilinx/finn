@@ -3,6 +3,7 @@
 
 """Analysis pass checking that connected hardware streams have equal widths and datatypes."""
 
+from onnx import NodeProto
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from typing import Optional
@@ -11,7 +12,7 @@ from finn.transformation.fpgadataflow.floorplan import get_attached_iodma
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
-def _is_untyped_stream_node(model: ModelWrapper, node) -> bool:
+def _is_untyped_stream_node(model: ModelWrapper, node: NodeProto) -> bool:
     """IODMAs and the DWCs InsertIODMA attaches to them move raw bytes (UINT8 or the
     weight type) whatever the datatype of the stream, and TLastMarker has no datatype;
     only the width of their streams is meaningful."""

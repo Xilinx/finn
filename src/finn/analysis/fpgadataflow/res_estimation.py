@@ -28,6 +28,8 @@
 
 import qonnx.custom_op.registry as registry
 from itertools import product
+from qonnx.core.modelwrapper import ModelWrapper
+from typing import Any
 
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
@@ -37,7 +39,7 @@ RESOURCE_ATTR_VALUES = {
 }
 
 
-def res_estimation(model, fpgapart):
+def res_estimation(model: ModelWrapper, fpgapart: str) -> dict[str, Any]:
     """Estimates the resources needed for the given model.
     Ensure that all nodes have unique names (by calling the GiveUniqueNodeNames
     transformation) prior to calling this analysis pass to ensure all nodes are
@@ -54,7 +56,7 @@ def res_estimation(model, fpgapart):
     return res_dict
 
 
-def _resource_attr_variants(inst):
+def _resource_attr_variants(inst: Any) -> list[tuple[str, list[Any]]]:
     """Return resource-related node attribute variants supported by inst."""
     attr_types = inst.get_nodeattr_types()
     variants = []
@@ -77,7 +79,7 @@ def _resource_attr_variants(inst):
     return variants
 
 
-def _estimate_all_resource_variants(inst, fpgapart):
+def _estimate_all_resource_variants(inst: Any, fpgapart: str) -> list[dict[str, Any]]:
     variants = _resource_attr_variants(inst)
     if not variants:
         return [inst.node_res_estimation(fpgapart)]
@@ -97,7 +99,7 @@ def _estimate_all_resource_variants(inst, fpgapart):
     return ret
 
 
-def res_estimation_complete(model, fpgapart):
+def res_estimation_complete(model: ModelWrapper, fpgapart: str) -> dict[str, Any]:
     """Estimates the resources needed for the given model and all values for
     resource-related switches.
     Ensure that all nodes have unique names (by calling the GiveUniqueNodeNames

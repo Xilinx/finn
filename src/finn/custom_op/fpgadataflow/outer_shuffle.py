@@ -94,10 +94,10 @@ class OuterShuffle(HWCustomOp):
         return my_attrs
 
     def get_normal_input_shape(self, ind=0):
-        return self.get_nodeattr("in_shape")
+        return tuple(self.get_nodeattr("in_shape"))
 
     def get_normal_output_shape(self, ind=0):
-        return self.get_nodeattr("out_shape")
+        return tuple(self.get_nodeattr("out_shape"))
 
     def execute_node(self, context, graph):
         node = self.onnx_node

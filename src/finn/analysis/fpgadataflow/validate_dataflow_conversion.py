@@ -3,10 +3,13 @@
 
 """Analysis pass to validate that model has been properly converted to fpgadataflow layers."""
 
+from qonnx.core.modelwrapper import ModelWrapper
+from typing import Any
+
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
-def validate_dataflow_conversion(model):
+def validate_dataflow_conversion(model: ModelWrapper) -> dict[str, Any]:
     """Validate that model has been properly converted to dataflow layers.
 
     Checks that either:

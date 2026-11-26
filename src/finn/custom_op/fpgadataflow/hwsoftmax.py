@@ -32,7 +32,7 @@ class HWSoftmax(HWCustomOp):
         return my_attrs
 
     def get_normal_input_shape(self, ind=0):
-        return self.get_nodeattr("ifm_dim")
+        return tuple(self.get_nodeattr("ifm_dim"))
 
     def get_normal_output_shape(self, ind=0):
         return self.get_normal_input_shape()

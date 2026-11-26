@@ -803,10 +803,10 @@ out0_V.write(out_t);
             lhs = context[node.input[0]]
             rhs = context[node.input[1]]
             # Validate the shape of the inputs
-            assert list(lhs.shape) == self.get_normal_input_shape(
+            assert lhs.shape == self.get_normal_input_shape(
                 ind=0
             ), f"Input shape mismatch for {node.input[0]}"
-            assert list(rhs.shape) == self.get_normal_input_shape(
+            assert rhs.shape == self.get_normal_input_shape(
                 ind=1
             ), f"Input shape mismatch for {node.input[1]} {rhs.shape=}"
             # Reshape the inputs into folded form

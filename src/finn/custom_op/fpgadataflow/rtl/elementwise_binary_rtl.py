@@ -368,11 +368,11 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             lhs = context[node.input[0]]
             rhs = context[node.input[1]]
 
-            assert list(lhs.shape) == self.get_normal_input_shape(
+            assert lhs.shape == self.get_normal_input_shape(
                 ind=0
             ), f"Input shape mismatch for {node.input[0]}"
             if self.rhs_style != "const":
-                assert list(rhs.shape) == self.get_normal_input_shape(
+                assert rhs.shape == self.get_normal_input_shape(
                     ind=1
                 ), f"Input shape mismatch for {node.input[1]}"
 

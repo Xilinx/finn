@@ -27,9 +27,11 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import numpy as np
 import onnxruntime as rt
-from onnx import TensorProto, helper
-from qonnx.core.datatype import DataType
+from onnx import GraphProto, NodeProto, TensorProto, helper
+from qonnx.core.datatype import BaseDataType, DataType
+from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.util.basic import qonnx_make_model, roundup_to_integer_multiple
+from typing import Any
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
@@ -40,7 +42,7 @@ class HWTopK(HWCustomOp):
     Implements the ONNX TopK along the last axis with largest=1 and sorted=1,
     but emits only the indices output, not the values output."""
 
-    def __init__(self, onnx_node, **kwargs):
+    def __init__(self, onnx_node: NodeProto, **kwargs: Any) -> None:
         super().__init__(onnx_node, **kwargs)
         odt_name = self.get_nodeattr("outputDataType")
         if odt_name == "":
@@ -54,7 +56,7 @@ class HWTopK(HWCustomOp):
             odt_name = odt.name
             self.set_nodeattr("outputDataType", odt_name)
 
-    def get_nodeattr_types(self):
+    def get_nodeattr_types(self) -> dict[str, tuple]:
         my_attrs = {
             "Labels": ("i", True, 0),
             "PE": ("i", True, 0),
@@ -71,13 +73,13 @@ class HWTopK(HWCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
-    def get_normal_input_shape(self, ind=0):
+    def get_normal_input_shape(self, ind: int = 0) -> tuple[int, ...]:
         nlabels = self.get_nodeattr("Labels")
         vecs = list(self.get_nodeattr("numInputVectors"))
         ishape = tuple(vecs + [nlabels])
         return ishape
 
-    def get_folded_input_shape(self, ind=0):
+    def get_folded_input_shape(self, ind: int = 0) -> tuple[int, ...]:
         nlabels = self.get_nodeattr("Labels")
         pe = self.get_nodeattr("PE")
         vecs = list(self.get_nodeattr("numInputVectors"))
@@ -86,19 +88,19 @@ class HWTopK(HWCustomOp):
         folded_ishape = tuple(vecs + [folds, pe])
         return folded_ishape
 
-    def get_normal_output_shape(self, ind=0):
+    def get_normal_output_shape(self, ind: int = 0) -> tuple[int, ...]:
         k = self.get_nodeattr("K")
         vecs = list(self.get_nodeattr("numInputVectors"))
         oshape = tuple(vecs + [k])
         return oshape
 
-    def get_folded_output_shape(self, ind=0):
+    def get_folded_output_shape(self, ind: int = 0) -> tuple[int, ...]:
         k = self.get_nodeattr("K")
         vecs = list(self.get_nodeattr("numInputVectors"))
         oshape = tuple(vecs + [k, 1])
         return oshape
 
-    def infer_node_datatype(self, model):
+    def infer_node_datatype(self, model: ModelWrapper) -> None:
         node = self.onnx_node
         # check input datatype against property
         idt = model.get_tensor_datatype(node.input[0])
@@ -107,31 +109,31 @@ class HWTopK(HWCustomOp):
         odt = self.get_output_datatype()
         model.set_tensor_datatype(self.onnx_node.output[0], odt)
 
-    def get_input_datatype(self, ind=0):
+    def get_input_datatype(self, ind: int = 0) -> BaseDataType:
         """Returns FINN DataType of input."""
         ret = DataType[self.get_nodeattr("inputDataType")]
         return ret
 
-    def get_output_datatype(self, ind=0):
+    def get_output_datatype(self, ind: int = 0) -> BaseDataType:
         """Returns FINN DataType of output."""
         ret = DataType[self.get_nodeattr("outputDataType")]
         return ret
 
-    def get_instream_width(self, ind=0):
+    def get_instream_width(self, ind: int = 0) -> int:
         """Returns input stream width."""
         ibits = self.get_input_datatype().bitwidth()
         pe = self.get_nodeattr("PE")
         in_width = pe * ibits
         return in_width
 
-    def get_outstream_width(self, ind=0):
+    def get_outstream_width(self, ind: int = 0) -> int:
         """Returns output stream width."""
         return self.get_output_datatype().bitwidth()
 
-    def get_number_output_values(self):
+    def get_number_output_values(self) -> int:
         return self.get_nodeattr("K")
 
-    def execute_node(self, context, graph):
+    def execute_node(self, context: dict[str, np.ndarray], graph: GraphProto) -> None:
         # create a standard add node to help calculate the result
         node = self.onnx_node
         k = self.get_nodeattr("K")
@@ -161,7 +163,7 @@ class HWTopK(HWCustomOp):
         result = sess.run(None, idict)
         context[node.output[0]] = np.asarray(result[1], dtype=np.float32).reshape(oshape)
 
-    def get_exp_cycles(self):
+    def get_exp_cycles(self) -> int:
         nlabels = self.get_nodeattr("Labels")
         pe = self.get_nodeattr("PE")
         K = self.get_nodeattr("K")

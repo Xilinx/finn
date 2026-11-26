@@ -27,12 +27,14 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
+from typing import Any
 
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
-def floorplan_params(model):
+def floorplan_params(model: ModelWrapper) -> dict[str, Any]:
     """Gathers SLR and partition IDs from nodes.
 
     Returns {node name : {slr, device id, partition id, memory port}}."""
