@@ -712,3 +712,22 @@ def bd_nets(bd_file):
     with open(bd_file) as f:
         design = json.load(f)["design"]
     return {name: set(net["ports"]) for name, net in design.get("nets", {}).items()}
+
+
+def assert_memory_inferred(util: dict, ram_style: str, bits: int) -> None:
+    """Asserts that synthesis mapped a memory of ``bits`` bits to memory
+    primitives: the requested kind is present ("block": BRAM, "ultra": URAM,
+    "distributed": LUTRAM, "auto": any of them), and fewer than ``bits // 2``
+    flip-flops are used, so the memory was not built from registers.
+
+    ``util`` is a resource count as returned by
+    ``finn.util.vivado.synth_ooc_utilization``.
+    """
+    counts = {
+        "block": util.get("BRAM_18K", 0) + util.get("BRAM_36K", 0),
+        "ultra": util.get("URAM", 0),
+        "distributed": util.get("LUTRAM", 0),
+    }
+    present = sum(counts.values()) if ram_style == "auto" else counts[ram_style]
+    assert present > 0, f"no {ram_style} memory inferred: {util}"
+    assert util.get("FF", 0) < bits // 2, f"memory of {bits} bits built from registers: {util}"
