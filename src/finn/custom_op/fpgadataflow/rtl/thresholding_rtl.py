@@ -154,18 +154,8 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         else:
             code_gen_dict["$SETS$"] = [str(1)]
 
-        # Is the input datatype signed or unsigned?
-        # The thresholding core needs to know this when comparing weights to inputs
-        if self.get_input_datatype(0).signed():
-            code_gen_dict["$SIGNED$"] = [str(1)]
-        else:
-            code_gen_dict["$SIGNED$"] = [str(0)]
-
-        # Is the input datatype floating-point?
-        if self.get_input_datatype(0) in ["FLOAT32", "FLOAT16"]:
-            code_gen_dict["$FPARG$"] = [str(1)]
-        else:
-            code_gen_dict["$FPARG$"] = [str(0)]
+        # comparison policy of the RTL kernel, by the input datatype
+        code_gen_dict["$CMP$"] = [self.get_comparison_policy()]
 
         # The output carries the biased result in the full width of the output
         # datatype, which may exceed the minimum the RTL needs.
@@ -186,6 +176,22 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         code_gen_dict["$DEPTH_TRIGGER_BRAM$"] = [str(depth_trigger_bram)]
         code_gen_dict["$DEEP_PIPELINE$"] = [str(deep_pipeline)]
         return code_gen_dict
+
+    def get_comparison_policy(self):
+        """Return the class name of the comparison policy of thresholding_pkg
+        (finn-rtllib) for the input datatype: the order key of the IEEE format
+        for floating-point inputs, two's complement or unsigned comparison for
+        integer and fixed-point inputs. Floating-point thresholds must have the
+        type of the input."""
+        idt = self.get_input_datatype(0)
+        if not (idt.is_integer() or idt.is_fixed_point()):
+            if self.get_input_datatype(1) != idt:
+                raise ValueError(
+                    f"{self.onnx_node.name}: floating-point thresholds must have the input "
+                    f"type {idt.name}, not {self.get_input_datatype(1).name}."
+                )
+            return "cmp_float_t"
+        return "cmp_sfixed_t" if idt.signed() else "cmp_ufixed_t"
 
     def get_rtl_file_list(self, abspath=False):
         """Thresholding binary search RTL file list"""

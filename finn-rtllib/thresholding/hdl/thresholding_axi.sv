@@ -36,10 +36,11 @@
  *	- with AXI stream data interfaces with flow control
  *	- with implicit round-robin channel rotation as used by FINN,
  *	- performs aligned byte address to parameter word address translation, and
- *	- binds the comparison policy of the kernel for the data type that FINN
- *	  characterizes by SIGNED and FPARG. This binding needs SystemVerilog,
- *	  so it cannot move into the plain Verilog wrapper that Vivado requires
- *	  as the top of a block design module reference.
+ *	- binds the comparison policy of the kernel named by the string CMP, the
+ *	  class name of a policy of thresholding_pkg. A plain Verilog wrapper,
+ *	  which Vivado requires as the top of a block design module reference,
+ *	  can pass a string but cannot name a class. The selectable policies are
+ *	  listed in the registry below.
  *****************************************************************************/
 
 module thresholding_axi #(
@@ -49,8 +50,7 @@ module thresholding_axi #(
 	int unsigned  C = 1,	// Channels
 	int unsigned  PE = 1,	// Processing Parallelism, requires C = k*PE
 
-	bit  SIGNED = 1,	// signed inputs
-	bit  FPARG  = 0,	// floating-point inputs: [sign] | exponent | mantissa
+	string  CMP,	// comparison policy: class name in thresholding_pkg, e.g. "cmp_sfixed_t"
 	int  BIAS   = 0,	// offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
 
 	int unsigned  SETS = 1,  // Number of independent threshold sets
@@ -175,61 +175,53 @@ module thresholding_axi #(
 	//-----------------------------------------------------------------------
 	// Comparison Precision
 	//	Thresholds narrower than the input are extended for comparison by the
-	//	kernel; an input narrower than the thresholds is extended here. Both
-	//	are exact, so no input is ever saturated.
+	//	kernel; an input narrower than the thresholds is extended by the policy
+	//	(widen). Both are exact, so no input is ever saturated.
 	localparam int unsigned  K = WI > WT? WI : WT;
-	initial begin
-		if(FPARG && (WI != WT)) begin
-			$error("%m: Floating-point inputs and thresholds must have the same precision.");
-			$finish;
-		end
-	end
-	uwire [PE-1:0][K-1:0]  idat;
-	for(genvar  pe = 0; pe < PE; pe++) begin
-		if(K == WI) begin : genCopy
-			assign	idat[pe] = s_axis_tdata[pe*WI+:WI];
-		end : genCopy
-		else begin : genWiden
-			assign	idat[pe] = { {(K-WI){SIGNED? s_axis_tdata[(pe+1)*WI-1] : 1'b0}}, s_axis_tdata[pe*WI+:WI] };
-		end : genWiden
-	end
+	uwire [PE-1:0][K-1:0]  ipad;
+	for(genvar  pe = 0; pe < PE; pe++)  assign  ipad[pe] = K'(s_axis_tdata[pe*WI+:WI]);
 
 	//-----------------------------------------------------------------------
 	// Kernel Implementation
-	//	A type cannot be selected by an expression, so each comparison policy
-	//	gets its own otherwise identical kernel instance, connected by name.
+	//	A type cannot be computed from a string. Each registered policy has a
+	//	generate branch instantiating the kernel with it, selected by its name.
 	uwire  clk = ap_clk;
 	uwire  rst = !ap_rst_n;
 	uwire  ordy = m_axis_tready;
 	uwire  ovld;
 	uwire [PE-1:0][O_BITS-1:0]  odat;
-	if(FPARG) begin : genFloat
-		thresholding #(
-			.CMP(thresholding_pkg::cmp_float_t#(K)),
-			.K(K), .KT(WT), .N(N), .C(C), .PE(PE), .BIAS(BIAS), .SETS(SETS),
-			.THRESHOLDS_PATH(THRESHOLDS_PATH), .USE_CONFIG(USE_AXILITE),
-			.DEPTH_TRIGGER_URAM(DEPTH_TRIGGER_URAM), .DEPTH_TRIGGER_BRAM(DEPTH_TRIGGER_BRAM),
-			.DEEP_PIPELINE(DEEP_PIPELINE), .O_BITS(O_BITS)
-		) impl (.*);
-	end : genFloat
-	else if(SIGNED) begin : genSigned
-		thresholding #(
-			.CMP(thresholding_pkg::cmp_sfixed_t#(K, WT)),
-			.K(K), .KT(WT), .N(N), .C(C), .PE(PE), .BIAS(BIAS), .SETS(SETS),
-			.THRESHOLDS_PATH(THRESHOLDS_PATH), .USE_CONFIG(USE_AXILITE),
-			.DEPTH_TRIGGER_URAM(DEPTH_TRIGGER_URAM), .DEPTH_TRIGGER_BRAM(DEPTH_TRIGGER_BRAM),
-			.DEEP_PIPELINE(DEEP_PIPELINE), .O_BITS(O_BITS)
-		) impl (.*);
-	end : genSigned
-	else begin : genUnsigned
-		thresholding #(
-			.CMP(thresholding_pkg::cmp_ufixed_t#(K, WT)),
-			.K(K), .KT(WT), .N(N), .C(C), .PE(PE), .BIAS(BIAS), .SETS(SETS),
-			.THRESHOLDS_PATH(THRESHOLDS_PATH), .USE_CONFIG(USE_AXILITE),
-			.DEPTH_TRIGGER_URAM(DEPTH_TRIGGER_URAM), .DEPTH_TRIGGER_BRAM(DEPTH_TRIGGER_BRAM),
-			.DEEP_PIPELINE(DEEP_PIPELINE), .O_BITS(O_BITS)
-		) impl (.*);
-	end : genUnsigned
+
+	// Registry of the selectable policies: `CMP_SELECT(<class>) for each;
+	// a policy added to thresholding_pkg becomes selectable by its line here.
+`define CMP_REGISTRY \
+		`CMP_SELECT(cmp_ufixed_t) \
+		`CMP_SELECT(cmp_sfixed_t) \
+		`CMP_SELECT(cmp_float_t)
+
+`define CMP_SELECT(CLS) \
+	if(CMP == `"CLS`") begin : gen_``CLS \
+		uwire [PE-1:0][K-1:0]  idat; \
+		for(genvar  pe = 0; pe < PE; pe++)  assign  idat[pe] = thresholding_pkg::CLS#(K, WT)::widen(ipad[pe], WI); \
+		thresholding #( \
+			.CMP(thresholding_pkg::CLS#(K, WT)), \
+			.K(K), .KT(WT), .N(N), .C(C), .PE(PE), .BIAS(BIAS), .SETS(SETS), \
+			.THRESHOLDS_PATH(THRESHOLDS_PATH), .USE_CONFIG(USE_AXILITE), \
+			.DEPTH_TRIGGER_URAM(DEPTH_TRIGGER_URAM), .DEPTH_TRIGGER_BRAM(DEPTH_TRIGGER_BRAM), \
+			.DEEP_PIPELINE(DEEP_PIPELINE), .O_BITS(O_BITS) \
+		) impl (.*); \
+	end else
+
+	`CMP_REGISTRY
+	begin : genUnknown
+		initial begin
+			$error("%m: Unknown comparison policy \"%s\".", CMP);
+			$finish;
+		end
+	end : genUnknown
+
+`undef CMP_SELECT
+`undef CMP_REGISTRY
+
 	assign	m_axis_tvalid = ovld;
 	assign	m_axis_tdata[PE*O_BITS-1:0] = odat;
 	if($bits(m_axis_tdata) > PE*O_BITS) begin : genPadOut

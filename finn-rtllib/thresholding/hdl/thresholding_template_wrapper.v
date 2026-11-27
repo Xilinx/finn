@@ -39,8 +39,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter  C = $C$,	// Channels
 	parameter  PE = $PE$,	// Processing Parallelism, requires C = k*PE
 
-	parameter  SIGNED = $SIGNED$,	// signed inputs
-	parameter  FPARG  = $FPARG$,	// floating-point inputs: [sign] | exponent | mantissa
+	parameter  CMP = "$CMP$",	// comparison policy, a class of thresholding_pkg
 	parameter  BIAS   = $BIAS$,		// offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
 
 	parameter  SETS = $SETS$,  // Number of independent threshold sets
@@ -106,8 +105,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 
 	thresholding_axi #(
 		.N(N), .WI(WI), .WT(WT), .C(C), .PE(PE),
-		.SIGNED(SIGNED),
-		.FPARG(FPARG),
+		.CMP(CMP),
 		.BIAS(BIAS),
 		.SETS(SETS),
 		.THRESHOLDS_PATH(THRESHOLDS_PATH),

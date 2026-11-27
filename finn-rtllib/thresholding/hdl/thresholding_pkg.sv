@@ -12,8 +12,10 @@
  *  parameter and called as CMP::le() is the closest substitute that Vivado
  *  synthesizes. The classes are plain (not virtual) and hold no state.
  *
- *  Every policy provides, for an input precision K and a threshold
- *  precision KT <= K:
+ *  Every policy is a class with the parameters (K, KT) that provides, for
+ *  an input precision K and a threshold precision KT <= K:
+ *   - widen(x, w)  input of w <= K bits, given in the low bits of x, extended
+ *               to K bits as its number format requires;
  *   - thr_t     threshold type, KT bits;
  *   - val_t     comparison operand prepared from an input;
  *   - prep(x)   input of K bits to val_t, computed once at the feed of
@@ -28,6 +30,8 @@
  *
  *  Bind a policy with explicit parameters: a class-typed parameter default
  *  depending on another parameter fails synthesis in Vivado 2024.2.
+ *  thresholding_axi selects a policy by its class name (CMP), see its
+ *  registry of the selectable policies.
  *****************************************************************************/
 package thresholding_pkg;
 
@@ -36,6 +40,10 @@ package thresholding_pkg;
 		localparam int unsigned  KI = KT;
 		typedef logic [KT-1:0]  thr_t;
 		typedef logic [KI-1:0]  val_t;
+
+		static function automatic logic [K-1:0] widen(input logic [K-1:0]  x, input int unsigned  w);
+			return  x & ~('1 << w);	// zero extension
+		endfunction : widen
 
 		static function automatic val_t prep(input logic [K-1:0]  x);
 			return  (x >> KI) != 0? '1 : val_t'(x);
@@ -52,6 +60,10 @@ package thresholding_pkg;
 		localparam int unsigned  KI = (KT < K)? KT + 1 : K;
 		typedef logic [KT-1:0]  thr_t;
 		typedef logic [KI-1:0]  val_t;
+
+		static function automatic logic [K-1:0] widen(input logic [K-1:0]  x, input int unsigned  w);
+			return  x[w-1]? x | ('1 << w) : x & ~('1 << w);	// sign extension
+		endfunction : widen
 
 		static function automatic val_t prep(input logic [K-1:0]  x);
 			automatic logic  in_range = &x[K-1:KI-1] || !(|x[K-1:KI-1]);
@@ -72,9 +84,15 @@ package thresholding_pkg;
 	//	at the feed, which suffices for exactness: the key of a threshold of -0
 	//	then lies just below every non-negative input as it should. The stages
 	//	keep the plain key of the threshold, which folds for constant thresholds.
-	class cmp_float_t #(int unsigned  K);
+	class cmp_float_t #(int unsigned  K, int unsigned  KT = K);
 		typedef logic [K-1:0]  thr_t;
 		typedef logic [K-1:0]  val_t;
+
+		// Inputs and thresholds share one floating-point format (KT == K), so an
+		// input is never narrower than the comparison.
+		static function automatic logic [K-1:0] widen(input logic [K-1:0]  x, input int unsigned  w);
+			return  x;
+		endfunction : widen
 
 		static function automatic logic [K-1:0] key(input logic  neg, input logic [K-1:0]  x);
 			return  { !neg, x[K-2:0] ^ {(K-1){neg}} };
