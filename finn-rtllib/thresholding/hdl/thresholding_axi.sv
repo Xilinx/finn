@@ -34,19 +34,23 @@
  * @description
  *	This AXI adapter fits the core thresholding functionality:
  *	- with AXI stream data interfaces with flow control
- *	- with implicit round-robin channel rotation as used by FINN, and
- *	- performs aligned byte address to parameter word address translation.
+ *	- with implicit round-robin channel rotation as used by FINN,
+ *	- performs aligned byte address to parameter word address translation, and
+ *	- binds the comparison policy of the kernel named by the string CMP, the
+ *	  class name of a policy of thresholding_pkg. A plain Verilog wrapper,
+ *	  which Vivado requires as the top of a block design module reference,
+ *	  can pass a string but cannot name a class. The selectable policies are
+ *	  listed in the registry below.
  *****************************************************************************/
 
 module thresholding_axi #(
 	int unsigned  WI,	// input precision
-	int unsigned  WT,	// threshold precision
+	int unsigned  WT,	// threshold precision, may be narrower than the input
 	int unsigned  N,	// number of thresholds
 	int unsigned  C = 1,	// Channels
 	int unsigned  PE = 1,	// Processing Parallelism, requires C = k*PE
 
-	bit  SIGNED = 1,	// signed inputs
-	bit  FPARG  = 0,	// floating-point inputs: [sign] | exponent | mantissa
+	string  CMP,	// comparison policy: class name in thresholding_pkg, e.g. "cmp_sfixed_t"
 	int  BIAS   = 0,	// offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
 
 	int unsigned  SETS = 1,  // Number of independent threshold sets
@@ -62,11 +66,11 @@ module thresholding_axi #(
 
 	// Output width, at least the default minimum; wider outputs are sign-extended for BIAS < 0
 	parameter int unsigned  O_BITS = BIAS >= 0?
-		/* unsigned */ $clog2(N+BIAS+1) :
-		/* signed */ 1+$clog2(-BIAS >= N+BIAS+1? -BIAS : N+BIAS+1),
+		/* unsigned */ $clog2(int'(N)+BIAS+1) :
+		/* signed */ 1+$clog2(-BIAS >= int'(N)+BIAS+1? -BIAS : int'(N)+BIAS+1),
 
 	localparam int unsigned  CF = C/PE,	// Channel Fold
-	localparam int unsigned  IP_ADDR_WIDTH = $clog2(CF) + $clog2(PE) + $clog2(N),
+	localparam int unsigned  IP_ADDR_WIDTH = $clog2(SETS) + $clog2(CF) + $clog2(PE) + $clog2(N),
 	localparam int unsigned  ADDR_FOLD = 1 + (WT-1)/32,
 	localparam int unsigned  ADDR_WIDTH = IP_ADDR_WIDTH + $clog2(ADDR_FOLD) + 2,
 	localparam int unsigned  S_BITS = SETS > 2? $clog2(SETS) : 1
@@ -169,56 +173,57 @@ module thresholding_axi #(
 	end
 
 	//-----------------------------------------------------------------------
-	// Cast Inputs into Threshold Data Type
-	uwire [PE-1:0][WT-1:0]  idat;
-	for(genvar  pe = 0; pe < PE; pe++) begin
-		if(WT == WI) begin : genCopy
-			assign	idat[pe] = s_axis_tdata[pe*WI+:WI];
-		end : genCopy
-		else begin
-			initial begin
-				if(FPARG) begin
-					$error("%m: Can't cast floating-point type.");
-					$finish;
-				end
-			end
-
-			if(WT > WI) begin : genWiden
-				assign	idat[pe] = { {(WT-WI){SIGNED? s_axis_tdata[(pe+1)*WI-1] : 1'b0}}, s_axis_tdata[pe*WI+:WI] };
-			end : genWiden
-			else begin : genNarrow
-				// Saturate for clipping inputs
-				if(!SIGNED) begin
-					assign	idat[pe] = |s_axis_tdata[pe*WI+WT+:WI-WT]? '1 : s_axis_tdata[pe*WI+:WT];
-				end
-				else begin
-					assign	idat[pe] =
-						(s_axis_tdata[pe*WI+WT+:WI-WT] == {(WI-WT){s_axis_tdata[pe*WI+WT-1]}})? s_axis_tdata[pe*WI+:WT] :
-						{s_axis_tdata[(pe+1)*WI-1], {(WT-1){!s_axis_tdata[(pe+1)*WI-1]}}};
-				end
-			end : genNarrow
-		end
-	end
+	// Comparison Precision
+	//	Thresholds narrower than the input are extended for comparison by the
+	//	kernel; an input narrower than the thresholds is extended by the policy
+	//	(widen). Both are exact, so no input is ever saturated.
+	localparam int unsigned  K = WI > WT? WI : WT;
+	uwire [PE-1:0][K-1:0]  ipad;
+	for(genvar  pe = 0; pe < PE; pe++)  assign  ipad[pe] = K'(s_axis_tdata[pe*WI+:WI]);
 
 	//-----------------------------------------------------------------------
 	// Kernel Implementation
-	thresholding #(
-		.K(WT), .N(N), .C(C), .PE(PE),
-		.SIGNED(SIGNED), .FPARG(FPARG), .BIAS(BIAS),
-		.SETS(SETS),
-		.THRESHOLDS_PATH(THRESHOLDS_PATH), .USE_CONFIG(USE_AXILITE),
-		.DEPTH_TRIGGER_URAM(DEPTH_TRIGGER_URAM), .DEPTH_TRIGGER_BRAM(DEPTH_TRIGGER_BRAM),
-		.DEEP_PIPELINE(DEEP_PIPELINE),
-		.O_BITS(O_BITS)
-	) impl (
-		.clk(ap_clk), .rst(!ap_rst_n),
+	//	A type cannot be computed from a string. Each registered policy has a
+	//	generate branch instantiating the kernel with it, selected by its name.
+	uwire  clk = ap_clk;
+	uwire  rst = !ap_rst_n;
+	uwire  ordy = m_axis_tready;
+	uwire  ovld;
+	uwire [PE-1:0][O_BITS-1:0]  odat;
 
-		.cfg_en, .cfg_we, .cfg_a, .cfg_d,
-		.cfg_rack, .cfg_q,
+	// Registry of the selectable policies: `CMP_SELECT(<class>) for each;
+	// a policy added to thresholding_pkg becomes selectable by its line here.
+`define CMP_REGISTRY \
+		`CMP_SELECT(cmp_ufixed_t) \
+		`CMP_SELECT(cmp_sfixed_t) \
+		`CMP_SELECT(cmp_float_t)
 
-		.irdy, .ivld, .iset, .idat,
-		.ordy(m_axis_tready), .ovld(m_axis_tvalid), .odat(m_axis_tdata[PE*O_BITS-1:0])
-	);
+`define CMP_SELECT(CLS) \
+	if(CMP == `"CLS`") begin : gen_``CLS \
+		uwire [PE-1:0][K-1:0]  idat; \
+		for(genvar  pe = 0; pe < PE; pe++)  assign  idat[pe] = thresholding_pkg::CLS#(K, WT)::widen(ipad[pe], WI); \
+		thresholding #( \
+			.CMP(thresholding_pkg::CLS#(K, WT)), \
+			.K(K), .KT(WT), .N(N), .C(C), .PE(PE), .BIAS(BIAS), .SETS(SETS), \
+			.THRESHOLDS_PATH(THRESHOLDS_PATH), .USE_CONFIG(USE_AXILITE), \
+			.DEPTH_TRIGGER_URAM(DEPTH_TRIGGER_URAM), .DEPTH_TRIGGER_BRAM(DEPTH_TRIGGER_BRAM), \
+			.DEEP_PIPELINE(DEEP_PIPELINE), .O_BITS(O_BITS) \
+		) impl (.*); \
+	end else
+
+	`CMP_REGISTRY
+	begin : genUnknown
+		initial begin
+			$error("%m: Unknown comparison policy \"%s\".", CMP);
+			$finish;
+		end
+	end : genUnknown
+
+`undef CMP_SELECT
+`undef CMP_REGISTRY
+
+	assign	m_axis_tvalid = ovld;
+	assign	m_axis_tdata[PE*O_BITS-1:0] = odat;
 	if($bits(m_axis_tdata) > PE*O_BITS) begin : genPadOut
 		assign	m_axis_tdata[$left(m_axis_tdata):PE*O_BITS] = '0;
 	end : genPadOut

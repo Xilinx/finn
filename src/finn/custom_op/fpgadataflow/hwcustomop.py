@@ -395,7 +395,7 @@ class HWCustomOp(CustomOp):
 
     def supports_memstream(self) -> bool:
         """Whether this layer can stream parameters from an on-chip memstream."""
-        ops = ["MVAU_hls", "MVAU_rtl", "VVAU_hls", "VVAU_rtl", "Thresholding_hls", "Requant_rtl"]
+        ops = ["MVAU_hls", "MVAU_rtl", "VVAU_hls", "VVAU_rtl", "Requant_rtl"]
         return self.onnx_node.op_type in ops or self.onnx_node.op_type.startswith("Elementwise")
 
     def get_mem_high_performance(self, clk_ns: float, pumped_memory: int = 0) -> int:
@@ -421,7 +421,7 @@ class HWCustomOp(CustomOp):
         ram_style=None,
     ):
         """Helper function to generate verilog code for memstream component.
-        Currently utilized by MVAU, VVAU, HLS Thresholding, Elementwise and RTL
+        Currently utilized by MVAU, VVAU, Elementwise and RTL
         Requant layers. The target clock period clk (ns) resolves an "auto"
         mem_high_performance attribute.
 
@@ -442,9 +442,7 @@ class HWCustomOp(CustomOp):
                 sets = mlo_max_iter
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
             if depth is None:
-                if self.onnx_node.op_type.startswith("Thresholding"):
-                    depth = self.calc_tmem()
-                elif self.onnx_node.op_type.startswith("MVAU"):
+                if self.onnx_node.op_type.startswith("MVAU"):
                     # one memory line per WSIMD-wide weight sub-tile, i.e.
                     # NW = PE*SIMD/WSIMD lines per WMEM entry (NW < TH if TH
                     # does not divide PE*SIMD, NW = 1 for TH = 1)

@@ -250,7 +250,6 @@ def test_runtime_thresholds_read(impl_style, idt_act_cfg, cfg, narrow, per_tenso
     ch = cfg[0]
     pe = cfg[1]
     n_inp_vecs = [1, 2, 2]
-    hls_mem_mode = "internal_decoupled"
     act = idt_act_cfg[1]
     idt = idt_act_cfg[0]
     odt = act
@@ -274,8 +273,6 @@ def test_runtime_thresholds_read(impl_style, idt_act_cfg, cfg, narrow, per_tenso
     node = model.get_nodes_by_op_type(f"Thresholding_{impl_style}")[0]
     op_inst = getCustomOp(node)
     op_inst.set_nodeattr("PE", pe)
-    if impl_style == "hls":
-        op_inst.set_nodeattr("mem_mode", hls_mem_mode)
     op_inst.set_nodeattr("runtime_writeable_weights", 1)
 
     old_weight_stream = make_runtime_weight_stream(op_inst, T)
@@ -354,7 +351,6 @@ def test_runtime_thresholds_write(impl_style, idt_act_cfg, cfg, narrow, per_tens
     pe = cfg[1]
 
     n_inp_vecs = [1, 2, 2]
-    hls_mem_mode = "internal_decoupled"
     act = idt_act_cfg[1]
     idt = idt_act_cfg[0]
 
@@ -380,8 +376,6 @@ def test_runtime_thresholds_write(impl_style, idt_act_cfg, cfg, narrow, per_tens
 
     op_inst = getCustomOp(model.graph.node[0])
     op_inst.set_nodeattr("PE", pe)
-    if impl_style == "hls":
-        op_inst.set_nodeattr("mem_mode", hls_mem_mode)
     op_inst.set_nodeattr("runtime_writeable_weights", 1)
 
     # Make new weights for runtime write
