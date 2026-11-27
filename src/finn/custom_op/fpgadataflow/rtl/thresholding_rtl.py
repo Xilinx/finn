@@ -26,7 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import math
 import numpy as np
 import os
 from qonnx.core.datatype import DataType
@@ -34,7 +33,6 @@ from qonnx.util.basic import roundup_to_integer_multiple
 
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.custom_op.fpgadataflow.thresholding import Thresholding
-from finn.util.basic import get_memutil_alternatives, mem_primitives_versal
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     pack_innermost_dim_as_hex_string,
@@ -50,14 +48,6 @@ class Thresholding_rtl(Thresholding, RTLBackend):
 
     def get_nodeattr_types(self):
         my_attrs = {
-            # memory depth triggers for threshold storage: the per-stage memories
-            # of this depth or more go into URAM (priority) or BRAM, shallower ones
-            # into LUTs once the BRAM trigger is set; 0 disables a trigger, both 0
-            # leave the choice to Vivado. Vivado maps every per-PE stage memory from
-            # a depth of about 64 to its own BRAM18 even if filled to a few percent;
-            # 512 keeps BRAMs at least half full (for thresholds up to 18 bits).
-            "depth_trigger_uram": ("i", False, 0),
-            "depth_trigger_bram": ("i", False, 512),
             # enable uniform thres optimization
             # doesn't actually do anything yet, only
             # for resource estimations
@@ -70,136 +60,14 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
 
-    def get_search_stages(self):
-        """Return the number of binary search stages, $clog2(numSteps+1), each of
-        which owns one threshold memory per PE."""
-        return math.ceil(math.log2(self.get_nodeattr("numSteps") + 1))
-
-    def get_min_output_bits(self):
-        """Return the narrowest output width the RTL accepts for the biased result
-        (O_BITS default of thresholding.sv)."""
-        n = self.get_nodeattr("numSteps")
-        bias = self.get_nodeattr("ActVal")
-        if bias >= 0:
-            return math.ceil(math.log2(n + bias + 1))
-        return 1 + math.ceil(math.log2(-bias if -bias >= n + bias + 1 else n + bias + 1))
-
     def get_pe_mem_geometries(self):
-        """return a list of (bitwidth, depth) for PE memory configurations to be used
-        in resource estimation
-
-        for each bitwidth, the depth is calculated as the
-        number of thresholds that can be stored in a single
-        memory block
-        the bitwidth is the bitwidth of the threshold values
-        the depth is the number of thresholds that can be stored
-        in a single memory block
-        the number of memory blocks is calculated as the number
-        of thresholds divided by the depth
-        the number of memory blocks is then multiplied by the
-        number of PEs to get the total number of memory blocks
-        required for the entire layer
-        """
-        pe = self.get_nodeattr("PE")
-        wdt = self.get_input_datatype(1)
-        wdt_bits = wdt.bitwidth()
+        """Return (bitwidth, depth) per stage memory of a PE, see Thresholding;
+        with uniform_thres, a stage needs only as many bits as stages remain."""
+        if not self.get_nodeattr("uniform_thres"):
+            return super().get_pe_mem_geometries()
         stages = self.get_search_stages()
-        t_channels = self.get_nodeattr("NumChannels")
-        cf = t_channels // pe
-        # For MLO, the sets are stacked over a power-of-two channel fold (as DEPTH
-        # in thresholding.sv)
-        mlo_sets = self.get_nodeattr("mlo_max_iter")
-        if mlo_sets > 1:
-            cf = mlo_sets * (1 << (cf - 1).bit_length())
-        is_uniform = self.get_nodeattr("uniform_thres")
-        if is_uniform:
-            ret = [(stages - x, cf * (2**x)) for x in range(1, stages)]
-        else:
-            ret = [(wdt_bits, cf * (2**x)) for x in range(stages)]
-        return ret
-
-    def _get_memory_estimate_details(self):
-        """return resource count, used bits and allocated capacity by memory type"""
-        res_dict = {}
-        used_bits = {}
-        capacity_bits = {}
-        depth_trigger_bram = self.get_nodeattr("depth_trigger_bram")
-        depth_trigger_uram = self.get_nodeattr("depth_trigger_uram")
-        pe = self.get_nodeattr("PE")
-        ret = self.get_pe_mem_geometries()
-        for mem_cfg in ret:
-            (width, depth) = mem_cfg
-            # as RAM_STYLE in thresholding.sv
-            if depth_trigger_uram and depth >= depth_trigger_uram:
-                kind = "URAM"
-            elif depth_trigger_bram and depth >= depth_trigger_bram:
-                kind = "BRAM"
-            elif depth_trigger_bram:
-                kind = "LUTRAM"
-            else:
-                kind = ""  # Vivado's choice, approximated by the least waste
-            primitives = {k: v for (k, v) in mem_primitives_versal.items() if kind in k}
-            alts = get_memutil_alternatives(mem_cfg, primitives)
-            primary_alt = alts[0]
-            primitive_name = primary_alt[0]
-            if primitive_name.startswith("BRAM"):
-                res_type = "BRAM"
-            else:
-                res_type = primitive_name.split("_")[0]
-            res_count, eff, waste = primary_alt[1]
-            primitive_width, primitive_depth = mem_primitives_versal[primitive_name]
-            res_dict[res_type] = res_dict.get(res_type, 0) + pe * res_count
-            used_bits[res_type] = used_bits.get(res_type, 0) + pe * width * depth
-            capacity_bits[res_type] = capacity_bits.get(res_type, 0) + (
-                pe * res_count * primitive_width * primitive_depth
-            )
-        return res_dict, used_bits, capacity_bits
-
-    def get_memory_estimate(self):
-        """return the memory estimate for this node"""
-        res_dict, _, _ = self._get_memory_estimate_details()
-        return res_dict
-
-    def bram_estimation(self, fpgapart):
-        """return the number of BRAMs required for this node"""
-        res_dict = self.get_memory_estimate()
-        return res_dict.get("BRAM", 0)
-
-    def uram_estimation(self, fpgapart):
-        """return the number of URAMs required for this node"""
-        res_dict = self.get_memory_estimate()
-        return res_dict.get("URAM", 0)
-
-    def lut_estimation(self, fpgapart):
-        """return the number of LUTs required for this node"""
-        res_dict = self.get_memory_estimate()
-        # comparison and pipeline logic, about half a LUT per threshold bit, stage
-        # and PE (fit to out-of-context results on xczu7ev for 8- and 16-bit
-        # thresholds)
-        logic = (
-            self.get_nodeattr("PE")
-            * self.get_search_stages()
-            * self.get_input_datatype(1).bitwidth()
-            // 2
-        )
-        return res_dict.get("LUTRAM", 0) + logic
-
-    def bram_efficiency_estimation(self, fpgapart):
-        """return BRAM parameter storage efficiency for this node"""
-        _, used_bits, capacity_bits = self._get_memory_estimate_details()
-        if capacity_bits.get("BRAM", 0) == 0:
-            return 1
-        return used_bits["BRAM"] / capacity_bits["BRAM"]
-
-    def uram_efficiency_estimation(self, fpgapart):
-        """return URAM parameter storage efficiency for this node."""
-        # TODO: Versal URAM supports flexible bit widths (9/18/36/72) unlike
-        # UltraScale+ which only supports 72-bit. This could improve efficiency
-        # for narrow data types on Versal devices.
-        _, used_bits, capacity_bits = self._get_memory_estimate_details()
-        if capacity_bits.get("URAM", 0) == 0:
-            return 1
-        return used_bits["URAM"] / capacity_bits["URAM"]
+        cf = self.get_mem_rows()
+        return [(stages - x, cf * (2**x)) for x in range(1, stages)]
 
     def get_all_meminit_filenames(self, abspath=False):
         "Return a list of all .dat memory initializer files used for this node"
@@ -457,13 +325,6 @@ class Thresholding_rtl(Thresholding, RTLBackend):
 
         return cmd
 
-    def get_verilog_top_module_intf_names(self):
-        intf_names = super().get_verilog_top_module_intf_names()
-        if self.get_nodeattr("runtime_writeable_weights") == 1:
-            intf_names["axilite"] = ["s_axilite"]
-
-        return intf_names
-
     def generate_params(self, model, path):
         thresholds = model.get_initializer(self.onnx_node.input[1])
 
@@ -490,100 +351,29 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         Arguments:
 
         * weights : numpy array with weights to be put into the file
+        * weight_file_mode : "decoupled_runtime" for the AXI-lite word layout,
+          "internal_embedded" for the per-stage memory initializers
         * weight_file_name : filename for the weight file to be generated
 
         """
-        path = os.path.dirname(weight_file_name)
-        if not path:
-            path = os.getcwd()
-        thresholds = weights
         if weight_file_mode == "decoupled_runtime":
-            # Runtime updates bypass inference and codegen, so this file, which the
-            # driver writes as is, sorts them for the binary search. This never
-            # changes the result (see InferThresholdingLayer).
-            thresholds = np.sort(thresholds, axis=-1)
-        pe = self.get_nodeattr("PE")
-        num_channels = self.get_nodeattr("NumChannels")  # number of channels
-        # the search tree spans 2^stages - 1 thresholds, the excess being padding
-        # masked by the RTL
-        stages = self.get_search_stages()
-        expected_thresholds = 2**stages - 1
-        n_thres_steps = self.get_nodeattr("numSteps")
-        wdt = self.get_input_datatype(1)
-        if expected_thresholds > n_thres_steps:
-            thresholds = np.pad(
-                thresholds,
-                ((0, 0), (0, expected_thresholds - n_thres_steps)),
-                mode="constant",
-                constant_values=(0, 0),
-            )
-
-        if weight_file_mode == "decoupled_runtime":
-            # If a single threshold value is found, broadcast the value
-            if thresholds.shape[0] == 1:
-                thresholds = np.broadcast_to(thresholds, (pe, expected_thresholds))
-                num_channels = pe
-            # Calculate width_padded to match RTL AXI address space allocation.
-            # RTL uses $clog2(N) bits for threshold addressing in the AXI interface,
-            # so the address space per channel is 2^clog2(n_thres_steps).
-            # For N=1, clog2(1)=0, so only 1 slot per channel.
-            width_padded = 1 << max(0, math.ceil(math.log2(n_thres_steps)))
-            thresh_padded = np.zeros((thresholds.shape[0], width_padded))
-            thresh_padded[: thresholds.shape[0], :n_thres_steps] = thresholds[:, :n_thres_steps]
-            thresh_stream = []
-            bw_hexdigit = roundup_to_integer_multiple(wdt.bitwidth(), 32)
-            padding = np.zeros(width_padded, dtype=np.int32)
-
-            chan_ind = 0
-            cf = num_channels // pe
-            for fold in range(cf):
-                for c in range(2 ** (pe - 1).bit_length()):
-                    if (c == 0 or c % pe != 0) and c < pe:
-                        for t in thresh_padded[chan_ind]:
-                            t_packed = pack_innermost_dim_as_hex_string(
-                                [t], wdt, bw_hexdigit, prefix=""
-                            ).item()
-                            thresh_stream.append(t_packed)
-                        chan_ind += 1
-                    else:
-                        for z in padding:
-                            t_packed = pack_innermost_dim_as_hex_string(
-                                [z], wdt, bw_hexdigit, prefix=""
-                            ).item()
-                            thresh_stream.append(t_packed)
-            with open(weight_file_name, "w") as f:
-                for val in thresh_stream:
-                    f.write(val + "\n")
+            self.make_runtime_weight_file(weights, weight_file_name)
         elif weight_file_mode == "internal_embedded":
-            # add dummy dimension as final dimension (that's what gets packed with next call)
-            t_expand = np.expand_dims(thresholds, axis=-1)
+            path = os.path.dirname(weight_file_name) or os.getcwd()
+            wdt = self.get_input_datatype(1)
             bw_hexdigit = roundup_to_integer_multiple(wdt.bitwidth(), 4)
-            t_packed = pack_innermost_dim_as_hex_string(
-                t_expand,
-                wdt,
-                bw_hexdigit,
-                prefix="",
-            )
-            # If a single threshold value is found, broadcast the value
-            if t_packed.shape[0] == 1:
-                t_packed = np.broadcast_to(t_packed, (pe, expected_thresholds))
-                num_channels = pe
-            channel_fold = int(num_channels / pe)
-
-            for stage in range(stages):
-                sn = stages - stage - 1
-                for pe_value in range(pe):
+            for stage, threshs in enumerate(self.get_stage_thresholds(weights)):
+                packed = pack_innermost_dim_as_hex_string(
+                    np.expand_dims(threshs, axis=-1), wdt, bw_hexdigit, prefix=""
+                )
+                for pe_value in range(packed.shape[0]):
                     thresh_file = path + "/%s_threshs_%s_%s.dat" % (
                         self.onnx_node.name,
                         pe_value,
                         stage,
                     )
-                    threshs = np.zeros([channel_fold * (2**stage)], dtype="object")
-                    for ch in range(channel_fold):
-                        for i in range(2**stage):
-                            threshs[(ch << stage) + i] = t_packed[ch * pe + pe_value][
-                                (i << (stages - stage)) + 2**sn - 1
-                            ]
                     with open(thresh_file, "w") as f:
-                        for val in threshs:
+                        for val in packed[pe_value]:
                             f.write(val + "\n")
+        else:
+            raise Exception("Unknown weight_file_mode")
