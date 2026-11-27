@@ -38,10 +38,12 @@ exposes only ``ap_clk`` and ``ap_rst_n`` (see ``finn-rtllib/clk2x_gen``):
   recorded in ``clk2x_gen.json`` in the stitched IP project. If the actual
   ``ap_clk`` of a system is outside it, Vivado reports the DRC error PDRC-179.
 * Both generated clocks form one ``CLOCK_DELAY_GROUP``, so that the router
-  balances their clock trees. The constraint ships with the IP as an IP-level
-  XDC. Vitis kernels are packaged as synthesized checkpoints, whose
-  implementation XDC Vivado does not read in the link, so VitisLink applies the
-  constraint itself.
+  balances their clock trees. The constraint ships with the IP as module
+  constraint of ``clk2x_domain`` (``clk2x_domain.xdc``, see
+  ``HWCustomOp.get_xdc_files``), which Vivado reads for the generator wherever the
+  IP is implemented, also for IPs packaged as synthesized checkpoints. VitisLink
+  additionally sets the group in an ``opt_design`` pre-hook, as long as the
+  module constraint has not been confirmed in a Vitis link.
 * ``ap_rst_n`` also resets the MMCM. The design logic leaves reset only after the
   MMCM has locked. Until then, the handshakes of all external AXI-Stream, AXI-Lite
   and AXI-MM interfaces are blocked: AXI-Lite transfers stall (no ``READY``)

@@ -93,11 +93,10 @@ proc clk2x_mmcm_family {part} {
 # Creates the ports ap_clk and ap_rst_n and the clock generator clk2x_domain
 # (whose source must have been added to the project) with the MMCM settings
 # for an input clock of f_mhz. The design logic connects to clk2x_domain/clk, clk2x
-# and rst_n. Writes the MMCM settings as JSON to json_file and the clock
-# constraint of the generator to xdc_file, see clk2x_gen_xdc, and adds it to the
-# project scoped to the current block design. (The IP packager does not pick it
-# up from there.)
-proc clk2x_gen_create {f_mhz json_file xdc_file group} {
+# and rst_n. Writes the MMCM settings as JSON to json_file. The clock constraint
+# of the generator is the module constraint hdl/clk2x_domain.xdc, which
+# CreateStitchedIP adds to the project and the IP.
+proc clk2x_gen_create {f_mhz json_file} {
     set part [get_property PART [current_project]]
     set p [clk2x_mmcm_params $part $f_mhz]
     set f1 [format %.3f $f_mhz]
@@ -133,29 +132,10 @@ proc clk2x_gen_create {f_mhz json_file xdc_file group} {
     }
     puts $fp "\}"
     close $fp
-    clk2x_gen_xdc $xdc_file $group
-    add_files -fileset constrs_1 -norecurse $xdc_file
-    set_property SCOPED_TO_REF [get_property NAME [current_bd_design]] [get_files $xdc_file]
     puts "INFO: \[FINN\] clk2x_gen: MMCM M=[dict get $p M] D=[dict get $p D]\
         O1=[dict get $p O1] O2=[dict get $p O2], VCO [dict get $p VCO] MHz, ap_clk\
         $f_mhz MHz (tolerated [format %.2f [dict get $p FIN_MIN]]..[format %.2f\
         [dict get $p FIN_MAX]] MHz)"
-}
-
-# Writes the clock constraint of the generator to xdc_file: its 1x and 2x clock
-# nets form one CLOCK_DELAY_GROUP, so that the router balances their clock
-# trees. Otherwise, their skew easily takes a large part of the 2x period from
-# the synchronous crossings between both domains. The constraint is meant to be
-# scoped to the stitched block design (SCOPED_TO_REF) or to the packaged IP. The
-# group name should be unique per generator: a group balances the clocks of one
-# clock source.
-proc clk2x_gen_xdc {xdc_file group} {
-    set fp [open $xdc_file w]
-    puts $fp "# FINN clk2x_gen: balance the clock trees of the 1x and 2x clocks."
-    puts $fp "set_property CLOCK_DELAY_GROUP $group \[get_nets -of_objects\
-        \[get_pins -hierarchical -filter {NAME =~ *clk2x_domain/*clk_buf/O ||\
-        NAME =~ *clk2x_domain/*clk2x_buf/O}\]\]"
-    close $fp
 }
 
 # Makes the interface pin intf_pin of a block design cell external as port_name

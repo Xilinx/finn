@@ -360,8 +360,8 @@ def test_fpgadataflow_analytical_characterization_slidingwindow(
     # approximating it (``swg_default_exact``), so wherever it applies the token
     # access vector is a pure function of the generated parameters and has to
     # match rtlsim exactly. Only the configurations it declines -- HLS impl
-    # style, dynamic_mode, a SIMD that does not divide, an FSM that does not
-    # settle -- fall back to the approximation and keep a tolerance.
+    # style, a SIMD that does not divide, an FSM that does not settle -- fall
+    # back to the approximation and keep a tolerance.
     if get_tree_model(getCustomOp(model.graph.node[0])).name == "swg_default_exact":
         max_allowed_volume_frac = 0.0
         volume_const = 0
@@ -502,8 +502,8 @@ def test_fpgadataflow_analytical_characterization_slidingwindow_mobilenet(
     # approximating it (``swg_default_exact``), so wherever it applies the token
     # access vector is a pure function of the generated parameters and has to
     # match rtlsim exactly. Only the configurations it declines -- HLS impl
-    # style, dynamic_mode, a SIMD that does not divide, an FSM that does not
-    # settle -- fall back to the approximation and keep a tolerance.
+    # style, a SIMD that does not divide, an FSM that does not settle -- fall
+    # back to the approximation and keep a tolerance.
     if get_tree_model(getCustomOp(model.graph.node[0])).name == "swg_default_exact":
         max_allowed_volume_frac = 0.0
         volume_const = 0

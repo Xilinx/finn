@@ -9,14 +9,7 @@ from qonnx.core.datatype import DataType
 from finn.custom_op.fpgadataflow.pad1d import Pad1D
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
-
-
-def _rtlsrc_dir():
-    return os.environ["FINN_ROOT"] + "/finn-rtllib/pad1d/hdl"
-
-
-def _pad_rtlsrc_dir():
-    return os.environ["FINN_ROOT"] + "/finn-rtllib/pad/hdl"
+from finn.util.pad import pad_hdl, pad_hdl_dir
 
 
 class Pad1D_rtl(Pad1D, RTLBackend):
@@ -105,52 +98,36 @@ class Pad1D_rtl(Pad1D, RTLBackend):
         num_channels = self.get_nodeattr("NumChannels")
         assert num_channels % simd == 0, "SIMD must divide NumChannels"
 
-        rtlsrc = _rtlsrc_dir()
-        template_path = rtlsrc + "/pad1d_template.v"
-        with open(template_path, "r") as f:
-            template = f.read()
-
         topname = self.get_verilog_top_module_name()
         self.set_nodeattr("gen_top_module", topname)
-
-        elem_width = self.get_input_datatype().bitwidth()
-        fold_width = elem_width * simd
-        code_gen_dict = {
-            "TOP_MODULE_NAME": topname,
-            "NUM_TOKENS": self.get_nodeattr("NumTokens"),
-            "NUM_CHANNELS": num_channels,
-            "SIMD": simd,
-            "ELEM_WIDTH": elem_width,
-            "PAD_LEFT": self.get_nodeattr("PadLeft"),
-            "PAD_RIGHT": self.get_nodeattr("PadRight"),
-            "FOLD_WIDTH": fold_width,
-            "PAD_LEFT_DATA_WIDTH": self._get_pad_data_width(1),
-            "PAD_RIGHT_DATA_WIDTH": self._get_pad_data_width(2),
-            "PAD_LEFT_DATA": self._pack_pad_data(model, 1),
-            "PAD_RIGHT_DATA": self._pack_pad_data(model, 2),
-            "EAGER": int(self.get_nodeattr("Eager")),
-        }
-
-        for key, value in code_gen_dict.items():
-            template = template.replace("$%s$" % key, str(value))
-
+        # a single row of PadLeft + NumTokens + PadRight tokens
+        hdl = pad_hdl(
+            topname,
+            c=num_channels,
+            pe=simd,
+            w=self.get_input_datatype().bitwidth(),
+            ih=1,
+            iw=self.get_nodeattr("NumTokens"),
+            pads=(0, self.get_nodeattr("PadLeft"), 0, self.get_nodeattr("PadRight")),
+            eager=self.get_nodeattr("Eager"),
+            tokens=(self._pack_pad_data(model, 1), self._pack_pad_data(model, 2)),
+        )
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         with open(os.path.join(code_gen_dir, topname + ".v"), "w") as f:
-            f.write(template)
+            f.write(hdl)
         self.set_nodeattr("ipgen_path", code_gen_dir)
         self.set_nodeattr("ip_path", code_gen_dir)
 
     def get_rtl_file_list(self, abspath=False):
         if abspath:
             return [
-                os.path.join(_rtlsrc_dir(), "pad1d.sv"),
-                os.path.join(_pad_rtlsrc_dir(), "pad.sv"),
+                os.path.join(pad_hdl_dir(), "pad.sv"),
                 os.path.join(
                     self.get_nodeattr("code_gen_dir_ipgen"),
                     self.get_nodeattr("gen_top_module") + ".v",
                 ),
             ]
-        return ["pad1d.sv", "pad.sv", self.get_nodeattr("gen_top_module") + ".v"]
+        return ["pad.sv", self.get_nodeattr("gen_top_module") + ".v"]
 
     def code_generation_ipi(self):
         cmd = []
