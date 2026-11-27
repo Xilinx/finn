@@ -75,10 +75,26 @@ CASES = [
     ),
     (
         "thresholding",
-        "thresholding",
-        [rtllib("thresholding", "hdl", "thresholding.sv")],
+        # the core takes its comparison policy as a type parameter, which only
+        # the adapter can bind from a generic (the class name CMP)
+        "thresholding_axi",
+        [
+            rtllib("axi", "hdl", "axilite.sv"),
+            rtllib("thresholding", "hdl", "thresholding_pkg.sv"),
+            rtllib("thresholding", "hdl", "thresholding.sv"),
+            rtllib("thresholding", "hdl", "thresholding_axi.sv"),
+        ],
         # runtime-writable, so the stage memories cannot fold into logic
-        {"K": 16, "N": 255, "C": 64, "PE": 4, "USE_CONFIG": 1, "DEPTH_TRIGGER_BRAM": 512},
+        {
+            "WI": 16,
+            "WT": 16,
+            "N": 255,
+            "C": 64,
+            "PE": 4,
+            "CMP": "cmp_sfixed_t",
+            "USE_AXILITE": 1,
+            "DEPTH_TRIGGER_BRAM": 512,
+        },
         ["block", "distributed"],
         64 * 255 * 16,
     ),
