@@ -310,12 +310,9 @@ def swg_default_tree(inst):
     """Exact CharacteristicNode for this node, or None if the fast path does not apply.
 
     Applies to the RTL ConvolutionInputGenerator, in either implementation
-    style. Declines ``dynamic_mode``, which ``SlidingWindowRtlModel`` leaves to
-    the closed-form approximations.
+    style. The configurations it declines are left to the closed-form
+    approximations of ``SlidingWindowRtlModel``.
     """
-    if inst.get_nodeattr("dynamic_mode"):
-        # the dynamic template takes its loop bounds from AXI-lite at runtime
-        return None
     try:
         impl_style = inst.select_impl_style()
     except (AttributeError, AssertionError):
@@ -394,8 +391,7 @@ class SlidingWindowRtlModel(SlidingWindowModel):
            the rtlsim token access vector exactly, so nothing below can improve
            on it and it is tried first.
         2. hand-derived closed forms for the configurations the FSM path
-           declines, i.e. ``dynamic_mode``, whose loop bounds are only set over
-           AXI-lite at runtime.
+           declines, e.g. a SIMD that does not divide the channels.
 
         The layering is necessary because the SWG is the one operator here whose
         schedule is genuinely irregular -- output tokens come in bursts whose

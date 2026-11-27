@@ -29,7 +29,7 @@
 import os
 import re
 from dataclasses import dataclass
-from typing import Iterable, Tuple, Union
+from typing import Iterable, Mapping, Optional, Tuple, Union
 
 
 def _parse_vivado_utilization_report(report_path):
@@ -84,6 +84,8 @@ def _parse_vivado_utilization_report(report_path):
         "URAM": [r"^\|\s*URAM\s*\|", r"^\|\s*URAM288\s*\|"],
         # SRL patterns
         "SRL": [r"^\|\s*LUT as Shift Register\s*\|", r"^\|\s*SRLC\d+E\s*\|"],
+        # LUTs used as distributed RAM
+        "LUTRAM": [r"^\|\s*LUT as Distributed RAM\s*\|"],
     }
 
     lines = content.split("\n")
@@ -202,6 +204,44 @@ def _parse_ooc_metadata(metadata_path):
                     ret[key] = value
 
     return ret
+
+
+def synth_ooc_utilization(
+    top: str,
+    sources: Iterable[str],
+    part: str,
+    build_dir: str,
+    generics: Optional[Mapping[str, Union[int, str]]] = None,
+) -> dict:
+    """Synthesizes the module ``top`` out of context and returns its resource
+    counts as parsed by ``_parse_vivado_utilization_report`` (LUT, LUTRAM, SRL,
+    FF, DSP, BRAM_18K, BRAM_36K, URAM).
+
+    ``sources`` are SystemVerilog files; ``generics`` override parameters of
+    ``top`` (strings are passed quoted). The run, its log and report stay in
+    ``build_dir``.
+    """
+    # imported here: the launcher reads tool messages with this module
+    from finn.util.launcher import run_tool  # noqa: PLC0415
+
+    def generic(name: str, value: Union[int, str]) -> str:
+        return "%s=%s" % (name, '\\"%s\\"' % value if isinstance(value, str) else value)
+
+    tcl = [f"read_verilog -sv {{{os.path.abspath(f)}}}" for f in sources]
+    tcl.append(
+        "synth_design -mode out_of_context -top %s -part %s %s"
+        % (top, part, " ".join("-generic " + generic(n, v) for n, v in (generics or {}).items()))
+    )
+    tcl.append("report_utilization -file utilization.rpt")
+    tcl_file = os.path.join(build_dir, "synth_ooc.tcl")
+    with open(tcl_file, "w") as f:
+        f.write("\n".join(tcl) + "\n")
+    run_tool(
+        ["vivado", "-mode", "batch", "-nojournal", "-nolog", "-source", tcl_file],
+        cwd=build_dir,
+        replay=os.path.join(build_dir, "synth_ooc.sh"),
+    )
+    return _parse_vivado_utilization_report(os.path.join(build_dir, "utilization.rpt"))
 
 
 def parse_ooc_synth_results(report_dir):

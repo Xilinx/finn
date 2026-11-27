@@ -51,6 +51,11 @@ class HWCustomOp(CustomOp):
     custom node should have. Some as abstract methods, these have to be filled
     when writing a new fpgadataflow custom op node."""
 
+    # Whether execute_node simulates the node in exec_mode cppsim (HLS) and
+    # rtlsim. finn.core.onnx_exec.execute_onnx checks that it did. False for
+    # ops that are transparent to node-by-node execution, e.g. FIFOs.
+    node_simulation: bool = True
+
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
         self.code_gen_dict = {}

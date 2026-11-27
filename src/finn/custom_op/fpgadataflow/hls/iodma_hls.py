@@ -298,6 +298,9 @@ class IODMA_hls(HWCustomOp, HLSBackend):
         docompute_template instead of docompute_template_timeout."""
         return templates.docompute_template
 
+    # the DMA is not executed node by node
+    node_simulation = False
+
     def execute_node(self, context, graph):
         pass
 

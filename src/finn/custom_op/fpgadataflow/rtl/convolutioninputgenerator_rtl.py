@@ -30,7 +30,6 @@ import math
 import numpy as np
 import os
 from qonnx.custom_op.general import im2col
-from qonnx.custom_op.general.im2col import compute_conv_output_dim
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.util.basic import roundup_to_integer_multiple
 
@@ -342,11 +341,7 @@ class ConvolutionInputGenerator_rtl(ConvolutionInputGenerator, RTLBackend):
     def prepare_codegen_default(self):
         """Fills code generation dict for the default implementation style by computing
         the incremental addressing scheme for the circular buffer."""
-        if self.get_nodeattr("dynamic_mode"):
-            template_select = "/finn-rtllib/swg/swg_template_default_dynamic.sv"
-        else:
-            template_select = "/finn-rtllib/swg/swg_template_default.sv"
-        template_path = os.environ["FINN_ROOT"] + template_select
+        template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_template_default.sv"
         code_gen_dict = {}
 
         ifm_ch = self.get_nodeattr("IFMChannels")
@@ -837,8 +832,6 @@ class ConvolutionInputGenerator_rtl(ConvolutionInputGenerator, RTLBackend):
             template_path, code_gen_dict = self.prepare_codegen_default()
         elif impl_style == "parallel":
             template_path, code_gen_dict = self.prepare_codegen_parallel()
-            if self.get_nodeattr("dynamic_mode"):
-                raise Exception("Dynamic mode is not compatible with parallel_window")
         else:
             raise Exception("Requested impl. style not implemented")
 
@@ -861,20 +854,13 @@ class ConvolutionInputGenerator_rtl(ConvolutionInputGenerator, RTLBackend):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         with open(template_path, "r") as f:
             template = f.read()
-        if self.get_nodeattr("dynamic_mode"):
-            template_select = "/finn-rtllib/swg/swg_template_wrapper_dynamic.v"
-        else:
-            template_select = "/finn-rtllib/swg/swg_template_wrapper.v"
-        with open(os.environ["FINN_ROOT"] + template_select, "r") as f:
+        with open(os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_template_wrapper.v", "r") as f:
             template_wrapper = f.read()
-        with open(os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_template_axilite.v", "r") as f:
-            template_axilite = f.read()
         for key in code_gen_dict:
             # transform list into long string separated by '\n'
             code_gen_line = "\n".join(code_gen_dict[key])
             template = template.replace(key, code_gen_line)
             template_wrapper = template_wrapper.replace(key, code_gen_line)
-            template_axilite = template_axilite.replace(key, code_gen_line)
         with open(
             os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_impl.sv"),
             "w",
@@ -885,14 +871,6 @@ class ConvolutionInputGenerator_rtl(ConvolutionInputGenerator, RTLBackend):
             "w",
         ) as f:
             f.write(template_wrapper)
-
-        # AXI-Lite reg. file component is only needed for dynamic mode
-        if self.get_nodeattr("dynamic_mode"):
-            with open(
-                os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_axilite.v"),
-                "w",
-            ) as f:
-                f.write(template_axilite)
 
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
@@ -912,9 +890,6 @@ class ConvolutionInputGenerator_rtl(ConvolutionInputGenerator, RTLBackend):
             code_gen_dir + self.get_nodeattr("gen_top_module") + "_impl.sv",
             rtllib_dir + "swg_common.sv",
         ]
-        if self.get_nodeattr("dynamic_mode"):
-            verilog_files.append(code_gen_dir + self.get_nodeattr("gen_top_module") + "_axilite.v")
-
         return verilog_files
 
     def code_generation_ipi(self):
@@ -927,77 +902,3 @@ class ConvolutionInputGenerator_rtl(ConvolutionInputGenerator, RTLBackend):
             % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)
         )
         return cmd
-
-    def get_verilog_top_module_intf_names(self):
-        # Overload default HLSCustomOp implementation to add axilite control IF
-        """Return a dict of names of input and output interfaces.
-        The keys reflect the protocols each interface implements:
-        'clk', 'rst', 'm_axis', 's_axis', 'aximm', 'axilite'.
-        Values are lists of tuples (axis, aximm) or names (axilite):
-        'axis' tuples correspond to the list of node inputs in order,
-        each tuple is (interface_name, interface_width_bits).
-        axilite always assumed to be 32 bits and is not tuple (name only).
-        Each block must have at most one aximm and one axilite."""
-        intf_names = super().get_verilog_top_module_intf_names()
-        if self.get_nodeattr("dynamic_mode"):
-            intf_names["axilite"] = ["s_axilite"]
-        return intf_names
-
-    def get_dynamic_config(self, ifm_dim=None, stride=None, dilation=None):
-        """Returns a configuration dict to re-configure FM dimension during
-        runtime. Stride and dilation can also be changed. Certain restrictions
-        apply (e.g. component must be synthesized for largest buffer size)."""
-        # NOTE: For better driver integration, this functionality could be packaged
-        # as a standalone function in the future
-        if self.select_impl_style() != "default":
-            raise Exception("Impl. style is incompatible with dynamic mode")
-
-        if ifm_dim is None:
-            ifm_dim = self.get_nodeattr("IFMDim")
-        k = self.get_nodeattr("ConvKernelDim")
-        if stride is None:
-            stride = self.get_nodeattr("Stride")
-        if dilation is None:
-            dilation = self.get_nodeattr("Dilation")
-
-        k_h, k_w = k
-        stride_h, stride_w = stride
-        dilation_h, dilation_w = dilation
-        ifm_dim_h, ifm_dim_w = ifm_dim
-        ofm_dim_h = compute_conv_output_dim(ifm_dim_h, k_h, stride_h, 0, dilation_h)
-        ofm_dim_w = compute_conv_output_dim(ifm_dim_w, k_w, stride_w, 0, dilation_w)
-        ofm_dim = [ofm_dim_h, ofm_dim_w]
-
-        # update attributes and perform sanity check
-        original_buffer_depth = self.get_buffer_depth()
-        self.set_nodeattr("IFMDim", list(ifm_dim))
-        self.set_nodeattr("OFMDim", ofm_dim)
-        self.set_nodeattr("Stride", stride)
-        self.set_nodeattr("Dilation", dilation)
-        assert (
-            self.get_buffer_depth() <= original_buffer_depth
-        ), """Error: requested
-            dynamic configuration does not fit in generated buffer implementation."""
-
-        # (re-)call codegen and extract new values
-        # each setting is mapped to an axi-lite register address
-        template_path, code_gen_dict = self.prepare_codegen_default()
-        config = {
-            "cfg_wren": (0 * 4, 1),
-            "cfg_cntr_simd": (1 * 4, int(code_gen_dict["$LOOP_SIMD_ITERATIONS$"][0])),
-            "cfg_cntr_kw": (2 * 4, int(code_gen_dict["$LOOP_KW_ITERATIONS$"][0])),
-            "cfg_cntr_kh": (3 * 4, int(code_gen_dict["$LOOP_KH_ITERATIONS$"][0])),
-            "cfg_cntr_w": (4 * 4, int(code_gen_dict["$LOOP_W_ITERATIONS$"][0])),
-            "cfg_cntr_h": (5 * 4, int(code_gen_dict["$LOOP_H_ITERATIONS$"][0])),
-            "cfg_incr_head_simd": (6 * 4, int(code_gen_dict["$HEAD_INCR_SIMD$"][0])),
-            "cfg_incr_head_kw": (7 * 4, int(code_gen_dict["$HEAD_INCR_KW$"][0])),
-            "cfg_incr_head_kh": (8 * 4, int(code_gen_dict["$HEAD_INCR_KH$"][0])),
-            "cfg_incr_head_w": (9 * 4, int(code_gen_dict["$HEAD_INCR_W$"][0])),
-            "cfg_incr_head_h": (10 * 4, int(code_gen_dict["$HEAD_INCR_H$"][0])),
-            "cfg_incr_tail_w": (11 * 4, int(code_gen_dict["$TAIL_INCR_W$"][0])),
-            "cfg_incr_tail_h": (12 * 4, int(code_gen_dict["$TAIL_INCR_H$"][0])),
-            "cfg_incr_tail_last": (13 * 4, int(code_gen_dict["$TAIL_INCR_LAST$"][0])),
-            "cfg_last_read": (14 * 4, int(code_gen_dict["$LAST_READ_ELEM$"][0])),
-            "cfg_last_write": (15 * 4, int(code_gen_dict["$LAST_WRITE_ELEM$"][0])),
-        }
-        return config

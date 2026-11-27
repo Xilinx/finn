@@ -1,10 +1,12 @@
 /****************************************************************************
  * Copyright Advanced Micro Devices, Inc.
  * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * @brief	AXI-Stream top of the pad core, filled in by finn.util.pad.
  ***************************************************************************/
 
 module $TOP_MODULE_NAME$ #(
-    parameter FOLD_WIDTH = $FOLD_WIDTH$,
+    parameter FOLD_WIDTH = $PE$ * $W$,
     parameter AXI_WIDTH = ((FOLD_WIDTH + 7) / 8) * 8
 )(
     (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
@@ -22,29 +24,26 @@ module $TOP_MODULE_NAME$ #(
     output [AXI_WIDTH-1:0] out0_V_TDATA
 );
 
-    localparam [$PAD_LEFT_DATA_WIDTH$-1:0] PAD_LEFT_DATA = $PAD_LEFT_DATA$;
-    localparam [$PAD_RIGHT_DATA_WIDTH$-1:0] PAD_RIGHT_DATA = $PAD_RIGHT_DATA$;
+    localparam [$TOKENS_W_BITS$-1:0] TOKENS_W = $TOKENS_W$;
+    localparam [$TOKENS_E_BITS$-1:0] TOKENS_E = $TOKENS_E$;
 
     wire [FOLD_WIDTH-1:0] core_out;
+    assign out0_V_TDATA = core_out;  // zero-extended to the byte-aligned stream
 
-    assign out0_V_TDATA[FOLD_WIDTH-1:0] = core_out;
-
-    generate
-        if (AXI_WIDTH > FOLD_WIDTH) begin : gen_pad_tdata
-            assign out0_V_TDATA[AXI_WIDTH-1:FOLD_WIDTH] = {(AXI_WIDTH-FOLD_WIDTH){1'b0}};
-        end
-    endgenerate
-
-    pad1d #(
-        .NUM_TOKENS($NUM_TOKENS$),
-        .NUM_CHANNELS($NUM_CHANNELS$),
-        .SIMD($SIMD$),
-        .ELEM_WIDTH($ELEM_WIDTH$),
-        .PAD_LEFT_TOKENS($PAD_LEFT$),
-        .PAD_RIGHT_TOKENS($PAD_RIGHT$),
-        .PAD_LEFT_DATA(PAD_LEFT_DATA),
-        .PAD_RIGHT_DATA(PAD_RIGHT_DATA),
-        .EAGER($EAGER$)
+    pad #(
+        .C($C$),
+        .PE($PE$),
+        .W($W$),
+        .IH($IH$),
+        .IW($IW$),
+        .PAD_N($PAD_N$),
+        .PAD_S($PAD_S$),
+        .PAD_W($PAD_W$),
+        .PAD_E($PAD_E$),
+        .EAGER($EAGER$),
+        .TOKENS($TOKENS$),
+        .TOKENS_W(TOKENS_W),
+        .TOKENS_E(TOKENS_E)
     ) impl (
         .clk(ap_clk),
         .rst(!ap_rst_n),
