@@ -193,6 +193,17 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             return "cmp_float_t"
         return "cmp_sfixed_t" if idt.signed() else "cmp_ufixed_t"
 
+    def get_xdc_files(self) -> list[tuple[str, str]]:
+        """The placement constraint of the stage pointer registers (see
+        thresholding.xdc). These registers exist if there are several stages
+        (numSteps > 1): the first stage's result travels on in the pointer of the
+        next. A single stage has one only with deep_pipeline (Pf); otherwise, its
+        result leaves combinationally and its pointer register is optimized away."""
+        if self.get_nodeattr("numSteps") < 2 and not self.get_nodeattr("deep_pipeline"):
+            return []
+        xdc = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/thresholding/hdl/thresholding.xdc")
+        return [(xdc, "thresholding")]
+
     def get_rtl_file_list(self, abspath=False):
         """Thresholding binary search RTL file list"""
         if abspath:

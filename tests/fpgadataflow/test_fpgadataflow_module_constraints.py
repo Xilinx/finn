@@ -5,8 +5,10 @@
 
 CreateStitchedIP adds the XDC files of the nodes (and of the clk2x_gen clock
 generator) to its project and packages them with the IP, scoped to their module
-and for implementation only. The tests give Thresholding_rtl a constraint of their
-own (TEST_XDC) on its module thresholding. Covered here:
+and for implementation only. The tests of the mechanism give Thresholding_rtl a
+constraint of their own (TEST_XDC) on its module thresholding. Covered here:
+- the configurations in which Thresholding_rtl names its own constraint
+  (thresholding.xdc), and its application,
 - the packaging in both modes (with and without run_synth) and the project's
   constrs_1, and that a design without such modules gets none,
 - the application in the stitching project (run_pnr), and the warnings of a
@@ -27,6 +29,7 @@ import xml.etree.ElementTree as ET
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.util.basic import qonnx_make_model
 from unittest.mock import patch
@@ -45,6 +48,9 @@ from finn.util.test import make_pumped_chain_model
 
 fpgapart = "xczu3eg-sfvc784-2-e"
 clk_ns = 5.0
+THRESHOLDING_XDC = os.path.join(
+    os.environ["FINN_ROOT"], "finn-rtllib/thresholding/hdl/thresholding.xdc"
+)
 # A constraint on the module thresholding for the tests: MAX_FANOUT_MODE on the
 # outputs of all its flip-flops, which every elaboration of the module has. MISS is
 # replaced by the cell filter (FD: flip-flops, or one that matches nothing).
@@ -174,6 +180,24 @@ def check_design(log):
     return res[0]
 
 
+# number of thresholding steps
+@pytest.mark.parametrize("n_steps", [1, 2, 255])
+# additional pipeline register per stage
+@pytest.mark.parametrize("deep_pipeline", [0, 1])
+@pytest.mark.fpgadataflow
+def test_thresholding_rtl_xdc_files(n_steps, deep_pipeline):
+    """Thresholding_rtl names its constraint exactly in the configurations with stage
+    pointer registers, i.e. with several steps or with deep pipelining (checked by
+    synthesis in test_module_constraints_run_pnr)."""
+    model = make_thresholding_chain_model(n_steps, deep_pipeline)
+    xdc_files = getCustomOp(model.graph.node[0]).get_xdc_files()
+    if n_steps > 1 or deep_pipeline:
+        assert xdc_files == [(THRESHOLDING_XDC, "thresholding")]
+        assert os.path.isfile(THRESHOLDING_XDC)
+    else:
+        assert xdc_files == []
+
+
 def injected_xdc(match=True):
     """A context with Thresholding_rtl naming TEST_XDC (matching nothing unless
     match) as constraint of its module."""
@@ -193,11 +217,13 @@ def test_module_constraints_packaging(run_synth, with_xdc):
     """The stitched IP of two Thresholding_rtl nodes carries one copy of the
     module's constraint, scoped to it and for implementation. Without a node that
     names a constraint, there is none."""
-    model = make_thresholding_chain_model(15, deep_pipeline=0)
     if with_xdc:
+        model = make_thresholding_chain_model(15, deep_pipeline=0)
         with injected_xdc():
             model = stitch(model, run_synth=run_synth)
     else:
+        # a single step without deep pipeline: Thresholding_rtl names no constraint
+        model = make_thresholding_chain_model(1, deep_pipeline=0)
         model = stitch(model, run_synth=run_synth)
     proj = model.get_metadata_prop("vivado_stitch_proj")
     xdc_meta = json.loads(model.get_metadata_prop("vivado_stitch_xdc"))
@@ -218,8 +244,8 @@ def test_module_constraints_packaging(run_synth, with_xdc):
     robust_rmtree(proj)
 
 
-# the module constraint or a variant that matches nothing
-@pytest.mark.parametrize("variant", ["match", "miss"])
+# the test's constraint, a variant that matches nothing, or Thresholding_rtl's own
+@pytest.mark.parametrize("variant", ["match", "miss", "real"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
@@ -229,8 +255,11 @@ def test_module_constraints_run_pnr(variant):
     constraint that matches nothing is no error, but shows up as critical warnings:
     the constraints use no -quiet."""
     model = make_thresholding_chain_model(15, deep_pipeline=1)
-    with injected_xdc(match=(variant == "match")):
+    if variant == "real":
         model = stitch(model, run_pnr=True)
+    else:
+        with injected_xdc(match=(variant == "match")):
+            model = stitch(model, run_pnr=True)
     proj = model.get_metadata_prop("vivado_stitch_proj")
     with open(proj + "/vivado.log") as f:
         log = f.read()
@@ -240,7 +269,7 @@ def test_module_constraints_run_pnr(variant):
         "open_checkpoint %s\n%s" % (dcp, check_design_tcl), "module_constraints_check_"
     )
     res = check_design(check_log)
-    if variant == "match":
+    if variant in ("match", "real"):
         assert xdc_misses(log) == []
         assert res["max_fanout_nets"] > 0
     else:
