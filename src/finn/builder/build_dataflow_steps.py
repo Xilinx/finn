@@ -637,8 +637,8 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     # Classification/output layers. After the elementwise ops: a final bias Add
     # in front of TopK only becomes integer once it is an ElementwiseAdd, and
-    # InferLabelSelectLayer skips non-integer inputs.
-    model = apply_if_relevant(model, ["TopK"], to_hw.InferLabelSelectLayer(), "label select layers")
+    # InferTopKLayer skips non-integer inputs.
+    model = apply_if_relevant(model, ["TopK"], to_hw.InferTopKLayer(), "top-k layers")
 
     # Convolution-related transformations
     model = apply_if_relevant(

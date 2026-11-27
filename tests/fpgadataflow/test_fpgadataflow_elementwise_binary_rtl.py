@@ -30,6 +30,7 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.test import tree_model_test
 
 # Versal part for RTL elementwise support
 VERSAL_PART = "xcvc1902-vsva2197-2MP-e-S"
@@ -232,6 +233,56 @@ def test_elementwise_rtl_stitched_ip(op_type, pe):
     o_expected = NUMPY_REFERENCES[op_type](lhs_data, rhs_data)
 
     assert np.allclose(o_produced, o_expected, rtol=1e-5, atol=1e-6)
+
+
+# =============================================================================
+# Constant Broadcast over Inner Axes (replay loop nest of the eltwise core)
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    "rhs_shape,pe,dims,coefs,reps",
+    [
+        ([1, 4, 1, 1], 1, [4, 3, 8], [1, 0, 0], 2),  # per channel: every word is held
+        ([1, 4, 1, 8], 2, [4, 3, 4], [4, 0, 1], 2),  # broadcast in between: rows are replayed
+        ([1, 4, 1, 8], 8, [4, 3, 1], [1, 0, 1], 2),  # ... a row is a single word: held
+        ([3, 8], 2, [], [], 8),  # covers the trailing axes: no nest, cycling const memory
+    ],
+)
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_elementwise_rtl_const_broadcast(rhs_shape, pe, dims, coefs, reps):
+    """A const that broadcasts over inner axes of the data is replayed by a loop nest in the
+    eltwise core, all of it reps times by the cycling const memory. Checked for the node alone,
+    stitched with its const memory, and for FIFO sizing (rtlsim against the tree model)."""
+    lhs_shape = [2, 4, 3, 8]
+    lhs_data = gen_finn_dt_tensor(DataType["INT8"], lhs_shape)
+    rhs_data = gen_finn_dt_tensor(DataType["FLOAT32"], rhs_shape)
+    o_expected = lhs_data.astype(np.float32) * rhs_data
+
+    model = create_elementwise_model("ElementwiseMul", "INT8", "FLOAT32", lhs_shape, rhs_shape)
+    model.set_initializer("in_y", rhs_data)
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(InferElementwiseBinaryOperation())
+    getCustomOp(model.graph.node[0]).set_nodeattr("PE", pe)
+    model = model.transform(SpecializeLayers(VERSAL_PART))
+    model = model.transform(MinimizeAccumulatorWidth())
+    model = model.transform(GiveUniqueNodeNames())
+
+    node_inst = getCustomOp(model.graph.node[0])
+    assert model.graph.node[0].op_type == "ElementwiseMul_rtl"
+    assert node_inst._const_stream_nest() == (dims, coefs, reps)
+    model = model.transform(PrepareIP(VERSAL_PART, 10))
+    node_model = model.transform(PrepareRTLSim(behav=True)).transform(SetExecMode("rtlsim"))
+    stitched_model = model.transform(CreateStitchedIP(VERSAL_PART, 10, run_synth=False))
+    stitched_model.set_metadata_prop("exec_mode", "rtlsim")
+    for sim_model in (node_model, stitched_model):
+        o_produced = execute_onnx(sim_model, {"in_x": lhs_data})["out"]
+        assert np.allclose(o_produced, o_expected, rtol=1e-5, atol=1e-6)
+
+    assert tree_model_test(model, (rhs_shape, pe), VERSAL_PART, 10, 0.02, 0.05, 5, 20)
 
 
 # =============================================================================

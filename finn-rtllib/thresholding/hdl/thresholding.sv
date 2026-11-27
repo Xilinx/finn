@@ -36,19 +36,30 @@
  *  larger than the corresponding input:
  *     y = Σ(T_i <= x)
  *  The result is computed by binary search. The runtime-configurable
- *  thresholds must be sorted in ascending order:
- *     i < j => T_i < T_j
+ *  thresholds must be sorted in non-decreasing order, duplicates allowed:
+ *     i < j => T_i <= T_j
  *  The design supports channel folding allowing each input to be processed
  *  with respect to a selectable set of thresholds. The corresponding
  *  threshold configuration relies on a channel address prefix. Inputs are
  *  accompanied by a channel selector.
  *
  *  Parameter Layout as seen on AXI-Lite (row by row):
- *            | Base                \    Offs          |   0    1    2  ...   N-1   ...
- *   ---------+----------------------------------------+---------------------------------
- *    Chnl #0 |   0                                    |  T_0  T_1  T_2 ... T_{N-1}  'x
- *    Chnl #1 |   2^$clog2(N)                          |  T_0  T_1  T_2 ... T_{N-1}  'x
- *    Chnl #c | ((c/PE)*$clog2(PE) + c%PE)*2^$clog2(N) |  T_0  T_1  T_2 ... T_{N-1}  'x
+ *            | Base                \    Offs           |   0    1    2  ...   N-1   ...
+ *   ---------+-----------------------------------------+---------------------------------
+ *    Chnl #0 |   0                                     |  T_0  T_1  T_2 ... T_{N-1}  'x
+ *    Chnl #1 |   2^$clog2(N)                           |  T_0  T_1  T_2 ... T_{N-1}  'x
+ *    Chnl #c | ((c/PE)*2^$clog2(PE) + c%PE)*2^$clog2(N) |  T_0  T_1  T_2 ... T_{N-1}  'x
+ *
+ *  Latency:
+ *  The search resolves one decision level per stage, i.e. one comparison per
+ *  PE and stage, at a latency of $clog2(N+1) stages (doubled with
+ *  DEEP_PIPELINE). Should the latency ever need tuning, generalize the binary
+ *  search to a RADIX parameter: each stage then folds $clog2(RADIX) decision
+ *  levels into one cycle by comparing against the RADIX-1 separators of the
+ *  current interval, cutting the stage count to ceil($clog2(N+1) / $clog2(RADIX)).
+ *  The maximum RADIX = N+1 degenerates into a single stage comparing against
+ *  all N thresholds in parallel, so a fully parallel comparator array needs no
+ *  separate implementation.
  *
  *****************************************************************************/
 module thresholding #(
@@ -72,11 +83,13 @@ module thresholding #(
 	int unsigned  DEPTH_TRIGGER_BRAM = 0,	// if non-zero, local mems of this depth or more go into BRAM
 	bit  DEEP_PIPELINE = 0,
 
-	localparam int unsigned  CF = C/PE,  // Channel fold
-	localparam int unsigned  S_BITS = SETS > 2? $clog2(SETS) : 1,
-	localparam int unsigned  O_BITS = BIAS >= 0?
+	// Output width, at least the default minimum; wider outputs are sign-extended for BIAS < 0
+	parameter int unsigned  O_BITS = BIAS >= 0?
 		/* unsigned */ $clog2(N+BIAS+1) :
-		/* signed */ 1+$clog2(-BIAS >= N+BIAS+1? -BIAS : N+BIAS+1)
+		/* signed */ 1+$clog2(-BIAS >= N+BIAS+1? -BIAS : N+BIAS+1),
+
+	localparam int unsigned  CF = C/PE,  // Channel fold
+	localparam int unsigned  S_BITS = SETS > 2? $clog2(SETS) : 1
 )(
 	// Global Control
 	input	logic  clk,
@@ -106,6 +119,10 @@ module thresholding #(
 	initial begin
 		if(CF*PE != C) begin
 			$error("Parallelism PE=%0d is not a multiple of channel count C=%0d.", PE, C);
+			$finish;
+		end
+		if(O_BITS < (BIAS >= 0? $clog2(N+BIAS+1) : 1+$clog2(-BIAS >= N+BIAS+1? -BIAS : N+BIAS+1))) begin
+			$error("Output width O_BITS=%0d too narrow for N=%0d and BIAS=%0d.", O_BITS, N, BIAS);
 			$finish;
 		end
 	end
@@ -390,7 +407,7 @@ module thresholding #(
 
 		assign	ovld = BVld;
 		for(genvar  pe = 0; pe < PE; pe++) begin
-			assign	odat[pe] = BDat[pe] + BIAS;
+			assign	odat[pe] = $signed({1'b0, BDat[pe]}) + BIAS;
 		end
 	end : blkStreamOutput
 

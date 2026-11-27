@@ -19,7 +19,7 @@
     "preferred_impl_style": "hls",
     "mem_mode": "internal_embedded"
   },
-  "LabelSelect_0": {
+  "HWTopK_0": {
     "preferred_impl_style": "hls"
   }
 }

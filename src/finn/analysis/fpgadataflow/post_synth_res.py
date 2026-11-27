@@ -31,11 +31,12 @@ import os
 import xml.etree.ElementTree as ET
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
+from typing import Any
 
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
-def _extract_from_vivado_report(model, root: ET.Element):
+def _extract_from_vivado_report(model: ModelWrapper, root: ET.Element) -> dict[str, Any]:
     """Extracts the FPGA resource results from Vivado synthesis.
     Ensure that all nodes have unique names (by calling the GiveUniqueNodeNames
     transformation) prior to calling this analysis pass to ensure all nodes are
@@ -90,7 +91,7 @@ def _extract_from_vivado_report(model, root: ET.Element):
         else:
             restype_to_ind = restype_to_ind_default
 
-    def get_instance_stats(inst_name):
+    def get_instance_stats(inst_name: str) -> dict[str, int] | None:
         row = root.findall(".//*[@contents='%s']/.." % inst_name)
         if row != []:
             node_dict = {}
@@ -119,7 +120,7 @@ def _extract_from_vivado_report(model, root: ET.Element):
     return res_dict
 
 
-def _extract_from_slash_report(model, root: ET.Element):
+def _extract_from_slash_report(model: ModelWrapper, root: ET.Element) -> dict[str, Any]:
     """Extracts the FPGA resource results from SLASH synthesis.
 
     Returns {node name : resources_dict}."""
@@ -161,7 +162,9 @@ def _extract_from_slash_report(model, root: ET.Element):
     return res_dict
 
 
-def post_synth_res(model, override_synth_report_filename=None):
+def post_synth_res(
+    model: ModelWrapper, override_synth_report_filename: str | None = None
+) -> dict[str, Any]:
     """Extracts the FPGA resource results from either Vivado or SLASH synthesis.
     Ensure that all nodes have unique names (by calling the GiveUniqueNodeNames
     transformation) prior to calling this analysis pass to ensure all nodes are

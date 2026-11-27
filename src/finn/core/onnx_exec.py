@@ -29,12 +29,22 @@
 import copy
 import numpy as np
 import qonnx.analysis.topology as ta
+from collections.abc import Callable
+from onnx import NodeProto
+from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.core.onnx_exec import execute_onnx as execute_onnx_base
+from typing import Any
 
 from finn.core.rtlsim_exec import rtlsim_exec
 
 
-def execute_onnx(model, input_dict, return_full_exec_context=False, start_node=None, end_node=None):
+def execute_onnx(
+    model: ModelWrapper,
+    input_dict: dict[str, np.ndarray],
+    return_full_exec_context: bool = False,
+    start_node: NodeProto | None = None,
+    end_node: NodeProto | None = None,
+) -> dict[str, Any]:
     """Executes given ONNX ModelWrapper with given named inputs.
     If return_full_exec_context is False, a dict of named outputs is returned
     as indicated by the model.graph.output.
@@ -81,10 +91,10 @@ def execute_onnx(model, input_dict, return_full_exec_context=False, start_node=N
         # this is provided by the execution_context, which is a dict of np.ndarray
         execution_context = model.make_empty_exec_context()
         # fill in any inputs provided to this function
-        for inp_name in input_dict.keys():
+        for inp_name, inp_val in input_dict.items():
             if inp_name in execution_context:
                 expected_shape = execution_context[inp_name].shape
-                provided_shape = input_dict[inp_name].shape
+                provided_shape = inp_val.shape
                 same_shape = expected_shape == provided_shape
                 runtime_batch_shape = (
                     len(expected_shape) > 0
@@ -92,14 +102,14 @@ def execute_onnx(model, input_dict, return_full_exec_context=False, start_node=N
                     and expected_shape[1:] == provided_shape[1:]
                 )
                 if same_shape or runtime_batch_shape:
-                    execution_context[inp_name] = input_dict[inp_name]
+                    execution_context[inp_name] = inp_val
                 else:
                     raise Exception(
                         "Shape mismatch for provided input %s: found %s expected %s "
                         % (
                             inp_name,
                             str(execution_context[inp_name].shape),
-                            str(input_dict[inp_name].shape),
+                            str(inp_val.shape),
                         )
                     )
 
@@ -122,7 +132,9 @@ def execute_onnx(model, input_dict, return_full_exec_context=False, start_node=N
         return output_dict
 
 
-def execute_onnx_and_make_model(model, input_dict):
+def execute_onnx_and_make_model(
+    model: ModelWrapper, input_dict: dict[str, np.ndarray]
+) -> ModelWrapper:
     """Executes given ONNX ModelWrapper with given named inputs and return a new
     ModelWrapper where an initializer is provided for each tensor as taken from
     the execution. This new model is useful for debugging, since it contains
@@ -140,11 +152,13 @@ def execute_onnx_and_make_model(model, input_dict):
 
 
 def compare_execution(
-    model_a,
-    model_b,
-    input_dict,
-    compare_fxn=lambda x, y: np.isclose(x, y, atol=1e-3).all(),
-):
+    model_a: ModelWrapper,
+    model_b: ModelWrapper,
+    input_dict: dict[str, np.ndarray],
+    compare_fxn: Callable[[np.ndarray, np.ndarray], bool] = lambda x, y: bool(
+        np.isclose(x, y, atol=1e-3).all()
+    ),
+) -> bool:
     """Executes two ONNX models and compare their outputs using given function.
 
     compare_fxn should take in two tensors and return a Boolean"""

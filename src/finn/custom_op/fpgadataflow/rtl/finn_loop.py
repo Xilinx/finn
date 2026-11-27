@@ -168,7 +168,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 ishape = inst.get_normal_input_shape(1)
             else:
                 ishape = loop_body.get_tensor_shape(tensor)
-        return ishape
+        return tuple(ishape)
 
     def get_normal_output_shape(self, ind=0):
         loop_body = self.get_nodeattr("body")
@@ -180,7 +180,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
             oshape = inst.get_normal_output_shape(0)
         else:
             oshape = loop_body.get_tensor_shape(node.output[0])
-        return oshape
+        return tuple(oshape)
 
     def get_folded_input_shape(self, ind=0):
         loop_body = self.get_nodeattr("body")
@@ -470,10 +470,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 elif param_node.op_type.startswith("Thresholding"):
                     # get all generated Thresholding dat files
                     pe = inst.get_nodeattr("PE")
-                    output_data_type = inst.get_nodeattr("outputDataType")
-                    o_bitwidth = DataType[output_data_type].bitwidth()
                     param_files = []
-                    for stage in range(o_bitwidth):
+                    for stage in range(inst.get_search_stages()):
                         for pe_value in range(pe):
                             param_files.append(
                                 path
@@ -550,7 +548,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 pe = inst.get_nodeattr("PE")
                 output_data_type = inst.get_nodeattr("outputDataType")
                 o_bitwidth = DataType[output_data_type].bitwidth()
-                for stage in range(o_bitwidth):
+                for stage in range(inst.get_search_stages()):
                     for pe_value in range(pe):
                         param_file = path + "/Thresholding_id_%s_threshs_%s_%s.dat" % (
                             i + 1,

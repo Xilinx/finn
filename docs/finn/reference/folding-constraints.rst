@@ -59,9 +59,9 @@ Constraint Table
    * - Globalaccpool
      - PE
      - channels % PE == 0
-   * - Labelselect
+   * - HWTopK
      - PE
-     - num_labels % PE == 0
+     - Labels % PE == 0
    * - MatrixVectorActivation
      - PE & SIMD
      - MH % PE == 0 & MW % SIMD == 0

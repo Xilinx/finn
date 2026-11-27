@@ -42,7 +42,10 @@ eltwise #(
         .A_WIDTH($A_WIDTH$),
         .A_SIGNED($A_SIGNED$),
         .B_WIDTH($B_WIDTH$),
-        .B_SIGNED($B_SIGNED$)
+        .B_SIGNED($B_SIGNED$),
+        .B_REP_D($B_REP_D$),
+        .B_REP_DIMS($B_REP_DIMS$),
+        .B_REP_COEFS($B_REP_COEFS$)
 ) impl (
         .clk(ap_clk),
         .rst(!ap_rst_n),

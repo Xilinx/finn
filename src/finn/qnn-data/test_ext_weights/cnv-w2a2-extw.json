@@ -110,7 +110,7 @@
     "ram_style": "distributed",
     "mem_mode": "internal_decoupled"
   },
-  "LabelSelect_hls_0": {
+  "HWTopK_hls_0": {
     "PE": 1
   }
 }

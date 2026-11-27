@@ -27,7 +27,7 @@
     "ram_style": "auto",
     "resType": "lut"
   },
-  "LabelSelect_hls_0": {
+  "HWTopK_hls_0": {
     "PE": 5
   }
 }

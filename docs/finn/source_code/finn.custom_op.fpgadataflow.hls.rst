@@ -46,18 +46,18 @@ finn.custom\_op.fpgadataflow.globalaccpool\_hls
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.fpgadataflow.iodma\_hls
-----------------------------------------
+finn.custom\_op.fpgadataflow.hwtopk\_hls
+------------------------------------------
 
-.. automodule:: finn.custom_op.fpgadataflow.hls.iodma_hls
+.. automodule:: finn.custom_op.fpgadataflow.hls.hwtopk_hls
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.fpgadataflow.labelselect\_hls
------------------------------------------------
+finn.custom\_op.fpgadataflow.iodma\_hls
+----------------------------------------
 
-.. automodule:: finn.custom_op.fpgadataflow.hls.labelselect_hls
+.. automodule:: finn.custom_op.fpgadataflow.hls.iodma_hls
    :members:
    :undoc-members:
    :show-inheritance:

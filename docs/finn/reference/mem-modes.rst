@@ -141,21 +141,19 @@ Supported Values
 RTL Thresholding Memory Control
 --------------------------------
 
-**Thresholding_rtl** uses a different mechanism than ``ram_style``. Instead, it uses depth triggers to automatically select the memory primitive based on memory depth:
+**Thresholding_rtl** uses a different mechanism than ``ram_style``. Its binary search keeps one threshold memory per PE and search stage, stage ``s`` holding ``NumChannels/PE * 2^s`` thresholds. Depth triggers select the memory primitive by this depth:
 
-- ``depth_trigger_bram`` - Memory depth threshold for using BRAM (default: 0)
+- ``depth_trigger_bram`` - Memory depth threshold for using BRAM (default: 512)
 - ``depth_trigger_uram`` - Memory depth threshold for using URAM (default: 0)
 
-**Selection logic:**
+**Selection logic** (a trigger of 0 is disabled):
 
-- **If both triggers are 0 (default)**: Auto mode - all memory primitives (LUTRAM, BRAM, URAM) are considered and the one with minimum wasted storage bits is selected. The algorithm calculates how many instances of each primitive type are needed to implement the required memory and chooses the configuration that wastes the fewest bits.
-- **If triggers are set**:
+- If ``depth >= depth_trigger_uram``: Use URAM
+- Else if ``depth >= depth_trigger_bram``: Use BRAM
+- Else, with ``depth_trigger_bram`` set: Use LUTs (LUTRAM, or LUT logic for constant thresholds)
+- With both triggers 0, Vivado decides. It maps every stage memory from a depth of about 64 to its own BRAM, however little of it is used, so that BRAM use can exceed the threshold data several times.
 
-  - If ``depth < depth_trigger_bram``: Use LUTRAM
-  - If ``depth_trigger_bram <= depth < depth_trigger_uram``: Use BRAM
-  - If ``depth >= depth_trigger_uram``: Use URAM
-
-Set these via the folding configuration to manually control memory primitive selection:
+The default of 512 places only memories into BRAM that fill at least half of a BRAM18 (for thresholds of up to 18 bits). Set the triggers via the folding configuration to override it:
 
 .. code-block:: json
 
@@ -166,8 +164,6 @@ Set these via the folding configuration to manually control memory primitive sel
             "depth_trigger_uram": 4096
         }
     }
-
-**Note**: If you don't set these triggers (leave them at 0), FINN will automatically select the best memory primitive for efficiency.
 
 Setting mem_mode and ram_style
 ===============================

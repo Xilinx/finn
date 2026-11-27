@@ -251,7 +251,7 @@ def test_end2end_mobilenet_convert_to_hw_layers():
     model = model.transform(to_hw.InferVectorVectorActivation())
     model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
     model = model.transform(to_hw.InferElementwiseBinaryOperation())
-    model = model.transform(to_hw.InferLabelSelectLayer())
+    model = model.transform(to_hw.InferTopKLayer())
     model = model.transform(InferShapes())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())

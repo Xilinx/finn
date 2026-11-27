@@ -48,6 +48,15 @@ def _determine_impl_style(node, fpgapart, model):
     node_inst = getCustomOp(node)
     impl_style = node_inst.get_nodeattr("preferred_impl_style")
 
+    # MLO threshold set selection (in1_V) is implemented in RTL only
+    if optype == "Thresholding" and node_inst.get_nodeattr("mlo_max_iter"):
+        if impl_style == "hls":
+            warnings.warn(
+                "Thresholding_hls does not support MLO (mlo_max_iter > 0). "
+                "Node %s will automatically be set to RTL variant." % node.name
+            )
+        return "rtl"
+
     # if impl_style not set, for "simple" layers always try
     # to use rtl variant if available
     if impl_style == "":

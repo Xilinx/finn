@@ -27,12 +27,13 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import qonnx.custom_op.registry as registry
+from qonnx.core.modelwrapper import ModelWrapper
+from typing import Any
 
 
-def aggregate_dict_keys(res_dict):
-    total_dict = {}
-    for layer in res_dict:
-        layer_res_dict = res_dict[layer]
+def aggregate_dict_keys(res_dict: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    total_dict: dict[str, Any] = {}
+    for layer_res_dict in res_dict.values():
         for r_type in layer_res_dict.keys():
             if "efficiency" in r_type:
                 continue
@@ -45,7 +46,7 @@ def aggregate_dict_keys(res_dict):
     return total_dict
 
 
-def op_and_param_counts(model):
+def op_and_param_counts(model: ModelWrapper) -> dict[str, Any]:
     """Return per-node and aggregate op counts per inference."""
 
     ret_dict = {}

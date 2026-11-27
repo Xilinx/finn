@@ -123,6 +123,7 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
 
         a_width = lhs_dtype.bitwidth()
         b_width = rhs_dtype.bitwidth()
+        rep_dims, rep_coefs, _ = self._const_stream_nest()
 
         code_gen_dict = {
             "TOP_MODULE_NAME": self.get_verilog_top_module_name(),
@@ -135,6 +136,9 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             "A_SIGNED": 1 if (not lhs_float and lhs_dtype.signed()) else 0,
             "B_WIDTH": b_width,
             "B_SIGNED": 1 if (not rhs_float and rhs_dtype.signed()) else 0,
+            "B_REP_D": len(rep_dims),
+            "B_REP_DIMS": "{%s}" % ", ".join("32'd%d" % d for d in rep_dims or [0]),
+            "B_REP_COEFS": "{%s}" % ", ".join("32'd%d" % c for c in rep_coefs or [0]),
             "A_STREAM_BITS": pe * a_width,
             "B_STREAM_BITS": pe * b_width,
             "O_STREAM_BITS": pe * out_dtype.bitwidth(),
@@ -161,13 +165,16 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
         if abspath:
             code_gen_dir = f"{self.get_nodeattr('code_gen_dir_ipgen')}/"
             rtllib_dir = f'{os.environ["FINN_ROOT"]}/finn-rtllib/eltwise/'
+            input_gen_dir = f'{os.environ["FINN_ROOT"]}/finn-rtllib/input_gen/hdl/'
         else:
             code_gen_dir = ""
             rtllib_dir = ""
+            input_gen_dir = ""
 
         top_module = self.get_nodeattr("gen_top_module")
         return (
             [
+                f"{input_gen_dir}input_gen.sv",
                 f"{rtllib_dir}eltwise.sv",
                 f"{rtllib_dir}binopi.sv",
                 f"{code_gen_dir}{top_module}.v",
@@ -352,10 +359,12 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
 
     def get_tav_io_dict(self):
         n_inps = np.prod(self.get_folded_input_shape(0)[:-1])
+        # fewer than beats if the core replays them itself
+        n_rhs = self.calc_wmem() * self.calc_wmem_reps()
         return {
             "inputs": {
                 "in0": [i for i in range(n_inps)],
-                "in1": [i for i in range(n_inps)],
+                "in1": [i for i in range(n_rhs)],
             },
             "outputs": {"out0": []},
         }
@@ -368,11 +377,11 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             lhs = context[node.input[0]]
             rhs = context[node.input[1]]
 
-            assert list(lhs.shape) == self.get_normal_input_shape(
+            assert lhs.shape == self.get_normal_input_shape(
                 ind=0
             ), f"Input shape mismatch for {node.input[0]}"
             if self.rhs_style != "const":
-                assert list(rhs.shape) == self.get_normal_input_shape(
+                assert rhs.shape == self.get_normal_input_shape(
                     ind=1
                 ), f"Input shape mismatch for {node.input[1]}"
 
@@ -384,14 +393,16 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             else:
                 lhs = lhs.reshape(self.get_folded_input_shape(ind=0))
 
+            lhs_filename = os.path.join(code_gen_dir, "input_0.npy")
+            rhs_filename = os.path.join(code_gen_dir, "input_1.npy")
+
             if self.rhs_style == "const":
-                rhs = np.broadcast_to(rhs, out_shape)
-                rhs = rhs.reshape(self.get_folded_output_shape(ind=0))
+                # as the const streamer: the words of the const, replayed as a whole
+                self.make_weight_file(rhs, "decoupled_npy", rhs_filename)
+                rhs = np.tile(np.load(rhs_filename)[0], (self.calc_wmem_reps(), 1))
             else:
                 rhs = rhs.reshape(self.get_folded_input_shape(ind=1))
 
-            lhs_filename = os.path.join(code_gen_dir, "input_0.npy")
-            rhs_filename = os.path.join(code_gen_dir, "input_1.npy")
             np.save(lhs_filename, lhs)
             np.save(rhs_filename, rhs)
 
@@ -479,26 +490,45 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
     def calc_wmem(self):
         return int(super().calc_wmem())
 
-    def calc_wmem_reps(self):
-        """Return how many times the compact parameter stream is replayed.
+    def _const_stream_nest(self):
+        """Return (dims, coefs, reps) of the const (or loop parameter) stream.
 
-        Elementwise constants often broadcast across non-channel axes, for
-        example a [C] scale applied to [N, T, C]. The memstream only needs to
-        store the compact [C] stream; regular single-set memstreams cycle on
-        their own, and FINNLoop multi-set memstreams use this value as the
-        stream-tap repetition count for each loop iteration.
+        The memstream stores the words of the const, PE elements each, and cycles through
+        them. The data needs a word on every beat:
+
+        * Outer axes the const broadcasts over, e.g. N and T for a [C] const on [N, T, C],
+          replay all of its words, reps times.
+        * The other axes are the levels of the loop nest (dims, coefs) the eltwise core
+          replays the words of a pass by (eltwise.sv B_REP_DIMS, B_REP_COEFS). An axis the
+          const broadcasts over has coefficient 0: it replays the words of the axes below it,
+          e.g. dims (C, H, W), coefs (W, 0, 1) for a (C, 1, W) const on (C, H, W), or holds
+          each word if there are none, e.g. dims (C, H, W), coefs (1, 0, 0) for a (C, 1, 1)
+          const.
+        * Without such an axis the nest is empty, the words are used as they are stored.
         """
+        # Beats per axis, the last axis is folded by PE (asserts that PE divides it)
+        out_beats = [int(b) for b in self.get_folded_output_shape(ind=0)[:-1]]
+        const_shape = [1] * (len(out_beats) - len(self.rhs_shape)) + list(self.rhs_shape)
+        # Words of the const per axis, a single one along an axis it broadcasts over
+        const_beats = [1 if c == 1 else b for c, b in zip(const_shape, out_beats)]
+        first = next((i for i, c in enumerate(const_beats) if c != 1), len(out_beats))
+        reps = int(np.prod(out_beats[:first]))
+        dims = out_beats[first:]
+        # Stride of each axis in the words of the const
+        coefs = [
+            0 if c < b else int(np.prod(const_beats[i + 1 :]))
+            for i, (c, b) in enumerate(zip(const_beats, out_beats))
+        ][first:]
+        if 0 not in coefs:
+            dims, coefs = [], []
+        return dims, coefs, reps
 
-        base_wmem = int(super().calc_wmem())
-        num_w_reps = int(np.prod(self.calc_numInputVectors()))
-        if base_wmem <= 0:
-            raise RuntimeError(f"{self.onnx_node.name}: invalid const stream length {base_wmem}")
-        if num_w_reps % base_wmem != 0:
-            raise RuntimeError(
-                f"{self.onnx_node.name}: const stream length {base_wmem} "
-                f"does not divide output stream length {num_w_reps}"
-            )
-        return int(num_w_reps // base_wmem)
+    def calc_wmem_reps(self):
+        """Return how many times the words of the const stream, replayed by the loop nest of
+        _const_stream_nest(), are replayed as a whole. Regular single-set memstreams cycle on
+        their own, FINNLoop multi-set memstreams use this value as the stream-tap repetition
+        count for each loop iteration."""
+        return self._const_stream_nest()[2]
 
     def calc_numInputVectors(self):
         folded_lhs = self.get_folded_input_shape(0)

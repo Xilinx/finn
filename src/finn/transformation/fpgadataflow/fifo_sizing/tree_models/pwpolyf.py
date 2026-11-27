@@ -3,14 +3,24 @@
 
 """Tree model of the piecewise polynomial activation (``finn-rtllib/pwpolyf``)."""
 
-import numpy as np
+from __future__ import annotations
 
-from finn.transformation.fpgadataflow.fifo_sizing.tav import passthrough_characteristic
+import numpy as np
+from typing import TYPE_CHECKING
+
+from finn.transformation.fpgadataflow.fifo_sizing.tav import (
+    CharacteristicNode,
+    passthrough_characteristic,
+)
 from finn.transformation.fpgadataflow.fifo_sizing.tree_models.base import (
     TAV_PIPELINE_LATENCY,
     TreeModel,
     register,
 )
+
+if TYPE_CHECKING:
+    # hwcustomop imports the tree models
+    from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
 
 @register("PWPolyF")
@@ -20,7 +30,7 @@ class PWPolyFModel(TreeModel):
     #: input sidestep register plus the output queue read
     IO_LATENCY = 2
 
-    def schedule(self, op):
+    def schedule(self, op: HWCustomOp) -> CharacteristicNode | None:
         """One word in and one out per cycle, for the whole frame.
 
         ``pwpolyf.sv`` is a fully pipelined Horner chain: a word enters the
@@ -41,13 +51,13 @@ class PWPolyFModel(TreeModel):
             return None
         return passthrough_characteristic(dim, "PWPolyF word")
 
-    def latency(self, op):
+    def latency(self, op: HWCustomOp) -> int:
         """Cycles from accepting an input word to emitting its result:
         ``degree`` DSP stages plus the input and output registers (node rtlsim:
         10 cycles at degree 2, 34 at degree 8)."""
         return op.get_nodeattr("degree") * self.DSP_LATENCY + self.IO_LATENCY
 
-    def extra_latency(self, op):
+    def extra_latency(self, op: HWCustomOp) -> int:
         """The pipeline depth beyond ``TAV_PIPELINE_LATENCY``, which a high
         polynomial degree exceeds."""
         return max(0, self.latency(op) - TAV_PIPELINE_LATENCY)

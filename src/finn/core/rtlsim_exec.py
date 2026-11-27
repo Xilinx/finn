@@ -29,7 +29,11 @@
 import json
 import numpy as np
 import os
+from collections.abc import Callable
+from onnx import NodeProto
+from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
+from typing import Any
 
 from finn import xsi
 from finn.util.basic import (
@@ -46,7 +50,7 @@ from finn.util.rtlsim import dat_file_to_numpy_array, mlo_prehook_func_factory
 finnxsi = xsi if xsi.is_available() else None
 
 
-def has_s_axis_port(node_onnx, node_inp_ind):
+def has_s_axis_port(node_onnx: NodeProto, node_inp_ind: int) -> bool:
     """Whether input `node_inp_ind` of `node_onnx` is backed by an s_axis port.
 
     Mirrors the skip rule in CreateStitchedIP.connect_s_axis_external: an input
@@ -58,9 +62,11 @@ def has_s_axis_port(node_onnx, node_inp_ind):
     return node_inp_ind < len(s_axis_names)
 
 
-def prep_rtlsim_io_dict(model, execution_context):
+def prep_rtlsim_io_dict(
+    model: ModelWrapper, execution_context: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any], Any, list[Any], int]:
     # extract i/o info to prepare io_dict
-    io_dict = {"inputs": {}, "outputs": {}}
+    io_dict: dict[str, dict[str, Any]] = {"inputs": {}, "outputs": {}}
     if_dict = eval(model.get_metadata_prop("vivado_stitch_ifnames"))
     # go over and prepare inputs, skipping those without an s_axis port so that
     # the rest stay aligned with if_dict
@@ -133,18 +139,18 @@ def prep_rtlsim_io_dict(model, execution_context):
     return io_dict, if_dict, num_out_values, o_tensor_info, batchsize
 
 
-def file_to_basename(x):
+def file_to_basename(x: str) -> str:
     return os.path.basename(os.path.realpath(x))
 
 
 def rtlsim_exec_cppxsi(
-    model,
-    execution_context,
-    dummy_data_mode=False,
-    timeout_cycles=None,
-    throttle_cycles=0,
-    behav=True,
-):
+    model: ModelWrapper,
+    execution_context: dict[str, Any],
+    dummy_data_mode: bool = False,
+    timeout_cycles: int | None = None,
+    throttle_cycles: int = 0,
+    behav: bool = True,
+) -> dict[str, Any]:
     """Use XSI C++ rtl simulation to execute given model with stitched IP.
 
     The dummy_data_mode flag controls whether the simulation is driven by
@@ -171,6 +177,7 @@ def rtlsim_exec_cppxsi(
     LIVENESS_THRESHOLD can only increase it.
     throttle_cycles will be used to pause the input stream every time an input frame is finished.
     """
+    assert finnxsi is not None, "finn_xsi not available. Run: python -m finn.xsi.setup"
     # TODO: support running functional rtlsim with real I/O data
     # TODO: support running with multiple inputs/outputs
     timeout_estimate = timeout_cycles
@@ -355,13 +362,19 @@ def rtlsim_exec_cppxsi(
     return ret_dict
 
 
-def rtlsim_exec_finnxsi(model, execution_context, pre_hook=None, post_hook=None):
+def rtlsim_exec_finnxsi(
+    model: ModelWrapper,
+    execution_context: dict[str, Any],
+    pre_hook: Callable[..., Any] | None = None,
+    post_hook: Callable[..., Any] | None = None,
+) -> None:
     """Use finnxsi to execute given model with stitched IP. The execution
     context contains the input values. Hook functions can be optionally
     specified to observe/alter the state of the circuit
     - pre_hook : hook function to be called before sim start (after reset)
     - post_hook : hook function to be called after sim end
     """
+    assert finnxsi is not None, "finn_xsi not available. Run: python -m finn.xsi.setup"
     # ensure stitched ip project already exists
     assert os.path.isfile(
         model.get_metadata_prop("wrapper_filename")
@@ -462,7 +475,12 @@ def rtlsim_exec_finnxsi(model, execution_context, pre_hook=None, post_hook=None)
     model.set_metadata_prop("cycles_rtlsim", str(n_cycles))
 
 
-def rtlsim_exec(model, execution_context, pre_hook=None, post_hook=None):
+def rtlsim_exec(
+    model: ModelWrapper,
+    execution_context: dict[str, Any],
+    pre_hook: Callable[..., Any] | None = None,
+    post_hook: Callable[..., Any] | None = None,
+) -> Any:
     """Use XSI to execute given model with stitched IP. The execution
     context contains the input values. Hook functions can be optionally
     specified to observe/alter the state of the circuit, receiving the

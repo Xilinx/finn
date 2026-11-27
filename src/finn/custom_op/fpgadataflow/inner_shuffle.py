@@ -35,7 +35,7 @@ class InnerShuffle(HWCustomOp):
         return my_attrs
 
     def get_normal_input_shape(self, ind=0):
-        return self.get_nodeattr("in_shape")
+        return tuple(self.get_nodeattr("in_shape"))
 
     def get_normal_output_shape(self, ind=0):
         tshape = tuple(self.get_nodeattr("transpose_in_shape"))

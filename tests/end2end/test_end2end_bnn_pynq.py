@@ -528,8 +528,8 @@ class TestEnd2End:
         model = model.transform(to_hw.InferBinaryMatrixVectorActivation())
         # needed for non-bipolar MatMul layers
         model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
-        # TopK to LabelSelect
-        model = model.transform(to_hw.InferLabelSelectLayer())
+        # TopK to HWTopK
+        model = model.transform(to_hw.InferTopKLayer())
         # input quantization (if any) to standalone thresholding
         model = model.transform(to_hw.InferThresholdingLayer())
         # needed for convolutions
@@ -548,19 +548,19 @@ class TestEnd2End:
                 ("Reshape", 1),
                 ("Thresholding", 1),
                 ("MVAU", 4),
-                ("LabelSelect", 1),
+                ("HWTopK", 1),
             ],
             "tfc-1-1": [
                 ("Reshape", 1),
                 ("Thresholding", 4),
                 ("MVAU", 4),
-                ("LabelSelect", 1),
+                ("HWTopK", 1),
             ],
             "lfc": [
                 ("Reshape", 1),
                 ("Thresholding", 1),
                 ("MVAU", 4),
-                ("LabelSelect", 1),
+                ("HWTopK", 1),
             ],
             "cnv": [
                 ("Transpose", 1),
@@ -568,7 +568,7 @@ class TestEnd2End:
                 ("ConvolutionInputGenerator", 6),
                 ("MVAU", 9),
                 ("Pool", 2),
-                ("LabelSelect", 1),
+                ("HWTopK", 1),
             ],
         }
         if topology == "tfc" and wbits == 1 and abits == 1:
@@ -596,19 +596,19 @@ class TestEnd2End:
                 ("Reshape", 1),
                 ("Thresholding_rtl", 1),
                 ("MVAU_hls", 4),
-                ("LabelSelect_hls", 1),
+                ("HWTopK_hls", 1),
             ],
             "tfc-1-1": [
                 ("Reshape", 1),
                 ("Thresholding_rtl", 4),
                 ("MVAU_hls", 4),
-                ("LabelSelect_hls", 1),
+                ("HWTopK_hls", 1),
             ],
             "lfc": [
                 ("Reshape", 1),
                 ("Thresholding_rtl", 1),
                 ("MVAU_hls", 4),
-                ("LabelSelect_hls", 1),
+                ("HWTopK_hls", 1),
             ],
             "cnv": [
                 ("Transpose", 1),
@@ -616,7 +616,7 @@ class TestEnd2End:
                 ("ConvolutionInputGenerator_rtl", 6),
                 ("MVAU_hls", 9),
                 ("Pool_hls", 2),
-                ("LabelSelect_hls", 1),
+                ("HWTopK_hls", 1),
             ],
         }
         if topology == "tfc" and wbits == 1 and abits == 1:
