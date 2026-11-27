@@ -43,6 +43,12 @@
  *  threshold configuration relies on a channel address prefix. Inputs are
  *  accompanied by a channel selector.
  *
+ *  Comparison:
+ *  The order of thresholds and inputs is not characterized by flags but
+ *  passed as a policy class CMP (see thresholding_pkg), which also prepares
+ *  each input once for all its comparisons, e.g. narrows it to the precision
+ *  needed against thresholds narrower than K.
+ *
  *  Parameter Layout as seen on AXI-Lite (row by row):
  *            | Base                \    Offs           |   0    1    2  ...   N-1   ...
  *   ---------+-----------------------------------------+---------------------------------
@@ -63,14 +69,14 @@
  *
  *****************************************************************************/
 module thresholding #(
-	int unsigned  K,  // input/threshold precision
+	int unsigned  K,  // input precision, at least the threshold precision
+	int unsigned  KT = K,  // threshold precision, at most K (see "Narrow Thresholds")
 	int unsigned  N,  // number of thresholds
 	int unsigned  C,  // number of channels
 	int unsigned  PE, // parallel processing elements
 
-	bit  SIGNED = 1,  // signed inputs
-	bit  FPARG  = 0,  // floating-point inputs: [sign] | exponent | mantissa
-	int  BIAS   = 0,  // offsetting the output [0, N] -> [BIAS, N+BIAS]
+	type CMP,  // comparison policy, e.g. thresholding_pkg::cmp_sfixed_t#(K, KT)
+	int  BIAS = 0,  // offsetting the output [0, N] -> [BIAS, N+BIAS]
 
 	int unsigned  SETS = 1,  // Number of independent threshold sets
 
@@ -85,8 +91,8 @@ module thresholding #(
 
 	// Output width, at least the default minimum; wider outputs are sign-extended for BIAS < 0
 	parameter int unsigned  O_BITS = BIAS >= 0?
-		/* unsigned */ $clog2(N+BIAS+1) :
-		/* signed */ 1+$clog2(-BIAS >= N+BIAS+1? -BIAS : N+BIAS+1),
+		/* unsigned */ $clog2(int'(N)+BIAS+1) :
+		/* signed */ 1+$clog2(-BIAS >= int'(N)+BIAS+1? -BIAS : int'(N)+BIAS+1),
 
 	localparam int unsigned  CF = C/PE,  // Channel fold
 	localparam int unsigned  S_BITS = SETS > 2? $clog2(SETS) : 1
@@ -99,9 +105,9 @@ module thresholding #(
 	input	logic  cfg_en,
 	input	logic  cfg_we,
 	input	logic [$clog2(SETS)+$clog2(CF)+$clog2(PE)+$clog2(N)-1:0]  cfg_a,
-	input	logic [K-1:0]  cfg_d,
+	input	logic [KT-1:0]  cfg_d,
 	output	logic  cfg_rack,
-	output	logic [K-1:0]  cfg_q,
+	output	logic [KT-1:0]  cfg_q,
 
 	// Input Stream
 	output	logic  irdy,
@@ -121,7 +127,11 @@ module thresholding #(
 			$error("Parallelism PE=%0d is not a multiple of channel count C=%0d.", PE, C);
 			$finish;
 		end
-		if(O_BITS < (BIAS >= 0? $clog2(N+BIAS+1) : 1+$clog2(-BIAS >= N+BIAS+1? -BIAS : N+BIAS+1))) begin
+		if((KT < 1) || (KT > K)) begin
+			$error("Threshold precision KT=%0d must be within [1, K=%0d].", KT, K);
+			$finish;
+		end
+		if(O_BITS < (BIAS >= 0? $clog2(int'(N)+BIAS+1) : 1+$clog2(-BIAS >= int'(N)+BIAS+1? -BIAS : int'(N)+BIAS+1))) begin
 			$error("Output width O_BITS=%0d too narrow for N=%0d and BIAS=%0d.", O_BITS, N, BIAS);
 			$finish;
 		end
@@ -147,7 +157,23 @@ module thresholding #(
 
 	// Pipeline Link Type
 	typedef logic [$clog2(SETS)+$clog2(CF)+M-1:0]  ptr_t;
-	typedef logic [K                        -1:0]  val_t;
+	//	The pipeline carries inputs as prepared once at the feed by the policy,
+	//	e.g. narrowed to the comparison precision KI for thresholds narrower
+	//	than the input (KT < K). Written thresholds and readbacks travel
+	//	zero-extended in val_t; only CMP::le interprets them. KI is taken from
+	//	the result of CMP::prep as xsim cannot resolve CMP::val_t.
+	localparam int unsigned  KI = $bits(CMP::prep(0));
+	initial begin
+		if(KI > K) begin
+			$error("Comparison precision KI=%0d of the policy exceeds the input precision K=%0d.", KI, K);
+			$finish;
+		end
+	end
+	typedef logic [KI-1:0]  val_t;
+	typedef logic [KT-1:0]  thr_t;
+
+	uwire val_t  ival[PE];
+	for(genvar  pe = 0; pe < PE; pe++)  assign  ival[pe] = CMP::prep(idat[pe]);
 	typedef struct packed {
 		op_e   op;
 		ptr_t  ptr;	// WR/RB: address;         TH: result
@@ -220,7 +246,7 @@ module thresholding #(
 					(!cfg_sel[pe]? NOP : cfg_we? WR : RB) :
 					(ivld && !th_full? TH : NOP),
 				ptr: iptr,
-				val: !(USE_CONFIG && cfg_en)? idat[pe] : cfg_we? cfg_d : 0
+				val: !(USE_CONFIG && cfg_en)? ival[pe] : cfg_we? val_t'(cfg_d) : 0
 			};
 		end
 
@@ -245,11 +271,11 @@ module thresholding #(
 
 			// Threshold Memory
 			(* RAM_STYLE = RAM_STYLE *)
-			val_t  Thresh;	// Read-out register
+			thr_t  Thresh;	// Read-out register
 			if(1) begin : blkThresh
 
 				(* DONT_TOUCH = USE_CONFIG? "TRUE" : "FALSE", RAM_STYLE = RAM_STYLE *)
-				val_t  Threshs[DEPTH];
+				thr_t  Threshs[DEPTH];
 				if(THRESHOLDS_PATH != "") begin
 					initial  $readmemh($sformatf("%sthreshs_%0d_%0d.dat", THRESHOLDS_PATH, pe, stage), Threshs);
 				end
@@ -258,13 +284,13 @@ module thresholding #(
 					uwire  we = (p.op ==? WR) && cs;
 					if((SETS == 1) && (CF == 1) && (stage == 0)) begin
 						always @(posedge clk) begin
-							if(we)  Threshs[0] <= p.val;
+							if(we)  Threshs[0] <= thr_t'(p.val);
 						end
 					end
 					else begin
 						uwire [$clog2(SETS)+$clog2(CF)+stage-1:0]  addr = p.ptr[$clog2(SETS)+$clog2(CF)+M-1:SN+1];
 						always @(posedge clk) begin
-							if(we)  Threshs[addr] <= p.val;
+							if(we)  Threshs[addr] <= thr_t'(p.val);
 						end
 					end
 				end : genThreshMem
@@ -285,50 +311,45 @@ module thresholding #(
 			localparam int unsigned  SCOPE_REDUCE = (2**(M-stage-1) + 2**M-1-N) >> (M-stage);
 			pipe_t  P = '{ op: NOP, default: 'x };
 			logic  Reval = 'x;	// Replace value by readback
-			logic  Scope = 'x;	// Comparison in scope of specified threshold count
 			always_ff @(posedge clk) begin
 				if(rst) begin
 					P <= '{ op: NOP, default: 'x };
 					Reval <= 'x;
-					Scope <= 'x;
 				end
 				else begin
 					P <= p;
 					Reval <= (p.op ==? RB) && cs;
-					Scope <= (SCOPE_REDUCE == 0)? 1 : p.ptr[M-1:SN+1] < 2**stage - SCOPE_REDUCE;
 				end
 			end
 
+			// Comparison in scope of specified threshold count: a constant unless
+			// the stage has slots beyond N. A register here, even reset, would be
+			// merged into one high-fanout flip-flop on the critical path.
+			uwire  scope;
+			if(SCOPE_REDUCE == 0) begin : genScopeAll
+				assign	scope = 1;
+			end : genScopeAll
+			else begin : genScope
+				logic  Scope = 'x;
+				always_ff @(posedge clk)  Scope <= p.ptr[M-1:SN+1] < 2**stage - SCOPE_REDUCE;
+				assign	scope = Scope;
+			end : genScope
+
 			always_ff @(posedge clk) begin
-				assert((P.op !=? TH) || (Scope !== 1'bx)) else begin
+				assert((P.op !=? TH) || (scope !== 1'bx)) else begin
 					$error("%m: [%0d.%0d] Broken Scope.", pe, stage);
 				end
 			end
 
 			// Mask comparisons beyond specified threshold count
-			logic  cmp;
-			if(!SIGNED)		assign	cmp = $unsigned(Thresh) <= $unsigned(P.val);
-			else if(!FPARG)	assign	cmp =   $signed(Thresh) <=   $signed(P.val);
-			else begin : blkSignedFloat
-				uwire  mag_eq = Thresh[K-2:0] == P.val[K-2:0];
-				uwire  mag_le = Thresh[K-2:0] <= P.val[K-2:0];
-				always_comb begin
-					unique case({Thresh[K-1], P.val[K-1]})
-					2'b00:  cmp = mag_le;
-					2'b01:  cmp = 0;
-					2'b10:  cmp = 1;
-					2'b11:  cmp = !mag_le || mag_eq;
-					default: cmp = 'x;
-					endcase
-				end
-			end : blkSignedFloat
+			uwire  cmp = CMP::le(Thresh, P.val);
 
 			// Pipeline State Update
 			pipe_t  pp;
 			always_comb begin
 				pp = P;
-				if(P.op !=? CFG)  pp.ptr[SN] = Scope && cmp;
-				if(Reval)         pp.val = Thresh;
+				if(P.op !=? CFG)  pp.ptr[SN] = scope && cmp;
+				if(Reval)         pp.val = val_t'(Thresh);
 			end
 
 			// Pipeline State Forward (potentially additional register)
@@ -361,7 +382,7 @@ module thresholding #(
 		foreach(pipe[pe]) begin
 			automatic pipe_t  p = pipe[pe][M];
 			cfg_rack |= p.op ==? RB;
-			cfg_q    |= p.val;
+			cfg_q    |= thr_t'(p.val);
 		end
 	end
 

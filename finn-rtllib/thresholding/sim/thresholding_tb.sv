@@ -39,6 +39,7 @@ module thresholding_tb;
 	localparam int unsigned  ROUNDS = 503;
 	typedef struct {
 		int unsigned  k;	// input precision
+		int unsigned  kt;	// threshold precision, at most k
 		int unsigned  n;	// number of thresholds per channel
 		int unsigned  c;	// number of channels
 		int unsigned  pe;	// parallel PEs
@@ -47,12 +48,14 @@ module thresholding_tb;
 		bit  deep_pipeline;
 		bit  throttled;	// throttle input and output interfaces occasionally
 	} testcfg_t;
-	localparam int unsigned  TEST_CNT = 4;
+	localparam int unsigned  TEST_CNT = 6;
 	localparam testcfg_t  TESTS[TEST_CNT] = '{
-		testcfg_t'{ k:  5, n: 1, c:  1, pe: 1, sign: 0, fparg: 0, deep_pipeline: 0, throttled: 0 },
-		testcfg_t'{ k: 10, n: 8, c: 12, pe: 3, sign: 1, fparg: 0, deep_pipeline: 1, throttled: 1 },
-		testcfg_t'{ k:  8, n: 3, c:  8, pe: 4, sign: 0, fparg: 0, deep_pipeline: 0, throttled: 1 },
-		testcfg_t'{ k: 17, n: 9, c: 10, pe: 5, sign: 1, fparg: 1, deep_pipeline: 1, throttled: 0 }
+		testcfg_t'{ k:  5, kt:  5, n:  1, c:  1, pe: 1, sign: 0, fparg: 0, deep_pipeline: 0, throttled: 0 },
+		testcfg_t'{ k: 10, kt: 10, n:  8, c: 12, pe: 3, sign: 1, fparg: 0, deep_pipeline: 1, throttled: 1 },
+		testcfg_t'{ k:  8, kt:  8, n:  3, c:  8, pe: 4, sign: 0, fparg: 0, deep_pipeline: 0, throttled: 1 },
+		testcfg_t'{ k: 17, kt: 17, n:  9, c: 10, pe: 5, sign: 1, fparg: 1, deep_pipeline: 1, throttled: 0 },
+		testcfg_t'{ k: 12, kt:  5, n: 15, c:  6, pe: 2, sign: 1, fparg: 0, deep_pipeline: 0, throttled: 1 },	// narrow thresholds
+		testcfg_t'{ k:  9, kt:  4, n:  5, c:  4, pe: 4, sign: 0, fparg: 0, deep_pipeline: 1, throttled: 1 }	// narrow thresholds
 	};
 
 	//-----------------------------------------------------------------------
@@ -77,6 +80,7 @@ module thresholding_tb;
 		//- Extract Test Config ---------
 		localparam testcfg_t  CFG = TESTS[i];
 		localparam int unsigned  K = CFG.k;
+		localparam int unsigned  KT = CFG.kt;
 		localparam int unsigned  N = CFG.n;
 		localparam int unsigned  C = CFG.c;
 		localparam int unsigned  PE = CFG.pe;
@@ -89,8 +93,22 @@ module thresholding_tb;
 		localparam int unsigned  CF = C/PE;	// Channel Fold
 		localparam int unsigned  O_BITS = $clog2(N+1);
 		typedef logic [K     -1:0]  val_t;
+		typedef logic [KT    -1:0]  thr_t;
 		typedef logic [O_BITS-1:0]  res_t;
 		typedef logic [$clog2(CF)+$clog2(PE)+$clog2(N)-1:0]  addr_t;
+
+		// Configuration Address: ((c/PE)*2^$clog2(PE) + c%PE)*2^$clog2(N) + t
+		//	Composed arithmetically as fields may be empty (CF, PE or N = 1).
+		function automatic addr_t cfg_addr(input int unsigned  cf, input int unsigned  pe, input int unsigned  t);
+			return  addr_t'(((cf * 2**$clog2(PE)) + pe) * 2**$clog2(N) + t);
+		endfunction : cfg_addr
+		function automatic int unsigned  addr_cnl(input addr_t  addr);	// channel of an address
+			automatic int unsigned  a = int'(addr) / 2**$clog2(N);
+			return  (a / 2**$clog2(PE)) * PE + a % 2**$clog2(PE);
+		endfunction : addr_cnl
+		function automatic int unsigned  addr_idx(input addr_t  addr);	// threshold index of an address
+			return  int'(addr) % 2**$clog2(N);
+		endfunction : addr_idx
 
 		//- DUT -------------------------
 		typedef val_t [PE-1:0]  input_t;
@@ -99,9 +117,9 @@ module thresholding_tb;
 		logic  cfg_en;
 		logic  cfg_we;
 		addr_t  cfg_a;
-		val_t  cfg_d;
+		thr_t  cfg_d;
 		uwire  cfg_rack;
-		uwire val_t  cfg_q;
+		uwire thr_t  cfg_q;
 
 		uwire  irdy;
 		logic  ivld;
@@ -111,17 +129,25 @@ module thresholding_tb;
 		uwire  ovld;
 		uwire output_t  odat;
 
-		thresholding #(.N(N), .K(K), .C(C), .PE(PE), .SIGNED(SIGNED), .FPARG(FPARG), .USE_CONFIG(1), .DEEP_PIPELINE(DEEP_PIPELINE)) dut (
-			.clk, .rst,
-
-			// Configuration
-			.cfg_en, .cfg_we, .cfg_a, .cfg_d,
-			.cfg_rack, .cfg_q,
-
-			// Stream Processing
-			.irdy, .ivld, .idat,
-			.ordy, .ovld, .odat
-		);
+		// Comparison policy bound per data type as by thresholding_axi
+		if(FPARG) begin : genFloat
+			thresholding #(
+				.CMP(thresholding_pkg::cmp_float_t#(K)),
+				.N(N), .K(K), .KT(KT), .C(C), .PE(PE), .USE_CONFIG(1), .DEEP_PIPELINE(DEEP_PIPELINE)
+			) dut (.iset('x), .*);
+		end : genFloat
+		else if(SIGNED) begin : genSigned
+			thresholding #(
+				.CMP(thresholding_pkg::cmp_sfixed_t#(K, KT)),
+				.N(N), .K(K), .KT(KT), .C(C), .PE(PE), .USE_CONFIG(1), .DEEP_PIPELINE(DEEP_PIPELINE)
+			) dut (.iset('x), .*);
+		end : genSigned
+		else begin : genUnsigned
+			thresholding #(
+				.CMP(thresholding_pkg::cmp_ufixed_t#(K, KT)),
+				.N(N), .K(K), .KT(KT), .C(C), .PE(PE), .USE_CONFIG(1), .DEEP_PIPELINE(DEEP_PIPELINE)
+			) dut (.iset('x), .*);
+		end : genUnsigned
 
 		// Expected Ordering
 		function val_t reord(input val_t  x);
@@ -141,10 +167,12 @@ module thresholding_tb;
 
 			// Generate thresholds
 			foreach(THRESHS[c]) begin
-				static val_t [N-1:0]  r;
+				static thr_t [N-1:0]  r;
 				void'(std::randomize(r));
-				foreach(row[i])  row[i] = r[i];
-				row.sort with (reord(item));
+				// thresholds of KT bits, extended to the input precision
+				foreach(row[i])  row[i] = SIGNED? val_t'($signed(r[i])) : val_t'(r[i]);
+				// Key inlined: xelab 2024.2 crashes on reord(item) here
+				row.sort with (item ^ {SIGNED, {(K-1){SIGNED && FPARG && item[K-1]}}});
 				THRESHS[c] = row;
 			end
 
@@ -180,12 +208,10 @@ module thresholding_tb;
 			cfg_en <= 1;
 			cfg_we <= 1;
 			for(int unsigned  c = 0; c < C; c+=PE) begin
-				if(CF > 1)  cfg_a[$clog2(N)+$clog2(PE)+:$clog2(CF)] <= c/PE;
 				for(int unsigned  pe = 0; pe < PE; pe++) begin
-					if(PE > 1)  cfg_a[$clog2(N)+:$clog2(PE)] = pe;
 					for(int unsigned  t = 0; t < N; t++) begin
-						cfg_a[0+:$clog2(N)] <= t;
-						cfg_d <= THRESHS[c+pe][t];
+						cfg_a <= cfg_addr(c/PE, pe, t);
+						cfg_d <= thr_t'(THRESHS[c+pe][t]);
 						@(posedge clk);
 					end
 				end
@@ -200,9 +226,7 @@ module thresholding_tb;
 				while(!term) begin
 					@(posedge clk);
 					if(($urandom()%41) == 0) begin
-						automatic addr_t  addr = $urandom()%N;
-						if(PE > 1)  addr[$clog2(N)+:$clog2(PE)] = $urandom()%PE;
-						if(CF > 1)  addr[$clog2(N)+$clog2(PE)+:$clog2(CF)] = $urandom()%CF;
+						automatic addr_t  addr = cfg_addr($urandom()%CF, $urandom()%PE, $urandom()%N);
 
 						cfg_en <= 1;
 						cfg_we <= 0;
@@ -232,7 +256,10 @@ module thresholding_tb;
 			join_any
 			term = 1;
 
-			// Termination Checks
+			// Termination Checks: drain all outputs and readbacks (throttled
+			// outputs may take longer than the pipeline depth), then idle a while
+			// for the output checker to catch spurious outputs
+			for(int unsigned  t = 0; (QW.size() || QC.size()) && (t < 1000); t++)  @(posedge clk);
 			repeat((DEEP_PIPELINE+1)*$clog2(N+1)+8)  @(posedge clk);
 
 			assert(QW.size() == 0) else begin
@@ -253,13 +280,11 @@ module thresholding_tb;
 		always_ff @(posedge clk iff cfg_rack) begin
 			assert(QC.size()) begin
 				automatic addr_t  addr = QC.pop_front();
-				automatic logic [K-1:0]  exp;
-				automatic int unsigned  cnl = 0;
-				if(CF > 1)  cnl += addr[$clog2(N)+$clog2(PE)+:$clog2(CF)] * PE;
-				if(PE > 1)  cnl += addr[$clog2(N)+:$clog2(PE)];
-				exp = THRESHS[cnl][addr[0+:$clog2(N)]];
+				automatic int unsigned  cnl = addr_cnl(addr);
+				automatic int unsigned  idx = addr_idx(addr);
+				automatic thr_t  exp = thr_t'(THRESHS[cnl][idx]);
 				assert(cfg_q == exp) else begin
-					$error("[%0d] Readback mismatch on #%0d.%0d: %0d instead of %0d", i, cnl, addr[0+:$clog2(N)], cfg_q, exp);
+					$error("[%0d] Readback mismatch on #%0d.%0d: %0d instead of %0d", i, cnl, idx, cfg_q, exp);
 					$stop;
 				end
 			end

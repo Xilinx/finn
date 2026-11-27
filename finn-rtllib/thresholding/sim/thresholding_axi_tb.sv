@@ -110,7 +110,7 @@ module thresholding_axi_tb #(
 	uwire  ovld;
 	uwire [PE-1:0][$clog2(N+1)-1:0]  odat;
 
-	thresholding_axi #(.N(N), .WI(K), .WT(K), .C(C), .PE(PE), .SIGNED(0), .USE_AXILITE(1)) dut (
+	thresholding_axi #(.N(N), .WI(K), .WT(K), .C(C), .PE(PE), .CMP("cmp_ufixed_t"), .USE_AXILITE(1)) dut (
 		.ap_clk(clk), .ap_rst_n(!rst),
 
 		// Configuration
