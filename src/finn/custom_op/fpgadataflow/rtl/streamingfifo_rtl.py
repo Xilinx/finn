@@ -110,6 +110,8 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
             abspath, gauge=True
         )
 
+    node_simulation = False
+
     def execute_node(self, context, graph):
         # a FIFO only passes data through, so it is never simulated on its own:
         # pin the passthrough ahead of RTLBackend's rtlsim implementation

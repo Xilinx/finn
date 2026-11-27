@@ -33,6 +33,8 @@ class TLastMarker_rtl(HWCustomOp, RTLBackend):
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
 
+    node_simulation = False
+
     def execute_node(self, context, graph):
         # TLAST is not part of the tensor data, so the marker is transparent in
         # node-by-node execution regardless of exec_mode. Its effect is only
