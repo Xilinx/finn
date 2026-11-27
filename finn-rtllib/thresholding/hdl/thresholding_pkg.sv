@@ -63,25 +63,29 @@ package thresholding_pkg;
 		endfunction : le
 	endclass : cmp_sfixed_t
 
-	// Sign-magnitude floating point [sign | exponent | mantissa] ordered with
-	// -0 < +0. Thresholds and inputs share the precision K.
+	// Sign-magnitude floating point [sign | exponent | mantissa] in the order of
+	// the represented values, -0 equal to +0. Thresholds and inputs share the
+	// precision K.
 	//	The order is that of the monotone key {!s, s? ~m : m}, compared unsigned:
-	//	a single carry chain instead of a magnitude compare plus sign case. The
-	//	input is keyed once at the feed; the key of a constant threshold folds.
+	//	a single carry chain instead of a magnitude compare plus sign case. This
+	//	key orders -0 below +0. Only the input is keyed with -0 taken as +0, once
+	//	at the feed, which suffices for exactness: the key of a threshold of -0
+	//	then lies just below every non-negative input as it should. The stages
+	//	keep the plain key of the threshold, which folds for constant thresholds.
 	class cmp_float_t #(int unsigned  K);
 		typedef logic [K-1:0]  thr_t;
 		typedef logic [K-1:0]  val_t;
 
-		static function automatic logic [K-1:0] key(input logic [K-1:0]  x);
-			return  { !x[K-1], x[K-2:0] ^ {(K-1){x[K-1]}} };
+		static function automatic logic [K-1:0] key(input logic  neg, input logic [K-1:0]  x);
+			return  { !neg, x[K-2:0] ^ {(K-1){neg}} };
 		endfunction : key
 
 		static function automatic val_t prep(input logic [K-1:0]  x);
-			return  key(x);
+			return  key(x[K-1] && |x[K-2:0], x);	// -0 as +0
 		endfunction : prep
 
 		static function automatic logic le(input thr_t  thr, input val_t  val);
-			return  key(thr) <= val;
+			return  key(thr[K-1], thr) <= val;
 		endfunction : le
 	endclass : cmp_float_t
 
