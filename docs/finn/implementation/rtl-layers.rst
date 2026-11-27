@@ -61,6 +61,27 @@ Required Methods
    * - ``code_generation_ipi()``
      - Generate Vivado IPI TCL commands (add_files + create_bd_cell)
 
+Module Constraints
+==================
+
+A layer may need implementation constraints on its HDL modules, e.g. placement
+properties of particular nets. ``get_xdc_files()`` (``HWCustomOp``, default: none)
+returns them as pairs (XDC file, module). The XDC file lives next to the module's
+source (e.g. ``finn-rtllib/thresholding/hdl/thresholding.xdc``) and is written
+relative to an instance of the module. ``CreateStitchedIP`` adds it to the
+stitching project and packages it with the stitched IP, scoped to the module
+(``SCOPED_TO_REF``) and for implementation only. Vivado then reads it once per
+instance of the module wherever the IP is implemented: OOC place and route,
+Zynq and Vitis shells, also for IPs packaged as synthesized checkpoints.
+``ExportPortableRTL`` exports it to ``constraints/<module>.xdc``.
+
+Return a file only in configurations whose hardware contains the selected objects,
+and do not use ``-quiet`` in it: a constraint that matches nothing, e.g. after a
+change of the HDL, then shows up as a critical warning
+(``[Common 17-55] 'set_property' expects at least one object``). A module scoped
+XDC in a design without the module is reported as well
+(``[Designutils 20-1281] Could not find module``).
+
 RTL Simulation
 ==============
 
