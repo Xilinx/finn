@@ -31,10 +31,11 @@ import json
 import multiprocessing as mp
 import os
 import warnings
+from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.util.basic import get_num_default_workers
-from shutil import copytree
+from shutil import copyfile, copytree
 
 from finn.analysis.fpgadataflow.stream_compatibility import stream_compatibility
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
@@ -73,6 +74,31 @@ def is_external_output(model, node, i):
     return False
 
 
+def collect_xdc_files(model: ModelWrapper) -> dict[str, str]:
+    """The module-specific implementation constraints of the nodes of model (see
+    HWCustomOp.get_xdc_files) as a dict from module name to XDC file. Several
+    nodes may name the same file for a module; different files for one module
+    raise a ValueError."""
+    xdc_files: dict[str, str] = {}
+    for node in model.graph.node:
+        for xdc, module in getCustomOp(node).get_xdc_files():
+            add_xdc_file(xdc_files, xdc, module, node.name)
+    return xdc_files
+
+
+def add_xdc_file(xdc_files: dict[str, str], xdc: str, module: str, origin: str) -> None:
+    """Add the XDC file xdc for the module to xdc_files (see collect_xdc_files),
+    origin naming its source for the error message."""
+    xdc = os.path.realpath(xdc)
+    if not os.path.isfile(xdc):
+        raise ValueError(f"{origin}: XDC file {xdc} for module {module} not found")
+    if xdc_files.setdefault(module, xdc) != xdc:
+        raise ValueError(
+            f"{origin}: XDC file {xdc} for module {module}, which already has "
+            f"{xdc_files[module]}: one file per module"
+        )
+
+
 class CreateStitchedIP(Transformation):
     """Create a Vivado IP Block Design project from all the generated IPs of a
     graph. All nodes in the graph must have the fpgadataflow backend attribute,
@@ -85,6 +111,13 @@ class CreateStitchedIP(Transformation):
     value. A make_project.tcl script is also placed under the same folder,
     which is called to instantiate the per-layer IPs and stitch them together.
     The packaged block design IP can be found under the ip subdirectory.
+
+    The module-specific implementation constraints of the nodes (see
+    HWCustomOp.get_xdc_files) and of the clock generator (see below) are copied
+    to constrs/<module>.xdc. The IP carries them in its implementation file group,
+    scoped to their module (SCOPED_TO_REF) and for implementation only (USED_IN
+    implementation), and run_pnr reads them likewise (read_xdc -ref). The
+    vivado_stitch_xdc metadata property lists them as JSON pairs [file, module].
 
     Nodes with a "clk2x" interface (double-pumped nodes) need the phase-aligned
     double-speed clock ap_clk2x. By default, the stitched IP gets an ap_clk2x
@@ -171,7 +204,7 @@ class CreateStitchedIP(Transformation):
             return "[get_bd_pins %s/rst_n]" % self.CLK2X_DOMAIN
         return "[get_bd_ports ap_rst_n]"
 
-    def create_clk2x_gen(self, block_name):
+    def create_clk2x_gen(self):
         """Instantiate the clock generator: the ports ap_clk and ap_rst_n and
         clk2x_domain, whose MMCM primitive derives the 1x and 2x clocks from
         ap_clk and which provides them and the design reset (see
@@ -180,8 +213,7 @@ class CreateStitchedIP(Transformation):
         self.create_cmds += [
             "add_files -norecurse %s/hdl/clk2x_domain.v" % rtllib,
             "source %s/clk2x_gen.tcl" % rtllib,
-            "clk2x_gen_create %r %s/clk2x_gen.json %s/clk2x_gen.xdc finn_clk2x_%s"
-            % (1000.0 / self.clk_ns, self.proj_dir, self.proj_dir, block_name),
+            "clk2x_gen_create %r %s/clk2x_gen.json" % (1000.0 / self.clk_ns, self.proj_dir),
         ]
         self.clock_reset_are_external = True
         self.intf_names["clk"] = ["ap_clk"]
@@ -513,7 +545,20 @@ class CreateStitchedIP(Transformation):
             self.is_double_pumped(node) for node in model.graph.node
         )
         if self.clk2x_gen_active:
-            self.create_clk2x_gen(block_name)
+            self.create_clk2x_gen()
+        # module constraints, copied into the project to package them from there
+        xdc_files = collect_xdc_files(model)
+        if self.clk2x_gen_active:
+            clk2x_xdc = os.environ["FINN_ROOT"] + "/finn-rtllib/clk2x_gen/hdl/clk2x_domain.xdc"
+            add_xdc_file(xdc_files, clk2x_xdc, self.CLK2X_DOMAIN, "clk2x_gen")
+        xdc_copies = []
+        if xdc_files:
+            os.makedirs(vivado_stitch_proj_dir + "/constrs")
+        for module, xdc in sorted(xdc_files.items()):
+            xdc_copy = "%s/constrs/%s.xdc" % (vivado_stitch_proj_dir, module)
+            copyfile(xdc, xdc_copy)
+            xdc_copies.append((xdc_copy, module))
+        model.set_metadata_prop("vivado_stitch_xdc", json.dumps(xdc_copies))
         for node in model.graph.node:
             # ensure that all nodes are fpgadataflow, and that IPs are generated
             assert is_hls_node(node) or is_rtl_node(
@@ -639,7 +684,6 @@ class CreateStitchedIP(Transformation):
             tcl.append("open_run synth_1 -name synth_1")
             tcl.append("write_verilog -force -mode synth_stub %s.v" % block_name)
             tcl.append("write_checkpoint %s.dcp" % block_name)
-            tcl.append("write_xdc %s.xdc" % block_name)
             tcl.append(
                 "report_utilization -hierarchical -hierarchical_depth 5 "
                 "-file %s_partition_util.rpt" % block_name
@@ -649,6 +693,12 @@ class CreateStitchedIP(Transformation):
             tcl.append("")
             tcl.append("# --- Place and Route for OOC Metrics ---")
             tcl.append("create_clock -period %f [get_ports ap_clk]" % self.clk_ns)
+            # The module constraints, scoped as in the IP. They are not in constrs_1:
+            # the packager carries those scoped to a module reference of the block
+            # design (clk2x_domain) into the IP on its own, unscoped for use and, with
+            # run_synth, from sources that are deleted.
+            for xdc, module in xdc_copies:
+                tcl.append("read_xdc -ref %s %s" % (module, xdc))
             if self.clock2x_is_external:
                 # a phase-aligned 2x clock: both clocks rise at t=0, so Vivado times
                 # the ap_clk <-> ap_clk2x crossings as synchronous paths
@@ -705,18 +755,6 @@ class CreateStitchedIP(Transformation):
                 "{ if {[string match -nocase {*ap_clk2x} [get_property NAME $b]]} "
                 "{ ipx::remove_bus_parameter -quiet ASSOCIATED_RESET $b } }"
             )
-        if self.clk2x_gen_active and not self.run_synth:
-            # ship the clock constraint of the generator with the IP: as an IP-level
-            # XDC, it is scoped to each instance of the IP. (With run_synth, the
-            # constraints exported from the synthesized design hold it, but Vivado
-            # does not read them for Vitis kernels: VitisLink applies it.)
-            tcl.append("file mkdir ip/constrs")
-            tcl.append("file copy -force clk2x_gen.xdc ip/constrs/clk2x_gen.xdc")
-            tcl.append(
-                "set_property type xdc [ipx::add_file constrs/clk2x_gen.xdc "
-                "[ipx::get_file_groups xilinx_anylanguagesynthesis -of_objects "
-                "[ipx::current_core]]]"
-            )
         # in some cases, the IP packager seems to infer an aperture of 64K or 4G,
         # preventing address assignment of the DDR_LOW and/or DDR_HIGH segments
         # the following is a hotfix to remove this aperture during IODMA packaging
@@ -748,7 +786,7 @@ class CreateStitchedIP(Transformation):
                 "[ipx::find_open_core %s]" % block_vlnv
             )
             # remove all files from synthesis and sim groups
-            # we'll replace with DCP, stub, and xdc
+            # we'll replace with DCP and stub
             tcl.append(
                 "ipx::remove_all_file "
                 "[ipx::get_file_groups xilinx_anylanguagebehavioralsimulation]"
@@ -762,21 +800,14 @@ class CreateStitchedIP(Transformation):
             # remove sim and src folders
             tcl.append("file delete -force %s/ip/sim" % vivado_stitch_proj_dir)
             tcl.append("file delete -force %s/ip/src" % vivado_stitch_proj_dir)
-            # copy and add DCP, stub, and xdc
+            # copy and add DCP and stub. The constraints of the synthesized design
+            # are not exported (write_xdc) for the IP: Vivado scopes an IP's XDC
+            # without SCOPED_TO_REF to the cell "inst" in the IP instance, which an
+            # IP delivered as checkpoint lacks ("[Designutils 20-1275] Could not find
+            # cell 'inst'"), and it ignores the constraints in the checkpoint. The
+            # module constraints, scoped to their modules, apply instead (below).
             tcl.append("file mkdir %s/ip/dcp" % vivado_stitch_proj_dir)
-            tcl.append("file mkdir %s/ip/impl" % vivado_stitch_proj_dir)
             tcl.append("file copy -force %s.dcp %s/ip/dcp" % (block_name, vivado_stitch_proj_dir))
-            tcl.append("file copy -force %s.xdc %s/ip/impl" % (block_name, vivado_stitch_proj_dir))
-            tcl.append("ipx::add_file_group xilinx_implementation [ipx::current_core]")
-            tcl.append(
-                "ipx::add_file impl/%s.xdc [ipx::get_file_groups xilinx_implementation]"
-                % block_name
-            )
-            tcl.append(
-                "set_property used_in [list implementation] "
-                "[ipx::get_files impl/%s.xdc "
-                "-of_objects [ipx::get_file_groups xilinx_implementation]]" % block_name
-            )
             tcl.append("ipx::add_file_group " "xilinx_synthesischeckpoint [ipx::current_core]")
             tcl.append(
                 "ipx::add_file dcp/%s.dcp "
@@ -787,6 +818,23 @@ class CreateStitchedIP(Transformation):
                 "ipx::add_file dcp/%s.dcp "
                 "[ipx::get_file_groups xilinx_simulationcheckpoint]" % block_name
             )
+        # package the module constraints for implementation, scoped to their modules
+        if xdc_copies:
+            tcl.append("file mkdir ip/constrs")
+            tcl.append(
+                "set xdc_group [ipx::get_file_groups -quiet xilinx_implementation "
+                "-of_objects [ipx::current_core]]"
+            )
+            tcl.append(
+                'if {$xdc_group eq ""} '
+                "{ set xdc_group [ipx::add_file_group xilinx_implementation [ipx::current_core]] }"
+            )
+        for xdc, module in xdc_copies:
+            tcl.append("file copy -force %s ip/constrs/%s.xdc" % (xdc, module))
+            tcl.append("set f [ipx::add_file constrs/%s.xdc $xdc_group]" % module)
+            tcl.append("set_property type xdc $f")
+            tcl.append("set_property SCOPED_TO_REF %s $f" % module)
+            tcl.append("set_property USED_IN implementation $f")
         # add a rudimentary driver mdd to get correct ranges in xparameters.h later on
         example_data_dir = os.environ["FINN_ROOT"] + "/src/finn/qnn-data/mdd-data"
         copytree(example_data_dir, vivado_stitch_proj_dir + "/data")

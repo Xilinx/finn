@@ -386,16 +386,12 @@ report_utilization -hierarchical -hierarchical_depth 5 -file $VITIS_PROJ_PATH$/s
 """
 
 
-# OPT_DESIGN pre-hook of VitisLink:
-# - constrain the kernel clock 0 of an Alveo platform (output of the UCS MMCM) to
-#   @F_MHZ@ MHz relative to the MMCM's reference clock, replacing the generated clock
-#   that v++ derived. Leaves a correct constraint and platforms without this clock
-#   alone.
-# - put the 1x and 2x clocks of each kernel-internal clock generator (CreateStitchedIP
-#   clk2x_gen) into a CLOCK_DELAY_GROUP of their own. The kernels carry this
-#   constraint, but Vivado does not read the implementation XDC of kernels packaged as
-#   synthesized checkpoints ("[Designutils 20-1275] Could not find cell 'inst'") and
-#   uses it instead of the constraints in their checkpoints.
+# OPT_DESIGN pre-hook of VitisLink: constrain the kernel clock 0 of an Alveo platform
+# (output of the UCS MMCM) to @F_MHZ@ MHz relative to the MMCM's reference clock,
+# replacing the generated clock that v++ derived. Leaves a correct constraint and
+# platforms without this clock alone. The CLOCK_DELAY_GROUP of a kernel-internal clock
+# generator comes with the kernel as module constraint (clk2x_domain.xdc), which v++
+# applies like any other block design.
 vitis_kernel_clk_tcl = """
 proc finn_gcd {a b} { while {$b} { set t $b; set b [expr {$a % $b}]; set a $t }; return $a }
 set kpin [get_pins -quiet -hierarchical -filter {NAME =~ */ulp_ucs/aclk_kernel_00}]
@@ -417,14 +413,5 @@ if {[llength $kclk] != 1 || ![get_property IS_GENERATED $kclk]} {
     create_generated_clock -name [get_property NAME $kclk] {*}$ratio -source [get_pins $src] [get_pins $out]
     set kclk [get_clocks -of_objects $kpin]
     puts "INFO: \\[FINN\\] kernel clock $kclk re-constrained from $period ns to [get_property PERIOD $kclk] ns"
-}
-set n 0
-foreach gen [get_cells -quiet -hierarchical -filter {NAME =~ */clk2x_domain && IS_PRIMITIVE == 0}] {
-    set pins [get_pins -quiet -hierarchical -filter "NAME =~ $gen/*clk_buf/O || NAME =~ $gen/*clk2x_buf/O"]
-    set nets [get_nets -quiet -of_objects $pins]
-    if {[llength $nets] == 2} {
-        set_property CLOCK_DELAY_GROUP finn_clk2x_[incr n] $nets
-        puts "INFO: \\[FINN\\] clock generator $gen: CLOCK_DELAY_GROUP finn_clk2x_$n"
-    }
 }
 """

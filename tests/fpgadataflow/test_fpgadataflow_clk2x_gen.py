@@ -320,7 +320,8 @@ def test_clk2x_gen_zynq_bitfile(board):
 def test_clk2x_gen_vitis_link(board):
     """U55C link of the pumped chain at 150 MHz (ap_clk2x 300 MHz): the kernels expose
     only ap_clk, the kernel clock is constrained to 150 MHz (VitisLink hook) and
-    v++ may not lower it. Hours-long: not for quick CI."""
+    v++ may not lower it. The module constraint of the generator (clk2x_domain.xdc,
+    the delay group of its clocks) applies in the link. Hours-long: not for quick CI."""
     clk_ns = 1000 / 150
     fpgapart = vitis_part_map[board]
     model = make_pumped_chain_model()
@@ -337,9 +338,24 @@ def test_clk2x_gen_vitis_link(board):
     assert "OPT_DESIGN.TCL.PRE=" in config
     assert os.path.isfile(model.get_metadata_prop("bitfile"))
     check_vitis_kernel_clock(link_dir, 150)
+    check_vitis_module_constraints(link_dir, ["clk2x_domain"])
     impl = link_dir + "/_x/link/vivado/vpl/prj/prj.runs/impl_1"
+    # the delay group comes from clk2x_domain.xdc only (not set by the link hook)
     res = check_routed(glob.glob(impl + "/*_routed.dcp")[0], "clk2x_gen_vitis_check_")
     assert res["wns"] >= 0
+
+
+def check_vitis_module_constraints(link_dir, modules):
+    """The implementation of the link read the module constraints of the kernels,
+    each scoped to the cells of its module, and none of them matched nothing."""
+    impl = link_dir + "/_x/link/vivado/vpl/prj/prj.runs/impl_1"
+    with open(impl + "/runme.log") as f:
+        log = f.read()
+    for module in modules:
+        cells = re.findall(r"Parsing XDC File \[\S*/%s\.xdc\] for cell '([^']+)'" % module, log)
+        print("VITIS_MODULE_XDC", module, cells)
+        assert cells, "%s.xdc not applied in the link" % module
+    assert "[Common 17-55]" not in log, "a module constraint matched nothing"
 
 
 def check_vitis_kernel_clock(link_dir, f_mhz):
@@ -382,8 +398,7 @@ def test_vitis_kernel_clock_hook_link(board):
 
 
 # A stand-in for the kernel clock of an Alveo platform: the UCS MMCM (instance
-# ulp/@UCS@) derives aclk_kernel_00 at 150 MHz from 100 MHz. It clocks a kernel with
-# an internal clock generator (kernel/clk2x_gen) as by CreateStitchedIP clk2x_gen.
+# ulp/@UCS@) derives aclk_kernel_00 at 150 MHz from 100 MHz, which clocks a kernel.
 kernel_clock_toy = """
 module ucs(input clk_in, output aclk_kernel_00);
 	wire  fb, c0;
@@ -396,23 +411,8 @@ endmodule
 module ulp(input clk_in, output aclk_kernel_00);
 	ucs @UCS@ (.clk_in(clk_in), .aclk_kernel_00(aclk_kernel_00));
 endmodule
-module dom(input ap_clk, output clk, output clk2x);
-	wire  fb, c0, c1;
-	MMCME4_ADV #(.CLKIN1_PERIOD(6.667), .CLKFBOUT_MULT_F(8.0), .CLKOUT0_DIVIDE_F(8.0),
-		.CLKOUT1_DIVIDE(4))
-	mmcm (.CLKIN1(ap_clk), .CLKIN2(1'b0), .CLKINSEL(1'b1), .CLKFBIN(fb), .CLKFBOUT(fb),
-		.CLKOUT0(c0), .CLKOUT1(c1), .RST(1'b0), .PWRDWN(1'b0), .DADDR(7'h0), .DCLK(1'b0),
-		.DEN(1'b0), .DI(16'h0), .DWE(1'b0), .PSCLK(1'b0), .PSEN(1'b0), .PSINCDEC(1'b0),
-		.CDDCREQ(1'b0));
-	BUFG clk_buf (.I(c0), .O(clk));
-	BUFG clk2x_buf (.I(c1), .O(clk2x));
-endmodule
 module kern(input ap_clk, input d, output reg q);
-	wire  c1, c2;
-	reg  r;
-	dom clk2x_domain (.ap_clk(ap_clk), .clk(c1), .clk2x(c2));
-	always @(posedge c2)  r <= d;
-	always @(posedge c1)  q <= r;
+	always @(posedge ap_clk)  q <= d;
 endmodule
 module top(input clk_in, input d, output q);
 	wire  k;
@@ -448,9 +448,6 @@ create_generated_clock -name clk_kernel_00_unbuffered_net -multiply_by %d -divid
     -source [get_pins %s/CLKIN1] [get_pins %s/CLKOUT0]
 source hook.tcl
 puts "KERNEL_PERIOD [get_property PERIOD [get_clocks -of_objects [get_pins ulp/aclk_kernel_00]]]"
-set nets [get_nets -segments [get_nets -of_objects [get_pins {kernel/clk2x_domain/clk_buf/O
-    kernel/clk2x_domain/clk2x_buf/O}]]]
-puts "DELAY_GROUPS [lsort -unique [get_property CLOCK_DELAY_GROUP $nets]]"
 """ % (
         ratio + (mmcm, mmcm)
     )
@@ -463,10 +460,6 @@ puts "DELAY_GROUPS [lsort -unique [get_property CLOCK_DELAY_GROUP $nets]]"
     period = float(re.search(r"^KERNEL_PERIOD (\S+)", log, re.M).group(1))
     if ucs == "ulp_ucs":
         assert period == pytest.approx(1000 / 150, abs=1e-3)
-    # the delay group of the kernel's clock generator, on any platform
-    assert "clock generator kernel/clk2x_domain: CLOCK_DELAY_GROUP finn_clk2x_1" in log
-    groups = re.search(r"^DELAY_GROUPS (.*)$", log, re.M).group(1).split()
-    assert "finn_clk2x_1" in groups
 
 
 def make_kernel_models(tmp_dir, ifnames_list, f_gen_list):

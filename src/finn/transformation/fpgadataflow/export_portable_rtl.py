@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import filecmp
+import json
 import os
 import re
 import shutil
@@ -19,11 +20,12 @@ class ExportPortableRTL(Transformation):
     use in external simulators (QuestaSim, ModelSim) or non-IPI Vivado
     projects.
 
-    The export is the synthesizable design. If the stitched IP has an internal
-    ap_clk2x generator (CreateStitchedIP clk2x_gen), its clock domain module
-    (clk2x_domain.v) also holds the ideal clock model used in simulation, selected
-    by the SYNTHESIS macro, and the generator's clock constraint is exported to
-    constraints/clk2x_gen.xdc. The README describes both.
+    The export is the synthesizable design. Its module-specific implementation
+    constraints (vivado_stitch_xdc, see CreateStitchedIP) are exported to
+    constraints/<module>.xdc, among them the clock constraint of an internal
+    ap_clk2x generator (CreateStitchedIP clk2x_gen). The generator's clock domain
+    module (clk2x_domain.v) also holds the ideal clock model used in simulation,
+    selected by the SYNTHESIS macro. The README describes both.
 
     Parameters
     ----------
@@ -151,17 +153,18 @@ class ExportPortableRTL(Transformation):
         # 3. Rewrite absolute paths in all src Verilog files
         self._rewrite_verilog_paths(src_dir, dat_mapping)
 
-        # 4. Constraints of an internal ap_clk2x generator
-        clk2x_gen_xdc = os.path.join(vivado_stitch_proj, "clk2x_gen.xdc")
-        has_clk2x_gen = os.path.isfile(clk2x_gen_xdc)
-        if has_clk2x_gen:
+        # 4. Module constraints, among them those of an internal ap_clk2x generator
+        xdc_modules = []
+        for xdc, module in json.loads(model.get_metadata_prop("vivado_stitch_xdc") or "[]"):
             os.makedirs(os.path.join(self.export_dir, "constraints"), exist_ok=True)
-            shutil.copy2(clk2x_gen_xdc, os.path.join(self.export_dir, "constraints"))
+            shutil.copy2(xdc, os.path.join(self.export_dir, "constraints", module + ".xdc"))
+            xdc_modules.append(module)
+        has_clk2x_gen = "clk2x_domain" in xdc_modules
 
         # 5. Generate file lists
         self._generate_filelist_f(all_rtl_files)
         self._generate_sources_tcl(all_rtl_files)
-        self._generate_readme(has_clk2x_gen)
+        self._generate_readme(has_clk2x_gen, xdc_modules)
 
         return (model, False)
 
@@ -273,7 +276,7 @@ class ExportPortableRTL(Transformation):
             f.write('    "${script_dir}/rtl/src" \\\n')
             f.write("] [current_fileset]\n")
 
-    def _generate_readme(self, has_clk2x_gen=False):
+    def _generate_readme(self, has_clk2x_gen=False, xdc_modules=()):
         """Generate README with usage instructions."""
         readme_path = os.path.join(self.export_dir, "README.md")
         with open(readme_path, "w") as f:
@@ -286,6 +289,8 @@ class ExportPortableRTL(Transformation):
             f.write("│   ├── src/        # Design source files\n")
             f.write("│   └── rtllib/     # Shared FINN RTL library modules\n")
             f.write("├── data/           # Memory initialization files (.dat)\n")
+            if xdc_modules:
+                f.write("├── constraints/    # Module implementation constraints (.xdc)\n")
             f.write("├── filelist.f      # File list for simulators\n")
             f.write("├── sources.tcl     # Vivado source script\n")
             f.write("└── README.md       # This file\n")
@@ -315,6 +320,28 @@ class ExportPortableRTL(Transformation):
                     "- undefined (simulation): ideal clocks derived from ap_clk, with the "
                     "MMCM held in reset. Simulators still need the unisim library to "
                     "compile the MMCM.\n\n"
-                    "For implementation, add `constraints/clk2x_gen.xdc`: it balances the "
-                    "clock trees of the 1x and 2x clocks.\n"
+                    "For implementation, add `constraints/clk2x_domain.xdc` (see below): it "
+                    "balances the clock trees of the 1x and 2x clocks.\n"
+                )
+            if xdc_modules:
+                f.write(
+                    "\n## Module constraints\n\n"
+                    "`constraints/<module>.xdc` holds implementation constraints of the "
+                    "module `<module>`. Vivado must read it for every instance of the "
+                    "module, with the instance as current instance, and for "
+                    "implementation only. In a project:\n\n"
+                    "```tcl\n"
+                )
+                for module in xdc_modules:
+                    xdc = f"${{script_dir}}/constraints/{module}.xdc"
+                    f.write(
+                        f'add_files -fileset constrs_1 -norecurse "{xdc}"\n'
+                        f'set_property SCOPED_TO_REF {module} [get_files "{xdc}"]\n'
+                        f'set_property USED_IN implementation [get_files "{xdc}"]\n'
+                    )
+                f.write(
+                    "```\n\n"
+                    "(`script_dir` as in sources.tcl.) In a non-project flow, use "
+                    "`read_xdc -ref <module> constraints/<module>.xdc` after "
+                    "`synth_design`.\n"
                 )
