@@ -59,7 +59,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import get_vivado_version, is_versal, make_build_dir
+from finn.util.basic import make_build_dir
 from finn.util.test import make_runtime_weight_stream, tree_model_test
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
@@ -338,7 +338,6 @@ def test_infer_thresholding_per_channel_nchw_input_unset_data_layout():
 @pytest.mark.parametrize("per_tensor", [True, False])
 @pytest.mark.parametrize("impl_style", ["hls", "rtl"])
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
-@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
 @pytest.mark.parametrize("round_thresh", [True, False])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
@@ -353,17 +352,8 @@ def test_fpgadataflow_thresholding(
     per_tensor,
     impl_style,
     exec_mode,
-    mem_mode,
     round_thresh,
 ):
-    # the mem_mode parameter can only be used for the hls thresholding
-    # so the test will only be executed once for impl_style=rtl and once skipped
-    # when the mem_mode is varied. Otherwise, the same test configuration would always
-    # run twice.
-    if impl_style == "rtl" and mem_mode == "internal_decoupled":
-        pytest.skip(
-            "Skip, because test is identical to impl_style=rtl and mem_mode=internal_embedded"
-        )
     if narrow and activation == DataType["BIPOLAR"]:
         pytest.skip("Narrow needs to be false with biploar activation.")
     input_data_type, threshold_data_type = idt_tdt_cfg
@@ -373,12 +363,8 @@ def test_fpgadataflow_thresholding(
             "Thresholds will not be rounded when inputs are floating-point. "
             "Test case is identical with floating-point input and round_thresh=False."
         )
-    if (
-        impl_style == "rtl"
-        and input_data_type.is_fixed_point()
-        and not threshold_data_type.is_fixed_point()
-    ):
-        pytest.skip("Fixed-point inputs and non-fixed-point thresholds are not supported in RTL.")
+    if input_data_type.is_fixed_point() and not threshold_data_type.is_fixed_point():
+        pytest.skip("Fixed-point inputs and non-fixed-point thresholds are not supported.")
 
     if fold == -1:
         fold = num_input_channels
@@ -441,9 +427,6 @@ def test_fpgadataflow_thresholding(
     node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
     inst = getCustomOp(node)
     inst.set_nodeattr("PE", pe)
-    # set before the transforms below, which operate on a copy of the model
-    if impl_style == "hls":
-        inst.set_nodeattr("mem_mode", mem_mode)
     if round_thresh is True:
         if thresholds_all_constant(thresholds, input_data_type):
             # the output would not depend on the input: rejected
@@ -495,17 +478,15 @@ def test_fpgadataflow_thresholding(
     ],
 )
 @pytest.mark.parametrize("fold", [-1, 1, 2])
-@pytest.mark.parametrize("ram_style", ["distributed", "block", "ultra"])
+# 0: tool's choice, 1: all stage memories in BRAM, 512: default (LUTRAM here)
+@pytest.mark.parametrize("depth_trigger_bram", [0, 1, 512])
 @pytest.mark.parametrize("part", ["xcvc1902-vsva2197-2MP-e-S", "xczu7ev-ffvc1156-2-e"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_fpgadataflow_thresholding_stitched_ip(
-    num_input_channels, num_input_vecs, activation, idt_tdt_cfg, fold, ram_style, part
+    num_input_channels, num_input_vecs, activation, idt_tdt_cfg, fold, depth_trigger_bram, part
 ):
-    if ram_style == "ultra" and not is_versal(part):
-        pytest.skip("URAM threshold memstream initialization requires a Versal target")
-
     input_data_type, threshold_data_type = idt_tdt_cfg
     num_steps = activation.get_num_possible_values() - 1
 
@@ -555,12 +536,11 @@ def test_fpgadataflow_thresholding_stitched_ip(
     node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
     inst = getCustomOp(node)
     inst.set_nodeattr("PE", pe)
-    inst.set_nodeattr("mem_mode", "internal_decoupled")
-    inst.set_nodeattr("ram_style", ram_style)
+    inst.set_nodeattr("depth_trigger_bram", depth_trigger_bram)
 
     model = model.transform(MinimizeWeightBitWidth())
     model = model.transform(GiveUniqueNodeNames())
-    # Run stitched-ip RTLsim to have memstream in the test loop
+    # Run stitched-ip RTLsim to have the IP packaging in the test loop
     model = model.transform(InsertAndSetFIFODepths(part, target_clk_ns))
     model = model.transform(PrepareIP(part, target_clk_ns))
     model = model.transform(HLSSynthIP())
@@ -576,24 +556,24 @@ def test_fpgadataflow_thresholding_stitched_ip(
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
 
 
-# One entry per run: the schedule depends on the folding, the backend and, for
-# HLS, where the thresholds live, so those are covered across the entries rather
-# than crossed. BIPOLAR and UINT4 differ in the depth of the threshold search.
+# One entry per run: the schedule depends on the folding and the backend, so
+# those are covered across the entries rather than crossed. BIPOLAR and UINT4
+# differ in the depth of the threshold search.
 @pytest.mark.parametrize(
-    "num_input_channels,num_input_vecs,fold,activation,impl_style,mem_mode",
+    "num_input_channels,num_input_vecs,fold,activation,impl_style",
     [
-        (6, [1], -1, DataType["BIPOLAR"], "rtl", None),
-        (6, [1], 1, DataType["BIPOLAR"], "rtl", None),
-        (6, [1], 2, DataType["BIPOLAR"], "rtl", None),
-        (6, [1, 2, 2], -1, DataType["UINT4"], "rtl", None),
-        (16, [1], -1, DataType["UINT4"], "rtl", None),
-        (16, [1, 2, 2], 2, DataType["UINT4"], "rtl", None),
-        (6, [1], -1, DataType["BIPOLAR"], "hls", "internal_embedded"),
-        (6, [1], 2, DataType["UINT4"], "hls", "internal_embedded"),
-        (16, [1, 2, 2], 2, DataType["BIPOLAR"], "hls", "internal_embedded"),
-        (6, [1], -1, DataType["UINT4"], "hls", "internal_decoupled"),
-        (6, [1], 2, DataType["BIPOLAR"], "hls", "internal_decoupled"),
-        (16, [1, 2, 2], 1, DataType["UINT4"], "hls", "internal_decoupled"),
+        (6, [1], -1, DataType["BIPOLAR"], "rtl"),
+        (6, [1], 1, DataType["BIPOLAR"], "rtl"),
+        (6, [1], 2, DataType["BIPOLAR"], "rtl"),
+        (6, [1, 2, 2], -1, DataType["UINT4"], "rtl"),
+        (16, [1], -1, DataType["UINT4"], "rtl"),
+        (16, [1, 2, 2], 2, DataType["UINT4"], "rtl"),
+        (6, [1], -1, DataType["BIPOLAR"], "hls"),
+        (6, [1], 2, DataType["UINT4"], "hls"),
+        (16, [1, 2, 2], 2, DataType["BIPOLAR"], "hls"),
+        (6, [1], -1, DataType["UINT4"], "hls"),
+        (6, [1], 2, DataType["BIPOLAR"], "hls"),
+        (16, [1, 2, 2], 1, DataType["UINT4"], "hls"),
     ],
 )
 @pytest.mark.fpgadataflow
@@ -601,7 +581,7 @@ def test_fpgadataflow_thresholding_stitched_ip(
 @pytest.mark.slow
 @pytest.mark.node_tree_modeling
 def test_fpgadataflow_analytical_characterization_thresholding(
-    num_input_channels, num_input_vecs, fold, activation, impl_style, mem_mode
+    num_input_channels, num_input_vecs, fold, activation, impl_style
 ):
     input_data_type = threshold_data_type = DataType["INT8"]
     narrow = False  # BIPOLAR requires it
@@ -649,9 +629,6 @@ def test_fpgadataflow_analytical_characterization_thresholding(
     inst = getCustomOp(node)
     inst.set_nodeattr("PE", pe)
 
-    if impl_style == "hls":
-        inst.set_nodeattr("mem_mode", mem_mode)
-
     node_details = (
         "Thr",
         input_data_type,
@@ -664,7 +641,6 @@ def test_fpgadataflow_analytical_characterization_thresholding(
         narrow,
         per_tensor,
         activation,
-        mem_mode,
         impl_style,
     )
 
@@ -701,34 +677,22 @@ def test_fpgadataflow_analytical_characterization_thresholding(
     ],
 )
 @pytest.mark.parametrize("fold", [-1, 2])
-@pytest.mark.parametrize(
-    "ram_style, part",
-    [
-        ("distributed", "xczu3eg-sbva484-1-e"),
-        ("block", "xczu3eg-sbva484-1-e"),
-        ("ultra", "xcvc1902-vsva2197-2MP-e-S"),  # URAM requires Versal
-    ],
-)
+# 0: tool's choice, 1: all stage memories in BRAM, 4: LUTRAM for the first stages
+@pytest.mark.parametrize("depth_trigger_bram", [0, 1, 4])
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_fpgadataflow_thresholding_hls_internal_embedded_ram_style(
+def test_fpgadataflow_thresholding_hls_depth_trigger(
     num_input_channels,
     activation,
     idt_tdt_cfg,
     fold,
-    ram_style,
-    part,
+    depth_trigger_bram,
     exec_mode,
 ):
-    """Test HLS Thresholding with internal_embedded mode and different ram_style options."""
-    # Skip URAM on old Vitis HLS versions
-    if ram_style == "ultra":
-        vivado_version = get_vivado_version()
-        if vivado_version is not None and vivado_version < (2024, 2):
-            pytest.skip("URAM with internal_embedded requires Vitis HLS 2024.2+")
-
+    """Test HLS Thresholding with stage memories in LUTRAM, BRAM or of the tool's choice."""
+    part = "xczu3eg-sbva484-1-e"
     num_input_vecs = [1]
     input_data_type, threshold_data_type = idt_tdt_cfg
     num_steps = activation.get_num_possible_values() - 1
@@ -776,8 +740,7 @@ def test_fpgadataflow_thresholding_hls_internal_embedded_ram_style(
     node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
     inst = getCustomOp(node)
     inst.set_nodeattr("PE", pe)
-    inst.set_nodeattr("mem_mode", "internal_embedded")
-    inst.set_nodeattr("ram_style", ram_style)
+    inst.set_nodeattr("depth_trigger_bram", depth_trigger_bram)
 
     model = model.transform(RoundAndClipThresholds())
     model = model.transform(MinimizeWeightBitWidth())

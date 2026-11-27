@@ -28,10 +28,7 @@ FINN supports multiple memory modes for layers that store parameters (weights, t
      - RTL
      - internal_decoupled, external
    * - Thresholding
-     - HLS
-     - internal_embedded, internal_decoupled
-   * - Thresholding
-     - RTL
+     - HLS, RTL
      - internal_embedded (fixed, no attribute)
    * - ElementwiseBinary (for constant operands)
      - HLS
@@ -130,18 +127,18 @@ Supported Values
 - ``distributed`` - Use LUTRAM
 - ``ultra`` - Use UltraRAM (URAM), requires ``runtime_writeable_weights=1`` on non-Versal devices
 
-**For thresholds (Thresholding_hls, embedded thresholds in MVAU_hls):**
+**For embedded thresholds in MVAU_hls:**
 
-- ``auto`` - Let Vivado decide (default for MVAU embedded thresholds)
+- ``auto`` - Let Vivado decide (default)
 - ``block`` - Use BRAM
-- ``distributed`` - Use LUTRAM (default for Thresholding_hls)
+- ``distributed`` - Use LUTRAM
 
 **Note**: UltraRAM is not supported for threshold memories.
 
-RTL Thresholding Memory Control
---------------------------------
+Thresholding Memory Control
+---------------------------
 
-**Thresholding_rtl** uses a different mechanism than ``ram_style``. Its binary search keeps one threshold memory per PE and search stage, stage ``s`` holding ``NumChannels/PE * 2^s`` thresholds. Depth triggers select the memory primitive by this depth:
+**Thresholding_hls** and **Thresholding_rtl** use a different mechanism than ``ram_style``. Their binary search keeps one threshold memory per PE and search stage, stage ``s`` holding ``NumChannels/PE * 2^s`` thresholds. Runtime-writeable thresholds (``runtime_writeable_weights=1``) are written into these memories through AXI-lite in the same address layout for both. Depth triggers select the memory primitive by this depth:
 
 - ``depth_trigger_bram`` - Memory depth threshold for using BRAM (default: 512)
 - ``depth_trigger_uram`` - Memory depth threshold for using URAM (default: 0)
@@ -151,9 +148,9 @@ RTL Thresholding Memory Control
 - If ``depth >= depth_trigger_uram``: Use URAM
 - Else if ``depth >= depth_trigger_bram``: Use BRAM
 - Else, with ``depth_trigger_bram`` set: Use LUTs (LUTRAM, or LUT logic for constant thresholds)
-- With both triggers 0, Vivado decides. It maps every stage memory from a depth of about 64 to its own BRAM, however little of it is used, so that BRAM use can exceed the threshold data several times.
+- With both triggers 0, the tools decide. Vivado maps every stage memory from a depth of about 64 to its own BRAM, however little of it is used, so that BRAM use can exceed the threshold data several times.
 
-The default of 512 places only memories into BRAM that fill at least half of a BRAM18 (for thresholds of up to 18 bits). Set the triggers via the folding configuration to override it:
+The default of 512 places only memories into BRAM that fill at least half of a BRAM18 (for thresholds of up to 18 bits). Thresholding_hls cannot use URAM, which HLS cannot initialize, and rejects a ``depth_trigger_uram``. Set the triggers via the folding configuration to override it:
 
 .. code-block:: json
 
@@ -184,7 +181,7 @@ The ``mem_mode`` and ``ram_style`` attributes can be set via the folding configu
 **Defaults:**
 
 - ``mem_mode``: ``internal_decoupled``
-- ``ram_style``: ``auto`` (for MVAU/VVAU), ``distributed`` (for Thresholding)
+- ``ram_style``: ``auto`` (for MVAU/VVAU)
 
 For more information about the network preparation flow and folding configuration, see :ref:`nw_prep`.
 
